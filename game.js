@@ -6,7 +6,9 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const TAU = Math.PI * 2;
 
-const WORLD = { w: 6000, h: 6000 };
+// Each galaxy map sector is a square play area this many world units across. World coordinates
+// run across the whole galaxy; drawing happens relative to the camera's sector to keep precision.
+const SECTOR = 6000;
 
 const COLORS = {
   bg: '#05060a',
@@ -17,13 +19,14 @@ const COLORS = {
   star: '#ffd27a',
   bounds: '#ff5a6e',
   hud: '#cfd8ff',
+  dim: '#6f7a99',
 };
 
 // Handling stats; later these become per-ship-class values.
 const SHIP = { maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16 };
 
 const ship = {
-  x: 2600, y: 2820,
+  x: 0, y: 0,
   vx: 0, vy: 0,
   angle: -Math.PI / 2,
   targetAngle: -Math.PI / 2,
@@ -31,13 +34,10 @@ const ship = {
   thrust: 0,
 };
 
-const star = { name: 'Helion', x: 4300, y: 1700, r: 230 };
-const planet = { name: 'Calder IV', x: 1500, y: 4300, r: 150 };
-const station = { name: 'Tarsis Station', x: 2600, y: 2600, r: 90, spin: 0 };
-
 const view = { w: 0, h: 0, dpr: 1, zoom: 1 };
-const cam = { x: ship.x, y: ship.y };
+const cam = { x: 0, y: 0 };
 const particles = [];
+let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -52,6 +52,94 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
+
+// ---------- Settings: art style and movement mode ----------
+
+const params = new URLSearchParams(location.search);
+function stored(key, options, fallback) {
+  let v = fallback;
+  try { if (options.includes(localStorage.getItem(key))) v = localStorage.getItem(key); } catch (e) { /* storage unavailable */ }
+  return options.includes(params.get(key)) ? params.get(key) : v;
+}
+function store(key, v) {
+  try { localStorage.setItem(key, v); } catch (e) { /* storage unavailable */ }
+}
+function toggle(btn, key, options, labels, initial) {
+  const s = { value: initial };
+  const set = (v) => { s.value = v; btn.textContent = labels[v]; store(key, v); };
+  s.cycle = () => set(options[(options.indexOf(s.value) + 1) % options.length]);
+  btn.addEventListener('click', s.cycle);
+  set(initial);
+  return s;
+}
+
+const ART_STYLES = Art.STYLES.map((s) => s.id);
+const artStyle = toggle(document.getElementById('style-btn'), 'style', ART_STYLES,
+  Object.fromEntries(Art.STYLES.map((s) => [s.id, s.label])), stored('style', ART_STYLES, 'line'));
+
+// Cruise: the ship holds the set speed after you let go (tap to stop).
+// Direct: the ship only moves while you drag, with no drift, and stops when you let go.
+const MOVE_MODES = ['cruise', 'direct'];
+const moveMode = toggle(document.getElementById('move-btn'), 'move', MOVE_MODES,
+  { cruise: 'Cruise', direct: 'Direct' }, stored('move', MOVE_MODES, 'cruise'));
+document.getElementById('move-btn').addEventListener('click', () => { ship.targetSpeed = 0; });
+
+window.addEventListener('keydown', (e) => {
+  if (GalaxyMap.isOpen) return;
+  if (e.key === 'v' || e.key === 'V') artStyle.cycle();
+  if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); ship.targetSpeed = 0; }
+});
+
+ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
+
+// ---------- World: sectors generated from the galaxy map ----------
+
+const world = { galaxy: null, cultures: null, sectors: null, w: 0, h: 0 };
+
+function sectorOf(x, y) {
+  return [clamp(Math.floor(x / SECTOR), 0, world.galaxy.size - 1), clamp(Math.floor(y / SECTOR), 0, world.galaxy.size - 1)];
+}
+
+// Place the ship in a sector, beside its main station when there is one.
+function moveShipTo(sx, sy) {
+  const sec = world.sectors.at(sx, sy);
+  const stations = sec.entities.filter((e) => e.kind === 'station').sort((a, b) => b.radius - a.radius);
+  const s = stations[0];
+  ship.x = s ? s.x : (sx + 0.5) * SECTOR;
+  ship.y = s ? s.y + s.radius + 220 : (sy + 0.5) * SECTOR;
+  ship.vx = ship.vy = 0;
+  ship.targetSpeed = 0;
+  ship.angle = ship.targetAngle = -Math.PI / 2;
+  cam.x = ship.x;
+  cam.y = ship.y;
+  particles.length = 0;
+}
+
+function loadGalaxy(galaxy) {
+  world.galaxy = galaxy;
+  world.cultures = ArtCulture.forGalaxy(galaxy);
+  world.sectors = Sectors.create(galaxy, world.cultures, SECTOR);
+  world.w = world.h = galaxy.size * SECTOR;
+  Art.clearCache();
+  const start = galaxy.systems[galaxy.startSystem];
+  moveShipTo(start.x, start.y);
+}
+loadGalaxy(GalaxyMap.galaxy);
+GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
+
+// Entities of the sectors around the camera, posed for time t.
+function nearbyEntities(t) {
+  const [cx, cy] = sectorOf(cam.x, cam.y);
+  const out = [];
+  for (let y = cy - 1; y <= cy + 1; y++) {
+    for (let x = cx - 1; x <= cx + 1; x++) {
+      const sec = world.sectors.at(x, y);
+      if (!sec) continue;
+      for (const e of sec.entities) { Sectors.pose(e, t); out.push(e); }
+    }
+  }
+  return out;
+}
 
 // ---------- Input: drag sets heading, drag length sets speed ----------
 
@@ -91,7 +179,8 @@ canvas.addEventListener('pointermove', (e) => {
 function endDrag(e) {
   if (!drag.active || e.pointerId !== drag.id) return;
   drag.active = false;
-  if (e.type === 'pointerup' && drag.moved < DEADZONE) ship.targetSpeed = 0; // tap = all stop
+  if (moveMode.value === 'direct') ship.targetSpeed = 0; // letting go stops the ship
+  else if (e.type === 'pointerup' && drag.moved < DEADZONE) ship.targetSpeed = 0; // tap = all stop
 }
 canvas.addEventListener('pointerup', endDrag);
 canvas.addEventListener('pointercancel', endDrag);
@@ -105,33 +194,44 @@ function turnToward(a, target, maxStep) {
 }
 
 function update(dt) {
-  if (ship.targetSpeed > 0) ship.angle = turnToward(ship.angle, ship.targetAngle, SHIP.turnRate * dt);
-
-  // Velocity eases toward (heading * set speed), so turning produces some drift.
+  simTime += dt;
+  const direct = moveMode.value === 'direct';
+  const moving = ship.targetSpeed > 0;
+  if (moving) ship.angle = turnToward(ship.angle, ship.targetAngle, SHIP.turnRate * (direct ? 3 : 1) * dt);
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
-  const dvx = hx * ship.targetSpeed - ship.vx;
-  const dvy = hy * ship.targetSpeed - ship.vy;
-  const dv = Math.hypot(dvx, dvy);
-  if (dv > 0) {
-    const k = Math.min(1, (SHIP.accel * dt) / dv);
-    ship.vx += dvx * k;
-    ship.vy += dvy * k;
-  }
 
-  const along = dv > 5 ? (dvx * hx + dvy * hy) / dv : 0;
-  const thrustTarget = ship.targetSpeed > 0 ? Math.max(0.2, along) : 0;
-  ship.thrust = lerp(ship.thrust, thrustTarget, 1 - Math.exp(-10 * dt));
+  if (direct) {
+    // No inertia: velocity always points along the heading and snaps to the set speed.
+    let speed = lerp(Math.hypot(ship.vx, ship.vy), ship.targetSpeed, 1 - Math.exp(-12 * dt));
+    if (!moving && speed < 5) speed = 0;
+    ship.vx = hx * speed;
+    ship.vy = hy * speed;
+    ship.thrust = lerp(ship.thrust, moving ? Math.max(0.2, ship.targetSpeed / SHIP.maxSpeed) : 0, 1 - Math.exp(-12 * dt));
+  } else {
+    // Velocity eases toward (heading * set speed), so turning produces some drift.
+    const dvx = hx * ship.targetSpeed - ship.vx;
+    const dvy = hy * ship.targetSpeed - ship.vy;
+    const dv = Math.hypot(dvx, dvy);
+    if (dv > 0) {
+      const k = Math.min(1, (SHIP.accel * dt) / dv);
+      ship.vx += dvx * k;
+      ship.vy += dvy * k;
+    }
+    const along = dv > 5 ? (dvx * hx + dvy * hy) / dv : 0;
+    const thrustTarget = moving ? Math.max(0.2, along) : 0;
+    ship.thrust = lerp(ship.thrust, thrustTarget, 1 - Math.exp(-10 * dt));
+  }
 
   ship.x += ship.vx * dt;
   ship.y += ship.vy * dt;
 
-  // Bounding box: clamp and bounce softly.
+  // Galaxy edge: clamp and bounce softly.
   const m = SHIP.radius;
   if (ship.x < m) { ship.x = m; ship.vx = Math.abs(ship.vx) * 0.3; }
-  if (ship.x > WORLD.w - m) { ship.x = WORLD.w - m; ship.vx = -Math.abs(ship.vx) * 0.3; }
+  if (ship.x > world.w - m) { ship.x = world.w - m; ship.vx = -Math.abs(ship.vx) * 0.3; }
   if (ship.y < m) { ship.y = m; ship.vy = Math.abs(ship.vy) * 0.3; }
-  if (ship.y > WORLD.h - m) { ship.y = WORLD.h - m; ship.vy = -Math.abs(ship.vy) * 0.3; }
+  if (ship.y > world.h - m) { ship.y = world.h - m; ship.vy = -Math.abs(ship.vy) * 0.3; }
 
   // Engine exhaust particles.
   if (ship.thrust > 0.25 && Math.random() < ship.thrust * 1.5) {
@@ -151,13 +251,13 @@ function update(dt) {
     p.y += p.vy * dt;
   }
 
-  station.spin += dt * 0.15;
-
   // Camera leads in the direction of travel.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
   cam.x = lerp(cam.x, ship.x + ship.vx * lead, k);
   cam.y = lerp(cam.y, ship.y + ship.vy * lead, k);
+
+  GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
 }
 
 // ---------- Background starfield (procedural, parallax) ----------
@@ -209,225 +309,78 @@ function drawStarfield() {
   ctx.globalAlpha = 1;
 }
 
-// ---------- World objects ----------
+// ---------- World objects (drawn relative to `origin`, the camera's sector corner) ----------
+
+const origin = { x: 0, y: 0 };
+const rx = (x) => x - origin.x;
+const ry = (y) => y - origin.y;
 
 function drawBounds() {
   ctx.save();
+  const [x0, y0, x1, y1] = [rx(0), ry(0), rx(world.w), ry(world.h)];
   ctx.beginPath();
-  ctx.rect(-1e5, -1e5, 2e5, 2e5);
-  ctx.rect(0, 0, WORLD.w, WORLD.h);
+  ctx.rect(rx(cam.x) - 1e4, ry(cam.y) - 1e4, 2e4, 2e4);
+  ctx.rect(x0, y0, x1 - x0, y1 - y0);
   ctx.fillStyle = 'rgba(255, 60, 90, 0.06)';
   ctx.fill('evenodd');
 
-  const edgeDist = Math.min(ship.x, ship.y, WORLD.w - ship.x, WORLD.h - ship.y);
+  const edgeDist = Math.min(ship.x, ship.y, world.w - ship.x, world.h - ship.y);
   const warn = clamp(1 - edgeDist / 600, 0, 1);
   ctx.strokeStyle = COLORS.bounds;
   ctx.globalAlpha = 0.35 + 0.65 * warn;
   ctx.lineWidth = 3;
   ctx.setLineDash([30, 20]);
-  ctx.strokeRect(0, 0, WORLD.w, WORLD.h);
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
   ctx.restore();
 }
 
-function drawStar(t) {
-  const { x, y, r } = star;
-  const glow = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 3.2);
-  glow.addColorStop(0, 'rgba(255, 200, 110, 0.35)');
-  glow.addColorStop(1, 'rgba(255, 160, 60, 0)');
-  ctx.fillStyle = glow;
-  ctx.beginPath();
-  ctx.arc(x, y, r * 3.2, 0, TAU);
-  ctx.fill();
-
-  const core = ctx.createRadialGradient(x, y, 0, x, y, r);
-  core.addColorStop(0, '#fff8e0');
-  core.addColorStop(0.7, '#ffd27a');
-  core.addColorStop(1, '#ff9d3a');
-  ctx.fillStyle = core;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fill();
-
-  ctx.strokeStyle = COLORS.star;
-  ctx.lineWidth = 2;
-  ctx.globalAlpha = 0.6;
-  ctx.beginPath();
-  for (let i = 0; i < 28; i++) {
-    const a = (i / 28) * TAU + t * 0.04;
-    const outer = r * (1.25 + 0.12 * Math.sin(t * 1.3 + i * 1.7));
-    ctx.moveTo(x + Math.cos(a) * r * 1.1, y + Math.sin(a) * r * 1.1);
-    ctx.lineTo(x + Math.cos(a) * outer, y + Math.sin(a) * outer);
-  }
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-}
-
-function drawPlanet() {
-  const { x, y, r } = planet;
-  const lit = Math.atan2(star.y - y, star.x - x);
-  const ringTilt = -0.35;
-  const ringA = r * 1.9, ringB = r * 0.5;
-
-  ctx.strokeStyle = COLORS.planet;
-  ctx.lineWidth = 2;
-
-  // Ring, back half (hidden behind the planet body).
-  ctx.globalAlpha = 0.5;
-  ctx.beginPath();
-  ctx.ellipse(x, y, ringA, ringB, ringTilt, Math.PI, TAU);
-  ctx.stroke();
-  ctx.globalAlpha = 0.3;
-  ctx.beginPath();
-  ctx.ellipse(x, y, ringA * 0.88, ringB * 0.88, ringTilt, Math.PI, TAU);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-
-  const body = ctx.createRadialGradient(
-    x + Math.cos(lit) * r * 0.45, y + Math.sin(lit) * r * 0.45, r * 0.1, x, y, r * 1.05);
-  body.addColorStop(0, '#3f6db8');
-  body.addColorStop(1, '#070b16');
-  ctx.fillStyle = body;
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.fill();
-  ctx.stroke();
-
-  // Cloud bands, line art clipped to the disc.
+// Faint sector borders around the camera.
+function drawSectorGrid() {
+  const [cx, cy] = sectorOf(cam.x, cam.y);
   ctx.save();
+  ctx.strokeStyle = 'rgba(120, 140, 200, 0.14)';
+  ctx.lineWidth = 1.5 / view.zoom;
+  ctx.setLineDash([12 / view.zoom, 18 / view.zoom]);
   ctx.beginPath();
-  ctx.arc(x, y, r, 0, TAU);
-  ctx.clip();
-  ctx.globalAlpha = 0.35;
-  ctx.lineWidth = 1.5;
-  for (let i = -3; i <= 3; i++) {
-    ctx.beginPath();
-    ctx.ellipse(x, y + i * r * 0.27, r * 1.1, r * 0.12, ringTilt, 0, Math.PI);
-    ctx.stroke();
-  }
-  ctx.restore();
-
-  // Ring, front half.
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.ellipse(x, y, ringA, ringB, ringTilt, 0, Math.PI);
-  ctx.stroke();
-  ctx.globalAlpha = 0.5;
-  ctx.beginPath();
-  ctx.ellipse(x, y, ringA * 0.88, ringB * 0.88, ringTilt, 0, Math.PI);
-  ctx.stroke();
-  ctx.globalAlpha = 1;
-}
-
-function drawStation(t) {
-  const { x, y, r } = station;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.strokeStyle = COLORS.station;
-  ctx.fillStyle = COLORS.bg;
-  ctx.lineWidth = 2;
-
-  // Rotating habitat ring.
-  ctx.save();
-  ctx.rotate(station.spin);
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, TAU);
-  ctx.moveTo(r * 0.82, 0);
-  ctx.arc(0, 0, r * 0.82, 0, TAU);
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * TAU;
-    ctx.moveTo(Math.cos(a) * r * 0.28, Math.sin(a) * r * 0.28);
-    ctx.lineTo(Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82);
+  for (let i = -1; i <= 2; i++) {
+    const x = rx((cx + i) * SECTOR), y = ry((cy + i) * SECTOR);
+    ctx.moveTo(x, ry((cy - 1) * SECTOR)); ctx.lineTo(x, ry((cy + 2) * SECTOR));
+    ctx.moveTo(rx((cx - 1) * SECTOR), y); ctx.lineTo(rx((cx + 2) * SECTOR), y);
   }
   ctx.stroke();
-  for (let i = 0; i < 8; i++) {
-    ctx.save();
-    ctx.rotate((i / 8) * TAU + TAU / 16);
-    ctx.fillRect(r * 0.8, -7, r * 0.22, 14);
-    ctx.strokeRect(r * 0.8, -7, r * 0.22, 14);
-    ctx.restore();
-  }
-  ctx.restore();
-
-  // Fixed spine with solar panels and docking hub.
-  ctx.beginPath();
-  ctx.rect(-6, -r * 1.55, 12, r * 3.1);
-  ctx.fill();
-  ctx.stroke();
-  for (const sy of [-1, 1]) {
-    const py = sy * r * 1.55;
-    ctx.beginPath();
-    ctx.rect(-r * 0.7, py - 10, r * 1.4, 20);
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    for (let i = -2; i <= 2; i++) {
-      ctx.moveTo(i * r * 0.28, py - 10);
-      ctx.lineTo(i * r * 0.28, py + 10);
-    }
-    ctx.stroke();
-  }
-  ctx.beginPath();
-  ctx.arc(0, 0, r * 0.28, 0, TAU);
-  ctx.fill();
-  ctx.stroke();
-
-  // Blinking nav lights.
-  const on = Math.sin(t * 3) > 0.6;
-  ctx.fillStyle = on ? '#ff4d4d' : '#4d1515';
-  ctx.beginPath(); ctx.arc(-r * 0.7, -r * 1.55, 4, 0, TAU); ctx.fill();
-  ctx.fillStyle = on ? '#4dff88' : '#154d25';
-  ctx.beginPath(); ctx.arc(r * 0.7, r * 1.55, 4, 0, TAU); ctx.fill();
   ctx.restore();
 }
 
-const SHIP_HULL = [[20, 0], [-8, 11], [-4, 4], [-11, 4], [-11, -4], [-4, -4], [-8, -11]];
+const DRAW_ORDER = { star: 0, planet: 1, station: 2, wreck: 3, ship: 4 };
+
+function visible(e) {
+  const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.radius || 100) * 1.3;
+  return Math.abs(e.x - cam.x) < hw + r && Math.abs(e.y - cam.y) < hh + r;
+}
+
+function drawEntities(list, t) {
+  const style = artStyle.value;
+  const shown = list.filter(visible).sort((a, b) => DRAW_ORDER[a.kind] - DRAW_ORDER[b.kind]);
+  for (const e of shown) {
+    const x = rx(e.x), y = ry(e.y);
+    if (e.kind === 'star') Art.drawStar(ctx, e.body, style, { x, y, t });
+    else if (e.kind === 'planet') {
+      const star = list.find((s) => s.kind === 'star' && Math.abs(s.x - e.x) < SECTOR && Math.abs(s.y - e.y) < SECTOR);
+      Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
+    } else if (e.kind === 'station') Art.drawAsset(ctx, e.art, style, { x, y, spin: e.spin + t * e.art.spinRate, t });
+    else Art.drawAsset(ctx, e.art, style, { x, y, angle: e.a, t, thrust: e.thrust || 0 });
+  }
+}
 
 function drawShip(t) {
-  ctx.save();
-  ctx.translate(ship.x, ship.y);
-  ctx.rotate(ship.angle);
-  ctx.lineJoin = 'round';
-
-  if (ship.thrust > 0.02) {
-    const len = (8 + 24 * ship.thrust) * (0.85 + 0.15 * Math.sin(t * 45));
-    ctx.strokeStyle = COLORS.flame;
-    ctx.fillStyle = 'rgba(255, 179, 71, 0.25)';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(-11, -3);
-    ctx.lineTo(-11 - len, 0);
-    ctx.lineTo(-11, 3);
-    ctx.fill();
-    ctx.stroke();
-  }
-
-  ctx.shadowColor = COLORS.ship;
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = COLORS.ship;
-  ctx.fillStyle = COLORS.bg;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  SHIP_HULL.forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.shadowBlur = 0;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(9, 0);
-  ctx.lineTo(1, 2.5);
-  ctx.lineTo(1, -2.5);
-  ctx.closePath();
-  ctx.stroke();
-  ctx.restore();
+  Art.drawAsset(ctx, ship.art, artStyle.value, { x: rx(ship.x), y: ry(ship.y), angle: ship.angle, t, thrust: ship.thrust });
 }
 
 function drawParticles() {
   ctx.fillStyle = COLORS.flame;
   for (const p of particles) {
     ctx.globalAlpha = (p.life / p.max) * 0.7;
-    ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    ctx.fillRect(rx(p.x) - 1.5, ry(p.y) - 1.5, 3, 3);
   }
   ctx.globalAlpha = 1;
 }
@@ -439,18 +392,24 @@ const worldToScreen = (x, y) => [
   (y - cam.y) * view.zoom + view.h / 2,
 ];
 
-function drawLabels() {
+function labelOf(e) {
+  if (!e.name) return null;
+  if (e.kind === 'star') return [COLORS.star, e.body.r * 1.5];
+  if (e.kind === 'planet') return [COLORS.planet, e.body.r * 1.3];
+  if (e.kind === 'station') return [e.color, e.radius * 1.05];
+  return ['#9aa4b8', e.radius + 20];
+}
+
+function drawLabels(list) {
   ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
   ctx.textAlign = 'center';
-  ctx.globalAlpha = 0.7;
-  for (const [body, color, offset] of [
-    [star, COLORS.star, star.r * 1.5],
-    [planet, COLORS.planet, planet.r * 1.3],
-    [station, COLORS.station, station.r * 1.8],
-  ]) {
-    const [sx, sy] = worldToScreen(body.x, body.y + offset);
-    ctx.fillStyle = color;
-    ctx.fillText(body.name.toUpperCase(), sx, sy + 14);
+  ctx.globalAlpha = 0.75;
+  for (const e of list) {
+    const l = labelOf(e);
+    if (!l || !visible(e)) continue;
+    const [sx, sy] = worldToScreen(e.x, e.y + l[1]);
+    ctx.fillStyle = l[0];
+    ctx.fillText(e.name.toUpperCase(), sx, sy + 14);
   }
   ctx.globalAlpha = 1;
   ctx.textAlign = 'left';
@@ -496,41 +455,51 @@ function drawDragIndicator() {
   ctx.restore();
 }
 
-function drawMinimap() {
+// The minimap shows the ship's current sector.
+function drawMinimap(list) {
   const size = Math.round(clamp(view.w * 0.28, 90, 150));
   const pad = 12;
   const x0 = view.w - size - pad;
   const y0 = pad;
-  const s = size / WORLD.w;
+  const s = size / SECTOR;
+  const [sx, sy] = sectorOf(ship.x, ship.y);
+  const ox = sx * SECTOR, oy = sy * SECTOR;
+  const owner = world.galaxy.territoryOf(sx, sy).owner;
 
   ctx.save();
   ctx.fillStyle = 'rgba(5, 6, 10, 0.75)';
   ctx.fillRect(x0, y0, size, size);
-  ctx.strokeStyle = COLORS.bounds;
+  ctx.strokeStyle = owner === null ? COLORS.dim : world.galaxy.factions[owner].color;
   ctx.globalAlpha = 0.6;
   ctx.lineWidth = 1;
   ctx.strokeRect(x0 + 0.5, y0 + 0.5, size - 1, size - 1);
   ctx.globalAlpha = 1;
+  ctx.beginPath();
+  ctx.rect(x0, y0, size, size);
+  ctx.clip();
 
-  const dot = (b, color, rad) => {
+  for (const e of list) {
+    if (e.x < ox || e.y < oy || e.x >= ox + SECTOR || e.y >= oy + SECTOR) continue;
+    const [color, rad] = e.kind === 'star' ? [COLORS.star, 4]
+      : e.kind === 'planet' ? [COLORS.planet, 3]
+        : e.kind === 'station' ? [e.color, 2.5]
+          : e.kind === 'wreck' ? ['#6f7a99', 1.5]
+            : [e.faction === null || e.faction === undefined ? '#9aa4b8' : world.galaxy.factions[e.faction].color, 1.2];
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(x0 + b.x * s, y0 + b.y * s, rad, 0, TAU);
+    ctx.arc(x0 + (e.x - ox) * s, y0 + (e.y - oy) * s, rad, 0, TAU);
     ctx.fill();
-  };
-  dot(star, COLORS.star, 4);
-  dot(planet, COLORS.planet, 3);
-  dot(station, COLORS.station, 2.5);
+  }
 
   // Camera viewport.
   const vw = (view.w / view.zoom) * s;
   const vh = (view.h / view.zoom) * s;
   ctx.strokeStyle = COLORS.hud;
   ctx.globalAlpha = 0.3;
-  ctx.strokeRect(x0 + cam.x * s - vw / 2, y0 + cam.y * s - vh / 2, vw, vh);
+  ctx.strokeRect(x0 + (cam.x - ox) * s - vw / 2, y0 + (cam.y - oy) * s - vh / 2, vw, vh);
   ctx.globalAlpha = 1;
 
-  ctx.translate(x0 + ship.x * s, y0 + ship.y * s);
+  ctx.translate(x0 + (ship.x - ox) * s, y0 + (ship.y - oy) * s);
   ctx.rotate(ship.angle);
   ctx.fillStyle = COLORS.ship;
   ctx.beginPath();
@@ -541,6 +510,8 @@ function drawMinimap() {
   ctx.fill();
   ctx.restore();
 }
+
+const ZONE_LABEL = { known: 'KNOWN SPACE', deep: 'DEEP SPACE', frontier: 'FRONTIER' };
 
 function drawHud() {
   const speed = Math.hypot(ship.vx, ship.vy);
@@ -563,18 +534,42 @@ function drawHud() {
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(pad + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, y - 3, 2, 12);
 
+  // Where you are: sector, zone, system and owner.
+  const [sx, sy] = sectorOf(ship.x, ship.y);
+  const sec = world.sectors.at(sx, sy);
+  const t = sec.territory;
+  const f = world.galaxy.factions;
+  ctx.globalAlpha = 0.85;
+  ctx.fillStyle = COLORS.dim;
+  ctx.fillText(`SECTOR ${sx},${sy} · ${ZONE_LABEL[t.zone]}`, pad, pad + 12);
+  const place = sec.system ? sec.system.name : sec.outpost ? sec.outpost.name : null;
+  const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.freeport ? 'Freeport' : null;
+  const line2 = [place, owner, t.contestedBy !== null ? `contested by ${f[t.contestedBy].name}` : null].filter(Boolean).join(' · ');
+  if (line2) {
+    ctx.fillStyle = t.owner !== null ? f[t.owner].color : COLORS.hud;
+    ctx.fillText(line2, pad, pad + 28);
+  }
+
   if (!interacted) {
     ctx.fillStyle = COLORS.hud;
     ctx.globalAlpha = 0.6 + 0.3 * Math.sin(performance.now() / 400);
-    ctx.fillText('Drag to fly; drag length sets speed', pad, pad + 12);
-    ctx.fillText('Tap to stop', pad, pad + 28);
+    const direct = moveMode.value === 'direct';
+    ctx.fillText(direct ? 'Hold and drag to fly; drag length sets speed' : 'Drag to fly; drag length sets speed', pad, pad + 56);
+    ctx.fillText(direct ? 'Let go to stop' : 'Tap to stop', pad, pad + 72);
   }
   ctx.restore();
 }
 
 // ---------- Main loop ----------
 
-function render(t) {
+function render() {
+  const t = simTime;
+  if (GalaxyMap.galaxy !== world.galaxy) loadGalaxy(GalaxyMap.galaxy); // re-rolled on the map
+  const list = nearbyEntities(t);
+  const [cx, cy] = sectorOf(cam.x, cam.y);
+  origin.x = cx * SECTOR;
+  origin.y = cy * SECTOR;
+
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = COLORS.bg;
   ctx.fillRect(0, 0, view.w, view.h);
@@ -583,18 +578,17 @@ function render(t) {
   ctx.save();
   ctx.translate(view.w / 2, view.h / 2);
   ctx.scale(view.zoom, view.zoom);
-  ctx.translate(-cam.x, -cam.y);
+  ctx.translate(-rx(cam.x), -ry(cam.y));
   drawBounds();
-  drawStar(t);
-  drawPlanet();
-  drawStation(t);
+  drawSectorGrid();
+  drawEntities(list, t);
   drawParticles();
   drawShip(t);
   ctx.restore();
 
-  drawLabels();
+  drawLabels(list);
   drawDragIndicator();
-  drawMinimap();
+  drawMinimap(list);
   drawHud();
 }
 
@@ -604,7 +598,7 @@ function frame(now) {
   last = now;
   if (!GalaxyMap.isOpen) { // the map overlay pauses flight
     update(dt);
-    render(now / 1000);
+    render();
   }
   requestAnimationFrame(frame);
 }

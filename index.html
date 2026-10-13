@@ -37,6 +37,12 @@
     position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 8px);
     width: clamp(90px, 28vw, 150px);
   }
+  #style-btn, #move-btn {
+    position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 48px);
+    width: clamp(90px, 28vw, 150px);
+  }
+  #move-btn { top: calc(12px + clamp(90px, 28vw, 150px) + 88px); }
+  .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
   #map-overlay { position: fixed; inset: 0; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
   #map-overlay[hidden] { display: none; }
@@ -73,6 +79,8 @@
 <body>
 <canvas id="game"></canvas>
 <button id="map-btn" class="btn" type="button">Map</button>
+<button id="style-btn" class="btn" type="button" title="Switch art style (V)">Line</button>
+<button id="move-btn" class="btn" type="button" title="Movement (C): Cruise keeps your speed after you let go; Direct moves only while you drag">Cruise</button>
 
 <div id="map-overlay" hidden>
   <canvas id="map-canvas"></canvas>
@@ -87,6 +95,7 @@
     <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Show hidden routes">Hidden</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Show deep-space contacts">Contacts</button>
     <span class="spacer"></span>
+    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected sector">Jump</button>
     <button id="map-reset" class="btn" type="button">Reset view</button>
   </div>
 </div>
@@ -95,6 +104,11 @@
 <script src="data/galaxy-config.js"></script>
 <script src="galaxy.js"></script>
 <script src="map.js"></script>
+<script src="art/util.js"></script>
+<script src="art/culture.js"></script>
+<script src="art/blueprints.js"></script>
+<script src="art/render.js"></script>
+<script src="sector.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
