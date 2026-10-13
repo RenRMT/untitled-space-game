@@ -1,0 +1,253 @@
+'use strict';
+
+// Sector contents for the flight view, generated from the galaxy (galaxy.js) and the faction
+// cultures (art/culture.js). Each map sector becomes a square play area `units` across, and its
+// contents are recreated on demand from the galaxy seed and the sector coordinates:
+// - systems: a star, one planet per planet location, stations and outposts of the owner,
+// - outposts: a minor station; salvage yards collect wrecks,
+// - traffic: fighters patrol and freighters run toward lane neighbours; owners are picked by the
+//   sector's faction presence, and pirates lurk in the territories they operate in,
+// - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
+// - contested sectors: debris from border skirmishes.
+// Positions are world units from the galaxy's top-left corner. Browser only (global `Sectors`).
+
+const Sectors = (() => {
+  const U = ArtUtil;
+  const { TAU, lerp, clamp } = U;
+
+  const STAR_CLASSES = [['M', 4], ['K', 3], ['G', 3], ['A', 1], ['B', 1]];
+  const STAR_RADIUS = { M: [160, 200], K: [190, 230], G: [210, 250], A: [240, 270], B: [250, 290] };
+  const PLANET_TYPES = [['gas', 3], ['terran', 2], ['desert', 2], ['ice', 2], ['lava', 1], ['blue', 1]];
+  const CONTACT_LABELS = { derelict: 'Derelict', distress: 'Distress signal', anomaly: 'Anomaly' };
+  const MAX_CACHED = 40;
+
+  function seedInt(seed) {
+    if (Number.isInteger(seed)) return seed >>> 0;
+    let h = 2166136261;
+    for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+    return h >>> 0;
+  }
+  function weighted(list, r) {
+    const total = list.reduce((s, [, w]) => s + w, 0);
+    let x = r() * total;
+    for (const [item, w] of list) if ((x -= w) < 0) return item;
+    return list[list.length - 1][0];
+  }
+
+  function create(galaxy, cultures, units) {
+    const base = seedInt(galaxy.seed);
+    const key = (x, y) => `${x},${y}`;
+    const systemAt = new Map(galaxy.systems.map((s) => [key(s.x, s.y), s]));
+    const outpostAt = new Map(galaxy.outposts.map((o) => [key(o.x, o.y), o]));
+    const pirates = galaxy.factions.find((f) => f.key === 'pirates');
+    const majors = galaxy.factions.filter((f) => f.kind === 'major');
+    const cache = new Map();
+
+    function at(sx, sy) {
+      if (sx < 0 || sy < 0 || sx >= galaxy.size || sy >= galaxy.size) return null;
+      const k = key(sx, sy);
+      let s = cache.get(k);
+      if (s) { cache.delete(k); cache.set(k, s); return s; }
+      s = build(sx, sy);
+      cache.set(k, s);
+      while (cache.size > MAX_CACHED) cache.delete(cache.keys().next().value);
+      return s;
+    }
+
+    function build(sx, sy) {
+      const r = mulberry32(hashInt(sx, sy, base ^ 0x5ec70));
+      const ox = sx * units, oy = sy * units, C = units / 2;
+      const territory = galaxy.territoryOf(sx, sy);
+      const system = systemAt.get(key(sx, sy)) || null;
+      const outpost = outpostAt.get(key(sx, sy)) || null;
+      const contact = system || outpost ? null : galaxy.deepSector(sx, sy);
+      const sec = { x: sx, y: sy, territory, system, outpost, contact, entities: [], star: null };
+      const nextSeed = () => Math.floor(r() * 4294967295);
+      const colorOf = (fid) => (fid === null || fid === undefined ? '#9aa4b8' : galaxy.factions[fid].color);
+
+      // Placement in local coordinates, keeping things apart and inside the sector.
+      const placed = [];
+      const fits = (x, y, rad) => placed.every(([px, py, pr]) => Math.hypot(px - x, py - y) > pr + rad + 120);
+      function spot(cx, cy, dmin, dmax, rad) {
+        let x = cx, y = cy;
+        for (let i = 0; i < 40; i++) {
+          const a = r() * TAU, d = lerp(dmin, dmax, r());
+          x = clamp(cx + Math.cos(a) * d, rad + 200, units - rad - 200);
+          y = clamp(cy + Math.sin(a) * d, rad + 200, units - rad - 200);
+          if (fits(x, y, rad)) break;
+        }
+        placed.push([x, y, rad]);
+        return [x, y];
+      }
+      const add = (e, x, y) => { e.x = ox + x; e.y = oy + y; sec.entities.push(e); return e; };
+
+      const station = (type, fid, name, x, y) => {
+        const art = ArtBlueprints.create(type, cultures.of(fid), nextSeed());
+        return add({ kind: 'station', art, name, faction: fid, color: colorOf(fid), spin: r() * TAU, radius: art.radius }, x, y);
+      };
+      const wreck = (type, culture, x, y, name) => {
+        const art = ArtBlueprints.create(type, culture, nextSeed());
+        return add({ kind: 'wreck', art, name, angle: r() * TAU, tumble: (r() - 0.5) * 0.04, radius: art.radius }, x, y);
+      };
+      const ship = (role, fid, motion) => {
+        const art = ArtBlueprints.create(role, cultures.of(fid), nextSeed());
+        sec.entities.push({ kind: 'ship', art, faction: fid, motion, radius: art.radius, x: ox, y: oy });
+      };
+      const orbit = (cx, cy, rad, speed) => ({ type: 'orbit', cx: ox + cx, cy: oy + cy, r: rad, w: (r() < 0.5 ? -1 : 1) * speed / rad, a0: r() * TAU });
+      const route = (ax, ay, bx, by, speed) => ({ type: 'route', ax: ox + ax, ay: oy + ay, bx: ox + bx, by: oy + by, speed, phase: r() * 2 });
+      const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
+
+      // ---------- Fixed features ----------
+
+      if (system) {
+        const fid = system.faction;
+        let cx = C, cy = C;
+        if (!system.freeport) {
+          const cls = weighted(STAR_CLASSES, r);
+          const [r0, r1] = STAR_RADIUS[cls];
+          cx = C + (r() - 0.5) * 600;
+          cy = C + (r() - 0.5) * 600;
+          const body = { r: lerp(r0, r1, r()), cls, seed: nextSeed() % 997, rays: 8 };
+          placed.push([cx, cy, body.r * 2.2]);
+          sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
+        }
+        const planets = [];
+        system.locations.filter((l) => l.type === 'planet').forEach((l, i) => {
+          const type = weighted(PLANET_TYPES, r);
+          const body = { r: lerp(90, type === 'gas' ? 190 : 150, r()), type, ring: r() < (type === 'gas' ? 0.6 : 0.2), ringTilt: -0.35 + (r() - 0.5) * 0.5, seed: nextSeed() % 9973 };
+          const [x, y] = spot(cx, cy, 1200 + i * 500, 1600 + i * 550, body.r * (body.ring ? 2 : 1.1));
+          planets.push(add({ kind: 'planet', body, name: l.name, radius: body.r * 2 }, x, y));
+        });
+        system.locations.filter((l) => l.type !== 'planet').forEach((l, i) => {
+          const major = l.type === 'station' && i === 0 && (system.capital || system.freeport || (fid !== null && galaxy.factions[fid].kind === 'major'));
+          const rad = major ? 230 : 120;
+          // The main station sits near the star or the first planet; outposts further out.
+          const near = l.type === 'station' && planets.length && r() < 0.5 ? planets[Math.floor(r() * planets.length)] : null;
+          const [x, y] = near ? spot(near.x - ox, near.y - oy, near.body.r * 2.2 + rad, near.body.r * 2.6 + rad, rad)
+            : spot(cx, cy, l.type === 'outpost' ? 2100 : 900 + rad, l.type === 'outpost' ? 2600 : 1500, rad);
+          station(major ? 'station-major' : 'station-minor', fid, l.name, x, y);
+        });
+      } else if (outpost) {
+        const [x, y] = spot(C, C, 0, 500, 120);
+        station('station-minor', outpost.faction, outpost.name, x, y);
+        if (outpost.type === 'salvage yard') {
+          for (let i = 0; i < 4; i++) {
+            const [wx, wy] = spot(x, y, 350, 800, 90);
+            wreck(r() < 0.75 ? 'wreck-ship' : 'wreck-station', randomCulture(), wx, wy);
+          }
+        }
+      }
+
+      // ---------- Deep-space contacts ----------
+
+      if (contact) {
+        const [x, y] = spot(C, C, 0, 1200, 200);
+        if (contact.type === 'story') {
+          wreck('wreck-station', randomCulture(), x, y, contact.name);
+        } else if (contact.type === 'derelict') {
+          const c = randomCulture();
+          if (r() < 0.4) wreck('wreck-station', c, x, y, CONTACT_LABELS.derelict);
+          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT_LABELS.derelict); }
+        } else if (contact.type === 'distress') {
+          const fid = majors[Math.floor(r() * majors.length)].id;
+          const art = ArtBlueprints.create('freighter', cultures.of(fid), nextSeed());
+          sec.entities.push({ kind: 'ship', art, faction: fid, name: CONTACT_LABELS.distress, motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y });
+          const [wx, wy] = spot(x, y, 200, 400, 40);
+          wreck('wreck-ship', cultures.of(fid), wx, wy);
+        } else if (contact.type === 'ambush') {
+          const n = 3 + Math.floor(r() * 2);
+          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60));
+          wreck('wreck-ship', randomCulture(), x, y);
+        } else if (contact.type === 'anomaly') {
+          const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
+          add({ kind: 'planet', body, name: CONTACT_LABELS.anomaly, radius: body.r * 2 }, x, y);
+        }
+      }
+
+      // ---------- Traffic ----------
+
+      const owners = territory.presence.filter((p) => p.share >= 0.04);
+      const known = territory.zone === 'known';
+      const settled = 1 - (owners.find((p) => p.faction === null)?.share ?? 0);
+      let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : r() < 0.15 ? 1 : 0;
+      if (system?.freeport) count = 3 + Math.floor(r() * 3);
+      const pickOwner = () => {
+        if (system?.freeport) return r() < 0.3 ? system.faction : majors[Math.floor(r() * majors.length)].id;
+        const p = weighted(owners.map((o) => [o.faction, o.share]), r);
+        return p === null ? null : p;
+      };
+      const anchors = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
+      // Freighters leave toward lane and gate neighbours, or cross the sector.
+      const exits = [];
+      if (system) {
+        for (const l of [...galaxy.lanes, ...galaxy.gates.filter((g) => !g.hidden)]) {
+          if (l.a !== system.id && l.b !== system.id) continue;
+          const o = galaxy.systems[l.a === system.id ? l.b : l.a];
+          exits.push(Math.atan2(o.y - sy, o.x - sx));
+        }
+      }
+      const edge = (a) => { const k = (C - 250) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); return [C + Math.cos(a) * k, C + Math.sin(a) * k]; };
+      for (let i = 0; i < count; i++) {
+        const fid = known ? pickOwner() : null;
+        const anchor = anchors.length ? anchors[Math.floor(r() * anchors.length)] : null;
+        const [axl, ayl] = anchor ? [anchor.x - ox, anchor.y - oy] : [C + (r() - 0.5) * 2000, C + (r() - 0.5) * 2000];
+        if (r() < (anchor ? 0.45 : 0.6)) {
+          const a = exits.length ? exits[Math.floor(r() * exits.length)] : r() * TAU;
+          const [ex, ey] = edge(a);
+          const [bx, by] = anchor ? [axl + Math.cos(a) * (anchor.radius + 120), ayl + Math.sin(a) * (anchor.radius + 120)] : edge(a + Math.PI);
+          ship('freighter', fid, route(bx, by, ex, ey, 90 + r() * 70));
+        } else {
+          const rad = (anchor ? anchor.radius : 0) + 250 + r() * 400;
+          ship('fighter', fid, orbit(axl, ayl, rad, 150 + r() * 80));
+        }
+      }
+      // Pirates prey on the territories they operate in, and haunt the frontier.
+      const preyed = territory.owner !== null && pirates.operatesIn?.includes(territory.owner);
+      if (!contact && ((preyed && r() < 0.25) || (territory.zone === 'frontier' && r() < 0.12))) {
+        const [x, y] = [C + (r() - 0.5) * 3000, C + (r() - 0.5) * 3000];
+        for (let i = 0; i < 2; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 200, 170));
+      }
+      // Border skirmish debris.
+      if (territory.contestedBy !== null && r() < 0.5) {
+        for (const fid of [territory.owner, territory.contestedBy]) {
+          const [x, y] = spot(C, C, 800, 2400, 50);
+          wreck('wreck-ship', cultures.of(fid), x, y);
+        }
+      }
+      return sec;
+    }
+
+    return { at, units };
+  }
+
+  // Position, heading and thrust of an entity at time t.
+  function pose(e, t) {
+    const m = e.motion;
+    if (!m) {
+      e.a = (e.angle || 0) + (e.tumble || 0) * t;
+      return;
+    }
+    if (m.type === 'orbit') {
+      const a = m.a0 + t * m.w;
+      e.x = m.cx + Math.cos(a) * m.r;
+      e.y = m.cy + Math.sin(a) * m.r;
+      e.a = a + Math.sign(m.w) * Math.PI / 2;
+      e.thrust = 0.45;
+    } else if (m.type === 'route') {
+      // Out and back with an ease at each end.
+      const len = Math.hypot(m.bx - m.ax, m.by - m.ay) || 1;
+      const u = ((t * m.speed) / len + m.phase) % 2;
+      const s = u < 1 ? u : 2 - u;
+      const k = s * s * (3 - 2 * s);
+      e.x = lerp(m.ax, m.bx, k);
+      e.y = lerp(m.ay, m.by, k);
+      e.a = Math.atan2(m.by - m.ay, m.bx - m.ax) + (u < 1 ? 0 : Math.PI);
+      e.thrust = 0.25 + 0.5 * (1 - Math.abs(2 * s - 1));
+    } else {
+      e.a = m.angle + 0.03 * Math.sin(t * 0.3);
+      e.thrust = 0;
+    }
+  }
+
+  return { create, pose };
+})();

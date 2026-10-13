@@ -11,6 +11,7 @@ const GalaxyMap = (() => {
   const statsEl = document.getElementById('map-stats');
   const hiddenBtn = document.getElementById('map-hidden');
   const contactsBtn = document.getElementById('map-contacts');
+  const jumpBtn = document.getElementById('map-jump');
 
   const ZONE_LABEL = { known: 'Known space', deep: 'Deep space', frontier: 'Frontier' };
   const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: '#7df9ff' };
@@ -23,6 +24,8 @@ const GalaxyMap = (() => {
   let contacts = []; // deep-space encounters, for the dev layer
   let showHidden = false;
   let showContacts = false;
+  let player = null; // the ship's position in sector units, set by the flight view
+  let onJump = null;
 
   // scale = screen px per sector; (ox, oy) = sector coordinate at the screen's top-left.
   const view = { w: 0, h: 0, dpr: 1, scale: 1, minScale: 0.3, ox: 0, oy: 0 };
@@ -285,8 +288,7 @@ const GalaxyMap = (() => {
     ctx.textAlign = 'left';
 
     // You are here.
-    const start = systems[galaxy.startSystem];
-    const [hx, hy] = centreOf(start.id);
+    const [hx, hy] = player ? toScreen(player.x, player.y) : centreOf(galaxy.startSystem);
     ctx.strokeStyle = '#7df9ff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -382,7 +384,11 @@ const GalaxyMap = (() => {
   const pct = (v) => `${Math.round(v * 100)}%`;
   const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${color}"></span>${title}</div>`;
 
+  // Sector of a pick, for jumping there.
+  const sectorOfPick = (p) => (p.system ? { x: p.system.x, y: p.system.y } : p.outpost ? { x: p.outpost.x, y: p.outpost.y } : p.sector);
+
   function updateInfo() {
+    jumpBtn.disabled = !selected || !onJump;
     const sel = selected || hovered;
     info.hidden = !sel;
     if (!sel) return;
@@ -552,6 +558,14 @@ const GalaxyMap = (() => {
   document.getElementById('map-btn').addEventListener('click', open);
   document.getElementById('map-close').addEventListener('click', close);
   document.getElementById('map-reroll').addEventListener('click', reroll);
+  jumpBtn.addEventListener('click', () => {
+    if (!selected || !onJump) return;
+    const { x, y } = sectorOfPick(selected);
+    onJump(x, y);
+    selected = null;
+    updateInfo();
+    close();
+  });
   hiddenBtn.addEventListener('click', () => { showHidden = setToggle(hiddenBtn, !showHidden); });
   contactsBtn.addEventListener('click', () => { showContacts = setToggle(contactsBtn, !showContacts); });
   document.getElementById('map-reset').addEventListener('click', () => {
@@ -573,5 +587,12 @@ const GalaxyMap = (() => {
     close,
     get isOpen() { return isOpen; },
     get galaxy() { return galaxy; },
+    // Flight view hooks: where the ship is (in sector units), and what to do on Jump.
+    setPlayer(x, y) {
+      const moved = !player || Math.floor(player.x * 4) !== Math.floor(x * 4) || Math.floor(player.y * 4) !== Math.floor(y * 4);
+      player = { x, y };
+      if (moved) requestDraw();
+    },
+    set onJump(fn) { onJump = fn; updateInfo(); },
   };
 })();
