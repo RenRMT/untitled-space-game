@@ -69,6 +69,7 @@ const Art = (() => {
     p.strut = U.mix(p.hull2, '#555b66', 0.4);
     p.dark = '#1c2028';
     p.scorch = '#120e0b';
+    p.field = U.mix(p.glass, '#0a0d14', 0.62);
     p.line = bp.line || p.line;
     if (bp.wrecked) {
       for (const k of Object.keys(p)) if (k !== 'scorch' && k !== 'line') p[k] = wreckColor(p[k]);
@@ -144,6 +145,10 @@ const Art = (() => {
       ctx.fill(path, rule);
       if (p.mat === 'accent') {
         ctx.fillStyle = U.rgba(pal.line, 0.3);
+        ctx.fill(path, rule);
+      }
+      if (p.mat === 'field') {
+        ctx.fillStyle = U.rgba(pal.glass, 0.14);
         ctx.fill(path, rule);
       }
       const glow = bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');

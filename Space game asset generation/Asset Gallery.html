@@ -98,9 +98,11 @@ const state = {
 };
 const TYPE_LABELS = {
   player: 'Player ship', fighter: 'Fighter', freighter: 'Freighter', 'station-minor': 'Minor station',
-  'station-major': 'Major station', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star',
+  'station-major': 'Major station', gate: 'Gate', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star',
 };
 const THUMB = 168;
+// Gates come right after the stations; only major factions build them.
+const FACTION_TYPES = [...ArtBlueprints.TYPES.slice(0, 4), 'gate', ...ArtBlueprints.TYPES.slice(4)];
 let galaxy, cultures;
 let jobs = [];
 
@@ -133,6 +135,13 @@ function thumb(caption, draw, seed) {
 }
 
 function drawFitted(ctx, bp, style) {
+  if (!bp) {
+    ctx.fillStyle = '#5b626d';
+    ctx.font = '11px IBM Plex Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('no gate technology', THUMB / 2, THUMB / 2);
+    return;
+  }
   const k = (THUMB * 0.44) / bp.radius;
   ctx.save();
   ctx.translate(THUMB / 2, THUMB / 2);
@@ -194,7 +203,7 @@ function buildStyles() {
   const seed = state.assetSeed;
   const planet = { r: 150, type: Art.PLANET_TYPES[seed % Art.PLANET_TYPES.length], ring: seed % 3 !== 0, ringTilt: -0.35, seed };
   const star = { r: 230, cls: Art.STAR_CLASSES[seed % Art.STAR_CLASSES.length], seed: seed % 997, rays: 8 };
-  const rows = ['player', ...ArtBlueprints.TYPES, 'planet', 'star'];
+  const rows = ['player', ...FACTION_TYPES, 'planet', 'star'];
   rows.forEach((type, ri) => {
     const head = document.createElement('div');
     head.className = 'rowhead';
@@ -204,7 +213,7 @@ function buildStyles() {
     for (const s of Art.STYLES) {
       if (type === 'planet') el.append(thumb(`${planet.type}${planet.ring ? ', ringed' : ''}`, bodyThumb('planet', planet, s.id), ri));
       else if (type === 'star') el.append(thumb(`${star.cls}-class`, bodyThumb('star', star, s.id), ri));
-      else el.append(thumb(bp.label, (ctx) => drawFitted(ctx, bp, s.id), ri));
+      else el.append(thumb(bp ? bp.label : 'Gate · majors only', (ctx) => drawFitted(ctx, bp, s.id), ri));
     }
   });
 }
@@ -221,14 +230,14 @@ function buildCultures() {
     h.innerHTML = `<span><span class="swatch" style="background:${faction.color}"></span>${faction.name}</span><span class="sub">${cultureSub(culture)}</span>`;
     el.append(h);
   }
-  ArtBlueprints.TYPES.forEach((type, ri) => {
+  FACTION_TYPES.forEach((type, ri) => {
     const head = document.createElement('div');
     head.className = 'rowhead';
     head.textContent = TYPE_LABELS[type];
     el.append(head);
     for (const { culture } of cols) {
       const bp = assetFor(type, culture, state.assetSeed + ri * 101);
-      el.append(thumb(bp.label.split(' · ')[1] || bp.label, (ctx) => drawFitted(ctx, bp, state.style), ri));
+      el.append(thumb(bp ? bp.label.split(' · ')[1] || bp.label : '—', (ctx) => drawFitted(ctx, bp, state.style), ri));
     }
   });
 }
