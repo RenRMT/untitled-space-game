@@ -20,42 +20,42 @@ const ArtCulture = (() => {
   // Numeric fields are [min, max] ranges; arrays of strings are options picked per faction.
   const LINEAGES = {
     wedge: {
-      label: 'Wedge', note: 'Angular deltas with blunt sterns; spoked wheel stations on a solar spine.',
+      label: 'Wedge', note: 'Angular deltas with blunt sterns; spoked wheel stations on a solar spine.', gate: 'ring', gateNote: 'Gates are clamped rings on solar-panelled anchor arms.',
       hull: 'wedge', round: [0, 0.05], length: [0.95, 1.15], width: [0.95, 1.1], span: [0.9, 1.15], sweep: [0.45, 0.75],
       wings: ['delta', 'swept'], engines: [1, 2], greeble: [0.35, 0.6], asym: [0, 0], stripes: [1, 2],
       insignia: ['chevron', 'bar'], station: 'wheel', arrays: 'solar',
       colors: { hull: '#c3cbd5', hull2: '#7a8696', trim: '#e6ecf2', glass: '#7df9ff', light: '#b6ff8a', flame: '#ffb347', panel: '#2f5aa0' },
     },
     arc: {
-      label: 'Arc', note: 'Rounded hulls and crescent wings; saucer stations ringed with pods.',
+      label: 'Arc', note: 'Rounded hulls and crescent wings; saucer stations ringed with pods.', gate: 'halo', gateNote: 'Gates are smooth halos ringed with pods and emitter domes.',
       hull: 'arc', round: [0.75, 1], length: [0.85, 1.0], width: [1.05, 1.25], span: [0.95, 1.2], sweep: [0.1, 0.4],
       wings: ['crescent', 'forward'], engines: [2, 3], greeble: [0.1, 0.25], asym: [0, 0], stripes: [0, 1],
       insignia: ['dot', 'ring'], station: 'disk', arrays: 'none',
       colors: { hull: '#e6dcc6', hull2: '#a39374', trim: '#fff6e4', glass: '#9ff0e0', light: '#ffd36b', flame: '#7fd0ff', panel: '#3a6a8a' },
     },
     block: {
-      label: 'Block', note: 'Modular slabs and side pods; lattice stations of stacked modules and radiator fins.',
+      label: 'Block', note: 'Modular slabs and side pods; lattice stations of stacked modules and radiator fins.', gate: 'frame', gateNote: 'Gates are square or hex frames of modules with radiator fins at each corner.',
       hull: 'block', round: [0, 0.08], length: [1.0, 1.2], width: [1.1, 1.3], span: [0.6, 0.85], sweep: [0, 0.2],
       wings: ['pods', 'fins'], engines: [2, 4], greeble: [0.65, 0.95], asym: [0, 0.1], stripes: [1, 3],
       insignia: ['bar', 'diamond'], station: 'lattice', arrays: 'radiator',
       colors: { hull: '#b9b59b', hull2: '#6e6a52', trim: '#d9d4b6', glass: '#ffd66b', light: '#ff9a3c', flame: '#fff2b3', panel: '#8a8f96' },
     },
     shard: {
-      label: 'Shard', note: 'Needle prows and blade wings; radial crystal stations.',
+      label: 'Shard', note: 'Needle prows and blade wings; radial crystal stations.', gate: 'pylons', gateNote: 'Gates are two or three crystal pylons with orbiting shards.',
       hull: 'shard', round: [0, 0], length: [1.15, 1.4], width: [0.8, 0.95], span: [0.85, 1.2], sweep: [0.65, 0.95],
       wings: ['blade', 'delta'], engines: [1, 1], greeble: [0.05, 0.2], asym: [0, 0.15], stripes: [0, 1],
       insignia: ['diamond', 'chevron'], station: 'star', arrays: 'none',
       colors: { hull: '#646b7d', hull2: '#363b48', trim: '#9aa3b8', glass: '#c77dff', light: '#e0b0ff', flame: '#c77dff', panel: '#4a3a6a' },
     },
     spindle: {
-      label: 'Spindle', note: 'Long spines with strung-out modules; linear truss stations around one spin ring.',
+      label: 'Spindle', note: 'Long spines with strung-out modules; linear truss stations around one spin ring.', gate: 'spar', gateNote: 'Gates are a spin ring held between two module-strung trusses.',
       hull: 'spindle', round: [0.3, 0.6], length: [1.3, 1.6], width: [0.7, 0.85], span: [0.45, 0.7], sweep: [0.2, 0.5],
       wings: ['fins', 'none'], engines: [1, 3], greeble: [0.3, 0.5], asym: [0, 0], stripes: [1, 2],
       insignia: ['ring', 'bar'], station: 'truss', arrays: 'solar',
       colors: { hull: '#e8eef5', hull2: '#8ea2bd', trim: '#ffffff', glass: '#5fc4e8', light: '#7fd0ff', flame: '#9fd3ff', panel: '#24478a' },
     },
     coral: {
-      label: 'Coral', note: 'Asymmetric organic hulls; clustered pod stations joined by tendrils.',
+      label: 'Coral', note: 'Asymmetric organic hulls; clustered pod stations joined by tendrils.', gate: 'maw', gateNote: 'Gates are a ring of organic lobes joined by tendrils.',
       hull: 'coral', round: [0.85, 1], length: [0.85, 1.0], width: [1.1, 1.3], span: [0.8, 1.1], sweep: [0.2, 0.6],
       wings: ['lobes'], engines: [1, 2], greeble: [0.05, 0.2], asym: [0.35, 0.6], stripes: [0, 0],
       insignia: ['dot'], station: 'cluster', arrays: 'none',
@@ -63,7 +63,7 @@ const ArtCulture = (() => {
     },
   };
   const NUMERIC = ['round', 'length', 'width', 'span', 'sweep', 'greeble', 'asym'];
-  const DISCRETE = ['hull', 'wings', 'insignia', 'station', 'arrays'];
+  const DISCRETE = ['hull', 'wings', 'insignia', 'station', 'arrays', 'gate'];
   const PALETTE_KEYS = ['hull', 'hull2', 'trim', 'glass', 'light', 'flame', 'panel'];
 
   // The original game palette, used by the player ship and Tarsis Station.
@@ -99,6 +99,8 @@ const ArtCulture = (() => {
     c.insignia = pickFrom(L.insignia, r);
     c.station = L.station;
     c.arrays = L.arrays;
+    // Gate design language; only majors can build gates (see ArtBlueprints.canBuildGate).
+    c.gate = L.gate;
     c.pal = palette(L.colors, accent, r);
     return Object.assign(c, extra);
   }

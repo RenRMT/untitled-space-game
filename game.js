@@ -38,6 +38,8 @@ const view = { w: 0, h: 0, dpr: 1, zoom: 1 };
 const cam = { x: 0, y: 0 };
 const particles = [];
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
+let gateFlash = 0; // white-out after a gate jump, fading from 1
+let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -113,6 +115,7 @@ function moveShipTo(sx, sy) {
   cam.x = ship.x;
   cam.y = ship.y;
   particles.length = 0;
+  gateLock = null;
 }
 
 function loadGalaxy(galaxy) {
@@ -139,6 +142,34 @@ function nearbyEntities(t) {
     }
   }
   return out;
+}
+
+// ---------- Gates: flying into the aperture jumps to the gate at the other end ----------
+
+const gateKey = (g) => `${g.link}@${Math.floor(g.x / SECTOR)},${Math.floor(g.y / SECTOR)}`;
+
+// Returns true when the ship jumped.
+function checkGates(list) {
+  for (const g of list) {
+    if (g.kind !== 'gate') continue;
+    const d = Math.hypot(ship.x - g.x, ship.y - g.y);
+    if (gateLock === gateKey(g)) {
+      if (d > g.aperture + 80) gateLock = null;
+      continue;
+    }
+    if (d > g.aperture * 0.7) continue;
+    const there = world.sectors.at(g.dest.x, g.dest.y).entities.find((e) => e.kind === 'gate' && e.link === g.link);
+    if (!there) continue;
+    // Keep the offset within the aperture and the velocity, so the ship carries straight through.
+    const dx = there.x - g.x, dy = there.y - g.y;
+    ship.x += dx; ship.y += dy;
+    cam.x += dx; cam.y += dy;
+    particles.length = 0;
+    gateLock = gateKey(there);
+    gateFlash = 1;
+    return true;
+  }
+  return false;
 }
 
 // ---------- Input: drag sets heading, drag length sets speed ----------
@@ -251,6 +282,8 @@ function update(dt) {
     p.y += p.vy * dt;
   }
 
+  gateFlash = Math.max(0, gateFlash - dt * 1.8);
+
   // Camera leads in the direction of travel.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
@@ -351,7 +384,7 @@ function drawSectorGrid() {
   ctx.restore();
 }
 
-const DRAW_ORDER = { star: 0, planet: 1, station: 2, wreck: 3, ship: 4 };
+const DRAW_ORDER = { star: 0, planet: 1, gate: 2, station: 2, wreck: 3, ship: 4 };
 
 function visible(e) {
   const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.radius || 100) * 1.3;
@@ -368,6 +401,7 @@ function drawEntities(list, t) {
       const star = list.find((s) => s.kind === 'star' && Math.abs(s.x - e.x) < SECTOR && Math.abs(s.y - e.y) < SECTOR);
       Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
     } else if (e.kind === 'station') Art.drawAsset(ctx, e.art, style, { x, y, spin: e.spin + t * e.art.spinRate, t });
+    else if (e.kind === 'gate') Art.drawAsset(ctx, e.art, style, { x, y, angle: e.angle, spin: e.spin + t * e.art.spinRate, t });
     else Art.drawAsset(ctx, e.art, style, { x, y, angle: e.a, t, thrust: e.thrust || 0 });
   }
 }
@@ -396,7 +430,7 @@ function labelOf(e) {
   if (!e.name) return null;
   if (e.kind === 'star') return [COLORS.star, e.body.r * 1.5];
   if (e.kind === 'planet') return [COLORS.planet, e.body.r * 1.3];
-  if (e.kind === 'station') return [e.color, e.radius * 1.05];
+  if (e.kind === 'station' || e.kind === 'gate') return [e.color, e.radius * 1.05];
   return ['#9aa4b8', e.radius + 20];
 }
 
@@ -483,6 +517,7 @@ function drawMinimap(list) {
     const [color, rad] = e.kind === 'star' ? [COLORS.star, 4]
       : e.kind === 'planet' ? [COLORS.planet, 3]
         : e.kind === 'station' ? [e.color, 2.5]
+          : e.kind === 'gate' ? ['#cfd8ff', 2.5]
           : e.kind === 'wreck' ? ['#6f7a99', 1.5]
             : [e.faction === null || e.faction === undefined ? '#9aa4b8' : world.galaxy.factions[e.faction].color, 1.2];
     ctx.fillStyle = color;
@@ -565,7 +600,8 @@ function drawHud() {
 function render() {
   const t = simTime;
   if (GalaxyMap.galaxy !== world.galaxy) loadGalaxy(GalaxyMap.galaxy); // re-rolled on the map
-  const list = nearbyEntities(t);
+  let list = nearbyEntities(t);
+  if (checkGates(list)) list = nearbyEntities(t);
   const [cx, cy] = sectorOf(cam.x, cam.y);
   origin.x = cx * SECTOR;
   origin.y = cy * SECTOR;
@@ -586,6 +622,10 @@ function render() {
   drawShip(t);
   ctx.restore();
 
+  if (gateFlash > 0) {
+    ctx.fillStyle = `rgba(210, 240, 255, ${gateFlash * gateFlash * 0.85})`;
+    ctx.fillRect(0, 0, view.w, view.h);
+  }
   drawLabels(list);
   drawDragIndicator();
   drawMinimap(list);

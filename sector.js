@@ -4,6 +4,8 @@
 // cultures (art/culture.js). Each map sector becomes a square play area `units` across, and its
 // contents are recreated on demand from the galaxy seed and the sector coordinates:
 // - systems: a star, one planet per planet location, stations and outposts of the owner,
+// - gates: one per gate route, on the side facing the destination; each end is built by a major
+//   faction (the system's owner, else the major at the other end, else the nearest major),
 // - outposts: a minor station; salvage yards collect wrecks,
 // - traffic: fighters patrol and freighters run toward lane neighbours; owners are picked by the
 //   sector's faction presence, and pirates lurk in the territories they operate in,
@@ -43,6 +45,21 @@ const Sectors = (() => {
     const majors = galaxy.factions.filter((f) => f.kind === 'major');
     const cache = new Map();
 
+    // Gate ends per system, with the faction that built each end.
+    const majorOf = (fid) => (fid !== null && fid !== undefined && galaxy.factions[fid].kind === 'major' ? fid : null);
+    const nearestMajor = (s) => majors
+      .map((m) => ({ id: m.id, d: Math.hypot(m.centre.x - s.x, m.centre.y - s.y) }))
+      .sort((a, b) => a.d - b.d)[0].id;
+    const gatesAt = new Map();
+    galaxy.gates.forEach((g, link) => {
+      for (const [here, there] of [[g.a, g.b], [g.b, g.a]]) {
+        const sys = galaxy.systems[here], other = galaxy.systems[there];
+        const builder = majorOf(sys.faction) ?? majorOf(other.faction) ?? nearestMajor(sys);
+        if (!gatesAt.has(here)) gatesAt.set(here, []);
+        gatesAt.get(here).push({ link, hidden: g.hidden, other, builder });
+      }
+    });
+
     function at(sx, sy) {
       if (sx < 0 || sy < 0 || sx >= galaxy.size || sy >= galaxy.size) return null;
       const k = key(sx, sy);
@@ -79,6 +96,18 @@ const Sectors = (() => {
         placed.push([x, y, rad]);
         return [x, y];
       }
+      // A spot at distance d from (cx, cy), as close to angle a as fits.
+      function spotToward(cx, cy, a, d, rad) {
+        let x = cx, y = cy;
+        for (let i = 0; i < 24; i++) {
+          const aa = a + (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.12;
+          x = clamp(cx + Math.cos(aa) * d, rad + 200, units - rad - 200);
+          y = clamp(cy + Math.sin(aa) * d, rad + 200, units - rad - 200);
+          if (fits(x, y, rad)) break;
+        }
+        placed.push([x, y, rad]);
+        return [x, y];
+      }
       const add = (e, x, y) => { e.x = ox + x; e.y = oy + y; sec.entities.push(e); return e; };
 
       const station = (type, fid, name, x, y) => {
@@ -110,6 +139,19 @@ const Sectors = (() => {
           const body = { r: lerp(r0, r1, r()), cls, seed: nextSeed() % 997, rays: 8 };
           placed.push([cx, cy, body.r * 2.2]);
           sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
+        }
+        for (const end of gatesAt.get(system.id) || []) {
+          const art = ArtBlueprints.create('gate', cultures.of(end.builder), nextSeed());
+          if (!art) continue;
+          const field = art.parts.find((q) => q.mat === 'field');
+          const aperture = Math.min(...field.pts.map(([px, py]) => Math.hypot(px, py)));
+          const a = Math.atan2(end.other.y - sy, end.other.x - sx);
+          const [x, y] = spotToward(cx, cy, a, 2300, art.bodyRadius);
+          add({
+            kind: 'gate', art, link: end.link, hidden: end.hidden, dest: { x: end.other.x, y: end.other.y },
+            name: end.hidden ? 'Uncharted gate' : `Gate to ${end.other.name}`,
+            faction: end.builder, color: colorOf(end.builder), aperture, angle: a, spin: r() * TAU, radius: art.radius,
+          }, x, y);
         }
         const planets = [];
         system.locations.filter((l) => l.type === 'planet').forEach((l, i) => {
@@ -177,23 +219,26 @@ const Sectors = (() => {
         return p === null ? null : p;
       };
       const anchors = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
-      // Freighters leave toward lane and gate neighbours, or cross the sector.
+      // Freighters leave along lanes toward the sector edge, or through charted gates.
+      const edge = (a) => { const k = (C - 250) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); return [C + Math.cos(a) * k, C + Math.sin(a) * k]; };
       const exits = [];
       if (system) {
-        for (const l of [...galaxy.lanes, ...galaxy.gates.filter((g) => !g.hidden)]) {
+        for (const l of galaxy.lanes) {
           if (l.a !== system.id && l.b !== system.id) continue;
           const o = galaxy.systems[l.a === system.id ? l.b : l.a];
-          exits.push(Math.atan2(o.y - sy, o.x - sx));
+          const a = Math.atan2(o.y - sy, o.x - sx);
+          exits.push({ a, to: edge(a) });
         }
+        for (const g of sec.entities) if (g.kind === 'gate' && !g.hidden) exits.push({ a: g.angle, to: [g.x - ox, g.y - oy] });
       }
-      const edge = (a) => { const k = (C - 250) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); return [C + Math.cos(a) * k, C + Math.sin(a) * k]; };
       for (let i = 0; i < count; i++) {
         const fid = known ? pickOwner() : null;
         const anchor = anchors.length ? anchors[Math.floor(r() * anchors.length)] : null;
         const [axl, ayl] = anchor ? [anchor.x - ox, anchor.y - oy] : [C + (r() - 0.5) * 2000, C + (r() - 0.5) * 2000];
         if (r() < (anchor ? 0.45 : 0.6)) {
-          const a = exits.length ? exits[Math.floor(r() * exits.length)] : r() * TAU;
-          const [ex, ey] = edge(a);
+          const exit = exits.length ? exits[Math.floor(r() * exits.length)] : null;
+          const a = exit ? exit.a : r() * TAU;
+          const [ex, ey] = exit ? exit.to : edge(a);
           const [bx, by] = anchor ? [axl + Math.cos(a) * (anchor.radius + 120), ayl + Math.sin(a) * (anchor.radius + 120)] : edge(a + Math.PI);
           ship('freighter', fid, route(bx, by, ex, ey, 90 + r() * 70));
         } else {
