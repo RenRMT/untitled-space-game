@@ -11,10 +11,34 @@
 // Positions are fractional sector coordinates. Browser script (global `Travel`).
 
 const Travel = (() => {
-  const config = { sectorsPerSecond: 1.5, fastForward: 4, sampleStep: 0.2 };
+  const config = { sectorsPerSecond: 1.5, fastForward: 4 };
+
+  // Every sector a straight line from `from` to `to` passes through after the first, in order,
+  // with the distance along the line at which it is entered (Amanatides–Woo grid traversal).
+  // A line through a sector corner steps diagonally, since it touches neither side neighbour.
+  function crossings(from, to) {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    const dist = Math.hypot(dx, dy);
+    const out = [];
+    if (!dist) return out;
+    const ux = dx / dist, uy = dy / dist;
+    let cx = Math.floor(from.x), cy = Math.floor(from.y);
+    const sx = Math.sign(ux), sy = Math.sign(uy);
+    const firstEdge = (p, c, u) => (u > 0 ? (c + 1 - p) / u : u < 0 ? (p - c) / -u : Infinity);
+    let tx = firstEdge(from.x, cx, ux), ty = firstEdge(from.y, cy, uy);
+    const stepX = ux ? 1 / Math.abs(ux) : Infinity, stepY = uy ? 1 / Math.abs(uy) : Infinity;
+    for (;;) {
+      const t = Math.min(tx, ty);
+      if (t >= dist) break;
+      if (tx <= ty) { cx += sx; tx += stepX; }
+      if (ty <= t) { cy += sy; ty += stepY; }
+      out.push({ x: cx, y: cy, t });
+    }
+    return out;
+  }
 
   function create(galaxy, knowledge) {
-    let trip = null; // { from, to, dest, dist, t, fast, cell, ignored, prompt, startCell }
+    let trip = null; // { from, to, dest, dist, t, fast, cells, next, cell, ignored, prompt }
     const cellKey = (x, y) => `${x},${y}`;
     const posOf = () => {
       const k = trip.dist ? trip.t / trip.dist : 1;
@@ -31,6 +55,7 @@ const Travel = (() => {
       const dist = Math.hypot(dest.x - from.x, dest.y - from.y);
       trip = {
         from: { ...from }, to: { x: dest.x, y: dest.y }, dest, dist, t: 0, fast: false,
+        cells: crossings(from, dest), next: 0,
         cell: cellKey(Math.floor(from.x), Math.floor(from.y)), ignored: new Set(), prompt: null,
       };
       trip.ignored.add(trip.cell); // whatever is where you start, you already left behind
@@ -59,16 +84,15 @@ const Travel = (() => {
       if (!trip || trip.prompt) return null;
       const speed = config.sectorsPerSecond * (trip.fast ? config.fastForward : 1);
       const t1 = Math.min(trip.dist, trip.t + speed * dt);
-      // Walk the line in small steps so no sector is skipped.
-      while (trip.t < t1) {
-        trip.t = Math.min(t1, trip.t + config.sampleStep);
-        const p = posOf();
-        const key = cellKey(Math.floor(p.x), Math.floor(p.y));
-        if (key === trip.cell) continue;
-        trip.cell = key;
-        const ev = enter(Math.floor(p.x), Math.floor(p.y));
+      // Enter every sector the line crosses up to t1, stopping at the entry point of any event.
+      while (trip.next < trip.cells.length && trip.cells[trip.next].t <= t1) {
+        const c = trip.cells[trip.next++];
+        trip.t = c.t;
+        trip.cell = cellKey(c.x, c.y);
+        const ev = enter(c.x, c.y);
         if (ev) return ev;
       }
+      trip.t = t1;
       if (trip.t >= trip.dist) return end('arrive');
       return null;
     }
@@ -99,5 +123,7 @@ const Travel = (() => {
     };
   }
 
-  return { create, config };
+  return { create, config, crossings };
 })();
+
+if (typeof module !== 'undefined') module.exports = Travel;

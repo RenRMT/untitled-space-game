@@ -1156,6 +1156,11 @@ const Art = (() => {
   const astCache = new Map();
   let astBudget = { t: -1, n: 0 };
   config.maxAsteroidSprites = 3000;
+  // Each sprite is its own canvas, and mobile browsers kill tabs that hold too much canvas memory,
+  // so the cache is also capped by total pixel area (16M px is about 64 MB at 4 bytes per pixel).
+  config.maxAsteroidPixels = 16e6;
+  let astPixels = 0;
+  const pixelsOf = (spr) => spr.canvas.width * spr.canvas.height;
   config.asteroidBuildsPerFrame = 6;
 
   function axisMat([x, y, z], a) {
@@ -1401,7 +1406,12 @@ const Art = (() => {
       astBudget.n++;
       spr = buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext);
       astCache.set(key, spr);
-      while (astCache.size > config.maxAsteroidSprites) astCache.delete(astCache.keys().next().value);
+      astPixels += pixelsOf(spr);
+      while (astCache.size > 1 && (astCache.size > config.maxAsteroidSprites || astPixels > config.maxAsteroidPixels)) {
+        const [oldest, old] = astCache.entries().next().value;
+        astCache.delete(oldest);
+        astPixels -= pixelsOf(old);
+      }
     }
     ast._astLast = { style, ppu, spr };
     ctx.save();
@@ -1430,6 +1440,6 @@ const Art = (() => {
     STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
-    clearCache: () => { cache.clear(); astCache.clear(); },
+    clearCache: () => { cache.clear(); astCache.clear(); astPixels = 0; },
   };
 })();

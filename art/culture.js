@@ -15,7 +15,7 @@
 const ArtCulture = (() => {
   const isNode = typeof require === 'function' && typeof module !== 'undefined';
   const U = isNode ? require('./util.js') : ArtUtil;
-  const { mulberry32, hashInt } = isNode ? require('../rng.js') : globalThis;
+  const { mulberry32, hashInt, seedToInt } = isNode ? require('../rng.js') : globalThis;
 
   // Numeric fields are [min, max] ranges; arrays of strings are options picked per faction.
   const LINEAGES = {
@@ -137,16 +137,9 @@ const ArtCulture = (() => {
     return Object.assign(c, extra);
   }
 
-  function seedInt(seed) {
-    if (Number.isInteger(seed)) return seed >>> 0;
-    let h = 2166136261;
-    for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-    return h >>> 0;
-  }
-
   // Cultures for every faction in a generated galaxy, plus one for independents.
   function forGalaxy(galaxy) {
-    const base = seedInt(galaxy.seed);
+    const base = seedToInt(galaxy.seed);
     const r = mulberry32(hashInt(base, 7, 0xc0ffee));
     const fseed = (id) => hashInt(base, id, 0xa47);
     const byId = new Map();

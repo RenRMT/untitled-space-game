@@ -32,24 +32,14 @@ const Sectors = (() => {
   const OUTER_BELT = [['ice', 3], ['carbon', 2], ['stony', 1]];
   const DEEP_FIELD = [['carbon', 3], ['stony', 2], ['ice', 2], ['metal', 1]];
 
-  function seedInt(seed) {
-    if (Number.isInteger(seed)) return seed >>> 0;
-    let h = 2166136261;
-    for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-    return h >>> 0;
-  }
-  function weighted(list, r) {
-    const total = list.reduce((s, [, w]) => s + w, 0);
-    let x = r() * total;
-    for (const [item, w] of list) if ((x -= w) < 0) return item;
-    return list[list.length - 1][0];
-  }
+  // weightedPick (rng.js) with a random generator instead of a number.
+  const weighted = (list, r) => weightedPick(list, r());
 
   function create(galaxy, cultures, units) {
     // Layout distances were tuned for 6000-unit sectors; bigger sectors spread systems out
     // proportionally, while object sizes and local groupings (wreck clusters, patrols) stay put.
     const S = units / 6000;
-    const base = seedInt(galaxy.seed);
+    const base = seedToInt(galaxy.seed);
     const key = (x, y) => `${x},${y}`;
     const systemAt = new Map(galaxy.systems.map((s) => [key(s.x, s.y), s]));
     const outpostAt = new Map(galaxy.outposts.map((o) => [key(o.x, o.y), o]));
