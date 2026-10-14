@@ -20,21 +20,21 @@ const Galaxy = (() => {
 
   // Bump whenever a change to the generator (or to sector contents) moves things around for the
   // same seed and settings, so saved charts and cargo from the old layout are not reused.
-  const VERSION = 2;
+  const VERSION = 3;
 
   const DEFAULTS = {
-    size: 80,
+    size: 25,
     sectorUnits: 16000, // world units per sector side
-    frontier: 7, // width of the outer frontier ring, in sectors
+    frontier: 2, // width of the outer frontier ring, in sectors
     // Settlement density: two octaves of value noise plus a pull toward the centre.
-    density: { cell1: 14, cell2: 6, noise1: 0.6, noise2: 0.25, radial: 0.55, cutoff: 0.5 },
-    systems: { count: [120, 150], spacing: 2, major: 0.35 }, // major: share of systems that are large
-    outposts: { count: [150, 250], spacing: 0 }, // spacing: minimum distance to any other settlement
+    density: { cell1: 5, cell2: 2.5, noise1: 0.6, noise2: 0.25, radial: 0.55, cutoff: 0.5 },
+    systems: { count: [13, 16], spacing: 3, major: 0.35 }, // major: share of systems that are large
+    outposts: { count: [16, 24], spacing: 2.5 }, // spacing: minimum distance to any other settlement
     // Safe, charted pocket radius around each settlement, in sectors.
     pockets: { capital: 1.5, major: 1, minor: 0.6, outpost: 0.4 },
     // Security by distance (in sectors) from the nearest settled system: at most `high` away is
     // high security, then medium, then low; further than `low` is lawless.
-    security: { high: 1.5, medium: 3.5, low: 6 },
+    security: { high: 1.5, medium: 3, low: 4.5 },
     encounterChance: { deep: 0.07, frontier: 0.18 },
   };
 
@@ -162,6 +162,16 @@ const Galaxy = (() => {
     const anchors = [centre, ...[0, 1].map((i) => ({ x: C + Math.cos(a0 + i * Math.PI) * reach, y: C + Math.sin(a0 + i * Math.PI) * reach }))];
     const cultureAt = (x, y) => anchors.reduce((best, a, i) => (dist(a, { x, y }) < dist(anchors[best], { x, y }) ? i : best), 0);
     for (const s of systems) s.culture = cultureAt(s.x, s.y);
+    // On a small map a region can come up nearly empty: give each culture at least two systems,
+    // taking the ones nearest its anchor from cultures that can spare them.
+    const countOf = (c) => systems.filter((s) => s.culture === c).length;
+    for (let c = 1; c < anchors.length; c++) {
+      const near = systems.filter((s) => !s.capital).sort((a, b) => dist(a, anchors[c]) - dist(b, anchors[c]));
+      for (const s of near) {
+        if (countOf(c) >= 2) break;
+        if (s.culture !== c && countOf(s.culture) > 2) s.culture = c;
+      }
+    }
 
     // ---------- Outposts: single settlements, thinning out into deep space ----------
     const occupied = new Set(systems.map((s) => idx(s.x, s.y)));

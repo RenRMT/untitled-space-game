@@ -263,8 +263,8 @@ const GalaxyMap = (() => {
       }
     }
 
-    // Sector grid: every sector when zoomed in, else every 8.
-    const step = scale >= 10 ? 1 : 8;
+    // Sector grid: every sector when zoomed in, else every 5.
+    const step = scale >= 10 ? 1 : 5;
     ctx.strokeStyle = scale >= 10 ? '#141a2c' : '#18203a';
     ctx.lineWidth = 1;
     ctx.beginPath();

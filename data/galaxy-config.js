@@ -6,7 +6,5 @@ const GALAXY_CONFIG = {
   seed: 1,
   params: {
     sectorUnits: 12000, // world units per sector in the flight view
-    systems: { spacing: 3 }, // minimum distance between systems, in sectors
-    outposts: { spacing: 2.5 }, // minimum distance from an outpost to any other settlement
   },
 };

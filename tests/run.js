@@ -201,7 +201,7 @@ test('every station has a dockable market with sane prices', () => {
     }
     assert.strictEqual(JSON.stringify(Economy.market(g.seed, st)), JSON.stringify(m), 'market is not deterministic');
   }
-  assert(stations.length > 200, `only ${stations.length} stations`);
+  assert(stations.length > 40, `only ${stations.length} stations`);
 });
 
 test('there are profitable trade runs between nearby stations', () => {
@@ -725,7 +725,7 @@ test('security falls from the charted pockets to the frontier, and sets how dang
   const sysPocket = [];
   for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); if (t.pocket?.kind === 'system') sysPocket.push(t.security); }
   assert(sysPocket.filter((v) => v === 3).length / sysPocket.length > 0.9, 'systems\' pockets are mostly high security');
-  assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.75, 'the frontier is mostly lawless');
+  assert(by.frontier.filter((v) => v <= 1).length / by.frontier.length > 0.8, 'the frontier is mostly low security or lawless');
   for (let level = 0; level < 3; level++) {
     const lo = Security.pirates(level), hi = Security.pirates(level + 1);
     const max = (t) => Math.max(...t.map(([v]) => v)), min = (t) => Math.min(...t.map(([v]) => v));
@@ -740,8 +740,8 @@ test('pirates come in packs that follow the security level and can be fought one
   const packs = [[], [], [], []]; // pack sizes, by security level
   const perSector = [[], [], [], []]; // pirates per sector that has any, by level
   const { orbit: [, o1] } = Security.PACK;
-  for (let y = 0; y < g.size; y += 2) {
-    for (let x = 0; x < g.size; x += 2) {
+  for (let y = 0; y < g.size; y++) {
+    for (let x = 0; x < g.size; x++) {
       const sec = S.at(x, y);
       if (sec.contact) continue; // an ambush is one pack on purpose
       const ps = sec.entities.filter((e) => e.kind === 'ship' && e.pirate);

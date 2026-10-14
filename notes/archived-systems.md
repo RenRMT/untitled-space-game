@@ -217,3 +217,24 @@ pirates hunt you), territory that pirates or players can change, or missions giv
 The control-field generator can come back almost unchanged from `galaxy.js` on the archive
 branch; security would then add faction strength back to distance. The extra lineages are pure
 art and can return on their own (add them to `LINEAGES` and `CULTURES`).
+
+## The 80 × 80 galaxy
+
+**What it was.** A galaxy of 80 × 80 sectors (6,400) with a frontier ring 7 sectors wide, 120–150
+settled systems at least 3 sectors apart, 150–250 outposts, density noise cells of 14 and 6
+sectors, and security thresholds sized for it. There was far more space than content: most
+sectors were empty, and crossing the map took several minutes of map travel.
+
+**What it is now.** About a tenth of the size: 25 × 25 sectors (625), a frontier ring 2 wide (the
+same share of the map), 13–16 systems still at least 3 sectors apart, 16–24 outposts at least
+2.5 sectors from any other settlement, density cells of 5 and 2.5, and security bands of 1.5,
+3 and 4.5 sectors (roughly 20% high, 25% medium, 25% low and 30% lawless sectors). Each culture
+gets at least two systems. Every good research needs is still sold somewhere (checked over
+several seeds). `Galaxy.VERSION` went to 3, so old charts and cargo positions are not reused.
+
+**Where it lived.** `galaxy.js` (`DEFAULTS`), `data/galaxy-config.js` (the spacing overrides),
+`map.js` (the coarse grid every 8 sectors, now 5), test thresholds in `tests/run.js`.
+
+**To bring it back.** It's all parameters: set `size`, `frontier`, `density`, `systems`,
+`outposts` back in `GALAXY_CONFIG.params` (values above), and widen `security` to suit (about
+2, 5 and 8 sectors). A larger map wants more to find between settlements first.
