@@ -580,6 +580,59 @@ function drawSectorGrid() {
 
 const DRAW_ORDER = { star: 0, planet: 1, asteroid: 1.5, gate: 2, station: 2, wreck: 3, item: 3.5, ship: 4 };
 
+// Pickup highlight: a soft glow, a steady ring and a ring pulsing outward, in the amber the minimap
+// uses for items. Each item pulses on its own rhythm, and the effect brightens as the ship nears.
+const ITEM_HALO = { color: '#ffcf5a', period: 1.8, near: 900 };
+function itemPhase(e) {
+  if (e.haloPhase === undefined) {
+    let h = 0;
+    for (const ch of e.key) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    e.haloPhase = (h % 1000) / 1000;
+  }
+  return e.haloPhase;
+}
+
+let haloGlow = null; // one radial gradient of radius 1, scaled to each item
+function drawItemHalos(list, t) {
+  if (!haloGlow) {
+    haloGlow = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    haloGlow.addColorStop(0, 'rgba(255, 207, 90, 0.55)');
+    haloGlow.addColorStop(0.55, 'rgba(255, 207, 90, 0.32)');
+    haloGlow.addColorStop(1, 'rgba(255, 207, 90, 0)');
+  }
+  ctx.save();
+  ctx.strokeStyle = ITEM_HALO.color;
+  for (const e of list) {
+    if (e.kind !== 'item') continue;
+    const x = rx(e.x), y = ry(e.y);
+    const R = e.radius * 0.8 + 14;
+    const near = clamp(1 - Math.hypot(ship.x - e.x, ship.y - e.y) / ITEM_HALO.near, 0, 1);
+    const p = (t / ITEM_HALO.period + itemPhase(e)) % 1;
+    // Soft glow, fading out past the ring.
+    ctx.globalAlpha = 0.55 + 0.45 * near;
+    ctx.fillStyle = haloGlow;
+    ctx.translate(x, y);
+    ctx.scale(R * 1.5, R * 1.5);
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, TAU);
+    ctx.fill();
+    ctx.scale(1 / (R * 1.5), 1 / (R * 1.5));
+    ctx.translate(-x, -y);
+    // Steady ring, breathing slightly.
+    ctx.lineWidth = 1.5 / view.zoom;
+    ctx.globalAlpha = 0.35 + 0.35 * near + 0.1 * Math.sin((p + 0.25) * TAU);
+    ctx.beginPath();
+    ctx.arc(x, y, R, 0, TAU);
+    ctx.stroke();
+    // Pulse: expands and fades.
+    ctx.globalAlpha = (1 - p) * (0.45 + 0.35 * near);
+    ctx.beginPath();
+    ctx.arc(x, y, R * (1 + p * 1.1), 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function visible(e) {
   const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.radius || 100) * 1.3;
   return Math.abs(e.x - cam.x) < hw + r && Math.abs(e.y - cam.y) < hh + r;
@@ -590,7 +643,10 @@ function drawEntities(list, t) {
   const shown = list.filter(visible).sort((a, b) => DRAW_ORDER[a.kind] - DRAW_ORDER[b.kind]);
   perfStats.posed = list.length;
   perfStats.drawn = shown.length;
+  let halos = false;
   for (const e of shown) {
+    // Pickup highlights go above wrecks and asteroids, just under the items themselves.
+    if (e.kind === 'item' && !halos) { drawItemHalos(shown, t); halos = true; }
     const x = rx(e.x), y = ry(e.y);
     if (e.kind === 'star') Art.drawStar(ctx, e.body, style, { x, y, t });
     else if (e.kind === 'planet') {
