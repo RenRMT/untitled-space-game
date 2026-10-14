@@ -118,6 +118,54 @@
   }
   body.docked #map-btn, body.docked #style-btn, body.docked #move-btn, body.docked #context { display: none; }
 
+  /* Combat panel: replaces the context card during a fight. One row per ship with shield (top)
+     and hull (bottom) bars; enemy rows are buttons that focus fire. */
+  #combat {
+    --hostile: #ff5a6e; --shd: #7df9ff; --hul: #b6ff8a;
+    position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    width: min(380px, calc(100vw - 24px)); box-sizing: border-box; padding: 9px 10px 10px 12px;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--hostile); border-radius: 3px;
+    font: 12px var(--mono); color: var(--hud);
+  }
+  #combat[hidden] { display: none; }
+  #combat.won { border-left-color: var(--hul); }
+  #combat.fled { border-left-color: var(--cyan); }
+  .cb-head { display: flex; align-items: center; gap: 8px; }
+  .cb-title { flex: 1; min-width: 0; color: #eef1ff; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+  #combat.lost .cb-title { color: var(--hostile); }
+  .cb-btn { padding: 6px 14px; border-color: var(--cyan); color: var(--cyan); }
+  .cb-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
+  .cb-track { height: 2px; margin: 8px 0 4px; background: var(--line); }
+  .cb-timer { display: block; height: 100%; width: 0; background: var(--hostile); }
+  #combat:not(.won):not(.lost):not(.fled) .cb-timer { opacity: 0.8; }
+  #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
+  .cb-rows { display: flex; flex-direction: column; }
+  .cb-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) 110px 58px; align-items: center; column-gap: 8px;
+    width: 100%; box-sizing: border-box; padding: 6px 4px 6px 14px; margin: 0; border: 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
+    background: none; color: var(--hud); font: inherit; text-align: left; position: relative;
+  }
+  .cb-row:first-child { border-top: 0; }
+  button.cb-row { cursor: pointer; touch-action: manipulation; }
+  button.cb-row:hover .cb-name, button.cb-row:focus-visible .cb-name { color: #eef1ff; }
+  button.cb-row:focus-visible { outline: 1px solid var(--cyan); outline-offset: -1px; }
+  .cb-row.focus::before { content: '▸'; position: absolute; left: 2px; color: var(--hostile); }
+  .cb-row.focus .cb-name { color: #eef1ff; }
+  .cb-row.you .cb-name { color: var(--cyan); }
+  .cb-row.down { opacity: 0.45; }
+  .cb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hud); }
+  .cb-bars { display: flex; flex-direction: column; gap: 2px; }
+  .cb-bar { display: block; height: 4px; background: rgba(38, 48, 74, 0.9); }
+  .cb-bar > span { display: block; height: 100%; transition: width 0.25s ease-out; }
+  .cb-bar.shd > span { background: var(--shd); }
+  .cb-bar.hul > span { background: var(--hul); }
+  .cb-row:not(.you) .cb-bar.hul > span { background: var(--hostile); }
+  .cb-nums { color: var(--dim); font-size: 11px; text-align: right; white-space: nowrap; }
+  .cb-log { color: var(--dim); font-size: 11px; margin-top: 6px; min-height: 2.6em; line-height: 1.3; }
+  .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
+  body.in-combat #context, body.in-combat #map-btn { display: none; }
+
   /* Station screen */
   #station {
     --faction: var(--dim); --good: #b6ff8a; --wanted: #ffb347; --salvage: #ffcf5a;
@@ -199,6 +247,13 @@
   .slot.empty .name { color: var(--dim); }
   .slot.empty .name::before { background: none; border: 1px dashed var(--dim); }
 
+  /* Hull condition and the repair button on the Ship tab. */
+  .hull-row { display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
+  .hull-gauge { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .hull-gauge > span { display: block; height: 100%; background: #b6ff8a; }
+  .hull-row.damaged .hull-gauge > span { background: #ffb347; }
+  .hull-row .btn { white-space: nowrap; }
+
   .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
   .stats { margin: 0; }
   .stats .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
@@ -230,6 +285,15 @@
   </div>
   <div class="cx-sub"></div>
   <div class="cx-actions"></div>
+</div>
+<div id="combat" role="region" aria-label="Combat" aria-live="polite" hidden>
+  <div class="cb-head">
+    <span class="cb-title"></span>
+    <button class="btn cb-btn" type="button"></button>
+  </div>
+  <div class="cb-track" aria-hidden="true"><span class="cb-timer"></span></div>
+  <div class="cb-rows"></div>
+  <div class="cb-log"></div>
 </div>
 
 <div id="station" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
@@ -292,8 +356,10 @@
 <script src="economy.js"></script>
 <script src="mining.js"></script>
 <script src="loadout.js"></script>
+<script src="combat.js"></script>
 <script src="station.js"></script>
 <script src="context.js"></script>
+<script src="combat-panel.js"></script>
 <script src="travel.js"></script>
 <script src="game.js"></script>
 </body>

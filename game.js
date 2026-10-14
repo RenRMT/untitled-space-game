@@ -45,6 +45,17 @@ const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds 
 // Approach: fly to the selected object and stop beside it (or keep station with a moving ship).
 // key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes.
 const autopilot = { key: null, e: null, stop: 0, follow: false };
+// Combat (combat.js): s is the fight in progress (null when none); ships holds the enemies'
+// frozen poses by key; fx the queued and running effects (beams, flashes, numbers, explosions);
+// result/resultT keep the outcome on the panel for a moment; grace keeps pirates off after
+// fleeing or respawning; wreckT counts down while the destroyed player ship is towed.
+// final and lastShips keep the ended fight's state and enemy poses for the panel and late effects;
+// wrecked hides the player ship between its explosion and the tow.
+const fight = {
+  s: null, ships: new Map(), timer: 0, fx: [], log: [], result: null, resultT: 0, grace: 0, wreckT: 0,
+  final: null, lastShips: new Map(), wrecked: false,
+};
+const inFight = () => !!fight.s || fight.wreckT > 0;
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
@@ -116,17 +127,22 @@ const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, tr
 // ---------- Cargo hold and credits: items collected or bought, saved per galaxy ----------
 
 // items: { kind (art/items.js id), label, category: 'loot' | 'trade' }, one hold unit each.
-// mined: keys of asteroids broken up by mining. drops: items they left floating, not yet collected
-// (item entities; each keeps its saved form in `drop`).
-const cargo = { key: '', items: [], collected: new Set(), credits: 0, mined: new Set(), drops: [] };
+// mined: keys of asteroids broken up by mining. drops: items left floating by mining, destroyed
+// ships or the player's own lost cargo, not yet collected (item entities; each keeps its saved
+// form in `drop`). destroyed: keys of NPC ships destroyed in combat. hull: the player ship's
+// hull points (repaired at stations). home: the last station docked at, where a lost ship is towed.
+const cargo = {
+  key: '', items: [], collected: new Set(), credits: 0, mined: new Set(), drops: [],
+  destroyed: new Set(), hull: 0, home: null,
+};
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 
-// A floating item left by a mined asteroid, from its saved form { key, kind, seed, x, y }.
+// A floating item from its saved form { key, kind, seed, x, y, label? }.
 function dropEntity(d) {
   const art = ArtItems.create(d.kind, d.seed);
   const r = mulberry32(d.seed);
   return {
-    kind: 'item', art, key: d.key, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
+    kind: 'item', art, key: d.key, label: d.label || art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
     angle: r() * TAU, tumble: (r() - 0.5) * 0.3, radius: art.radius, x: d.x, y: d.y, drop: d,
   };
 }
@@ -144,6 +160,9 @@ function loadCargo(galaxy) {
   cargo.credits = Economy.config.startingCredits;
   cargo.mined = new Set();
   cargo.drops = [];
+  cargo.destroyed = new Set();
+  cargo.hull = SHIP.hull;
+  cargo.home = null;
   try {
     if (params.has('fresh')) localStorage.removeItem(cargo.key);
     const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
@@ -152,7 +171,12 @@ function loadCargo(galaxy) {
       cargo.collected = new Set(d.collected);
       if (Number.isFinite(d.credits)) cargo.credits = d.credits;
       if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
-      if (Array.isArray(d.drops)) cargo.drops = d.drops.filter((x) => x && Economy.GOODS[x.kind]).map(dropEntity);
+      if (Array.isArray(d.drops)) {
+        cargo.drops = d.drops.filter((x) => x && (Economy.GOODS[x.kind] || Economy.SALVAGE[x.kind])).map(dropEntity);
+      }
+      if (Array.isArray(d.destroyed)) cargo.destroyed = new Set(d.destroyed);
+      if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
+      if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
     }
   } catch (e) { /* storage unavailable: cargo lasts for this session only */ }
 }
@@ -161,6 +185,7 @@ function saveCargo() {
     localStorage.setItem(cargo.key, JSON.stringify({
       items: cargo.items, collected: [...cargo.collected], credits: cargo.credits,
       mined: [...cargo.mined], drops: cargo.drops.map((e) => e.drop),
+      destroyed: [...cargo.destroyed], hull: cargo.hull, home: cargo.home,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -184,6 +209,23 @@ const hold = {
     if (i < 0) return false;
     cargo.items.splice(i, 1);
     cargo.credits += price;
+    saveCargo();
+    return true;
+  },
+};
+
+// Hull repairs as the station menu sees them: as many points as the credits cover.
+const REPAIR_PRICE = 2; // credits per hull point
+const repairs = {
+  price: REPAIR_PRICE,
+  get hull() { return cargo.hull; },
+  get max() { return SHIP.hull; },
+  get cost() { return Math.ceil(SHIP.hull - cargo.hull) * REPAIR_PRICE; },
+  repair() {
+    const points = Math.min(Math.ceil(SHIP.hull - cargo.hull), Math.floor(cargo.credits / REPAIR_PRICE));
+    if (points <= 0) return false;
+    cargo.hull = Math.min(SHIP.hull, cargo.hull + points);
+    cargo.credits -= points * REPAIR_PRICE;
     saveCargo();
     return true;
   },
@@ -307,11 +349,14 @@ function dockState(st) {
 }
 
 function dock(station) {
-  if (docked || !dockState(station).ok) return;
+  if (docked || inFight() || !dockState(station).ok) return;
   stopMining();
   select(null);
   autopilot.key = null;
   docked = { station };
+  // A lost ship is towed back to the last station it docked at.
+  cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
+  saveCargo();
   ship.vx = ship.vy = 0;
   ship.targetSpeed = 0;
   ship.thrust = 0;
@@ -325,6 +370,7 @@ function dock(station) {
     hold,
     ship: SHIP,
     loadout,
+    repairs,
     onLaunch: launch,
   });
 }
@@ -377,7 +423,7 @@ function mineState(a) {
 }
 
 function startMining(a) {
-  if (docked || !mineState(a).ok) return;
+  if (docked || inFight() || !mineState(a).ok) return;
   mining.target = a;
   mining.t = 0;
   autopilot.key = null;
@@ -553,12 +599,15 @@ function nearbyEntities(t) {
       for (const e of sec.entities) {
         if (e.kind === 'item' && cargo.collected.has(e.key)) continue;
         if (e.kind === 'asteroid' && cargo.mined.has(e.key)) continue;
-        Sectors.pose(e, t);
+        if (e.kind === 'ship' && cargo.destroyed.has(e.key)) continue;
+        const held = e.kind === 'ship' && fight.ships.get(e.key);
+        if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: 0 }); // stopped to fight
+        else Sectors.pose(e, t);
         out.push(e);
       }
     }
   }
-  // Items left by mined asteroids live outside the generated sectors.
+  // Floating items left by mining, combat or a lost ship live outside the generated sectors.
   for (const e of cargo.drops) {
     const [dx, dy] = sectorOf(e.x, e.y);
     if (Math.abs(dx - cx) > 1 || Math.abs(dy - cy) > 1) continue;
@@ -609,7 +658,7 @@ function jumpState(g) {
 
 // Come out on the system side of the gate at the other end, heading into the system.
 function jumpVia(g) {
-  if (!jumpState(g).ok) return;
+  if (inFight() || !jumpState(g).ok) return;
   const there = partnerGate(g);
   if (!there) return;
   const out = there.angle + Math.PI;
@@ -719,13 +768,14 @@ function describe(e) {
       tag: e.hidden ? 'Uncharted' : '', actions: [primary('jump', s), ...approachActions(e, s.inRange)],
     };
   }
-  // Ships: who they are; what you can do with them comes with combat.
+  // Ships: hostile ones can be attacked; any ship can be approached (and followed).
   const hostile = isHostile(e);
+  const attack = hostile ? attackState(e) : null;
   return {
     title: e.name || ROLE_LABEL[e.role] || 'Ship', subtitle: `${factionName(e.faction)} · ${dist}`,
     color: hostile ? HOSTILE_COLOR : factionColor(e.faction),
     tag: hostile ? 'Hostile' : '', tone: hostile ? 'hostile' : '',
-    actions: approachActions(e, false),
+    actions: hostile ? [primary('attack', attack), ...approachActions(e, attack.inRange)] : approachActions(e, false),
   };
 }
 
@@ -735,6 +785,7 @@ ContextCard.onAction = (id) => {
   if (id === 'dock') dock(e);
   else if (id === 'mine') startMining(e);
   else if (id === 'jump') jumpVia(e);
+  else if (id === 'attack') engage(e);
   else if (id === 'approach') approach(e);
   else if (id === 'cancel-approach') { autopilot.key = null; ship.targetSpeed = 0; }
 };
@@ -770,6 +821,7 @@ function shortcut(kind, state, act) {
 // ---------- Approach: fly to an object and stop beside it ----------
 
 function approach(e) {
+  if (inFight()) return;
   const reach = e.kind === 'station' ? DOCK.range : e.kind === 'asteroid' ? Mining.config.range : e.kind === 'gate' ? JUMP.range : 600;
   Object.assign(autopilot, { key: entityKey(e), e, stop: e.radius + reach * 0.5, follow: e.kind === 'ship' });
   stopMining();
@@ -826,6 +878,336 @@ function drawSelection(t) {
   ctx.restore();
 }
 
+// ---------- Combat: automatic rounds against hostile ships (combat.js) ----------
+
+// A fight starts from a hostile ship's Attack button, or when pirates catch the ship within
+// their aggro range. Every pirate near the one engaged joins in. The ships stop where they are;
+// every round their weapons fire on their own, and the combat panel (combat-panel.js) shows
+// the state. You can focus fire (tap an enemy or its row) or try to flee. Outcomes:
+// - won: destroyed ships stay destroyed and leave loot floating,
+// - fled: the pirates leave you alone for a while,
+// - lost: the cargo spills where the ship was destroyed, and it's towed back to the last
+//   station it docked at (or the start system), with the hull patched up.
+const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
+const RESPAWN_GRACE = 8;
+const SHOT_COLOR = { player: '#7df9ff', enemy: '#ff5a6e' };
+
+function attackState(e) {
+  if (gapTo(e) > Combat.config.engageRange) return { ok: false, label: 'Attack · too far', inRange: false };
+  return { ok: true, label: 'Attack', inRange: true };
+}
+
+// Where a combatant is: the player ship, or an enemy's frozen pose.
+function fighterPos(id) {
+  if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius };
+  return fight.ships.get(id) || null;
+}
+
+function engage(target, ambushed = false) {
+  if (inFight() || docked || !isHostile(target)) return;
+  if (!ambushed && !attackState(target).ok) return;
+  const group = frameList.filter((e) => isHostile(e) && e !== target
+    && Math.hypot(e.x - target.x, e.y - target.y) <= Combat.config.groupRange);
+  group.unshift(target);
+  // Letters tell same-role ships apart, on the panel and above the ships.
+  const letters = 'ABCDEFGH';
+  const enemies = group.map((e, i) => Combat.combatant(e.key,
+    `${ROLE_LABEL[e.role] || 'Ship'}${group.length > 1 ? ` ${letters[i] || i + 1}` : ''}`, Loadout.stats(Loadout.starter(e.role))));
+  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  fight.s = Combat.create(rng, Combat.combatant('player', `${SHIP.name} (you)`, SHIP, cargo.hull), enemies, target.key);
+  fight.ships = new Map(group.map((e, i) => [e.key, {
+    x: e.x, y: e.y, a: Math.atan2(ship.y - e.y, ship.x - e.x), role: e.role, radius: e.radius, name: enemies[i].name,
+  }]));
+  fight.timer = 0.8; // the first round comes quickly
+  fight.log = [ambushed ? 'Pirates attack!' : `You engage the ${enemies[0].name}.`];
+  fight.result = null;
+  stopMining();
+  autopilot.key = null;
+  ship.targetSpeed = 0;
+  select(null);
+  GalaxyMap.blocked = true;
+  document.body.classList.add('in-combat');
+  toast.text = ambushed ? 'Pirates attack!' : 'Combat';
+  toast.t = 2;
+}
+
+// Pirates attack a ship that comes too close, unless it just got away from them.
+function checkAggro(list) {
+  if (inFight() || docked || fight.grace > 0) return;
+  for (const e of list) {
+    if (isHostile(e) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= Combat.config.aggroRange) { engage(e, true); return; }
+  }
+}
+
+// Queue the effects of a round, one volley after another, so it reads as an exchange of fire.
+function playRound(events) {
+  let delay = 0;
+  const lines = { you: null, them: { shots: 0, hits: 0, dmg: 0, n: 0 }, extra: [] };
+  for (const ev of events) {
+    if (ev.flee !== undefined) { lines.extra.push(ev.flee ? 'You got away.' : 'Couldn\'t get away!'); continue; }
+    const from = fighterPos(ev.from), to = fighterPos(ev.to);
+    if (!from || !to) continue;
+    const mine = ev.from === 'player';
+    fight.fx.push({ type: 'beam', delay, t: 0.4, max: 0.4, from, to, hits: ev.hits, color: mine ? SHOT_COLOR.player : SHOT_COLOR.enemy });
+    if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: delay + 0.08, t: 0.35, max: 0.35, at: to });
+    const jx = (Math.random() - 0.5) * 30; // so numbers landing together don't overlap
+    if (ev.damage > 0) fight.fx.push({ type: 'number', delay: delay + 0.08, t: 1, max: 1, at: to, jx, text: `−${ev.damage}`, color: ev.hullDamage > 0 ? '#ffb347' : '#7df9ff' });
+    else fight.fx.push({ type: 'number', delay: delay + 0.08, t: 0.8, max: 0.8, at: to, jx, text: 'miss', color: '#6f7a99' });
+    if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: delay + 0.08, at: to, n: 3 + ev.hits });
+    if (ev.destroyed) fight.fx.push({ type: 'call', delay: delay + 0.2, run: mine ? () => shipDestroyed(ev.to) : () => playerDestroyed() });
+    const name = (id) => (fight.s ? (fight.s.enemies.find((e) => e.id === id) || {}).name : '') || 'the enemy';
+    if (mine) lines.you = `You hit ${name(ev.to)} ${ev.hits}/${ev.shots} for ${ev.damage}${ev.destroyed ? ' · destroyed' : ''}`;
+    else Object.assign(lines.them, { shots: lines.them.shots + ev.shots, hits: lines.them.hits + ev.hits, dmg: lines.them.dmg + ev.damage, n: lines.them.n + 1 });
+    delay += 0.14;
+  }
+  const log = [];
+  if (lines.you) log.push(lines.you);
+  else if (fight.s && fight.s.round > 0 && !lines.extra.length) log.push('Trying to get away…');
+  if (lines.them.n) log.push(`${lines.them.n > 1 ? 'They hit' : 'It hit'} you ${lines.them.hits}/${lines.them.shots} for ${lines.them.dmg}`);
+  fight.log = [...log, ...lines.extra].slice(-2);
+}
+
+// Debris and a flash where a ship blew up.
+function explode(x, y, r) {
+  const colors = ['#ffb347', '#ff5a6e', '#cfd8ff', '#ffd27a'];
+  for (let i = 0; i < 26 + r; i++) {
+    const ang = Math.random() * TAU, sp = 60 + Math.random() * 260, life = 0.5 + Math.random() * 1.1;
+    debris.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 3.5, color: colors[i % colors.length] });
+  }
+  fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
+}
+
+// An enemy destroyed: gone for good, with its loot floating where it was.
+function shipDestroyed(key) {
+  const p = fight.ships.get(key) || fight.lastShips?.get(key);
+  cargo.destroyed.add(key);
+  if (!p) { saveCargo(); return; }
+  explode(p.x, p.y, p.radius);
+  Combat.loot(world.galaxy.seed, key, p.role).forEach((d, i) => {
+    const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
+    cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
+  });
+  saveCargo();
+}
+
+// The player ship destroyed: the cargo spills, and after a moment it's towed home.
+function playerDestroyed() {
+  explode(ship.x, ship.y, SHIP.radius * 2);
+  const tag = Date.now().toString(36);
+  cargo.items.forEach((it, i) => {
+    const a = Math.random() * TAU, r = 30 + Math.random() * 90;
+    cargo.drops.push(dropEntity({
+      key: `lost:${tag}:${i}`, kind: it.kind, label: it.label, seed: (Math.random() * 4294967296) >>> 0,
+      x: ship.x + Math.cos(a) * r, y: ship.y + Math.sin(a) * r,
+    }));
+  });
+  cargo.items = [];
+  ship.vx = ship.vy = 0;
+  ship.thrust = 0;
+  fight.wrecked = true;
+  saveCargo();
+}
+
+function towHome() {
+  cargo.hull = SHIP.hull; // patched up enough to fly
+  fight.wrecked = false;
+  GalaxyMap.blocked = false;
+  document.body.classList.remove('in-combat');
+  const home = cargo.home;
+  if (home) placeShip(home.x, home.y + home.radius + 220);
+  else { const s = world.galaxy.systems[world.galaxy.startSystem]; moveShipTo(s.x, s.y); }
+  GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
+  fight.grace = RESPAWN_GRACE;
+  gateFlash = 0.8;
+  toast.text = `Ship destroyed · towed to ${home ? home.name : 'your home system'}`;
+  toast.t = 4;
+  saveCargo();
+}
+
+function endFight(result) {
+  fight.lastShips = fight.ships; // effects still to play may need the enemies' positions
+  fight.ships = new Map();
+  fight.result = result;
+  fight.resultT = 4;
+  if (result === 'lost') {
+    // Controls and the map stay locked until the wreck is towed home (towHome).
+    fight.wreckT = 2.6;
+  } else {
+    GalaxyMap.blocked = false;
+    document.body.classList.remove('in-combat');
+  }
+  if (result === 'fled') { fight.grace = FLEE_GRACE; toast.text = 'Got away'; toast.t = 2.5; }
+  else if (result === 'won') { toast.text = 'Victory'; toast.t = 2.5; }
+  saveCargo();
+}
+
+// Rounds, effects and the result panel; runs with the flight simulation.
+function tickFight(dt) {
+  fight.grace = Math.max(0, fight.grace - dt);
+  for (let i = fight.fx.length - 1; i >= 0; i--) {
+    const f = fight.fx[i];
+    if (f.delay > 0) { f.delay -= dt; continue; }
+    if (f.type === 'call') { fight.fx.splice(i, 1); f.run(); continue; }
+    if (f.type === 'sparks') {
+      fight.fx.splice(i, 1);
+      for (let k = 0; k < f.n; k++) {
+        const ang = Math.random() * TAU, sp = 40 + Math.random() * 140, life = 0.3 + Math.random() * 0.5;
+        debris.push({ x: f.at.x, y: f.at.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 2, color: k % 2 ? '#ffb347' : '#fff1d0' });
+      }
+      continue;
+    }
+    f.t -= dt;
+    if (f.t <= 0) fight.fx.splice(i, 1);
+  }
+  if (fight.wreckT > 0) {
+    fight.wreckT -= dt;
+    ship.targetSpeed = 0;
+    if (fight.wreckT <= 0) { fight.wreckT = 0; towHome(); }
+  }
+  if (fight.result && !fight.s) {
+    fight.resultT -= dt;
+    if (fight.resultT <= 0) { fight.result = null; CombatPanel.hide(); }
+  }
+  const s = fight.s;
+  if (!s) return;
+  ship.targetSpeed = 0;
+  const f = fight.ships.get(s.focus);
+  if (f) ship.angle = turnToward(ship.angle, Math.atan2(f.y - ship.y, f.x - ship.x), SHIP.turnRate * dt);
+  fight.timer -= dt;
+  if (fight.timer > 0) return;
+  fight.timer += Combat.config.round;
+  const events = Combat.round(s);
+  cargo.hull = Math.max(0, s.player.hull);
+  playRound(events);
+  saveCargo(); // hull damage survives closing the page mid-fight
+  if (s.over) {
+    fight.s = null;
+    fight.final = s; // shown on the panel until it closes
+    endFight(s.over);
+  }
+}
+
+// The panel: live during the fight, then the outcome for a few seconds.
+function updateCombatPanel() {
+  const s = fight.s || (fight.result ? fight.final : null);
+  if (!s) return;
+  const over = !fight.s;
+  const rows = [s.player, ...s.enemies].map((c) => ({
+    id: c.id, name: c.name, you: c === s.player, hull: c.hull, maxHull: c.stats.hull,
+    shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
+  }));
+  const title = !over ? `Combat · round ${s.round + 1}`
+    : fight.result === 'won' ? 'Victory' : fight.result === 'fled' ? 'Escaped' : 'Ship destroyed';
+  CombatPanel.show({
+    title, tone: over ? fight.result : '', rows, log: fight.log,
+    button: over ? { id: 'close', label: 'Close', enabled: true }
+      : { id: 'flee', label: s.fleeing ? 'Fleeing…' : 'Flee', enabled: !s.fleeing },
+    progress: over ? 0 : 1 - fight.timer / Combat.config.round,
+  });
+}
+
+CombatPanel.onFocus = (id) => { if (fight.s) Combat.setFocus(fight.s, id); };
+CombatPanel.onButton = (id) => {
+  if (id === 'flee' && fight.s) fight.s.fleeing = true;
+  if (id === 'close') { fight.result = null; CombatPanel.hide(); }
+};
+
+// Beams, shield flashes and explosion flashes, in world space.
+function drawFight() {
+  const s = fight.s;
+  ctx.save();
+  if (s) { // brackets on the focused enemy
+    const f = fight.ships.get(s.focus);
+    if (f) {
+      const R = f.radius + 12 / view.zoom, arm = Math.min(R * 0.45, 18 / view.zoom), x = rx(f.x), y = ry(f.y);
+      ctx.strokeStyle = HOSTILE_COLOR;
+      ctx.globalAlpha = 0.85;
+      ctx.lineWidth = 2 / view.zoom;
+      ctx.beginPath();
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        ctx.moveTo(x + sx * R, y + sy * (R - arm));
+        ctx.lineTo(x + sx * R, y + sy * R);
+        ctx.lineTo(x + sx * (R - arm), y + sy * R);
+      }
+      ctx.stroke();
+    }
+  }
+  ctx.lineCap = 'round';
+  for (const f of fight.fx) {
+    if (f.delay > 0 || f.t === undefined) continue;
+    const k = f.t / f.max;
+    if (f.type === 'beam') {
+      // A hit lands on the target; a miss streaks past it.
+      const ang = Math.atan2(f.to.y - f.from.y, f.to.x - f.from.x);
+      const d = Math.hypot(f.to.x - f.from.x, f.to.y - f.from.y);
+      const len = f.hits > 0 ? d - f.to.radius * 0.4 : d + 120;
+      const off = f.hits > 0 ? 0 : 0.06;
+      const x0 = rx(f.from.x) + Math.cos(ang) * f.from.radius, y0 = ry(f.from.y) + Math.sin(ang) * f.from.radius;
+      const x1 = rx(f.from.x) + Math.cos(ang + off) * len, y1 = ry(f.from.y) + Math.sin(ang + off) * len;
+      ctx.strokeStyle = f.color;
+      ctx.globalAlpha = k * (f.hits > 0 ? 0.3 : 0.12);
+      ctx.lineWidth = 6 / view.zoom;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.globalAlpha = k * (f.hits > 0 ? 0.95 : 0.35);
+      ctx.lineWidth = 1.6 / view.zoom;
+      ctx.stroke();
+    } else if (f.type === 'shield') {
+      ctx.strokeStyle = '#7df9ff';
+      ctx.globalAlpha = k * 0.8;
+      ctx.lineWidth = 2 / view.zoom;
+      ctx.beginPath();
+      ctx.arc(rx(f.at.x), ry(f.at.y), f.at.radius + 10 + (1 - k) * 8, 0, TAU);
+      ctx.stroke();
+    } else if (f.type === 'flash') {
+      ctx.fillStyle = '#fff1d0';
+      ctx.globalAlpha = k * 0.6;
+      ctx.beginPath();
+      ctx.arc(rx(f.at.x), ry(f.at.y), f.at.radius * (1.5 + (1 - k) * 2.5), 0, TAU);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+// In screen space: damage numbers rising off the ships, and small hull/shield bars and letters
+// above every ship in the fight.
+function drawFightOverlay() {
+  const s = fight.s;
+  ctx.save();
+  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  if (s) {
+    for (const c of [s.player, ...s.enemies]) {
+      if (c.hull <= 0) continue;
+      const p = fighterPos(c.id);
+      if (!p) continue;
+      const [x, y] = worldToScreen(p.x, p.y - p.radius);
+      const w = 34, top = y - 18;
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = 'rgba(38, 48, 74, 0.9)';
+      ctx.fillRect(x - w / 2, top, w, 3);
+      ctx.fillRect(x - w / 2, top + 4, w, 3);
+      ctx.fillStyle = '#7df9ff';
+      ctx.fillRect(x - w / 2, top, w * (c.stats.shield ? c.shield / c.stats.shield : 0), 3);
+      ctx.fillStyle = c === s.player ? '#b6ff8a' : HOSTILE_COLOR;
+      ctx.fillRect(x - w / 2, top + 4, w * (c.hull / c.stats.hull), 3);
+      if (c !== s.player && s.enemies.length > 1) {
+        ctx.fillStyle = c.id === s.focus ? '#eef1ff' : '#9aa4b8';
+        ctx.fillText(c.name.split(' ').pop(), x, top - 4);
+      }
+    }
+  }
+  for (const f of fight.fx) {
+    if (f.type !== 'number' || f.delay > 0) continue;
+    const k = f.t / f.max;
+    const [x, y] = worldToScreen(f.at.x, f.at.y);
+    ctx.globalAlpha = Math.min(1, k * 1.6);
+    ctx.fillStyle = f.color;
+    ctx.fillText(f.text, x + 14 + (f.jx || 0), y - 26 - (1 - k) * 26);
+  }
+  ctx.restore();
+}
+
 // ---------- Input: drag sets heading, drag length sets speed ----------
 
 const DEADZONE = 8;
@@ -853,6 +1235,7 @@ canvas.addEventListener('pointermove', (e) => {
   const dy = drag.y - drag.y0;
   const len = Math.hypot(dx, dy);
   drag.moved = Math.max(drag.moved, len);
+  if (inFight()) return; // no flying during a fight; taps still focus fire
   if (len > DEADZONE) {
     autopilot.key = null; // flying by hand ends an approach
     ship.targetAngle = Math.atan2(dy, dx);
@@ -870,6 +1253,10 @@ function endDrag(e) {
   drag.active = false;
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   const hit = tap ? pickAt(e.clientX, e.clientY) : null;
+  if (inFight()) { // in a fight a tap on an enemy focuses fire on it; nothing else
+    if (hit && fight.s && fight.ships.has(hit.key)) Combat.setFocus(fight.s, hit.key);
+    return;
+  }
   if (hit) select(hit);
   else if (tap) { select(null); autopilot.key = null; }
   if (moveMode.value === 'direct') { if (!autopilot.key) ship.targetSpeed = 0; }
@@ -947,6 +1334,7 @@ function update(dt) {
     }
   }
   tickMining(dt);
+  tickFight(dt);
 
   gateFlash = Math.max(0, gateFlash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
@@ -958,11 +1346,20 @@ function update(dt) {
     world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR, SHIP.sensorRange, SHIP.pingRange);
   }
 
-  // Camera leads in the direction of travel.
+  // Camera leads in the direction of travel. In a fight it frames the ship and its target in
+  // the space above the combat panel.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
-  cam.x = lerp(cam.x, ship.x + ship.vx * lead, k);
-  cam.y = lerp(cam.y, ship.y + ship.vy * lead, k);
+  let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
+  const focus = fight.s && fight.ships.get(fight.s.focus);
+  if (focus) {
+    const panel = document.getElementById('combat');
+    const covered = panel.hidden ? 0 : Math.max(0, view.h - panel.getBoundingClientRect().top);
+    tx = (ship.x + focus.x) / 2;
+    ty = (ship.y + focus.y) / 2 + covered / 2 / view.zoom;
+  }
+  cam.x = lerp(cam.x, tx, k);
+  cam.y = lerp(cam.y, ty, k);
 
   GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
 }
@@ -1205,6 +1602,7 @@ function drawEntities(list, t) {
 }
 
 function drawShip(t) {
+  if (fight.wrecked) return; // blown up, waiting for the tow
   Art.drawAsset(ctx, ship.art, artStyle.value, { x: rx(ship.x), y: ry(ship.y), angle: ship.angle, t, thrust: ship.thrust });
 }
 
@@ -1431,6 +1829,11 @@ function drawHud() {
   ctx.globalAlpha = 0.85;
   ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
   if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
+  if (cargo.hull < SHIP.hull) { // damage shows until it's repaired at a station
+    ctx.fillStyle = cargo.hull < SHIP.hull * 0.35 ? '#ff5a6e' : '#ffb347';
+    ctx.fillText(`HULL ${Math.ceil(cargo.hull)}/${SHIP.hull}`, pad + 180, y - 12);
+    ctx.fillStyle = COLORS.hud;
+  }
 
   // Actual speed (filled) vs set throttle (marker).
   ctx.globalAlpha = 0.25;
@@ -1481,6 +1884,8 @@ function render() {
   if (checkGates(list)) list = nearbyEntities(t);
   collectItems(list);
   updateSelection(list);
+  checkAggro(list);
+  updateCombatPanel();
   const [cx, cy] = sectorOf(cam.x, cam.y);
   origin.x = cx * SECTOR;
   origin.y = cy * SECTOR;
@@ -1499,6 +1904,7 @@ function render() {
   drawPocketEdges();
   drawEntities(list, t);
   drawSelection(t);
+  drawFight();
   drawDebris();
   drawMining(t);
   drawParticles();
@@ -1511,6 +1917,7 @@ function render() {
   }
   drawLabels(list);
   drawMiningCountdown();
+  drawFightOverlay();
   if (toast.t > 0) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, toast.t / 0.6) * 0.9;
