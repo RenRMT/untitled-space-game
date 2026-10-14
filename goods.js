@@ -5,7 +5,8 @@
 // - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits,
 //   fabrics, food): mostly real materials and wares, with science-fiction ones at the rare end,
 // - salvaged components (hull, weapon, computer, drive): generic, in five tiers from simple to
-//   exotic ("Simple computer components"), as materials for crafting.
+//   exotic ("Simple computer components"), used up by research (research.js). They're never
+//   traded, so their price is only a guide to what they're worth.
 // Each type has a rarity from 1 (common) to 5 (exotic). Rarer types are found less often, sold at
 // fewer stations (exotics never) and are worth more. Each type within a category has its own
 // colour, used for its art (art/items.js) and on the station screen.
@@ -140,8 +141,8 @@ const Goods = (() => {
   };
 
   // Components are generic and tiered ("Simple computer components" ... "Exotic computer
-  // components"): one type per tier, the tier being its rarity. They're meant as crafting
-  // materials, so each has a `tier`, and Goods.component(category, tier) finds one. Every
+  // components"): one type per tier, the tier being its rarity. They're research materials, so
+  // each has a `tier`, and Goods.component(category, tier) finds one. Every
   // category uses the same colour per tier (the rarity colours), so a tier reads the same
   // everywhere. shapes: the art variant (art/items.js) per tier, from plainer to more intricate.
   const TIERS = [null, 'Simple', 'Standard', 'Advanced', 'Complex', 'Exotic'];

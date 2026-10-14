@@ -22,6 +22,7 @@ load('store.js', ['Params', 'Store']);
 load('goods.js', ['Goods']);
 load('data/galaxy-config.js', ['GALAXY_CONFIG']);
 load('galaxy.js', ['Galaxy']);
+load('security.js', ['Security']);
 load('art/util.js', ['ArtUtil']);
 load('art/culture.js', ['ArtCulture']);
 load('art/blueprints.js', ['ArtBlueprints']);
@@ -35,6 +36,7 @@ load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
+load('research.js', ['Research']);
 load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
@@ -200,9 +202,9 @@ test('every station has a dockable market with sane prices', () => {
     assert(!keys.has(st.key), `duplicate station key ${st.key}`);
     keys.add(st.key);
     const m = Economy.market(g.seed, st);
-    // Every trade good and component has a price here; the station stocks a few categories.
+    // Every trade good has a price here (components aren't traded); the station stocks a few categories.
     assert.strictEqual(m.goods.length, Goods.categories('trade').reduce((n, c) => n + Goods.ofCategory(c).length, 0));
-    assert.strictEqual(m.salvage.length, Goods.categories('salvage').reduce((n, c) => n + Goods.ofCategory(c).length, 0));
+    assert.strictEqual(m.salvage, undefined);
     const stocked = m.goods.filter((x) => x.buy !== null);
     assert(new Set(stocked.map((x) => x.category)).size >= Economy.config.minForSale, `${st.name} stocks too little`);
     for (const x of m.goods) {
@@ -212,7 +214,6 @@ test('every station has a dockable market with sane prices', () => {
       if (x.produced && x.rarity <= 2) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
       if (x.rarity === 5) assert.strictEqual(x.buy, null, `${st.name} sells exotic ${x.kind}`);
     }
-    for (const x of m.salvage) assert(Number.isInteger(x.sell) && x.sell > 0);
     assert.strictEqual(JSON.stringify(Economy.market(g.seed, st)), JSON.stringify(m), 'market is not deterministic');
   }
   assert(stations.length > 200, `only ${stations.length} stations`);
@@ -449,9 +450,11 @@ test('every ship class has 1–4 weapon slots and one of each system, with start
       assert.strictEqual(slots.filter((s) => s.type === type).length, type === 'weapon' ? hull.weapons : 1, `${id}: ${type} slots`);
     }
     assert.strictEqual(new Set(slots.map((s) => s.id)).size, slots.length, `${id}: duplicate slot ids`);
-    for (const key of Object.keys(hull.starter)) assert(slots.some((s) => s.id === key), `${id}: starter names unknown slot ${key}`);
+    // Player hulls list their starter gear (the Courier) or come bare; NPC hulls name their lines.
+    const gear = hull.starter || hull.npc || {};
+    for (const key of Object.keys(gear)) assert(slots.some((s) => s.id === key), `${id}: starter names unknown slot ${key}`);
     for (const s of Loadout.slots(Loadout.starter(id))) {
-      const want = hull.starter[s.id];
+      const want = hull.starter ? hull.starter[s.id] : hull.npc?.[s.id] && `${hull.npc[s.id]}-1`;
       if (want) assert(s.item && s.item.id === want, `${id}: ${want} missing from the equipment list`);
       if (s.item) assert.strictEqual(s.item.slot, s.type, `${id}: ${s.item.id} doesn't fit a ${s.type} slot`);
     }
@@ -753,19 +756,165 @@ test('fleeing skips the player\'s shots and depends on top speed', () => {
   assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeMax);
 });
 
-test('destroyed ships leave sellable loot', () => {
+test('pirates leave components at their gear tier and some cargo; freighters spill trade goods', () => {
   const g = galaxies.get(1);
-  let fighterDrops = 0;
+  const tiersAt = { 1: new Set(), 4: new Set() };
+  let components = 0, goods = 0;
   for (let i = 0; i < 300; i++) {
-    const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter');
-    assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
-    for (const d of f) assert(Goods.isSalvage(d.kind), `fighter dropped ${d.kind}`);
-    fighterDrops += f.length;
+    for (const tier of [1, 4]) {
+      const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier);
+      assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), f, 'loot is not deterministic');
+      for (const d of f) {
+        assert(Goods.type(d.kind), `fighter dropped ${d.kind}`);
+        if (Goods.isSalvage(d.kind)) tiersAt[tier].add(Goods.type(d.kind).tier);
+        if (tier === 1) Goods.isSalvage(d.kind) ? components++ : goods++;
+      }
+    }
     const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
     for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
   }
-  assert(fighterDrops > 120 && fighterDrops < 240, `fighters dropped ${fighterDrops} of 300`);
+  assert.deepStrictEqual([...tiersAt[1]].sort(), [1, 2], 'Mk I pirates carry simple and standard components');
+  assert.deepStrictEqual([...tiersAt[4]].sort(), [3, 4, 5], 'Mk IV pirates carry advanced to exotic ones');
+  assert(components > 280 && components < 420, `${components} components from 300 pirates`);
+  assert(goods > 140 && goods < 270, `${goods} trade goods from 300 pirates`);
+});
+
+// ---------- Progression: security, equipment tiers, research ----------
+
+test('security falls from the charted pockets to the frontier, and sets how dangerous pirates are', () => {
+  const g = galaxies.get(1);
+  const by = { pocket: [], claimed: [], deep: [], frontier: [] };
+  for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); by[t.zone].push(t.security); }
+  const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
+  assert(mean(by.pocket) > mean(by.claimed) && mean(by.claimed) > mean(by.deep) && mean(by.deep) > mean(by.frontier), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
+  assert(by.pocket.filter((v) => v === 3).length / by.pocket.length > 0.8, 'charted pockets are mostly high security');
+  assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.9, 'the frontier is mostly lawless');
+  for (let level = 0; level < 3; level++) {
+    const lo = Security.pirates(level), hi = Security.pirates(level + 1);
+    assert(lo.chance > hi.chance && lo.size[1] >= hi.size[1] && lo.tier[0] >= hi.tier[0], `pirates at ${level} vs ${level + 1}`);
+    assert(Security.lootTier(level) > Security.lootTier(level + 1));
+  }
+});
+
+test('pirate bands in generated sectors follow the security level', () => {
+  const g = galaxies.get(1);
+  const S = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+  const pirates = g.factions.find((f) => f.key === 'pirates').id;
+  const bands = [[], [], [], []]; // pirates per sector, by level, where there are any
+  for (let y = 0; y < g.size; y += 2) {
+    for (let x = 0; x < g.size; x += 2) {
+      const sec = S.at(x, y);
+      const ps = sec.entities.filter((e) => e.kind === 'ship' && e.faction === pirates);
+      if (!ps.length) continue;
+      const level = sec.territory.security, band = Security.pirates(level);
+      assert(!g.nearWaystation(x, y) || sec.contact, `pirates next to a Waystation at ${x},${y}`);
+      for (const p of ps) assert(p.tier >= band.tier[0] && p.tier <= band.tier[1], `tier ${p.tier} at security ${level}`);
+      bands[level].push(ps.length);
+    }
+  }
+  const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
+  assert(bands[0].length > 50 && bands[3].length < bands[0].length / 5, `bands per level: ${bands.map((b) => b.length)}`);
+  assert(mean(bands[0]) > mean(bands[2]), `band sizes: ${bands.map((b) => (b.length ? mean(b).toFixed(1) : '-'))}`);
+});
+
+test('equipment lines run Mk I–V and each Mk is better than the last', () => {
+  const lines = {};
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) (lines[e.line] ||= []).push([e.tier, e, id]);
+  const score = (e) => (e.slot === 'weapon' ? e.stats.damage * e.stats.fireRate : e.slot === 'shield' ? e.stats.strength
+    : e.slot === 'computer' ? e.stats.accuracy : e.slot === 'engine' ? e.stats.maxSpeed : e.stats.lockRange);
+  for (const [line, list] of Object.entries(lines)) {
+    list.sort((a, b) => a[0] - b[0]);
+    assert.strictEqual(list[list.length - 1][0], 5, `${line} ends at Mk V`);
+    for (let i = 1; i < list.length; i++) {
+      const [, prev] = list[i - 1], [, cur, id] = list[i];
+      if (line !== 'freighter-drive') assert(score(cur) > score(prev), `${id} is no better than the Mk before`);
+      if (!cur.npc) assert(cur.price > prev.price, `${id} costs no more than the Mk before`);
+    }
+  }
+  assert.deepStrictEqual(Loadout.STARTER_GEAR.sort(), Object.values(Loadout.HULLS.courier.starter).filter(Boolean).sort(), 'the Courier starts with the Mk I gear');
+  // Better-armed pirates are tougher all round.
+  const t1 = Loadout.stats(Loadout.npc('fighter', 1)), t4 = Loadout.stats(Loadout.npc('fighter', 4));
+  assert(t4.firepower > t1.firepower && t4.hull > t1.hull && t4.shield > t1.shield && t4.accuracy > t1.accuracy);
+  assert.deepStrictEqual(Loadout.stats(Loadout.npc('fighter', 1)), Loadout.stats(Loadout.starter('fighter')));
+});
+
+test('hulls: handling, hull upgrades and moving gear to another hull', () => {
+  const courier = Loadout.starter('courier');
+  const up = Loadout.stats(courier, { cargo: 0.4, hull: 0.3, weapons: 1 });
+  assert.deepStrictEqual([up.cargo, up.hull, up.weaponSlots], [28, 156, 3]);
+  assert.strictEqual(Loadout.slotsOf('gunship', { weapons: 1 }).filter((s) => s.type === 'weapon').length, Loadout.MAX_WEAPONS, 'four hardpoints at most');
+  // A Hauler turns and accelerates slower with the same engine.
+  const hauler = Loadout.refit(courier, 'hauler').loadout;
+  assert(Loadout.stats(hauler).turnRate < Loadout.stats(courier).turnRate);
+  // Gear moves across; what doesn't fit comes back.
+  const armed = { hull: 'corvette', fitted: { ...Loadout.refit(courier, 'corvette').loadout.fitted, 'weapon-2': 'pulse-laser-2', 'weapon-3': 'pulse-laser-3' } };
+  const { loadout, left } = Loadout.refit(armed, 'hauler');
+  assert.strictEqual(loadout.fitted['weapon-1'], 'pulse-laser-1');
+  assert.strictEqual(loadout.fitted.shield, 'deflector-1');
+  assert.deepStrictEqual(left.sort(), ['pulse-laser-2', 'pulse-laser-3']);
+  for (const id of Loadout.FOR_SALE) assert(Loadout.HULLS[id].price > 0 && !Loadout.HULLS[id].npc);
+});
+
+test('research: every node costs components of its kind plus goods, and builds on the Mk before', () => {
+  const kindOf = { weapons: ['weapon'], shields: ['hull'], computers: ['computer'], scanners: ['computer'], engines: ['drive'], hull: ['hull', 'weapon'] };
+  for (const n of Object.values(Research.NODES)) {
+    const kinds = Object.keys(n.cost);
+    for (const k of kinds) assert(Goods.type(k), `${n.id}: unknown cost ${k}`);
+    const comps = kinds.filter((k) => Goods.isSalvage(k)), goods = kinds.filter((k) => !Goods.isSalvage(k));
+    assert(comps.length && goods.length, `${n.id} needs both components and trade goods`);
+    for (const k of comps) assert(kindOf[n.group].includes(Goods.type(k).category), `${n.id} uses ${k}`);
+    for (const k of goods) assert(Goods.type(k).rarity < 5, `${n.id} needs exotic ${k}, which no station sells`);
+    if (n.equipment && n.tier === 5) assert(comps.some((k) => Goods.type(k).tier === 5), `${n.id} needs an exotic component`);
+    for (const r of n.requires) assert(Research.NODES[r], `${n.id} requires unknown ${r}`);
+    if (n.equipment) assert(Loadout.EQUIPMENT[n.equipment] && !Loadout.EQUIPMENT[n.equipment].npc);
+  }
+  // Every buyable piece of equipment is either starter gear or researched.
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(Loadout.STARTER_GEAR.includes(id) || Research.NODES[id], `${id} can never be had`);
+  // Status, upgrades and what's known.
+  const done = new Set(), stock = {};
+  const have = (k) => stock[k] || 0;
+  assert.strictEqual(Research.status('pulse-laser-3', done, have).state, 'locked');
+  assert.deepStrictEqual(Research.status('pulse-laser-3', done, have).needs, ['pulse-laser-2']);
+  const st = Research.status('pulse-laser-2', done, have);
+  assert.strictEqual(st.state, 'available');
+  assert.strictEqual(st.ok, false);
+  for (const c of st.cost) stock[c.kind] = c.need;
+  assert.strictEqual(Research.status('pulse-laser-2', done, have).ok, true);
+  done.add('pulse-laser-2');
+  assert.strictEqual(Research.status('pulse-laser-2', done, have).state, 'done');
+  assert.strictEqual(Research.status('heavy-cannon-2', done, have).state, 'available', 'the cannon branches off Mk II');
+  assert(Research.known(done).has('pulse-laser-2') && Research.known(done).has('pulse-laser-1') && !Research.known(done).has('pulse-laser-3'));
+  for (const id of ['armour-1', 'armour-2', 'cargo-racks-1', 'hardpoint-retrofit']) done.add(id);
+  const u = Research.upgrades(done);
+  assert.strictEqual(u.weapons, 1);
+  assert(Math.abs(u.hull - 0.3) < 1e-9 && Math.abs(u.cargo - 0.2) < 1e-9);
+});
+
+test('each step up the gear ladder takes on the next pirate band', () => {
+  const fit = (hull, mk, weapons) => {
+    const fitted = {};
+    let w = 0;
+    for (const s of Loadout.slotsOf(hull)) {
+      fitted[s.id] = s.type === 'weapon' ? (w++ < weapons ? `pulse-laser-${mk}` : null)
+        : { shield: 'deflector', computer: 'flight-computer', engine: 'courier-drive', scanner: 'survey-scanner' }[s.type] + `-${mk}`;
+    }
+    return Loadout.stats({ hull, fitted });
+  };
+  const winRate = (stats, tier, n) => {
+    let wins = 0;
+    for (let i = 0; i < 100; i++) {
+      const enemies = Array.from({ length: n }, (_, k) => Combat.combatant(`e${k}`, 'Fighter', Loadout.stats(Loadout.npc('fighter', tier))));
+      if (Combat.simulate(ctx.mulberry32(i * 7919 + tier * 31 + n), Combat.combatant('player', 'Me', stats), enemies).over === 'won') wins++;
+    }
+    return wins / 100;
+  };
+  assert(winRate(fit('courier', 1, 1), 1, 2) > 0.9, 'the starter ship beats two Mk I pirates');
+  assert(winRate(fit('courier', 1, 1), 2, 2) < 0.2, '... but not two Mk II');
+  assert(winRate(fit('courier', 2, 2), 2, 3) > 0.9, 'Mk II gear with two lasers beats three Mk II pirates');
+  assert(winRate(fit('courier', 2, 2), 3, 3) < 0.2, '... but not three Mk III');
+  assert(winRate(fit('corvette', 3, 3), 3, 4) > 0.9, 'a Corvette with Mk III gear beats four Mk III pirates');
+  assert(winRate(fit('gunship', 5, 4), 4, 6) > 0.9, 'a Gunship with Mk V gear beats the largest band');
 });
 
 // ---------- Flight and real-time combat ----------
