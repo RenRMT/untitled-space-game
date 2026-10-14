@@ -21,6 +21,7 @@ const GalaxyMap = (() => {
   const stopBtn = document.getElementById('map-stop');
   const fastBtn = document.getElementById('map-fast');
   const rerollBtn = document.getElementById('map-reroll');
+  const styleBtn = document.getElementById('map-start');
   const travelStatus = document.getElementById('map-travel-status');
   const promptEl = document.getElementById('map-prompt');
   const promptText = document.getElementById('map-prompt-text');
@@ -71,8 +72,21 @@ const GalaxyMap = (() => {
 
   // ---------- Galaxy ----------
 
+  // Start style (galaxy.js): 'core' starts at the main capital with its network charted;
+  // 'frontier' starts at a lone Waystation by the map's edge with nothing else charted.
+  // Saved, and ?start=core|frontier overrides it. Each style keeps its own charts and cargo.
+  const START_LABEL = { core: 'Core start', frontier: 'Frontier start' };
+  let startStyle = (() => {
+    const param = new URLSearchParams(location.search).get('start');
+    if (Galaxy.START_STYLES.includes(param)) return param;
+    try { const v = localStorage.getItem('start'); if (Galaxy.START_STYLES.includes(v)) return v; } catch (e) { /* storage unavailable */ }
+    return 'core';
+  })();
+  const hiddenStart = () => galaxy.start === 'frontier' && !!fog(); // nothing beyond the charts is shown
+
   function load(seed) {
-    galaxy = Galaxy.generate(seed, GALAXY_CONFIG);
+    galaxy = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: startStyle });
+    styleBtn.textContent = START_LABEL[startStyle];
     cells = [];
     contacts = [];
     for (let y = 0; y < galaxy.size; y++) {
@@ -93,13 +107,24 @@ const GalaxyMap = (() => {
   }
 
   function updateStats() {
+    statsVersion = fog() ? fog().version : -1;
+    if (hiddenStart()) {
+      // Only what's on the charts: no totals that would give away what's out there.
+      let explored = 0;
+      for (let y = 0; y < galaxy.size; y++) for (let x = 0; x < galaxy.size; x++) explored += fog().isExplored(x, y) ? 1 : 0;
+      const c = fog().counts();
+      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+      statsEl.textContent = `seed ${galaxy.seed} · frontier start · on your charts: ${plural(c.systems, 'system')}, `
+        + `${plural(c.outposts, 'outpost')}, ${plural(c.routes, 'route')} · ${(explored / (galaxy.size * galaxy.size) * 100).toFixed(1)}% explored`;
+      return;
+    }
     const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
-    const systems = galaxy.systems.filter((s) => !s.freeport).length;
-    const freeports = galaxy.systems.length - systems;
+    const systems = galaxy.systems.filter((s) => !s.waystation).length;
+    const waystations = galaxy.systems.length - systems;
     const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
     const known = fog() ? ` · ${fog().counts().systems}/${galaxy.systems.length} systems on your charts` : '';
     statsEl.textContent = `seed ${galaxy.seed} · ${count('major')} major + ${count('minor')} minor factions · `
-      + `${systems} systems · ${galaxy.outposts.length} outposts · ${freeports} Freeports · ${Math.round(charted * 100)}% charted space${known}`;
+      + `${systems} systems · ${galaxy.outposts.length} outposts · ${waystations} Waystations · ${Math.round(charted * 100)}% charted space${known}`;
   }
 
   function initialSeed() {
@@ -108,14 +133,28 @@ const GalaxyMap = (() => {
     return /^\d+$/.test(param) ? Number(param) : param;
   }
 
-  function reroll() {
-    const seed = 1 + Math.floor(Math.random() * 999999);
+  function setUrlParam(key, value) {
     try {
       const url = new URL(location.href);
-      url.searchParams.set('seed', seed);
+      url.searchParams.set(key, value);
       history.replaceState(null, '', url);
     } catch (e) { /* file:// in some browsers */ }
+  }
+
+  function reroll() {
+    const seed = 1 + Math.floor(Math.random() * 999999);
+    setUrlParam('seed', seed);
     load(seed);
+  }
+
+  // Same seed, the other start style. Progress in each style is kept, so switching back resumes it.
+  function switchStart() {
+    startStyle = Galaxy.START_STYLES[(Galaxy.START_STYLES.indexOf(startStyle) + 1) % Galaxy.START_STYLES.length];
+    try { localStorage.setItem('start', startStyle); } catch (e) { /* storage unavailable */ }
+    setUrlParam('start', startStyle);
+    fitted = false;
+    load(galaxy.seed);
+    if (isOpen) { fit(); fitted = true; }
   }
 
   // ---------- View ----------
@@ -129,14 +168,45 @@ const GalaxyMap = (() => {
     requestDraw();
   }
 
+  // The area to frame: the whole galaxy, or with a frontier start just what's been explored (and
+  // the ship), at least MIN_FRAME sectors across, so the start isn't a dot in a corner.
+  const MIN_FRAME = 20;
+  function frameArea() {
+    const all = { x0: 0, y0: 0, x1: galaxy.size, y1: galaxy.size };
+    if (!hiddenStart()) return all;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    const take = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); };
+    for (let y = 0; y < galaxy.size; y++) for (let x = 0; x < galaxy.size; x++) if (fog().isExplored(x, y)) take(x, y);
+    const s = galaxy.systems[galaxy.startSystem];
+    take(player ? Math.floor(player.x) : s.x, player ? Math.floor(player.y) : s.y);
+    const grow = (lo, hi) => {
+      const need = Math.max(0, MIN_FRAME - (hi - lo)) / 2 + 2;
+      let a = lo - need, b = hi + need;
+      if (a < 0) { b -= a; a = 0; }
+      if (b > galaxy.size) { a -= b - galaxy.size; b = galaxy.size; }
+      return [Math.max(0, a), Math.min(galaxy.size, b)];
+    };
+    [x0, x1] = grow(x0, x1);
+    [y0, y1] = grow(y0, y1);
+    return { x0, y0, x1, y1 };
+  }
+
   function fit() {
     const pad = 12;
     const availW = view.w - pad * 2;
-    const availH = view.h - TOP_BAR - BOTTOM_BAR;
-    view.scale = Math.min(availW / galaxy.size, availH / galaxy.size);
-    view.minScale = view.scale * 0.5;
-    view.ox = galaxy.size / 2 - view.w / 2 / view.scale;
-    view.oy = galaxy.size / 2 - (TOP_BAR + availH / 2) / view.scale;
+    // The bottom bar wraps to two rows on narrow screens; leave room for what it really covers.
+    const bar = overlay.querySelector('.bar.bottom');
+    const bottom = Math.max(BOTTOM_BAR, bar && !overlay.hidden ? bar.getBoundingClientRect().height : 0);
+    const availH = view.h - TOP_BAR - bottom;
+    const a = frameArea();
+    view.scale = Math.min(availW / (a.x1 - a.x0), availH / (a.y1 - a.y0));
+    view.minScale = Math.min(view.scale, availW / galaxy.size, availH / galaxy.size) * 0.5;
+    // Centre on the area, but when the screen shows less than the whole galaxy, don't look past its edge.
+    const keepIn = (c, span) => (span < galaxy.size ? clamp(c, span / 2, galaxy.size - span / 2) : c);
+    const cx = keepIn((a.x0 + a.x1) / 2, availW / view.scale);
+    const cy = keepIn((a.y0 + a.y1) / 2, availH / view.scale);
+    view.ox = cx - view.w / 2 / view.scale;
+    view.oy = cy - (TOP_BAR + availH / 2) / view.scale;
     requestDraw();
   }
 
@@ -199,22 +269,27 @@ const GalaxyMap = (() => {
     ctx.fillStyle = '#090c14';
     ctx.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
 
-    // Frontier ring.
-    ctx.beginPath();
-    ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
-    ctx.rect(ix0, iy0, ix1 - ix0, iy1 - iy0);
-    ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
-    ctx.fill('evenodd');
+    // Frontier ring. With a frontier start it isn't known yet: it shows sector by sector as the
+    // sectors are explored (below).
+    const hidden = hiddenStart();
+    if (!hidden) {
+      ctx.beginPath();
+      ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
+      ctx.rect(ix0, iy0, ix1 - ix0, iy1 - iy0);
+      ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
+      ctx.fill('evenodd');
+    }
 
     // Explored sectors are lighter than the unknown.
     const px = Math.ceil(scale) + 1;
     const onScreen = (sx, sy) => sx + px >= 0 && sy + px >= 0 && sx <= w && sy <= h;
     if (fog()) {
-      ctx.fillStyle = '#101727';
       for (const c of cells) {
         if (!fog().isExplored(c.x, c.y)) continue;
         const [sx, sy] = toScreen(c.x, c.y);
-        if (onScreen(sx, sy)) ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
+        if (!onScreen(sx, sy)) continue;
+        ctx.fillStyle = hidden && galaxy.inFrontier(c.x, c.y) ? '#1a1424' : '#101727';
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
       }
     }
 
@@ -260,10 +335,12 @@ const GalaxyMap = (() => {
       ctx.lineTo(bx1, Math.round(sy) + 0.5);
     }
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 90, 110, 0.35)';
-    ctx.setLineDash([4, 4]);
-    ctx.strokeRect(Math.round(ix0) + 0.5, Math.round(iy0) + 0.5, Math.round(ix1 - ix0), Math.round(iy1 - iy0));
-    ctx.setLineDash([]);
+    if (!hidden) {
+      ctx.strokeStyle = 'rgba(255, 90, 110, 0.35)';
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(Math.round(ix0) + 0.5, Math.round(iy0) + 0.5, Math.round(ix1 - ix0), Math.round(iy1 - iy0));
+      ctx.setLineDash([]);
+    }
     ctx.strokeStyle = 'rgba(255, 90, 110, 0.6)';
     ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(bx1 - bx0), Math.round(by1 - by0));
 
@@ -341,7 +418,7 @@ const GalaxyMap = (() => {
     }
     ctx.setLineDash([]);
 
-    // Systems, capitals and Freeports.
+    // Systems, capitals and Waystations.
     const r = clamp(scale * 0.28, 2.5, 8);
     for (const s of systems) {
       if (!sysKnown(s)) continue;
@@ -356,7 +433,7 @@ const GalaxyMap = (() => {
       if (s.faction === null) {
         ctx.arc(sx, sy, sr * 0.8, 0, Math.PI * 2);
         ctx.stroke();
-      } else if (s.freeport) {
+      } else if (s.waystation) {
         const d = r + 2;
         ctx.moveTo(sx, sy - d); ctx.lineTo(sx + d, sy); ctx.lineTo(sx, sy + d); ctx.lineTo(sx - d, sy);
         ctx.closePath();
@@ -374,12 +451,12 @@ const GalaxyMap = (() => {
       }
     }
 
-    // Names by zoom: major capitals first, then minor capitals and Freeports, then everything.
+    // Names by zoom: major capitals first, then minor capitals and Waystations, then everything.
     ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'center';
     const labelZoom = (s) => {
       if (s.capital && factions[s.faction].kind === 'major') return 6;
-      if (s.capital || s.freeport) return 14;
+      if (s.capital || s.waystation) return 14;
       return 24;
     };
     const labelColor = { 6: '#e6ebff', 14: '#c3cae0', 24: '#8a95b3' };
@@ -404,8 +481,11 @@ const GalaxyMap = (() => {
     ctx.textAlign = 'left';
   }
 
+  let statsVersion = -1; // the chart version the stats line was written for
+
   function draw() {
     const t0 = performance.now();
+    if (fog() && fog().version !== statsVersion) updateStats();
     const { w, h, scale } = view;
     const { systems } = galaxy;
     const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
@@ -503,7 +583,7 @@ const GalaxyMap = (() => {
     row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 7); ctx.fill(); }, 'minor faction');
     row((cx, cy) => { ctx.strokeStyle = '#9aa4b8'; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 7); ctx.stroke(); }, 'independent');
     row((cx, cy) => { ctx.fillStyle = '#7d869e'; ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); }, 'outpost');
-    row((cx, cy) => { ctx.strokeStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx, cy + 6); ctx.lineTo(cx - 6, cy); ctx.closePath(); ctx.stroke(); }, 'Freeport');
+    row((cx, cy) => { ctx.strokeStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx, cy + 6); ctx.lineTo(cx - 6, cy); ctx.closePath(); ctx.stroke(); }, 'Waystation');
     row((cx, cy) => { ctx.strokeStyle = '#aab3cc'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.lineWidth = 1.5; }, 'lane');
     row((cx, cy) => { ctx.strokeStyle = '#cfd8ff'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.setLineDash([]); }, 'gate');
     row((cx, cy) => { ctx.fillStyle = 'rgba(61, 139, 255, 0.4)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); ctx.strokeStyle = '#e0a030'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx + 3, cy - 5); ctx.stroke(); }, 'contested');
@@ -576,7 +656,7 @@ const GalaxyMap = (() => {
     travelBtn.hidden = travelling;
     travelBtn.disabled = !selected || !hooks.travel;
     stopBtn.hidden = fastBtn.hidden = travelStatus.hidden = !travelling;
-    rerollBtn.disabled = travelling;
+    rerollBtn.disabled = styleBtn.disabled = travelling;
     jumpBtn.disabled = travelling || !selected || !onJump;
     fastBtn.setAttribute('aria-pressed', String(travelling && trip.fast));
     promptEl.hidden = !(travelling && trip.prompt);
@@ -602,12 +682,12 @@ const GalaxyMap = (() => {
       for (const loc of s.locations) counts[loc.type] = (counts[loc.type] || 0) + 1;
       info.innerHTML =
         swatchHead(f.color, s.name) +
-        row('type', s.freeport ? 'Freeport · safe haven'
+        row('type', s.waystation ? 'Waystation · safe haven'
           : f.kind === 'independent' ? 'independent system'
           : `${f.name}${s.capital ? ' capital' : s.exclave ? ' colony' : ''}`) +
         (f.kind === 'minor' ? row('tier', 'minor faction') : '') +
         row('sector', `${s.x}, ${s.y}`) +
-        (s.freeport ? row('faction', 'neutral')
+        (s.waystation ? row('faction', 'neutral')
           : f.kind === 'independent' ? presenceRows(s.presence)
           : row('dominance', pct(s.dominance)) + presenceRows(s.presence, s.faction)) +
         row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', ')) +
@@ -765,6 +845,7 @@ const GalaxyMap = (() => {
   document.getElementById('map-btn').addEventListener('click', open);
   document.getElementById('map-close').addEventListener('click', close);
   document.getElementById('map-reroll').addEventListener('click', reroll);
+  styleBtn.addEventListener('click', switchStart);
   travelBtn.addEventListener('click', () => {
     if (!selected || !hooks.travel) return;
     hooks.travel(destOf(selected));

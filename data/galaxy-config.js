@@ -2,7 +2,7 @@
 //
 // factions:  overrides for major factions by id (0 = main faction; the others are numbered
 //            clockwise starting from the west and depend on the seed). Only the fields given are replaced.
-// networks:  overrides for factions without territory, by key (freeports, pirates, smugglers, guild).
+// networks:  overrides for factions without territory, by key (waystations, pirates, smugglers, guild).
 // storyPois: handcrafted points of interest at fixed sectors, usually in the frontier.
 // params:    generator tuning, merged over Galaxy.params in galaxy.js (any value there can be set).
 
@@ -12,7 +12,7 @@ const GALAXY_CONFIG = {
     // { name: 'Faction 1', color: '#ed2939' },
   ],
   networks: {
-    // freeports: { name: 'Freeports' },
+    // waystations: { name: 'Waystations' },
   },
   storyPois: [
     { x: 3, y: 5, name: 'Unidentified signal' },

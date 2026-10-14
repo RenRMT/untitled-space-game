@@ -177,7 +177,7 @@ const ArtCulture = (() => {
       } else if (f.key === 'guild') {
         c = create('block', fseed(f.id), f.color, { ...meta, greeble: 1 });
       } else {
-        // Freeports: neutral white wheel stations.
+        // Waystations: neutral white wheel stations.
         c = create('wedge', fseed(f.id), f.color, meta);
         c.pal.hull = '#e8eaee';
         c.pal.hull2 = '#9aa0aa';

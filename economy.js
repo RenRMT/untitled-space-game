@@ -6,7 +6,7 @@
 // - goods it produces are cheap (and always on sale), goods it consumes fetch a premium,
 // - outposts follow their type (mining camps sell ore, refineries want it, ...),
 // - system stations get a seeded mix; capitals and major stations sell everything,
-// - salvage (loot components) is never sold, and pays best at salvage yards and Freeports.
+// - salvage (loot components) is never sold, and pays best at salvage yards and Waystations.
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // Works as a classic browser script (global `Economy`) and as a Node module.
@@ -31,7 +31,7 @@ const Economy = (() => {
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
   const PROFILES = {
     capital: { produces: ['synthetic', 'fabrics', 'crates'], consumes: ['perishables', 'mineral', 'gas'], sellsAll: true },
-    freeport: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true, salvage: 1.15 },
+    waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true, salvage: 1.15 },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['perishables', 'tubes', 'gas'] },
     refinery: { produces: ['metal', 'gas', 'barrels'], consumes: ['mineral'] },
     'trading post': { produces: ['crates'], consumes: [], sellsAll: true },
@@ -49,7 +49,7 @@ const Economy = (() => {
   }
 
   // A station as Sectors builds it: { key, market: { kind: 'system' | 'outpost', type } }.
-  // type is the outpost type, or for system stations 'capital' | 'freeport' | 'major' | 'minor'.
+  // type is the outpost type, or for system stations 'capital' | 'waystation' | 'major' | 'minor'.
   function profileOf(station, r) {
     const type = station.market.type;
     return PROFILES[type] || mixedProfile(r, type === 'major');

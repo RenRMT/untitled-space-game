@@ -186,7 +186,7 @@ const Sectors = (() => {
       if (system) {
         const fid = system.faction;
         let cx = C, cy = C;
-        if (!system.freeport) {
+        if (!system.waystation) {
           const cls = weighted(STAR_CLASSES, r);
           const [r0, r1] = STAR_RADIUS[cls];
           cx = C + (r() - 0.5) * 600 * S;
@@ -216,13 +216,13 @@ const Sectors = (() => {
           planets.push(add({ kind: 'planet', body, name: l.name, radius: body.r * 2 }, x, y));
         });
         system.locations.filter((l) => l.type !== 'planet').forEach((l, i) => {
-          const major = l.type === 'station' && i === 0 && (system.capital || system.freeport || (fid !== null && galaxy.factions[fid].kind === 'major'));
+          const major = l.type === 'station' && i === 0 && (system.capital || system.waystation || (fid !== null && galaxy.factions[fid].kind === 'major'));
           const rad = major ? 230 : 120;
           // The main station sits near the star or the first planet; outposts further out.
           const near = l.type === 'station' && planets.length && r() < 0.5 ? planets[Math.floor(r() * planets.length)] : null;
           const [x, y] = near ? spot(near.x - ox, near.y - oy, near.body.r * 2.2 + rad, near.body.r * 2.6 + rad, rad)
             : spot(cx, cy, l.type === 'outpost' ? 2100 * S : 900 * S + rad, l.type === 'outpost' ? 2600 * S : 1500 * S + rad, rad);
-          const marketType = system.freeport ? 'freeport' : major && system.capital ? 'capital' : major ? 'major' : 'minor';
+          const marketType = system.waystation ? 'waystation' : major && system.capital ? 'capital' : major ? 'major' : 'minor';
           station(major ? 'station-major' : 'station-minor', fid, l.name, x, y, { kind: 'system', id: system.id, type: marketType });
         });
         if (sec.star && ra() < BELT_CHANCE) {
@@ -283,9 +283,9 @@ const Sectors = (() => {
       const known = territory.zone === 'pocket';
       const settled = 1 - (owners.find((p) => p.faction === null)?.share ?? 0);
       let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : 0;
-      if (system?.freeport) count = 3 + Math.floor(r() * 3);
+      if (system?.waystation) count = 3 + Math.floor(r() * 3);
       const pickOwner = () => {
-        if (system?.freeport) return r() < 0.3 ? system.faction : majors[Math.floor(r() * majors.length)].id;
+        if (system?.waystation) return r() < 0.3 ? system.faction : majors[Math.floor(r() * majors.length)].id;
         const p = weighted(owners.map((o) => [o.faction, o.share]), r);
         return p === null ? null : p;
       };
@@ -313,9 +313,10 @@ const Sectors = (() => {
         const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
         for (let i = 0; i < 2; i++) ship('fighter', territory.owner, orbit(x, y, 300 + r() * 200, 170));
       }
-      // Pirates prey on the territories they operate in, and haunt the frontier.
+      // Pirates prey on the territories they operate in, and haunt the frontier, though not right
+      // next to a Waystation (galaxy.nearWaystation), which hostile contacts avoid too.
       const preyed = territory.owner !== null && pirates.operatesIn?.includes(territory.owner);
-      if (!contact && ((preyed && r() < 0.25) || (territory.zone === 'frontier' && r() < 0.12))) {
+      if (!contact && ((preyed && r() < 0.25) || (territory.zone === 'frontier' && r() < 0.12 && !galaxy.nearWaystation(sx, sy)))) {
         const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
         for (let i = 0; i < 2; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 200, 170));
       }

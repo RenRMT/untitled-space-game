@@ -326,10 +326,11 @@ function canDock(station) {
 }
 
 const MARKET_LABEL = {
-  capital: 'Capital station', freeport: 'Freeport', major: 'Station', minor: 'Station',
+  capital: 'Capital station', waystation: 'Waystation', major: 'Station', minor: 'Station',
 };
 const stationSubtitle = (st) => {
   const type = st.market.kind === 'outpost' ? st.market.type[0].toUpperCase() + st.market.type.slice(1) : MARKET_LABEL[st.market.type];
+  if (st.market.type === 'waystation') return `${type} · neutral safe haven`;
   const f = st.faction === null || st.faction === undefined ? null : world.galaxy.factions[st.faction];
   return f ? `${type} · ${f.name}` : `${type} · independent`;
 };
@@ -1854,7 +1855,7 @@ function drawHud() {
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = COLORS.dim;
   ctx.fillText(`SECTOR ${sx},${sy} · ${ZONE_LABEL[zone]}`, pad, pad + 12);
-  const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.freeport ? 'Freeport' : null;
+  const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.waystation ? 'safe haven' : null;
   const line2 = [
     pk ? pk.name : null,
     zone === 'claimed' && owner ? `claimed by ${owner}` : zone === 'pocket' ? owner : null,

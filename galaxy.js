@@ -8,10 +8,15 @@
 // - independent systems and outposts scattered through settled and deep space,
 // - known space as small charted pockets around each system and outpost; everything between
 //   them, even inside a faction's border, is uncharted,
-// - Freeports (neutral safe havens) on the outer edge of settled space,
+// - Waystations (neutral safe havens) on the outer edge of settled space, named by a registry
+//   code ("Waystation KX-418"),
 // - lanes inside territories, gates between them, and a few hidden routes (together `routes`,
 //   the fast-travel network: every route has a gate at each end),
 // - deep-space encounters recreated on demand from the seed and sector coordinates.
+// Two start styles (`overrides.start`):
+// - 'core' (default): the player starts at the main capital in the centre, with its network charted,
+// - 'frontier': the same galaxy plus one extra Waystation near a corner or along an edge of the
+//   map, where the player starts with nothing else charted (see knowledge.js).
 // Every tuning value lives in Galaxy.params; pass `overrides.params` to generate() to change any of
 // them for one galaxy (nested objects merge, arrays and numbers replace).
 // Works as a classic browser script (global `Galaxy`) and as a Node module.
@@ -40,15 +45,15 @@ const Galaxy = (() => {
     contestedRatio: 0.6, // a rival with this share of the owner's control contests the sector
     unaligned: 0.1, // baseline presence of no faction, so every faction fades toward the edges
     gateRange: 14,
-    freeports: { count: [6, 9], minDist: 3, maxDist: 6, spacing: 8 },
+    waystations: { count: [6, 9], minDist: 3, maxDist: 6, spacing: 8 },
     // Safe, charted pocket radius around each settlement, in sectors.
-    pockets: { mainCapital: 1.5, capital: 1, minorCapital: 0.7, major: 0.7, minor: 0.5, independent: 0.5, freeport: 0.7, outpost: 0.4 },
+    pockets: { mainCapital: 1.5, capital: 1, minorCapital: 0.7, major: 0.7, minor: 0.5, independent: 0.5, waystation: 0.7, outpost: 0.4 },
     encounterChance: { claimed: 0.04, deep: 0.07, frontier: 0.18 },
   };
 
   const MAJOR_COLORS = ['#3d8bff', '#e0a030', '#3fbf6a', '#b065e0', '#2ec4c4', '#e06aa0', '#a0c040', '#e07a3a', '#7a8cff'];
   const NETWORKS = [
-    { key: 'freeports', name: 'Freeports', color: '#f2f2f2', neutral: true },
+    { key: 'waystations', name: 'Waystations', color: '#f2f2f2', neutral: true },
     { key: 'pirates', name: 'Pirates', color: '#ff4d4d' },
     { key: 'smugglers', name: 'Smugglers', color: '#c9a36b' },
     { key: 'guild', name: 'Guild', color: '#9fd3ff' },
@@ -64,6 +69,10 @@ const Galaxy = (() => {
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
   const LOCATION_TYPES = ['station', 'planet', 'outpost'];
+  // Waystation registry codes: two letters and three digits. No I, O, Q or U, which read as digits
+  // or each other.
+  const CODE_LETTERS = 'ABCDEFGHJKLMNPRSTVWXYZ';
+  const START_STYLES = ['core', 'frontier'];
 
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -141,6 +150,17 @@ const Galaxy = (() => {
         for (let i = randInt(2, 3); i > 0; i--) s += SYLLABLES[Math.floor(rnd() * SYLLABLES.length)];
         s = s[0].toUpperCase() + s.slice(1);
         if (!usedNames.has(s) && s.length <= 9) { usedNames.add(s); return s; }
+      }
+    }
+    // A Waystation's registry code ("KX-418"), hashed from its sector rather than drawn from the
+    // main random stream, so codes never shift the names of everything generated after them.
+    const usedCodes = new Set();
+    function registryCode(x, y) {
+      const L = CODE_LETTERS.length;
+      for (let salt = 0; ; salt++) {
+        const h = hashInt(x, y, ((seedInt ^ 0x3a7e) + salt) >>> 0);
+        const code = `${CODE_LETTERS[h % L]}${CODE_LETTERS[Math.floor(h / L) % L]}-${100 + (Math.floor(h / (L * L)) % 900)}`;
+        if (!usedCodes.has(code)) { usedCodes.add(code); return code; }
       }
     }
 
@@ -356,13 +376,13 @@ const Galaxy = (() => {
     };
     const ownerAt = (x, y) => owner[idx(x, y)];
 
-    // ---------- Freeports: neutral stations on the outer edge of settled space ----------
+    // ---------- Waystations: neutral stations on the outer edge of settled space ----------
     const occupied = new Set(systems.map((s) => idx(s.x, s.y)));
-    const FP = P.freeports;
-    // Distance to the nearest owned sector. Only distances up to FP.maxDist matter, so search that
+    const WS = P.waystations;
+    // Distance to the nearest owned sector. Only distances up to WS.maxDist matter, so search that
     // neighbourhood instead of every owned sector; anything further away is Infinity.
     const distToKnown = (x, y) => {
-      const R = Math.ceil(FP.maxDist);
+      const R = Math.ceil(WS.maxDist);
       let best = Infinity;
       for (let ky = Math.max(0, y - R); ky <= Math.min(size - 1, y + R); ky++) {
         for (let kx = Math.max(0, x - R); kx <= Math.min(size - 1, x + R); kx++) {
@@ -371,31 +391,31 @@ const Galaxy = (() => {
       }
       return best;
     };
-    const fpCandidates = innerSectors
+    const wsCandidates = innerSectors
       .filter(({ x, y }) => ownerAt(x, y) < 0 && !occupied.has(idx(x, y)) && Math.hypot(x - C, y - C) >= settledRadius * 0.45)
       .map(({ x, y }) => ({ x, y, r: Math.hypot(x - C, y - C), a: Math.atan2(y - C, x - C), dk: distToKnown(x, y) }))
-      .filter((c) => c.dk >= FP.minDist && c.dk <= FP.maxDist);
-    const fpTarget = randInt(...FP.count);
-    const freeports = [];
-    const placeFreeport = (pool) => {
-      const open = pool.filter((c) => freeports.every((f) => dist(f, c) >= FP.spacing)).sort((p, q) => q.r - p.r);
+      .filter((c) => c.dk >= WS.minDist && c.dk <= WS.maxDist);
+    const wsTarget = randInt(...WS.count);
+    const waystations = [];
+    const placeWaystation = (pool) => {
+      const open = pool.filter((c) => waystations.every((f) => dist(f, c) >= WS.spacing)).sort((p, q) => q.r - p.r);
       if (!open.length) return;
       const c = open[Math.floor(rnd() * Math.ceil(open.length / 3))]; // favour the outermost
-      freeports.push(addSystem(c.x, c.y, { faction: factionByKey('freeports'), freeport: true }));
+      waystations.push(addSystem(c.x, c.y, { faction: factionByKey('waystations'), waystation: true }));
       occupied.add(idx(c.x, c.y));
     };
     // One per angular slice, then fill up anywhere if slices came up empty.
     const angle0 = rnd() * Math.PI * 2;
-    for (let i = 0; i < fpTarget; i++) {
-      const lo = angle0 + (i / fpTarget) * Math.PI * 2;
-      const hi = lo + Math.PI * 2 / fpTarget;
+    for (let i = 0; i < wsTarget; i++) {
+      const lo = angle0 + (i / wsTarget) * Math.PI * 2;
+      const hi = lo + Math.PI * 2 / wsTarget;
       const inSlice = (a) => { const t = ((a - lo) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2); return t < hi - lo; };
-      placeFreeport(fpCandidates.filter((c) => inSlice(c.a)));
+      placeWaystation(wsCandidates.filter((c) => inSlice(c.a)));
     }
-    while (freeports.length < FP.count[0]) {
-      const before = freeports.length;
-      placeFreeport(fpCandidates);
-      if (freeports.length === before) break;
+    while (waystations.length < WS.count[0]) {
+      const before = waystations.length;
+      placeWaystation(wsCandidates);
+      if (waystations.length === before) break;
     }
 
     // ---------- Outposts: single settlements, thinning out into deep space ----------
@@ -417,8 +437,8 @@ const Galaxy = (() => {
 
     // ---------- Names and locations ----------
     for (const s of systems) {
-      if (s.freeport) {
-        s.name = `Freeport ${freeports.indexOf(s) + 1}`;
+      if (s.waystation) {
+        s.name = `Waystation ${registryCode(s.x, s.y)}`;
         s.locations = [{ type: 'station', name: s.name }];
         continue;
       }
@@ -564,15 +584,15 @@ const Galaxy = (() => {
         gates.push({ a: p.a, b: p.b, hidden: false });
       }
     }
-    // Hidden routes: into each isolated major, sometimes to a Freeport.
+    // Hidden routes: into each isolated major, sometimes to a Waystation.
     for (const f of isolated) {
       const target = [...gated].sort((p, q) => pairOf(f, p).d - pairOf(f, q).d)[0];
       addGate(f, target, true);
     }
-    if (freeports.length && rnd() < 0.6) {
-      const fp = freeports[Math.floor(rnd() * freeports.length)];
-      const near = systems.filter((s) => s.faction !== null && !s.freeport).sort((p, q) => dist(p, fp) - dist(q, fp))[0];
-      gates.push({ a: near.id, b: fp.id, hidden: true });
+    if (waystations.length && rnd() < 0.6) {
+      const ws = waystations[Math.floor(rnd() * waystations.length)];
+      const near = systems.filter((s) => s.faction !== null && !s.waystation).sort((p, q) => dist(p, ws) - dist(q, ws))[0];
+      gates.push({ a: near.id, b: ws.id, hidden: true });
     }
     for (const f of factions) if (f.kind !== 'network') f.isolated = isolated.has(f.id);
 
@@ -588,12 +608,50 @@ const Galaxy = (() => {
       ...gates.map((g) => ({ a: g.a, b: g.b, kind: g.hidden ? 'hidden' : 'gate' })),
     ].map((r, link) => ({ ...r, link }));
 
+    // ---------- Frontier start: a lone Waystation out by the edge ----------
+    // Added after everything else, from its own random stream, so the rest of the galaxy is exactly
+    // the core-style galaxy for the same seed. It has no routes: the way in is through deep space.
+    const startStyle = START_STYLES.includes(overrides.start) ? overrides.start : 'core';
+    let startSystem = 0;
+    if (startStyle === 'frontier') {
+      const sr = mulberry32((seedInt ^ 0xf2a7) >>> 0);
+      const inset = () => 2 + Math.floor(sr() * 3); // 2–4 sectors in from the map's edge
+      const side = (a) => (sr() < 0.5 ? a : size - 1 - a);
+      let x, y;
+      if (sr() < 0.5) { // a corner
+        x = side(inset());
+        y = side(inset());
+      } else { // somewhere along an edge, clear of the corners
+        const t = F + Math.floor(sr() * (size - 2 * F));
+        const a = inset();
+        [x, y] = [[a, t], [size - 1 - a, t], [t, a], [t, size - 1 - a]][Math.floor(sr() * 4)];
+      }
+      // The nearest free sector that is still in the frontier, a little in from the very edge.
+      const ok = (cx, cy) => cx >= 1 && cy >= 1 && cx <= size - 2 && cy <= size - 2 && !inner(cx, cy) && !occupied.has(idx(cx, cy));
+      search: for (let r = 0; r <= 4; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) === r && ok(x + dx, y + dy)) { x += dx; y += dy; break search; }
+          }
+        }
+      }
+      const s = addSystem(x, y, { faction: factionByKey('waystations'), waystation: true, start: true });
+      s.name = `Waystation ${registryCode(x, y)}`;
+      s.locations = [{ type: 'station', name: s.name }];
+      waystations.push(s);
+      occupied.add(idx(x, y));
+      startSystem = s.id;
+    }
+    // Waystations keep their neighbourhood safe: no hostile contacts within 1 sector (2 around the
+    // frontier start, which sits in raider country), and no frontier raiders there either (sector.js).
+    const nearWaystation = (x, y) => waystations.some((w) => Math.max(Math.abs(w.x - x), Math.abs(w.y - y)) <= (w.start ? 2 : 1));
+
     // ---------- Pockets: small charted, safe bubbles around settlements ----------
     const PK = P.pockets;
     const pockets = [];
     for (const s of systems) {
       const f = s.faction === null ? null : factions[s.faction];
-      const r = s.freeport ? PK.freeport
+      const r = s.waystation ? PK.waystation
         : !f ? PK.independent
           : s.capital && f.main ? PK.mainCapital
             : s.capital ? (f.kind === 'major' ? PK.capital : PK.minorCapital)
@@ -642,10 +700,7 @@ const Galaxy = (() => {
       if (occupied.has(idx(x, y))) return null;
       if (hashInt(x, y, seedInt) / 4294967296 >= P.encounterChance[zone]) return null;
       let table = ENCOUNTERS[zone];
-      // Freeports keep their neighbourhood safe.
-      if (freeports.some((f) => Math.max(Math.abs(f.x - x), Math.abs(f.y - y)) <= 1)) {
-        table = table.filter(([t]) => !HOSTILE.has(t));
-      }
+      if (nearWaystation(x, y)) table = table.filter(([t]) => !HOSTILE.has(t));
       const type = weightedPick(table, hashInt(x, y, seedInt + 1) / 4294967296);
       return { type, hostile: HOSTILE.has(type) };
     }
@@ -669,17 +724,18 @@ const Galaxy = (() => {
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
       factions, systems, outposts, lanes, gates, routes, pockets,
-      startSystem: 0,
-      territoryOf, deepSector, pocketAt,
+      start: startStyle, startSystem,
+      territoryOf, deepSector, pocketAt, nearWaystation,
       inFrontier: (x, y) => !inner(x, y),
     };
   }
 
   // localStorage key part identifying one generated galaxy: the same seed with other generator
-  // settings or another generator version is another galaxy.
-  const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}`;
+  // settings, another generator version or another start style is another galaxy. (Core-style keys
+  // keep their old form, so existing saves still load.)
+  const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}${g.start === 'frontier' ? ':frontier' : ''}`;
 
-  return { generate, params: DEFAULTS, VERSION, saveKey };
+  return { generate, params: DEFAULTS, VERSION, saveKey, START_STYLES };
 })();
 
 if (typeof module !== 'undefined') module.exports = Galaxy;

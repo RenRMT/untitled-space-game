@@ -337,6 +337,76 @@ test('a longer-range scanner charts more sectors', () => {
   assert.strictEqual(explored(2), 25);
 });
 
+test('Waystations carry unique registry codes', () => {
+  for (const [seed, g] of galaxies) {
+    const ws = g.systems.filter((s) => s.waystation);
+    assert(ws.length >= 6, `seed ${seed}: only ${ws.length} Waystations`);
+    for (const s of ws) assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name), `seed ${seed}: ${s.name}`);
+    assert.strictEqual(new Set(ws.map((s) => s.name)).size, ws.length, `seed ${seed}: duplicate codes`);
+    assert(!g.factions.some((f) => /freeport/i.test(f.name)), 'a faction is still called Freeports');
+  }
+});
+
+test('frontier start: the same galaxy plus a lone Waystation by the edge', () => {
+  const kinds = new Set();
+  for (const seed of SEEDS) {
+    const core = galaxies.get(seed);
+    const fr = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
+    assert.strictEqual(core.start, 'core');
+    assert.strictEqual(core.systems[core.startSystem].capital, true);
+    assert.strictEqual(fr.start, 'frontier');
+    // Everything from the core galaxy is there, unchanged; the start Waystation comes last.
+    assert.strictEqual(fr.systems.length, core.systems.length + 1);
+    assert.strictEqual(JSON.stringify(fr.systems.slice(0, -1)), JSON.stringify(core.systems), `seed ${seed}: systems differ`);
+    assert.strictEqual(JSON.stringify(fr.outposts), JSON.stringify(core.outposts));
+    assert.strictEqual(JSON.stringify(fr.routes), JSON.stringify(core.routes));
+    const s = fr.systems[fr.startSystem];
+    assert(s.waystation && s.start && s.id === fr.systems.length - 1, `seed ${seed}: start is not the extra Waystation`);
+    assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name));
+    const edge = Math.min(s.x, s.y, fr.size - 1 - s.x, fr.size - 1 - s.y);
+    assert(edge >= 1 && edge <= 6 && fr.inFrontier(s.x, s.y), `seed ${seed}: start at ${s.x},${s.y}`);
+    assert(!fr.routes.some((r) => r.a === s.id || r.b === s.id), 'the frontier start has a route');
+    assert(!core.systems.some((o) => o.x === s.x && o.y === s.y) && !core.outposts.some((o) => o.x === s.x && o.y === s.y));
+    assert.notStrictEqual(Galaxy.saveKey(fr), Galaxy.saveKey(core));
+    const corner = Math.min(s.x, fr.size - 1 - s.x) <= 6 && Math.min(s.y, fr.size - 1 - s.y) <= 6;
+    kinds.add(corner ? 'corner' : 'edge');
+    // Nothing hostile waits next door.
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const c = fr.deepSector(s.x + dx, s.y + dy);
+      assert(!c || !c.hostile, `seed ${seed}: hostile contact next to the start`);
+    }
+  }
+  assert.deepStrictEqual([...kinds].sort(), ['corner', 'edge'], 'starts should land in corners and along edges');
+  // Asking for the core style, or nothing, gives the same galaxy.
+  const a = Galaxy.generate(3, { ...GALAXY_CONFIG, start: 'core' }), b = galaxies.get(3);
+  assert.strictEqual(JSON.stringify(a.systems), JSON.stringify(b.systems));
+  assert.strictEqual(Galaxy.saveKey(a), Galaxy.saveKey(b));
+});
+
+test('frontier start: only the start Waystation is charted, and no raiders wait nearby', () => {
+  for (const seed of SEEDS.slice(0, 10)) {
+    const g = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
+    const s = g.systems[g.startSystem];
+    const k = Knowledge.create(g, { fresh: true });
+    assert.strictEqual(k.counts().systems, 1);
+    assert.strictEqual(k.counts().routes, 0);
+    assert(k.knowsSystem(s.id));
+    const territorial = g.factions.filter((f) => f.kind !== 'network');
+    assert(territorial.every((f) => !k.knowsFaction(f.id)), `seed ${seed}: a faction is charted from the start`);
+    let explored = 0;
+    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) explored += k.isExplored(x, y) ? 1 : 0;
+    assert(explored <= 1, `seed ${seed}: ${explored} sectors charted`);
+    k.save();
+    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+    const pirates = g.factions.find((f) => f.key === 'pirates').id;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const sec = sectors.at(s.x + dx, s.y + dy);
+      if (sec) assert(!sec.entities.some((e) => e.kind === 'ship' && e.faction === pirates), `seed ${seed}: pirates next to the start`);
+    }
+    assert(sectors.at(s.x, s.y).entities.some((e) => e.kind === 'station' && e.name === s.name), 'no station at the start');
+  }
+});
+
 // A made-up ship for the combat rule checks.
 const testShip = (o) => ({
   hull: 100, shield: 0, shieldRecharge: 0, accuracy: 1, evasion: 0, initiative: 1, maxSpeed: 500,
