@@ -31,7 +31,9 @@ load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
 load('combat.js', ['Combat']);
-const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG } = ctx;
+load('flight.js', ['Flight']);
+load('combat-realtime.js', ['RealtimeCombat']);
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -307,6 +309,10 @@ test('every ship class has 1–4 weapon slots and one of each system, with start
   for (const [id, item] of Object.entries(Loadout.EQUIPMENT)) {
     assert(Loadout.SLOT_TYPES[item.slot], `${id}: unknown slot type ${item.slot}`);
     assert(Loadout.summary(item).length > 0, `${id}: no summary`);
+    // What real-time combat needs: a range and an arc for weapons, a lock for computers and scanners.
+    if (item.slot === 'weapon') assert(item.stats.range > 0 && item.stats.arc > 0 && item.stats.arc <= 360, `${id}: range or arc`);
+    if (item.slot === 'computer') assert(item.stats.lockTime > 0, `${id}: lock time`);
+    if (item.slot === 'scanner') assert(item.stats.lockRange > 0, `${id}: lock range`);
   }
 });
 
@@ -610,6 +616,201 @@ test('destroyed ships leave sellable loot', () => {
     for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
   }
   assert(fighterDrops > 120 && fighterDrops < 240, `fighters dropped ${fighterDrops} of 300`);
+});
+
+// ---------- Flight and real-time combat ----------
+
+const COURIER = Loadout.stats(Loadout.starter('courier'));
+const FIGHTER = Loadout.stats(Loadout.starter('fighter'));
+const FREIGHTER = Loadout.stats(Loadout.starter('freighter'));
+const speedOf = (b) => Math.hypot(b.vx, b.vy);
+
+test('flight: both movement modes turn and change speed by the engine\'s numbers', () => {
+  const dt = 1 / 60;
+  for (const mode of ['cruise', 'direct']) {
+    // Speeding up from rest takes maxSpeed / accel seconds.
+    const b = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, thrust: 0 };
+    for (let i = 0; i < 30; i++) Flight.step(b, COURIER, { targetAngle: 0, targetSpeed: COURIER.maxSpeed, mode }, dt);
+    assert(Math.abs(speedOf(b) - COURIER.accel * 0.5) < 2, `${mode}: ${speedOf(b)} after half a second`);
+    for (let i = 0; i < 60; i++) Flight.step(b, COURIER, { targetAngle: 0, targetSpeed: COURIER.maxSpeed, mode }, dt);
+    assert(Math.abs(speedOf(b) - COURIER.maxSpeed) < 1e-6, `${mode}: top speed`);
+    // Turning round takes pi / turnRate seconds.
+    let t = 0;
+    while (Math.abs(Math.cos(b.angle) + 1) > 1e-9 && t < 5) { Flight.step(b, COURIER, { targetAngle: Math.PI, targetSpeed: COURIER.maxSpeed, mode }, dt); t += dt; }
+    assert(Math.abs(t - Math.PI / COURIER.turnRate) < 2 * dt, `${mode}: turned round in ${t.toFixed(2)} s`);
+    // Letting go: slowing down takes as long as speeding up.
+    const v0 = speedOf(b);
+    for (let i = 0; i < 30; i++) Flight.step(b, COURIER, { targetAngle: Math.PI, targetSpeed: 0, mode }, dt);
+    assert(v0 - speedOf(b) <= COURIER.accel * 0.5 + 2, `${mode}: stopped too fast`);
+  }
+  // Direct never drifts: velocity points along the heading. Cruise drifts through a turn.
+  const d = { x: 0, y: 0, vx: COURIER.maxSpeed, vy: 0, angle: 0 }, c = { ...d };
+  for (let i = 0; i < 20; i++) {
+    Flight.step(d, COURIER, { targetAngle: Math.PI / 2, targetSpeed: COURIER.maxSpeed, mode: 'direct' }, dt);
+    Flight.step(c, COURIER, { targetAngle: Math.PI / 2, targetSpeed: COURIER.maxSpeed, mode: 'cruise' }, dt);
+  }
+  assert(Math.abs(Math.atan2(d.vy, d.vx) - d.angle) < 1e-9, 'direct mode drifted');
+  assert(Math.abs(Math.atan2(c.vy, c.vx) - c.angle) > 0.1, 'cruise mode did not drift');
+});
+
+// A duel set-up: the player at the origin facing +x, one enemy, fixed rolls.
+function duel(enemyStats, at, o = {}) {
+  const me = RealtimeCombat.ship('player', 'Me', o.me || COURIER, { x: 0, y: 0, angle: o.angle || 0 });
+  const them = RealtimeCombat.ship('e', 'Them', enemyStats, { x: at[0], y: at[1], angle: Math.atan2(-at[1], -at[0]), radius: 18 });
+  return RealtimeCombat.create(o.rng || (() => 0), me, [them], { focus: 'e' });
+}
+const holdStill = (s) => { for (const e of s.enemies) { e.x = e.x0 ?? e.x; e.vx = e.vy = 0; } };
+// Run with the enemy pinned in place (so only the rules under test matter); returns shots by side.
+function runPinned(s, secs, dt = 1 / 30) {
+  const shots = { player: [], e: [] };
+  for (const e of s.enemies) Object.assign(e, { x0: e.x, y0: e.y, a0: e.angle });
+  for (let t = 0; t < secs - 1e-9 && !s.over; t += dt) {
+    for (const ev of RealtimeCombat.step(s, dt)) if (ev.type === 'shot') shots[ev.from].push(ev);
+    for (const e of s.enemies) Object.assign(e, { x: e.x0, y: e.y0, vx: 0, vy: 0, angle: e.a0 });
+  }
+  return shots;
+}
+
+test('real-time combat: guns fire once locked, at the weapon\'s rate, only in range and in arc', () => {
+  const unarmed = { ...FIGHTER, weapons: [], hull: 1e6 };
+  // Ahead and in range: nothing until the lock, then fireRate shots a second.
+  let s = duel(unarmed, [500, 0]);
+  let shots = runPinned(s, COURIER.lockTime + 5);
+  assert(shots.player.length >= 19 && shots.player.length <= 21, `${shots.player.length} shots in 5 s`);
+  assert(s.locked);
+  // Behind the ship, or out of range: no shots, though locked.
+  s = duel(unarmed, [-500, 0]);
+  assert.strictEqual(runPinned(s, 3).player.length, 0, 'fired backwards');
+  assert(s.locked);
+  s = duel(unarmed, [COURIER.weapons[0].range + 18 + 50, 0]);
+  assert.strictEqual(runPinned(s, 3).player.length, 0, 'fired out of range');
+  // Out of lock range: no lock at all.
+  s = duel(unarmed, [COURIER.lockRange + 200, 0]);
+  runPinned(s, 3);
+  assert(!s.locked && s.lockT === 0);
+  // A turret fires all round; a forward gun only ahead.
+  const pinned = (stats, at) => { const x = duel(stats, at, { me: { ...COURIER, weapons: [] } }); return runPinned(x, 3).e.length; };
+  assert(pinned(FREIGHTER, [0, 400]) > 0, 'turret did not fire');
+  const sideways = duel(FIGHTER, [0, 400], { me: { ...COURIER, weapons: [] } });
+  sideways.enemies[0].angle = 0; // pointing along +x, the player off its left side
+  assert.strictEqual(runPinned(sideways, 3).e.length, 0, 'forward gun fired sideways');
+});
+
+test('real-time combat: hit chance falls with crossing speed and range; evasion needs speed', () => {
+  const w = COURIER.weapons[0];
+  const a = RealtimeCombat.ship('a', 'A', COURIER, { x: 0, y: 0 });
+  const t = RealtimeCombat.ship('t', 'T', FIGHTER, { x: 200, y: 0, radius: 18 });
+  const still = RealtimeCombat.hitChance(a, w, t);
+  assert(Math.abs(still - (COURIER.accuracy - RealtimeCombat.config.rangePenalty * (182 / w.range) ** 2)) < 1e-9, 'a ship at rest has no evasion');
+  t.vx = 300; // moving along the line of fire: evasion only
+  const along = RealtimeCombat.hitChance(a, w, t);
+  t.vx = 0; t.vy = 300; // the same speed across it: harder
+  const across = RealtimeCombat.hitChance(a, w, t);
+  assert(across < along && along < still, `${still} ${along} ${across}`);
+  t.x = 650;
+  assert(RealtimeCombat.hitChance(a, w, t) < across, 'range does not count');
+  t.vy = 5000;
+  assert.strictEqual(RealtimeCombat.hitChance(a, w, t), RealtimeCombat.config.minHit);
+});
+
+test('real-time combat: shields soak damage first and recharge only after a pause', () => {
+  const s = duel({ ...FIGHTER, weapons: [] }, [400, 0]);
+  const e = s.enemies[0];
+  runPinned(s, COURIER.lockTime + 0.5);
+  assert(e.shield < FIGHTER.shield && e.hull === FIGHTER.hull, 'shield first');
+  // Stop shooting (turn away): nothing comes back until shieldDelay has passed.
+  s.player.angle = Math.PI;
+  const low = e.shield;
+  runPinned(s, RealtimeCombat.config.shieldDelay - 0.5);
+  assert.strictEqual(e.shield, low, 'recharged during the pause');
+  runPinned(s, 1.5);
+  assert(e.shield > low, 'never recharged');
+});
+
+test('real-time combat: targets and locks', () => {
+  const unarmed = { ...FIGHTER, weapons: [] };
+  const mk = (id, x, y) => RealtimeCombat.ship(id, id, unarmed, { x, y, radius: 18 });
+  // An ambush: the nearest is targeted; a pick starts a new lock.
+  const s = RealtimeCombat.create(() => 0.5, RealtimeCombat.ship('player', 'Me', COURIER, {}), [mk('far', 900, 0), mk('near', 300, 0)]);
+  let ev = RealtimeCombat.step(s, 0.1);
+  assert.strictEqual(s.focus, 'near');
+  assert(ev.some((x) => x.type === 'target' && x.auto));
+  for (let i = 0; i < 12; i++) ev = ev.concat(RealtimeCombat.step(s, 0.1));
+  assert(s.locked && ev.some((x) => x.type === 'locked' && x.id === 'near'));
+  assert(RealtimeCombat.setFocus(s, 'far'));
+  assert(!s.locked && s.lockT === 0 && s.manual);
+  // A destroyed target: the next one is picked.
+  s.enemies.find((e) => e.id === 'far').hull = 0;
+  RealtimeCombat.step(s, 0.1);
+  assert.strictEqual(s.focus, 'near');
+});
+
+test('real-time combat: fighters make attack runs, turrets keep their distance', () => {
+  const s = duel(FIGHTER, [1200, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: ctx.mulberry32(3) });
+  const f = s.enemies[0];
+  let closest = Infinity, firstShot = null, breakOffs = 0, mode = f.ai.mode;
+  for (let t = 0; t < 20; t += 1 / 30) {
+    const ev = RealtimeCombat.step(s, 1 / 30);
+    if (firstShot === null && ev.some((x) => x.type === 'shot')) firstShot = t;
+    closest = Math.min(closest, Math.hypot(f.x, f.y));
+    if (f.ai.mode === 'extend' && mode !== 'extend') breakOffs++;
+    mode = f.ai.mode;
+  }
+  assert(firstShot !== null && firstShot < 4, `first shot at ${firstShot}`);
+  assert(closest > 100, `rammed the player: ${closest}`);
+  assert(breakOffs >= 2, `${breakOffs} attack runs`);
+  const t = duel(FREIGHTER, [1000, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: ctx.mulberry32(4) });
+  const fr = t.enemies[0], range = FREIGHTER.weapons[0].range;
+  let inBand = 0, n = 0;
+  for (let k = 0; k < 30 * 30; k++) {
+    RealtimeCombat.step(t, 1 / 30);
+    if (k < 30 * 8) continue; // time to close in
+    const d = Math.hypot(fr.x, fr.y);
+    n++;
+    if (d > range * 0.35 && d < range * 0.95) inBand++;
+  }
+  assert(inBand / n > 0.9, `freighter kept its distance ${Math.round((inBand / n) * 100)}% of the time`);
+});
+
+test('real-time combat is deterministic for a seed', () => {
+  const run = () => {
+    const rng = ctx.mulberry32(42);
+    const enemies = [0, 1, 2].map((k) => RealtimeCombat.ship(`f${k}`, 'F', FIGHTER, { x: 700 * Math.cos(k * 2), y: 700 * Math.sin(k * 2), radius: 18 }));
+    const s = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', COURIER, {}), enemies, null, { maxTime: 30 });
+    return [s.over, s.t.toFixed(3), s.player.hull, ...s.enemies.map((e) => [e.hull, e.x.toFixed(3)])];
+  };
+  assert.deepStrictEqual(run(), run());
+});
+
+test('real-time combat: the starter Courier against pirate fighters, and getting away', () => {
+  // A pilot who sits still and turns to face the target, and one who flies flat out away.
+  const face = (s, dt) => {
+    const p = s.player, t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+    if (t) p.angle = Flight.turnToward(p.angle, Math.atan2(t.y - p.y, t.x - p.x), COURIER.turnRate * dt);
+  };
+  const run = (s, dt) => Flight.step(s.player, COURIER, { targetAngle: Math.atan2(s.player.y - s.anchor.y, s.player.x - s.anchor.x) || 0, targetSpeed: COURIER.maxSpeed, mode: 'cruise' }, dt);
+  const N = 150;
+  const fight = (n, pilot) => {
+    let wins = 0, escapes = 0, hull = 0, left = 0;
+    for (let i = 0; i < N; i++) {
+      const rng = ctx.mulberry32(i * 7919 + n * 31);
+      const enemies = Array.from({ length: n }, (_, k) => {
+        const a = rng() * Math.PI * 2, r = 650 + rng() * 250;
+        return RealtimeCombat.ship(`f${k}`, 'Fighter', FIGHTER, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 });
+      });
+      const s = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', COURIER, {}), enemies, pilot, { maxTime: 120 });
+      if (s.over === 'won') { wins++; hull += s.player.hull; }
+      if (s.over === 'fled') { escapes++; left += s.player.hull + s.player.shield; }
+    }
+    return { win: wins / N, escape: escapes / N, hull: hull / Math.max(1, wins), left: left / Math.max(1, escapes) };
+  };
+  const [one, two, three, four] = [1, 2, 3, 4].map((n) => fight(n, face));
+  assert(one.win > 0.99 && one.hull > 100, `vs 1: ${JSON.stringify(one)}`);
+  assert(two.win > 0.8 && two.hull < COURIER.hull - 10, `vs 2: ${JSON.stringify(two)}`);
+  assert(three.win < 0.5, `vs 3: ${JSON.stringify(three)}`);
+  assert(four.win < 0.1, `vs 4: ${JSON.stringify(four)}`);
+  const away = fight(4, run);
+  assert(away.escape > 0.8 && away.left > 100, `running from 4: ${JSON.stringify(away)}`);
 });
 
 if (failed) {

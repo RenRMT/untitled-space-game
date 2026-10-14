@@ -1,0 +1,292 @@
+'use strict';
+
+// Real-time combat: the alternative to round-based combat (combat.js), chosen in Settings.
+// Everyone keeps flying. Weapons fire on their own at a locked target whenever it is in range and
+// in the weapon's arc (loadout.js), so the player's skill is positioning.
+// - Locking: a ship locks onto its target after its computer's lockTime, while the target is
+//   within its scanner's lockRange. The player locks the attacked ship, or the nearest enemy
+//   (whoever shot last, first); a tap picks another, which starts a new lock.
+// - Shots hit instantly, with a chance: accuracy (computer) − evasion (target's engine, in full
+//   from half its top speed, none at rest), less for a target moving across the line of fire and
+//   toward the end of the weapon's range, kept within [minHit, maxHit]. Dodging is about speed and
+//   angle, not reflexes.
+// - Damage hits shields first, then the hull. Shields recharge only after a few seconds without
+//   being hit.
+// - Enemies steer: fighters make attack runs with their forward guns (close in, overshoot, swing
+//   round); ships with turrets keep their distance and circle. Pirates chase only so far from
+//   where the fight started.
+// - Escape: stay clear of every enemy's guns for a few seconds.
+// The flight view (game.js) flies the player's ship, passes its pose in every step, and draws the
+// shots; this module moves the enemies and does the numbers. Deterministic for a given rng.
+// Works as a classic browser script (global `RealtimeCombat`) and as a Node module.
+
+const RealtimeCombat = (() => {
+  const F = typeof require === 'function' ? require('./flight.js') : Flight;
+
+  const config = {
+    minHit: 0.1, // hit chance never drops below this ...
+    maxHit: 0.95, // ... or rises above this
+    motionPenalty: 0.3, // hit chance lost per `motionSpeed` of target speed across the line of fire
+    motionSpeed: 600,
+    rangePenalty: 0.2, // hit chance lost at a weapon's full range (less closer in, by distance²)
+    shieldDelay: 3, // seconds without being hit before shields recharge
+    escapeTime: 3, // seconds clear of every enemy's guns to get away ...
+    escapeMargin: 250, // ... clear by this much beyond their range (or beyond escapeMin, if longer)
+    escapeMin: 600,
+    leash: 2400, // pirates stop chasing a ship this far from where the fight started
+    chaseSpeed: 0.85, // share of top speed for pursuers well out of gun range
+    hold: 0.5, // fighters brake to arrive at this share of their gun range ...
+    creep: 0.12, // ... then edge in at this share of top speed, guns on target ...
+    breakOff: 120, // ... until this close (between hulls), when they break off ...
+    extendTime: [0.5, 0.9], // ... and veer away for this long before turning for another run
+    spacing: 120, // enemies keep about this far apart
+  };
+
+  const TAU = Math.PI * 2;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const angleDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
+  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+
+  // A ship in a fight. stats: Loadout.stats(); body: { x, y, vx, vy, angle, radius } (radius
+  // defaults to the hull's); hull: current hull points (defaults to full).
+  function ship(id, name, stats, body = {}, hull = stats.hull) {
+    return {
+      id, name, stats, hull: clamp(hull, 0, stats.hull), shield: stats.shield,
+      x: body.x || 0, y: body.y || 0, vx: body.vx || 0, vy: body.vy || 0, angle: body.angle || 0, thrust: 0,
+      radius: body.radius || stats.radius,
+      cool: stats.weapons.map(() => 0), // seconds until each weapon can fire again
+      quiet: Infinity, // seconds since last hit (shields recharge after shieldDelay)
+      lockT: 0, // enemies: seconds locking onto the player
+      ai: { mode: 'attack', t: 0, heading: 0, side: 1 },
+    };
+  }
+
+  const alive = (s) => s.enemies.filter((e) => e.hull > 0);
+  const byId = (s, id) => s.enemies.find((e) => e.id === id && e.hull > 0) || null;
+  const reach = (c) => Math.max(0, ...c.stats.weapons.map((w) => w.range));
+
+  // A new fight. focus: the enemy the player attacked (null for an ambush: the nearest is picked).
+  // anchor: where the fight started (defaults to the enemies' centre); pirates chase only so far.
+  function create(rng, player, enemies, o = {}) {
+    const anchor = o.anchor || {
+      x: enemies.reduce((a, e) => a + e.x, 0) / enemies.length,
+      y: enemies.reduce((a, e) => a + e.y, 0) / enemies.length,
+    };
+    for (const e of enemies) e.ai.side = rng() < 0.5 ? -1 : 1;
+    return {
+      rng, t: 0, player, enemies, anchor,
+      focus: o.focus ?? null, manual: o.focus !== undefined && o.focus !== null, // player's target, and whether it was picked
+      lockT: 0, locked: false, // the player's lock on its target
+      lastAttacker: null, away: 0, over: null,
+    };
+  }
+
+  // Another ship joins the fight (a pirate flying into range).
+  function join(s, e) {
+    e.ai.side = s.rng() < 0.5 ? -1 : 1;
+    s.enemies.push(e);
+  }
+
+  // The player picks a target: the lock starts over.
+  function setFocus(s, id, manual = true) {
+    if (!byId(s, id) || s.focus === id) return false;
+    s.focus = id;
+    s.lockT = 0;
+    s.locked = false;
+    s.manual = manual;
+    return true;
+  }
+
+  // Whether a weapon can fire at a target: within range of its edge, and inside the arc (a
+  // target's own size counts, so a big ship near the arc's edge can still be hit).
+  function canFire(a, w, t) {
+    const dx = t.x - a.x, dy = t.y - a.y, d = Math.hypot(dx, dy);
+    if (d - t.radius > w.range) return false;
+    if (w.arc >= 360) return true;
+    const off = Math.abs(angleDiff(Math.atan2(dy, dx), a.angle));
+    return off <= (w.arc * Math.PI) / 360 + Math.atan2(t.radius, Math.max(d, 1));
+  }
+
+  // A ship's engine evasion counts in full from half its top speed, and not at all at rest.
+  const evasion = (t) => t.stats.evasion * Math.min(1, Math.hypot(t.vx, t.vy) / (0.5 * t.stats.maxSpeed || 1));
+
+  function hitChance(a, w, t) {
+    const dx = t.x - a.x, dy = t.y - a.y, d = Math.max(1, Math.hypot(dx, dy));
+    const rvx = t.vx - a.vx, rvy = t.vy - a.vy;
+    const across = Math.abs(rvx * dy - rvy * dx) / d; // target speed across the line of fire
+    const p = a.stats.accuracy - evasion(t)
+      - (config.motionPenalty * across) / config.motionSpeed
+      - config.rangePenalty * Math.min(1, Math.max(0, d - t.radius) / w.range) ** 2;
+    return clamp(p, config.minHit, config.maxHit);
+  }
+
+  function damage(t, amount) {
+    const shieldDamage = Math.min(t.shield, amount);
+    t.shield -= shieldDamage;
+    const hullDamage = Math.min(t.hull, amount - shieldDamage);
+    t.hull -= hullDamage;
+    if (amount > 0) t.quiet = 0; // a miss doesn't hold up shield recharge
+    return { shieldDamage, hullDamage };
+  }
+
+  // Every ready weapon that can reach the target fires once per 1/fireRate seconds.
+  function fire(s, a, t, dt, events) {
+    a.stats.weapons.forEach((w, i) => {
+      a.cool[i] -= dt;
+      if (a.cool[i] > 0) return;
+      if (t.hull <= 0 || a.hull <= 0 || !canFire(a, w, t)) { a.cool[i] = 0; return; }
+      while (a.cool[i] <= 0 && t.hull > 0) {
+        const hit = s.rng() < hitChance(a, w, t);
+        const dmg = hit ? w.damage : 0;
+        const d = damage(t, dmg);
+        events.push({ type: 'shot', from: a.id, to: t.id, weapon: i, hit, damage: dmg, ...d, destroyed: t.hull <= 0 });
+        a.cool[i] += 1 / w.fireRate;
+      }
+    });
+  }
+
+  // The player's target: kept while alive; picked automatically when there is none, or when the
+  // automatic pick is out of lock range and another enemy is in range. Whoever shot last comes first.
+  function updateFocus(s, events) {
+    const p = s.player;
+    const lockable = (e) => dist(p, e) - e.radius <= p.stats.lockRange;
+    const current = byId(s, s.focus);
+    if (current && (s.manual || lockable(current))) return;
+    const live = alive(s);
+    if (!live.length) return;
+    const last = byId(s, s.lastAttacker);
+    const nearest = live.slice().sort((a, b) => dist(p, a) - dist(p, b))[0];
+    const pick = last && lockable(last) ? last : nearest;
+    if (current && !lockable(pick)) return; // nothing better in range
+    if (setFocus(s, pick.id, false)) events.push({ type: 'target', id: pick.id, auto: true });
+  }
+
+  function updateLocks(s, dt, events) {
+    const p = s.player;
+    const t = byId(s, s.focus);
+    if (t && dist(p, t) - t.radius <= p.stats.lockRange) {
+      s.lockT += dt;
+      if (!s.locked && s.lockT >= p.stats.lockTime) { s.locked = true; events.push({ type: 'locked', id: t.id }); }
+    } else {
+      if (s.locked && t) events.push({ type: 'lost-lock', id: t.id });
+      s.lockT = 0;
+      s.locked = false;
+    }
+    for (const e of alive(s)) e.lockT = dist(e, p) - p.radius <= e.stats.lockRange ? e.lockT + dt : 0;
+  }
+
+  // ---------- Enemy steering ----------
+
+  // Fighters: run in on the player (leading it a little), brake inside gun range and edge closer
+  // with guns on target, break off when close and veer away before turning for another run.
+  function attackRun(s, e, p, d, range, dt) {
+    const ai = e.ai, top = e.stats.maxSpeed;
+    if (ai.mode === 'extend') {
+      ai.t -= dt;
+      if (ai.t <= 0 || d > range * 0.9) ai.mode = 'attack';
+      else return { angle: ai.heading, speed: top };
+    }
+    if (d - e.radius - p.radius < config.breakOff) {
+      ai.mode = 'extend';
+      ai.t = lerp(config.extendTime[0], config.extendTime[1], s.rng());
+      ai.side = s.rng() < 0.5 ? -1 : 1;
+      ai.heading = Math.atan2(e.y - p.y, e.x - p.x) + ai.side * (0.9 + s.rng() * 0.5); // away, off to one side
+      return { angle: ai.heading, speed: top };
+    }
+    const lead = Math.min(0.6, d / 1400);
+    const angle = Math.atan2(p.y + p.vy * lead - e.y, p.x + p.vx * lead - e.x);
+    const brake = Math.sqrt(2 * e.stats.accel * 0.6 * Math.max(0, d - range * config.hold));
+    const speed = d > range + 300 ? top * config.chaseSpeed : clamp(brake, top * config.creep, top);
+    return { angle, speed };
+  }
+
+  // Turrets: hold off at about two-thirds of gun range, circling.
+  function standOff(s, e, p, d, range) {
+    const top = e.stats.maxSpeed, toward = Math.atan2(p.y - e.y, p.x - e.x);
+    if (d > range * 0.85) return { angle: toward, speed: d > range + 300 ? top * config.chaseSpeed : top };
+    if (d < range * 0.4) return { angle: toward + Math.PI, speed: top };
+    return { angle: toward + (e.ai.side * Math.PI) / 2, speed: top * 0.4 };
+  }
+
+  function steer(s, e, dt) {
+    const p = s.player, d = dist(e, p), range = reach(e);
+    let c;
+    if (dist(p, s.anchor) > config.leash) {
+      // Given up the chase: back to where it started.
+      const back = dist(e, s.anchor);
+      c = { angle: Math.atan2(s.anchor.y - e.y, s.anchor.x - e.x), speed: back > 150 ? e.stats.maxSpeed * config.chaseSpeed : 0 };
+      e.ai.mode = 'attack';
+    } else if (e.stats.weapons.some((w) => w.arc >= 360)) c = standOff(s, e, p, d, range);
+    else c = attackRun(s, e, p, d, range, dt);
+    // Keep clear of the other enemies.
+    let vx = Math.cos(c.angle) * c.speed, vy = Math.sin(c.angle) * c.speed;
+    for (const o of s.enemies) {
+      if (o === e || o.hull <= 0) continue;
+      const dx = e.x - o.x, dy = e.y - o.y, dd = Math.hypot(dx, dy);
+      if (dd >= config.spacing || dd < 1e-6) continue;
+      const push = ((config.spacing - dd) / config.spacing) * e.stats.maxSpeed * 0.8;
+      vx += (dx / dd) * push;
+      vy += (dy / dd) * push;
+    }
+    // Turn before speeding off: well off the wanted heading, ease the throttle.
+    const want = Math.atan2(vy, vx);
+    const speed = Math.min(e.stats.maxSpeed, Math.hypot(vx, vy)) * clamp(Math.cos(angleDiff(want, e.angle)), 0.15, 1);
+    F.step(e, e.stats, { targetAngle: speed > 0 ? want : e.angle, targetSpeed: speed, mode: 'cruise' }, dt);
+  }
+
+  // ---------- One step ----------
+
+  // Advance the fight by dt seconds. pilot: the player ship's pose this step { x, y, vx, vy, angle }.
+  // Returns its events: shots { type: 'shot', from, to, weapon, hit, damage, shieldDamage,
+  // hullDamage, destroyed }, { type: 'target', id, auto }, { type: 'locked', id }, { type:
+  // 'lost-lock', id }. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
+  function step(s, dt, pilot) {
+    if (s.over) return [];
+    const events = [];
+    const p = s.player;
+    if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
+    s.t += dt;
+    for (const e of alive(s)) steer(s, e, dt);
+    updateFocus(s, events);
+    updateLocks(s, dt, events);
+    const target = byId(s, s.focus);
+    if (target && s.locked) fire(s, p, target, dt, events);
+    else p.cool.forEach((c, i) => { p.cool[i] = Math.max(0, c - dt); });
+    for (const e of alive(s)) {
+      if (e.lockT < e.stats.lockTime) continue;
+      const before = events.length;
+      fire(s, e, p, dt, events);
+      if (events.length > before) s.lastAttacker = e.id;
+      if (p.hull <= 0) break;
+    }
+    for (const c of [p, ...alive(s)]) {
+      c.quiet += dt;
+      if (c.quiet >= config.shieldDelay) c.shield = Math.min(c.stats.shield, c.shield + c.stats.shieldRecharge * dt);
+    }
+    if (p.hull <= 0) s.over = 'lost';
+    else if (!alive(s).length) s.over = 'won';
+    else {
+      const clear = alive(s).every((e) => dist(e, p) - p.radius > Math.max(reach(e), config.escapeMin) + config.escapeMargin);
+      s.away = clear ? s.away + dt : 0;
+      if (s.away >= config.escapeTime) s.over = 'fled';
+    }
+    return events;
+  }
+
+  // Run a fight to its end, for tests and balancing: pilot(s, dt) flies the player's ship
+  // (s.player) before each step. Returns the final state.
+  function simulate(rng, player, enemies, pilot, o = {}) {
+    const dt = o.dt || 1 / 30, maxTime = o.maxTime || 180;
+    const s = create(rng, player, enemies, o);
+    while (!s.over && s.t < maxTime) {
+      if (pilot) pilot(s, dt);
+      step(s, dt);
+    }
+    return s;
+  }
+
+  return { config, ship, create, join, setFocus, canFire, hitChance, step, simulate, alive, reach };
+})();
+
+if (typeof module !== 'undefined') module.exports = RealtimeCombat;

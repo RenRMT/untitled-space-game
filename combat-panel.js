@@ -2,12 +2,16 @@
 
 // The combat panel: shown above the speed bar while a fight runs, in place of the context card.
 // One row per ship (you first) with hull and shield bars; tap an enemy row to focus your fire on
-// it. Below, what happened last round, and a Flee button (Close once the fight is over).
+// it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
+// real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
+// title shows progress: the round timer, or in real time the lock coming on ('lock') or getting
+// clear ('escape').
 // game.js describes it every frame; the DOM is rebuilt only when something visible changes,
-// apart from the round timer bar.
+// apart from the progress bar.
 //
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, hull, maxHull, shield, maxShield, focus }],
-//                      log: [string], button: { id: 'flee' | 'close', label, enabled }, progress })
+//                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
+//                      progress, bar?: 'lock' | 'escape' })
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 // Browser script (global `CombatPanel`).
@@ -62,7 +66,7 @@ const CombatPanel = (() => {
   }
 
   function show(d) {
-    const key = JSON.stringify([d.title, d.tone, d.log, d.button,
+    const key = JSON.stringify([d.title, d.tone, d.log, d.button, d.bar || '',
       d.rows.map((r) => [r.id, r.name, Math.ceil(r.hull), Math.floor(r.shield), r.focus])]);
     if (key !== shown) {
       shown = key;
@@ -71,9 +75,13 @@ const CombatPanel = (() => {
       titleEl.textContent = d.title;
       rowsEl.replaceChildren(...d.rows.map(row));
       logEl.replaceChildren(...d.log.map((line) => Object.assign(document.createElement('div'), { textContent: line })));
-      btn.dataset.id = d.button.id;
-      btn.textContent = d.button.label;
-      btn.disabled = !d.button.enabled;
+      btn.hidden = !d.button;
+      if (d.button) {
+        btn.dataset.id = d.button.id;
+        btn.textContent = d.button.label;
+        btn.disabled = !d.button.enabled;
+      }
+      timer.className = `cb-timer${d.bar ? ` ${d.bar}` : ''}`;
     }
     timer.style.width = `${(Math.max(0, Math.min(1, d.progress || 0)) * 100).toFixed(1)}%`;
   }

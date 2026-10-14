@@ -45,17 +45,21 @@ const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds 
 // Approach: fly to the selected object and stop beside it (or keep station with a moving ship).
 // key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes.
 const autopilot = { key: null, e: null, stop: 0, follow: false };
-// Combat (combat.js): s is the fight in progress (null when none); ships holds the enemies'
-// frozen poses by key; fx the queued and running effects (beams, flashes, numbers, explosions);
+// Combat (combat.js, combat-realtime.js): s is the fight in progress (null when none) and mode
+// the kind it is ('rounds' | 'realtime'); ships holds the enemies' poses by key (frozen in rounds,
+// flown in real time); fx the queued and running effects (beams, flashes, numbers, explosions);
 // result/resultT keep the outcome on the panel for a moment; grace keeps pirates off after
 // fleeing or respawning; wreckT counts down while the destroyed player ship is towed.
 // final and lastShips keep the ended fight's state and enemy poses for the panel and late effects;
-// wrecked hides the player ship between its explosion and the tow.
+// wrecked hides the player ship between its explosion and the tow. returning: enemies that
+// survived a real-time fight, flying back to their usual paths (by key). saveT throttles saves of
+// hull damage in real time.
 const fight = {
-  s: null, ships: new Map(), timer: 0, fx: [], log: [], result: null, resultT: 0, grace: 0, wreckT: 0,
-  final: null, lastShips: new Map(), wrecked: false,
+  s: null, mode: 'rounds', ships: new Map(), timer: 0, fx: [], log: [], result: null, resultT: 0, grace: 0, wreckT: 0,
+  final: null, lastShips: new Map(), wrecked: false, returning: new Map(), saveT: 0, dirty: false,
 };
 const inFight = () => !!fight.s || fight.wreckT > 0;
+const realtimeFight = () => !!fight.s && fight.mode === 'realtime'; // flying is allowed
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
@@ -66,6 +70,7 @@ let senseTimer = 0;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
+const { turnToward } = Flight;
 
 function resize() {
   view.dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -78,7 +83,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ---------- Settings: art style, movement mode and map style (settings.js menu) ----------
+// ---------- Settings: art style, movement, combat and map style (settings.js menu) ----------
 
 const params = new URLSearchParams(location.search);
 function stored(key, options, fallback) {
@@ -102,9 +107,15 @@ const artStyle = setting('style', ART_STYLES, stored('style', ART_STYLES, 'line'
 
 // Cruise: the ship holds the set speed after you let go (tap to stop).
 // Direct: the ship only moves while you drag, with no drift, and stops when you let go.
+// Both turn and change speed by the engine's numbers (flight.js).
 // Switching stops the ship, so it doesn't carry on under rules it wasn't set with.
 const MOVE_MODES = ['cruise', 'direct'];
 const moveMode = setting('move', MOVE_MODES, stored('move', MOVE_MODES, 'cruise'), () => { ship.targetSpeed = 0; autopilot.key = null; });
+
+// Combat: automatic rounds with the ships stopped (combat.js), or real-time, flying throughout
+// (combat-realtime.js). Each fight keeps the mode it started in; the menu is closed during fights.
+const COMBAT_MODES = ['rounds', 'realtime'];
+const combatMode = setting('combat', COMBAT_MODES, stored('combat', COMBAT_MODES, 'rounds'));
 
 const ART_HINT = {
   line: 'Neon outlines on the dark.',
@@ -121,9 +132,17 @@ Settings.add({
   id: 'move', label: 'Movement', shortcut: 'C',
   choices: [
     { value: 'cruise', label: 'Cruise', hint: 'Keeps your speed after you let go. Tap empty space to stop.' },
-    { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to stop.' },
+    { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to brake to a stop.' },
   ],
   get: () => moveMode.value, set: (v) => moveMode.set(v),
+});
+Settings.add({
+  id: 'combat', label: 'Combat',
+  choices: [
+    { value: 'rounds', label: 'Rounds', hint: 'Ships stop and trade fire in automatic rounds. Pick targets and decide when to flee.' },
+    { value: 'realtime', label: 'Real-time', hint: 'Keep flying. Your guns fire on their own while the locked target is in range and ahead of you. Outfly pirates to get away.' },
+  ],
+  get: () => combatMode.value, set: (v) => combatMode.set(v),
 });
 Settings.add({
   id: 'start', label: 'Map',
@@ -645,8 +664,8 @@ function nearbyEntities(t) {
         if (e.kind === 'item' && cargo.collected.has(e.key)) continue;
         if (e.kind === 'asteroid' && cargo.mined.has(e.key)) continue;
         if (e.kind === 'ship' && cargo.destroyed.has(e.key)) continue;
-        const held = e.kind === 'ship' && fight.ships.get(e.key);
-        if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: 0 }); // stopped to fight
+        const held = e.kind === 'ship' && (fight.ships.get(e.key) || fight.returning.get(e.key));
+        if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: held.thrust || 0 }); // fighting, or flying back
         else Sectors.pose(e, t);
         out.push(e);
       }
@@ -668,6 +687,10 @@ const gateKey = (g) => `${g.link}@${Math.floor(g.x / SECTOR)},${Math.floor(g.y /
 
 // Returns true when the ship jumped.
 function checkGates(list) {
+  if (inFight()) { // no jumping out of a fight
+    if (toast.t < 0.3 && list.some((g) => g.kind === 'gate' && Math.hypot(ship.x - g.x, ship.y - g.y) <= g.aperture * 0.7)) notify('Gate locked · in combat');
+    return false;
+  }
   for (const g of list) {
     if (g.kind !== 'gate') continue;
     const d = Math.hypot(ship.x - g.x, ship.y - g.y);
@@ -923,29 +946,63 @@ function drawSelection(t) {
   ctx.restore();
 }
 
-// ---------- Combat: automatic rounds against hostile ships (combat.js) ----------
+// ---------- Combat: against hostile ships, in rounds (combat.js) or real time (combat-realtime.js) ----------
 
 // A fight starts from a hostile ship's Attack button, or when pirates catch the ship within
-// their aggro range. Every pirate near the one engaged joins in. The ships stop where they are;
-// every round their weapons fire on their own, and the combat panel (combat-panel.js) shows
-// the state. You can focus fire (tap an enemy or its row) or try to flee. Outcomes:
+// their aggro range. Every pirate near the one engaged joins in. The combat panel
+// (combat-panel.js) shows the state; tap an enemy, or its row, to target it. The Combat setting
+// picks how a fight plays:
+// - Rounds: the ships stop where they are and every round their weapons fire on their own. You
+//   can focus fire or try to flee.
+// - Real time: everyone keeps flying. Your guns fire at the locked target while it's in range and
+//   inside their arc (the wedge ahead of the ship); when you stop steering, the ship turns to face
+//   its target. Pirates flying into range join in. To flee, outfly them.
+// Outcomes:
 // - won: destroyed ships stay destroyed and leave loot floating,
 // - fled: the pirates leave you alone for a while,
 // - lost: the cargo spills where the ship was destroyed, and it's towed back to the last
 //   station it docked at (or the start system), with the hull patched up.
+// Pirates that survive a real-time fight fly back to their usual paths.
 const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 const RESPAWN_GRACE = 8;
 const SHOT_COLOR = { player: '#7df9ff', enemy: '#ff5a6e' };
+const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
 function attackState(e) {
   if (gapTo(e) > Combat.config.engageRange) return { ok: false, label: 'Attack · too far', inRange: false };
   return { ok: true, label: 'Attack', inRange: true };
 }
 
-// Where a combatant is: the player ship, or an enemy's frozen pose.
+// Where a combatant is: the player ship, or an enemy's pose.
 function fighterPos(id) {
   if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius };
-  return fight.ships.get(id) || null;
+  return fight.ships.get(id) || fight.lastShips.get(id) || null;
+}
+// Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
+const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
+
+// An entity's velocity along its usual path, from where it will be a moment later.
+function pathVelocity(e) {
+  if (!e.motion) return [0, 0];
+  const next = { motion: e.motion };
+  Sectors.pose(next, simTime + 0.1);
+  return [(next.x - e.x) / 0.1, (next.y - e.y) / 0.1];
+}
+
+const shipName = (e, i, n) => `${ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`;
+const fightLog = (line) => { fight.log = [...fight.log, line].slice(-2); };
+
+// An enemy as the flight view keeps it during a fight: its pose (frozen facing you in rounds,
+// flown in real time) and what's needed to draw it, loot it and send it home afterwards.
+function heldPose(e, name) {
+  const a = fight.mode === 'realtime' ? e.a : Math.atan2(ship.y - e.y, ship.x - e.x);
+  return { x: e.x, y: e.y, a, thrust: 0, role: e.role, radius: e.radius, name, motion: e.motion };
+}
+
+function realtimeShip(e, name) {
+  const back = fight.returning.get(e.key); // still flying back from an earlier fight
+  const [vx, vy] = back ? [back.vx, back.vy] : pathVelocity(e);
+  return RealtimeCombat.ship(e.key, name, Loadout.stats(Loadout.starter(e.role)), { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.radius });
 }
 
 function engage(target, ambushed = false) {
@@ -954,21 +1011,26 @@ function engage(target, ambushed = false) {
   const group = frameList.filter((e) => isHostile(e) && e !== target
     && Math.hypot(e.x - target.x, e.y - target.y) <= Combat.config.groupRange);
   group.unshift(target);
-  // Letters tell same-role ships apart, on the panel and above the ships.
-  const letters = 'ABCDEFGH';
-  const enemies = group.map((e, i) => Combat.combatant(e.key,
-    `${ROLE_LABEL[e.role] || 'Ship'}${group.length > 1 ? ` ${letters[i] || i + 1}` : ''}`, Loadout.stats(Loadout.starter(e.role))));
+  const names = group.map((e, i) => shipName(e, i, group.length));
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  fight.s = Combat.create(rng, Combat.combatant('player', `${SHIP.name} (you)`, SHIP, cargo.hull), enemies, target.key);
-  fight.ships = new Map(group.map((e, i) => [e.key, {
-    x: e.x, y: e.y, a: Math.atan2(ship.y - e.y, ship.x - e.x), role: e.role, radius: e.radius, name: enemies[i].name,
-  }]));
+  fight.mode = combatMode.value;
+  if (fight.mode === 'realtime') {
+    const me = RealtimeCombat.ship('player', `${SHIP.name} (you)`, SHIP, { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius }, cargo.hull);
+    fight.s = RealtimeCombat.create(rng, me, group.map((e, i) => realtimeShip(e, names[i])), { focus: ambushed ? null : target.key });
+    fight.saveT = 1;
+    fight.dirty = false;
+  } else {
+    const enemies = group.map((e, i) => Combat.combatant(e.key, names[i], Loadout.stats(Loadout.starter(e.role))));
+    fight.s = Combat.create(rng, Combat.combatant('player', `${SHIP.name} (you)`, SHIP, cargo.hull), enemies, target.key);
+    ship.targetSpeed = 0;
+  }
+  fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
+  for (const e of group) fight.returning.delete(e.key);
   fight.timer = 0.8; // the first round comes quickly
-  fight.log = [ambushed ? 'Pirates attack!' : `You engage the ${enemies[0].name}.`];
+  fight.log = [ambushed ? 'Pirates attack!' : `You engage the ${names[0]}.`];
   fight.result = null;
   stopMining();
   autopilot.key = null;
-  ship.targetSpeed = 0;
   select(null);
   GalaxyMap.blocked = true;
   document.body.classList.add('in-combat');
@@ -976,11 +1038,33 @@ function engage(target, ambushed = false) {
   toast.t = 2;
 }
 
-// Pirates attack a ship that comes too close, unless it just got away from them.
+// A pirate flying into range joins a real-time fight.
+function joinFight(e) {
+  const s = fight.s;
+  if (s.enemies.length === 1 && !/ [A-Z]$/.test(s.enemies[0].name)) { // the first one gets its letter now
+    s.enemies[0].name += ' A';
+    const p = fight.ships.get(s.enemies[0].id);
+    if (p) p.name = s.enemies[0].name;
+  }
+  const name = shipName(e, s.enemies.length, 2);
+  RealtimeCombat.join(s, realtimeShip(e, name));
+  fight.ships.set(e.key, heldPose(e, name));
+  fight.returning.delete(e.key);
+  fightLog(`${name} joins the fight`);
+}
+
+// Pirates attack a ship that comes too close, unless it just got away from them. In a real-time
+// fight, those that come close join it.
 function checkAggro(list) {
-  if (inFight() || docked || fight.grace > 0 || Settings.isOpen) return;
+  if (docked || Settings.isOpen) return;
+  const near = (e) => isHostile(e) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= Combat.config.aggroRange;
+  if (realtimeFight()) {
+    for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);
+    return;
+  }
+  if (inFight() || fight.grace > 0) return;
   for (const e of list) {
-    if (isHostile(e) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= Combat.config.aggroRange) { engage(e, true); return; }
+    if (near(e)) { engage(e, true); return; }
   }
 }
 
@@ -1010,6 +1094,43 @@ function playRound(events) {
   else if (fight.s && fight.s.round > 0 && !lines.extra.length) log.push('Trying to get away…');
   if (lines.them.n) log.push(`${lines.them.n > 1 ? 'They hit' : 'It hit'} you ${lines.them.hits}/${lines.them.shots} for ${lines.them.dmg}`);
   fight.log = [...log, ...lines.extra].slice(-2);
+}
+
+// Damage numbers in real time: hits on a ship in quick succession add up into one number.
+function addDamage(id, amount, hull) {
+  const f = fight.fx.find((x) => x.type === 'number' && x.at === id && x.max - x.t < 0.45);
+  if (f) {
+    f.sum += amount;
+    f.text = `−${f.sum}`;
+    if (hull) f.color = '#ffb347';
+  } else {
+    fight.fx.push({ type: 'number', delay: 0, t: 1, max: 1, at: id, jx: (Math.random() - 0.5) * 24, sum: amount, text: `−${amount}`, color: hull ? '#ffb347' : '#7df9ff' });
+  }
+}
+
+// The effects and log lines of a real-time step. Shots are instant: a short beam each (a miss
+// streaks past), a shield flash, sparks off the hull and a running damage number.
+function playRealtime(events) {
+  const s = fight.s;
+  const name = (id) => (s.enemies.find((e) => e.id === id) || {}).name || 'the enemy';
+  for (const ev of events) {
+    if (ev.type === 'target') { fightLog(`Targeting ${name(ev.id)}`); continue; }
+    if (ev.type === 'locked') { fightLog(`Locked on ${name(ev.id)}`); continue; }
+    if (ev.type === 'lost-lock') { fightLog(`Lost lock on ${name(ev.id)}: out of range`); continue; }
+    if (ev.type !== 'shot') continue;
+    const mine = ev.from === 'player';
+    fight.fx.push({ type: 'beam', delay: 0, t: 0.14, max: 0.14, from: ev.from, to: ev.to, hits: ev.hit ? 1 : 0, color: mine ? SHOT_COLOR.player : SHOT_COLOR.enemy });
+    if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: 0, t: 0.3, max: 0.3, at: ev.to });
+    if (ev.hullDamage > 0) {
+      const at = fighterPos(ev.to);
+      if (at) fight.fx.push({ type: 'sparks', delay: 0, at: { x: at.x, y: at.y }, n: 2 });
+    }
+    if (!mine && ev.shieldDamage > 0 && s.player.shield <= 0) fightLog('Your shields are down!');
+    if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0);
+    if (ev.destroyed) {
+      if (mine) { shipDestroyed(ev.to); fightLog(`${name(ev.to)} destroyed`); } else playerDestroyed();
+    }
+  }
 }
 
 // Debris and a flash where a ship blew up.
@@ -1048,6 +1169,7 @@ function playerDestroyed() {
   });
   cargo.items = [];
   ship.vx = ship.vy = 0;
+  ship.targetSpeed = 0;
   ship.thrust = 0;
   fight.wrecked = true;
   saveCargo();
@@ -1070,6 +1192,14 @@ function towHome() {
 }
 
 function endFight(result) {
+  // After a real-time fight the survivors fly back to their usual paths (tickReturning).
+  if (fight.mode === 'realtime' && fight.final) {
+    for (const e of fight.final.enemies) {
+      const p = fight.ships.get(e.id);
+      if (e.hull <= 0 || !p || !p.motion) continue;
+      fight.returning.set(e.id, { x: e.x, y: e.y, vx: e.vx, vy: e.vy, angle: e.angle, a: e.angle, thrust: e.thrust, stats: e.stats, motion: p.motion, t: 0 });
+    }
+  }
   fight.lastShips = fight.ships; // effects still to play may need the enemies' positions
   fight.ships = new Map();
   fight.result = result;
@@ -1086,7 +1216,22 @@ function endFight(result) {
   saveCargo();
 }
 
-// Rounds, effects and the result panel; runs with the flight simulation.
+// Pirates that survived a real-time fight fly to where their usual path has got to, then carry on
+// along it. Once the player is far away they simply rejoin it.
+function tickReturning(dt) {
+  for (const [key, b] of fight.returning) {
+    const home = { motion: b.motion };
+    Sectors.pose(home, simTime);
+    const d = Math.hypot(home.x - b.x, home.y - b.y);
+    b.t += dt;
+    if (d < 40 || b.t > 40 || Math.hypot(b.x - ship.x, b.y - ship.y) > SECTOR) { fight.returning.delete(key); continue; }
+    const speed = Math.min(b.stats.maxSpeed * 0.8, Math.sqrt(b.stats.accel * d) + 120);
+    Flight.step(b, b.stats, { targetAngle: Math.atan2(home.y - b.y, home.x - b.x), targetSpeed: speed, mode: 'cruise' }, dt);
+    b.a = b.angle;
+  }
+}
+
+// Rounds, real-time steps, effects and the result panel; runs with the flight simulation.
 function tickFight(dt) {
   fight.grace = Math.max(0, fight.grace - dt);
   for (let i = fight.fx.length - 1; i >= 0; i--) {
@@ -1113,8 +1258,10 @@ function tickFight(dt) {
     fight.resultT -= dt;
     if (fight.resultT <= 0) { fight.result = null; CombatPanel.hide(); }
   }
+  tickReturning(dt);
   const s = fight.s;
   if (!s) return;
+  if (fight.mode === 'realtime') { tickRealtime(dt); return; }
   ship.targetSpeed = 0;
   const f = fight.ships.get(s.focus);
   if (f) ship.angle = turnToward(ship.angle, Math.atan2(f.y - ship.y, f.x - ship.x), SHIP.turnRate * dt);
@@ -1132,6 +1279,40 @@ function tickFight(dt) {
   }
 }
 
+// One step of a real-time fight: the player's ship has already flown this frame (update); when
+// it isn't steering, it turns to face its target. The enemies fly and everyone's guns fire.
+function tickRealtime(dt) {
+  const s = fight.s;
+  const target = fight.ships.get(s.focus);
+  if (target && ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(target.y - ship.y, target.x - ship.x), SHIP.turnRate * dt);
+  const events = RealtimeCombat.step(s, dt, ship);
+  for (const e of s.enemies) {
+    const p = fight.ships.get(e.id);
+    if (p && e.hull > 0) Object.assign(p, { x: e.x, y: e.y, a: e.angle, thrust: e.thrust });
+  }
+  playRealtime(events);
+  // Hull damage is saved at most once a second, so it survives closing the page mid-fight.
+  const hull = Math.max(0, s.player.hull);
+  if (hull !== cargo.hull) { cargo.hull = hull; fight.dirty = true; }
+  fight.saveT -= dt;
+  if (fight.dirty && fight.saveT <= 0) { saveCargo(); fight.dirty = false; fight.saveT = 1; }
+  if (s.over) {
+    fight.s = null;
+    fight.final = s;
+    endFight(s.over);
+  }
+}
+
+// Target an enemy (a tap on it, its marker or its row).
+function focusOn(id) {
+  const s = fight.s;
+  if (!s) return;
+  if (fight.mode === 'realtime') RealtimeCombat.setFocus(s, id);
+  else Combat.setFocus(s, id);
+}
+
+const OUTCOME_TITLE = { won: 'Victory', fled: 'Escaped', lost: 'Ship destroyed' };
+
 // The panel: live during the fight, then the outcome for a few seconds.
 function updateCombatPanel() {
   const s = fight.s || (fight.result ? fight.final : null);
@@ -1141,40 +1322,96 @@ function updateCombatPanel() {
     id: c.id, name: c.name, you: c === s.player, hull: c.hull, maxHull: c.stats.hull,
     shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
   }));
-  const title = !over ? `Combat · round ${s.round + 1}`
-    : fight.result === 'won' ? 'Victory' : fight.result === 'fled' ? 'Escaped' : 'Ship destroyed';
+  const close = { id: 'close', label: 'Close', enabled: true };
+  if (fight.mode === 'realtime') {
+    // The title says what the guns are doing; the bar fills as the lock comes on, or as you get
+    // clear when breaking away.
+    const t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+    const away = !over && s.away > 0;
+    const title = over ? OUTCOME_TITLE[fight.result] : away ? 'Breaking away'
+      : !t ? 'Combat' : s.locked ? `Locked on ${t.name}` : `Locking on ${t.name}`;
+    CombatPanel.show({
+      title, tone: over ? fight.result : '', rows, log: fight.log, button: over ? close : null, bar: away ? 'escape' : 'lock',
+      progress: over ? 0 : away ? s.away / RealtimeCombat.config.escapeTime : t ? Math.min(1, s.lockT / SHIP.lockTime) : 0,
+    });
+    return;
+  }
   CombatPanel.show({
-    title, tone: over ? fight.result : '', rows, log: fight.log,
-    button: over ? { id: 'close', label: 'Close', enabled: true }
-      : { id: 'flee', label: s.fleeing ? 'Fleeing…' : 'Flee', enabled: !s.fleeing },
+    title: over ? OUTCOME_TITLE[fight.result] : `Combat · round ${s.round + 1}`, tone: over ? fight.result : '', rows, log: fight.log,
+    button: over ? close : { id: 'flee', label: s.fleeing ? 'Fleeing…' : 'Flee', enabled: !s.fleeing },
     progress: over ? 0 : 1 - fight.timer / Combat.config.round,
   });
 }
 
-CombatPanel.onFocus = (id) => { if (fight.s) Combat.setFocus(fight.s, id); };
+CombatPanel.onFocus = focusOn;
 CombatPanel.onButton = (id) => {
-  if (id === 'flee' && fight.s) fight.s.fleeing = true;
+  if (id === 'flee' && fight.s && fight.mode === 'rounds') fight.s.fleeing = true;
   if (id === 'close') { fight.result = null; CombatPanel.hide(); }
 };
 
-// Beams, shield flashes and explosion flashes, in world space.
+// Corner brackets around a ship in a fight, `open` (0..1) pushes them out.
+function brackets(x, y, radius, open) {
+  const R = (radius + 12 / view.zoom) * (1 + open * 0.9), arm = Math.min(R * 0.45, 18 / view.zoom);
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.moveTo(x + sx * R, y + sy * (R - arm));
+    ctx.lineTo(x + sx * R, y + sy * R);
+    ctx.lineTo(x + sx * (R - arm), y + sy * R);
+  }
+  ctx.stroke();
+}
+
+// Real time: the guns' field of fire ahead of the ship, out to their range; brighter while the
+// locked target is inside it. And a faint red line from every enemy that has you in its sights.
+function drawFieldOfFire(s) {
+  const w = SHIP.weapons[0];
+  if (!w || fight.wrecked) return;
+  const t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+  const live = t && s.locked && RealtimeCombat.canFire(s.player, w, t);
+  const half = w.arc >= 360 ? Math.PI : (w.arc * Math.PI) / 360;
+  const x = rx(ship.x), y = ry(ship.y), R = w.range + SHIP.radius;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.arc(x, y, R, ship.angle - half, ship.angle + half);
+  ctx.closePath();
+  if (live) {
+    ctx.fillStyle = SHOT_COLOR.player;
+    ctx.globalAlpha = 0.045;
+    ctx.fill();
+  }
+  ctx.strokeStyle = SHOT_COLOR.player;
+  ctx.globalAlpha = live ? 0.32 : 0.16;
+  ctx.lineWidth = 1.5 / view.zoom;
+  ctx.setLineDash([8 / view.zoom, 10 / view.zoom]);
+  ctx.stroke();
+  ctx.strokeStyle = HOSTILE_COLOR;
+  ctx.globalAlpha = 0.3;
+  for (const e of RealtimeCombat.alive(s)) {
+    if (e.lockT < e.stats.lockTime || !e.stats.weapons.some((ew) => RealtimeCombat.canFire(e, ew, s.player))) continue;
+    ctx.beginPath();
+    ctx.moveTo(rx(e.x), ry(e.y));
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+// Beams, shield flashes and explosion flashes, in world space; brackets on the target (closing
+// in as the lock comes on, in real time).
 function drawFight() {
   const s = fight.s;
   ctx.save();
-  if (s) { // brackets on the focused enemy
+  if (s && fight.mode === 'realtime') drawFieldOfFire(s);
+  if (s) {
     const f = fight.ships.get(s.focus);
     if (f) {
-      const R = f.radius + 12 / view.zoom, arm = Math.min(R * 0.45, 18 / view.zoom), x = rx(f.x), y = ry(f.y);
+      const lock = fight.mode === 'realtime' ? (s.locked ? 1 : Math.min(1, s.lockT / SHIP.lockTime)) : 1;
       ctx.strokeStyle = HOSTILE_COLOR;
-      ctx.globalAlpha = 0.85;
+      ctx.globalAlpha = 0.5 + 0.35 * lock;
       ctx.lineWidth = 2 / view.zoom;
-      ctx.beginPath();
-      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        ctx.moveTo(x + sx * R, y + sy * (R - arm));
-        ctx.lineTo(x + sx * R, y + sy * R);
-        ctx.lineTo(x + sx * (R - arm), y + sy * R);
-      }
-      ctx.stroke();
+      if (lock < 1) ctx.setLineDash([5 / view.zoom, 4 / view.zoom]);
+      brackets(rx(f.x), ry(f.y), f.radius, 1 - lock);
+      ctx.setLineDash([]);
     }
   }
   ctx.lineCap = 'round';
@@ -1183,12 +1420,14 @@ function drawFight() {
     const k = f.t / f.max;
     if (f.type === 'beam') {
       // A hit lands on the target; a miss streaks past it.
-      const ang = Math.atan2(f.to.y - f.from.y, f.to.x - f.from.x);
-      const d = Math.hypot(f.to.x - f.from.x, f.to.y - f.from.y);
-      const len = f.hits > 0 ? d - f.to.radius * 0.4 : d + 120;
+      const from = fxPos(f.from), to = fxPos(f.to);
+      if (!from || !to) continue;
+      const ang = Math.atan2(to.y - from.y, to.x - from.x);
+      const d = Math.hypot(to.x - from.x, to.y - from.y);
+      const len = f.hits > 0 ? d - to.radius * 0.4 : d + 120;
       const off = f.hits > 0 ? 0 : 0.06;
-      const x0 = rx(f.from.x) + Math.cos(ang) * f.from.radius, y0 = ry(f.from.y) + Math.sin(ang) * f.from.radius;
-      const x1 = rx(f.from.x) + Math.cos(ang + off) * len, y1 = ry(f.from.y) + Math.sin(ang + off) * len;
+      const x0 = rx(from.x) + Math.cos(ang) * from.radius, y0 = ry(from.y) + Math.sin(ang) * from.radius;
+      const x1 = rx(from.x) + Math.cos(ang + off) * len, y1 = ry(from.y) + Math.sin(ang + off) * len;
       ctx.strokeStyle = f.color;
       ctx.globalAlpha = k * (f.hits > 0 ? 0.3 : 0.12);
       ctx.lineWidth = 6 / view.zoom;
@@ -1197,11 +1436,13 @@ function drawFight() {
       ctx.lineWidth = 1.6 / view.zoom;
       ctx.stroke();
     } else if (f.type === 'shield') {
+      const at = fxPos(f.at);
+      if (!at) continue;
       ctx.strokeStyle = '#7df9ff';
       ctx.globalAlpha = k * 0.8;
       ctx.lineWidth = 2 / view.zoom;
       ctx.beginPath();
-      ctx.arc(rx(f.at.x), ry(f.at.y), f.at.radius + 10 + (1 - k) * 8, 0, TAU);
+      ctx.arc(rx(at.x), ry(at.y), at.radius + 10 + (1 - k) * 8, 0, TAU);
       ctx.stroke();
     } else if (f.type === 'flash') {
       ctx.fillStyle = '#fff1d0';
@@ -1244,13 +1485,70 @@ function drawFightOverlay() {
   }
   for (const f of fight.fx) {
     if (f.type !== 'number' || f.delay > 0) continue;
+    const at = fxPos(f.at);
+    if (!at) continue;
     const k = f.t / f.max;
-    const [x, y] = worldToScreen(f.at.x, f.at.y);
+    const [x, y] = worldToScreen(at.x, at.y);
     ctx.globalAlpha = Math.min(1, k * 1.6);
     ctx.fillStyle = f.color;
     ctx.fillText(f.text, x + 14 + (f.jx || 0), y - 26 - (1 - k) * 26);
   }
   ctx.restore();
+}
+
+// Real time: enemies off screen get a red marker at the screen edge pointing their way, with
+// their letter and distance; a tap on one targets it. Where each was drawn: { id, x, y }.
+let foeHits = [];
+
+function drawFoeMarkers() {
+  foeHits = [];
+  const s = fight.s;
+  if (!s || fight.mode !== 'realtime') return;
+  const panel = document.getElementById('combat');
+  const inset = { l: 26, r: 26, t: 70, b: panel.hidden ? 64 : Math.max(64, view.h - panel.getBoundingClientRect().top + 18) };
+  const cx = view.w / 2, cy = view.h / 2;
+  ctx.save();
+  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  for (const e of RealtimeCombat.alive(s)) {
+    const p = fight.ships.get(e.id);
+    if (!p || visible(p)) continue;
+    const [px, py] = worldToScreen(p.x, p.y);
+    const dx = px - cx, dy = py - cy;
+    const k = Math.min((dx > 0 ? cx - inset.r : cx - inset.l) / Math.abs(dx || 1e-6), (dy > 0 ? cy - inset.b : cy - inset.t) / Math.abs(dy || 1e-6));
+    const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = HOSTILE_COLOR;
+    ctx.translate(x, y);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-4, 7);
+    ctx.lineTo(-4, -7);
+    ctx.closePath();
+    ctx.fill();
+    if (e.id === s.focus) {
+      ctx.strokeStyle = HOSTILE_COLOR;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(2, 0, 14, 0, TAU);
+      ctx.stroke();
+    }
+    ctx.rotate(-a);
+    ctx.translate(-x, -y);
+    // The label sits inward from the arrow, so it never covers it.
+    const label = `${s.enemies.length > 1 ? `${e.name.split(' ').pop()} · ` : ''}${fmtDist(Math.hypot(p.x - ship.x, p.y - ship.y) - p.radius)}`;
+    const tw = ctx.measureText(label).width;
+    ctx.fillText(label, clamp(x - Math.cos(a) * (tw / 2 + 20), tw / 2 + 6, view.w - tw / 2 - 6), clamp(y - Math.sin(a) * 22 + 4, 14, view.h - 8));
+    foeHits.push({ id: e.id, x, y });
+  }
+  ctx.restore();
+}
+
+// The enemy whose edge marker is under a tap, if any.
+function foeMarkerAt(sx, sy) {
+  const m = foeHits.find((h) => Math.hypot(sx - h.x, sy - h.y) < TAP_SLOP + 8);
+  return m ? m.id : null;
 }
 
 // ---------- Input: drag sets heading, drag length sets speed ----------
@@ -1280,7 +1578,7 @@ canvas.addEventListener('pointermove', (e) => {
   const dy = drag.y - drag.y0;
   const len = Math.hypot(dx, dy);
   drag.moved = Math.max(drag.moved, len);
-  if (inFight()) return; // no flying during a fight; taps still focus fire
+  if (inFight() && !realtimeFight()) return; // no flying in a round-based fight; taps still focus fire
   if (len > DEADZONE) {
     autopilot.key = null; // flying by hand ends an approach
     ship.targetAngle = Math.atan2(dy, dx);
@@ -1292,14 +1590,18 @@ canvas.addEventListener('pointermove', (e) => {
 
 // A tap selects what's under it; a tap on empty space clears the selection and any approach,
 // and in Cruise mode stops the ship. In Direct mode letting go always stops the ship (unless it's
-// approaching something).
+// approaching something). In a fight a tap on an enemy (or, in real time, its edge marker)
+// targets it; in real time the ship stops as it would outside a fight.
 function endDrag(e) {
   if (!drag.active || e.pointerId !== drag.id) return;
   drag.active = false;
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
-  const hit = tap ? pickAt(e.clientX, e.clientY) : null;
-  if (inFight()) { // in a fight a tap on an enemy focuses fire on it; nothing else
-    if (hit && fight.s && fight.ships.has(hit.key)) Combat.setFocus(fight.s, hit.key);
+  const marker = tap && realtimeFight() ? foeMarkerAt(e.clientX, e.clientY) : null;
+  const hit = tap && !marker ? pickAt(e.clientX, e.clientY) : null;
+  if (inFight()) {
+    const foe = marker || (hit && fight.ships.has(hit.key) ? hit.key : null);
+    if (foe) focusOn(foe);
+    else if (realtimeFight() && (moveMode.value === 'direct' || tap)) ship.targetSpeed = 0;
     return;
   }
   if (hit) select(hit);
@@ -1313,44 +1615,13 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ---------- Simulation ----------
 
-function turnToward(a, target, maxStep) {
-  const diff = ((target - a + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  return a + clamp(diff, -maxStep, maxStep);
-}
-
 function update(dt) {
   simTime += dt;
   tickAutopilot();
-  const direct = moveMode.value === 'direct';
-  const moving = ship.targetSpeed > 0;
-  if (moving) ship.angle = turnToward(ship.angle, ship.targetAngle, SHIP.turnRate * (direct ? 3 : 1) * dt);
+  // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight.js).
+  Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
-
-  if (direct) {
-    // No inertia: velocity always points along the heading and snaps to the set speed.
-    let speed = lerp(Math.hypot(ship.vx, ship.vy), ship.targetSpeed, 1 - Math.exp(-12 * dt));
-    if (!moving && speed < 5) speed = 0;
-    ship.vx = hx * speed;
-    ship.vy = hy * speed;
-    ship.thrust = lerp(ship.thrust, moving ? Math.max(0.2, ship.targetSpeed / SHIP.maxSpeed) : 0, 1 - Math.exp(-12 * dt));
-  } else {
-    // Velocity eases toward (heading * set speed), so turning produces some drift.
-    const dvx = hx * ship.targetSpeed - ship.vx;
-    const dvy = hy * ship.targetSpeed - ship.vy;
-    const dv = Math.hypot(dvx, dvy);
-    if (dv > 0) {
-      const k = Math.min(1, (SHIP.accel * dt) / dv);
-      ship.vx += dvx * k;
-      ship.vy += dvy * k;
-    }
-    const along = dv > 5 ? (dvx * hx + dvy * hy) / dv : 0;
-    const thrustTarget = moving ? Math.max(0.2, along) : 0;
-    ship.thrust = lerp(ship.thrust, thrustTarget, 1 - Math.exp(-10 * dt));
-  }
-
-  ship.x += ship.vx * dt;
-  ship.y += ship.vy * dt;
 
   // Galaxy edge: clamp and bounce softly.
   const m = SHIP.radius;
@@ -1392,7 +1663,8 @@ function update(dt) {
   }
 
   // Camera leads in the direction of travel. In a fight it frames the ship and its target in
-  // the space above the combat panel.
+  // the space above the combat panel; in real time it leans only so far, keeping your own ship
+  // well on screen when the target is far off.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
@@ -1400,8 +1672,13 @@ function update(dt) {
   if (focus) {
     const panel = document.getElementById('combat');
     const covered = panel.hidden ? 0 : Math.max(0, view.h - panel.getBoundingClientRect().top);
-    tx = (ship.x + focus.x) / 2;
-    ty = (ship.y + focus.y) / 2 + covered / 2 / view.zoom;
+    let dx = (focus.x - ship.x) / 2, dy = (focus.y - ship.y) / 2;
+    if (fight.mode === 'realtime') {
+      const max = (Math.min(view.w, view.h - covered) * 0.3) / view.zoom, len = Math.hypot(dx, dy);
+      if (len > max) { dx *= max / len; dy *= max / len; }
+    }
+    tx = ship.x + dx;
+    ty = ship.y + dy + covered / 2 / view.zoom;
   }
   cam.x = lerp(cam.x, tx, k);
   cam.y = lerp(cam.y, ty, k);
@@ -1974,6 +2251,7 @@ function render() {
     ctx.restore();
   }
   drawNavMarkers(list);
+  drawFoeMarkers();
   drawDragIndicator();
   drawMinimap(list);
   drawHud();
