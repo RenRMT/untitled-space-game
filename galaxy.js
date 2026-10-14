@@ -728,7 +728,7 @@ const Galaxy = (() => {
       if (o >= 0) {
         s += (shares[idx(x, y) * T + o] - 0.5) * 0.3;
         if (rival[idx(x, y)] >= 0) s -= 0.15;
-        if (pirateFaction?.operatesIn?.includes(o)) s -= 0.2;
+        if (pirateFaction?.operatesIn?.includes(o)) s -= 0.1;
       }
       if (nearWaystation(x, y)) s = Math.max(s, 0.45);
       return s >= 0.7 ? 3 : s >= 0.45 ? 2 : s >= 0.2 ? 1 : 0;
