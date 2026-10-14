@@ -23,6 +23,16 @@ const ContextCard = (() => {
     if (b && !b.disabled && onAction) onAction(b.dataset.id);
   });
 
+  // Buttons are updated in place while the same actions are offered, so a press isn't lost to a
+  // rebuild between pointer down and up (the distance in the subtitle changes all the time).
+  function setButton(b, a) {
+    b.className = `btn${a.busy ? ' busy' : ''}`;
+    b.dataset.id = a.id;
+    b.disabled = !a.enabled;
+    if (b.textContent !== a.label) b.textContent = a.label;
+    b.title = a.title || '';
+  }
+
   function show(d) {
     const key = JSON.stringify([d.title, d.subtitle, d.tag, d.tone, d.color,
       d.actions.map((a) => [a.id, a.label, a.enabled, a.busy, a.title])]);
@@ -35,16 +45,17 @@ const ContextCard = (() => {
       tagEl.hidden = !d.tag;
       tagEl.className = `cx-tag ${d.tone || ''}`;
       subEl.textContent = d.subtitle || '';
-      actionsEl.replaceChildren(...d.actions.map((a) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = `btn${a.busy ? ' busy' : ''}`;
-        b.dataset.id = a.id;
-        b.disabled = !a.enabled;
-        b.textContent = a.label;
-        if (a.title) b.title = a.title;
-        return b;
-      }));
+      const buttons = [...actionsEl.children];
+      if (buttons.length === d.actions.length && buttons.every((b, i) => b.dataset.id === d.actions[i].id)) {
+        d.actions.forEach((a, i) => setButton(buttons[i], a));
+      } else {
+        actionsEl.replaceChildren(...d.actions.map((a) => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          setButton(b, a);
+          return b;
+        }));
+      }
     }
     // Progress bars move every frame without rebuilding the buttons.
     for (const a of d.actions) {
