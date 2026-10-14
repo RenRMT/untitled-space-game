@@ -21,7 +21,6 @@ const GalaxyMap = (() => {
   const stopBtn = document.getElementById('map-stop');
   const fastBtn = document.getElementById('map-fast');
   const rerollBtn = document.getElementById('map-reroll');
-  const styleBtn = document.getElementById('map-start');
   const travelStatus = document.getElementById('map-travel-status');
   const promptEl = document.getElementById('map-prompt');
   const promptText = document.getElementById('map-prompt-text');
@@ -74,8 +73,8 @@ const GalaxyMap = (() => {
 
   // Start style (galaxy.js): 'core' starts at the main capital with its network charted;
   // 'frontier' starts at a lone Waystation by the map's edge with nothing else charted.
-  // Saved, and ?start=core|frontier overrides it. Each style keeps its own charts and cargo.
-  const START_LABEL = { core: 'Core start', frontier: 'Frontier start' };
+  // Chosen in the settings menu (GalaxyMap.setStartStyle); saved, and ?start=core|frontier overrides
+  // it. Each style keeps its own charts and cargo.
   let startStyle = (() => {
     const param = new URLSearchParams(location.search).get('start');
     if (Galaxy.START_STYLES.includes(param)) return param;
@@ -86,7 +85,6 @@ const GalaxyMap = (() => {
 
   function load(seed) {
     galaxy = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: startStyle });
-    styleBtn.textContent = START_LABEL[startStyle];
     cells = [];
     contacts = [];
     for (let y = 0; y < galaxy.size; y++) {
@@ -147,9 +145,10 @@ const GalaxyMap = (() => {
     load(seed);
   }
 
-  // Same seed, the other start style. Progress in each style is kept, so switching back resumes it.
-  function switchStart() {
-    startStyle = Galaxy.START_STYLES[(Galaxy.START_STYLES.indexOf(startStyle) + 1) % Galaxy.START_STYLES.length];
+  // Same seed, another start style. Progress in each style is kept, so switching back resumes it.
+  function setStartStyle(style) {
+    if (!Galaxy.START_STYLES.includes(style) || style === startStyle) return;
+    startStyle = style;
     try { localStorage.setItem('start', startStyle); } catch (e) { /* storage unavailable */ }
     setUrlParam('start', startStyle);
     fitted = false;
@@ -361,10 +360,11 @@ const GalaxyMap = (() => {
     }
 
     // Deep-space contacts: identified ones by type, pings as '?'. The Contacts toggle shows all.
+    // Story signals too only show once the ship's sensors have pinged them.
     ctx.textAlign = 'center';
     for (const c of contacts) {
       const state = showContacts || !fog() ? 'known' : fog().contactState(c.x, c.y);
-      if (!state && c.type !== 'story') continue;
+      if (!state) continue;
       const [sx, sy] = toScreen(c.x + 0.5, c.y + 0.5);
       const r = clamp(scale * 0.22, 2, 6);
       if (state !== 'known') {
@@ -656,7 +656,7 @@ const GalaxyMap = (() => {
     travelBtn.hidden = travelling;
     travelBtn.disabled = !selected || !hooks.travel;
     stopBtn.hidden = fastBtn.hidden = travelStatus.hidden = !travelling;
-    rerollBtn.disabled = styleBtn.disabled = travelling;
+    rerollBtn.disabled = travelling;
     jumpBtn.disabled = travelling || !selected || !onJump;
     fastBtn.setAttribute('aria-pressed', String(travelling && trip.fast));
     promptEl.hidden = !(travelling && trip.prompt);
@@ -845,7 +845,6 @@ const GalaxyMap = (() => {
   document.getElementById('map-btn').addEventListener('click', open);
   document.getElementById('map-close').addEventListener('click', close);
   document.getElementById('map-reroll').addEventListener('click', reroll);
-  styleBtn.addEventListener('click', switchStart);
   travelBtn.addEventListener('click', () => {
     if (!selected || !hooks.travel) return;
     hooks.travel(destOf(selected));
@@ -887,6 +886,10 @@ const GalaxyMap = (() => {
     close,
     get isOpen() { return isOpen; },
     get galaxy() { return galaxy; },
+    // Start style ('core' | 'frontier'), for the settings menu. Setting it regenerates the galaxy.
+    get startStyle() { return startStyle; },
+    setStartStyle,
+    get travelling() { return !!(trip && trip.active); },
     // Flight view hooks: where the ship is (in sector units), and what to do on Jump.
     setPlayer(x, y) {
       const moved = !player || Math.floor(player.x * 4) !== Math.floor(x * 4) || Math.floor(player.y * 4) !== Math.floor(y * 4);

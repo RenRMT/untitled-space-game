@@ -60,6 +60,7 @@ let simTime = 0; // advances only while flying, so the map pause doesn't make tr
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
 const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
+const notify = (text, t = 2) => { toast.text = text; toast.t = t; };
 let lastPocket; // key of the pocket the ship was in last frame ('' = none), for enter/leave notices
 let senseTimer = 0;
 
@@ -77,7 +78,7 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ---------- Settings: art style and movement mode ----------
+// ---------- Settings: art style, movement mode and map style (settings.js menu) ----------
 
 const params = new URLSearchParams(location.search);
 function stored(key, options, fallback) {
@@ -88,31 +89,67 @@ function stored(key, options, fallback) {
 function store(key, v) {
   try { localStorage.setItem(key, v); } catch (e) { /* storage unavailable */ }
 }
-function toggle(btn, key, options, labels, initial) {
+// A saved choice among `options`; onChange runs after every change.
+function setting(key, options, initial, onChange) {
   const s = { value: initial };
-  const set = (v) => { s.value = v; btn.textContent = labels[v]; store(key, v); };
-  s.cycle = () => set(options[(options.indexOf(s.value) + 1) % options.length]);
-  btn.addEventListener('click', s.cycle);
-  set(initial);
+  s.set = (v) => { if (!options.includes(v)) return; s.value = v; store(key, v); if (onChange) onChange(v); };
+  s.cycle = () => s.set(options[(options.indexOf(s.value) + 1) % options.length]);
   return s;
 }
 
 const ART_STYLES = Art.STYLES.map((s) => s.id);
-const artStyle = toggle(document.getElementById('style-btn'), 'style', ART_STYLES,
-  Object.fromEntries(Art.STYLES.map((s) => [s.id, s.label])), stored('style', ART_STYLES, 'line'));
+const artStyle = setting('style', ART_STYLES, stored('style', ART_STYLES, 'line'));
 
 // Cruise: the ship holds the set speed after you let go (tap to stop).
 // Direct: the ship only moves while you drag, with no drift, and stops when you let go.
+// Switching stops the ship, so it doesn't carry on under rules it wasn't set with.
 const MOVE_MODES = ['cruise', 'direct'];
-const moveMode = toggle(document.getElementById('move-btn'), 'move', MOVE_MODES,
-  { cruise: 'Cruise', direct: 'Direct' }, stored('move', MOVE_MODES, 'cruise'));
-document.getElementById('move-btn').addEventListener('click', () => { ship.targetSpeed = 0; autopilot.key = null; });
+const moveMode = setting('move', MOVE_MODES, stored('move', MOVE_MODES, 'cruise'), () => { ship.targetSpeed = 0; autopilot.key = null; });
+
+const ART_HINT = {
+  line: 'Neon outlines on the dark.',
+  pixel: 'Coarse pixels with dithered shading.',
+  flat: 'Solid fills with a simple rim shadow.',
+  lowpoly: 'Faceted shapes with flat lighting.',
+};
+Settings.add({
+  id: 'style', label: 'Art style', shortcut: 'V',
+  choices: Art.STYLES.map((s) => ({ value: s.id, label: s.label, hint: ART_HINT[s.id] })),
+  get: () => artStyle.value, set: (v) => artStyle.set(v),
+});
+Settings.add({
+  id: 'move', label: 'Movement', shortcut: 'C',
+  choices: [
+    { value: 'cruise', label: 'Cruise', hint: 'Keeps your speed after you let go. Tap empty space to stop.' },
+    { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to stop.' },
+  ],
+  get: () => moveMode.value, set: (v) => moveMode.set(v),
+});
+Settings.add({
+  id: 'start', label: 'Map',
+  choices: [
+    { value: 'core', label: 'Core start', hint: 'Start at the central capital, with its network of lanes and gates charted.' },
+    { value: 'frontier', label: 'Frontier start', hint: 'Start at a lone Waystation by the edge of the map, with nothing else charted.' },
+  ],
+  note: 'Switching keeps this galaxy and moves you to that start. Each map keeps its own charts and cargo.',
+  get: () => GalaxyMap.startStyle, set: (v) => GalaxyMap.setStartStyle(v),
+});
+
+// The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
+const settingsBtn = document.getElementById('settings-btn');
+settingsBtn.addEventListener('click', () => { if (!inFight() && !docked) Settings.open(); });
+Settings.onToggle = (open) => {
+  GalaxyMap.blocked = open; // no map on top of the menu
+  settingsBtn.setAttribute('aria-expanded', String(open));
+  if (open) drag.active = false;
+};
 
 // Keyboard shortcuts act on the selected object, or else on the nearest one in range.
 window.addEventListener('keydown', (e) => {
   if (GalaxyMap.isOpen || docked) return;
-  if (e.key === 'v' || e.key === 'V') artStyle.cycle();
-  if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); ship.targetSpeed = 0; autopilot.key = null; }
+  // With no buttons showing them any more, the V and C shortcuts say what they switched to.
+  if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
+  if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
   if (e.key === 'f' || e.key === 'F') shortcut('station', dockState, dock);
   if (e.key === 'e' || e.key === 'E') shortcut('asteroid', mineState, startMining);
   if (e.key === 'Escape') select(null);
@@ -934,7 +971,7 @@ function engage(target, ambushed = false) {
 
 // Pirates attack a ship that comes too close, unless it just got away from them.
 function checkAggro(list) {
-  if (inFight() || docked || fight.grace > 0) return;
+  if (inFight() || docked || fight.grace > 0 || Settings.isOpen) return;
   for (const e of list) {
     if (isHostile(e) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= Combat.config.aggroRange) { engage(e, true); return; }
   }
@@ -1985,7 +2022,7 @@ function frame(now) {
   const t0 = performance.now();
   tickTravel(dt);
   if (!GalaxyMap.isOpen && !docked) { // the map overlay and docking pause flight
-    update(dt);
+    if (!Settings.isOpen) update(dt); // the settings menu pauses it too, but keeps it drawn
     render();
     recordFrame(performance.now() - t0, gap);
   }
