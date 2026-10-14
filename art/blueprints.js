@@ -946,7 +946,7 @@ const ArtBlueprints = (() => {
   }
 
   // 'gate' is kept out of TYPES because create() returns null for cultures without gate technology.
-  return { TYPES, GATE_FORMS, canBuildGate, create, gate, wreck, playerShip, tarsisStation, SHIP_HULL };
+  return { TYPES, GATE_FORMS, canBuildGate, create, gate, wreck, playerShip, tarsisStation, SHIP_HULL, builder, finish };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtBlueprints;
