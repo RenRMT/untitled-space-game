@@ -1820,9 +1820,13 @@ function edgeMarkers(items, bottom, alpha) {
     ctx.translate(-x, -y);
     const tw = ctx.measureText(m.label).width;
     const tx = clamp(x - Math.cos(a) * (tw / 2 + 16) - tw / 2, 8, view.w - tw - 8);
-    const ty = clamp(y - Math.sin(a) * 18 + 4, 14, view.h - 8);
+    // A label that would overlap one already drawn (two things in about the same direction)
+    // moves a line further in from the edge.
+    const overlaps = (t) => hits.some((h) => tx < h.text[2] && tx + tw > h.text[0] && t - 11 < h.text[3] && t + 3 > h.text[1]);
+    let ty = clamp(y - Math.sin(a) * 18 + 4, 14, view.h - 8);
+    for (let i = 0; i < hits.length && overlaps(ty); i++) ty += y < cy ? 15 : -15;
     ctx.fillText(m.label, tx, ty);
-    hits.push({ ref: m.ref, x, y, box: [tx - 6, ty - 15, tx + tw + 6, ty + 7] });
+    hits.push({ ref: m.ref, x, y, box: [tx - 6, ty - 15, tx + tw + 6, ty + 7], text: [tx, ty - 11, tx + tw, ty + 3] });
   }
   ctx.restore();
   return hits;
