@@ -5,7 +5,8 @@
 // contents are recreated on demand from the galaxy seed and the sector coordinates:
 // - systems: a star, one planet per planet location, stations and outposts of the owner,
 // - gates: one per route (lanes and gates alike), on the side facing the destination; each end is built by a major
-//   faction (the system's owner, else the major at the other end, else the nearest major),
+//   faction (the system's owner, else the major at the other end, else the nearest major), with a
+//   stable key (sector and route) for the flight view's selection and gate lock,
 // - outposts: a minor station; salvage yards collect wrecks,
 // - traffic, only inside charted pockets: fighters patrol and freighters run to the gates; owners
 //   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
@@ -26,7 +27,7 @@ const Sectors = (() => {
   const STAR_CLASSES = [['M', 4], ['K', 3], ['G', 3], ['A', 1], ['B', 1]];
   const STAR_RADIUS = { M: [160, 200], K: [190, 230], G: [210, 250], A: [240, 270], B: [250, 290] };
   const PLANET_TYPES = [['gas', 3], ['terran', 2], ['desert', 2], ['ice', 2], ['lava', 1], ['blue', 1]];
-  const CONTACT_LABELS = { derelict: 'Derelict', distress: 'Distress signal', anomaly: 'Anomaly' };
+  const CONTACT = Galaxy.CONTACT_TYPES;
   const MAX_CACHED = 40;
   const BELT_CHANCE = 0.45;
   const FIELD_CHANCE = { claimed: 0.04, deep: 0.06, frontier: 0.1 };
@@ -84,7 +85,7 @@ const Sectors = (() => {
       const contact = system || outpost ? null : galaxy.deepSector(sx, sy);
       const sec = { x: sx, y: sy, territory, system, outpost, contact, entities: [], star: null };
       const nextSeed = () => Math.floor(r() * 4294967295);
-      const colorOf = (fid) => (fid === null || fid === undefined ? '#9aa4b8' : galaxy.factions[fid].color);
+      const colorOf = galaxy.factionColor;
 
       // Placement in local coordinates, keeping things apart and inside the sector.
       const placed = [];
@@ -127,11 +128,15 @@ const Sectors = (() => {
         return add({ kind: 'wreck', art, name, angle: r() * TAU, tumble: (r() - 0.5) * 0.04, radius: art.radius }, x, y);
       };
       // Ships have a role ('fighter' | 'freighter') and a stable key, so the flight view can keep
-      // one selected and remember the ones destroyed.
+      // one selected and remember the ones destroyed. motion may be a function, called once the
+      // art is made (so its random draws come after the art's seed). extra: name, position, ...
       let shipCount = 0;
-      const ship = (role, fid, motion) => {
+      const ship = (role, fid, motion, extra = {}) => {
         const art = ArtBlueprints.create(role, cultures.of(fid), nextSeed());
-        const e = { kind: 'ship', role, key: `${sx},${sy},s${shipCount++}`, art, faction: fid, motion, radius: art.radius, x: ox, y: oy };
+        const e = {
+          kind: 'ship', role, key: `${sx},${sy},s${shipCount++}`, art, faction: fid,
+          motion: typeof motion === 'function' ? motion() : motion, radius: art.radius, x: ox, y: oy, ...extra,
+        };
         sec.entities.push(e);
         return e;
       };
@@ -169,11 +174,9 @@ const Sectors = (() => {
       // the item's own seed, so the sector's random stream is used as before.
       const item = (categories, x, y) => {
         const category = categories[Math.floor(ra() * categories.length)], seed = Math.floor(ra() * 4294967295);
-        const art = ArtItems.create(Goods.pick(mulberry32(seed ^ 0x6e7), category), seed);
-        return add({
-          kind: 'item', art, key: `${sx},${sy},${itemCount++}`, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
-          angle: ra() * TAU, tumble: (ra() - 0.5) * 0.3, radius: art.radius,
-        }, x, y);
+        const kind = Goods.pick(mulberry32(seed ^ 0x6e7), category);
+        const angle = ra() * TAU, tumble = (ra() - 0.5) * 0.3;
+        return add(Entities.item({ key: `${sx},${sy},${itemCount++}`, kind, seed, angle, tumble }), x, y);
       };
       // Things floating around an entity: loot by default, trade goods from freighters.
       function scatter(e, n, kinds) {
@@ -207,7 +210,7 @@ const Sectors = (() => {
           const a = Math.atan2(end.other.y - sy, end.other.x - sx);
           const [x, y] = spotToward(cx, cy, a, 2300 * S, art.bodyRadius);
           add({
-            kind: 'gate', art, link: end.link, hidden: end.hidden, dest: { x: end.other.x, y: end.other.y },
+            kind: 'gate', art, key: `${sx},${sy},g${end.link}`, link: end.link, hidden: end.hidden, dest: { x: end.other.x, y: end.other.y },
             name: end.hidden ? 'Uncharted gate' : `Gate to ${end.other.name}`,
             faction: end.builder, color: colorOf(end.builder), aperture, angle: a, spin: r() * TAU, radius: art.radius,
           }, x, y);
@@ -253,16 +256,11 @@ const Sectors = (() => {
           spoils(wreck('wreck-station', randomCulture(), x, y, contact.name));
         } else if (contact.type === 'derelict') {
           const c = randomCulture();
-          if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT_LABELS.derelict));
-          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT_LABELS.derelict)); }
+          if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT.derelict.label));
+          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT.derelict.label)); }
         } else if (contact.type === 'distress') {
           const fid = majors[Math.floor(r() * majors.length)].id;
-          const art = ArtBlueprints.create('freighter', cultures.of(fid), nextSeed());
-          const stranded = {
-            kind: 'ship', role: 'freighter', key: `${sx},${sy},s${shipCount++}`, art, faction: fid, name: CONTACT_LABELS.distress,
-            motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y,
-          };
-          sec.entities.push(stranded);
+          const stranded = ship('freighter', fid, () => ({ type: 'still', angle: r() * TAU }), { name: CONTACT.distress.label, x: ox + x, y: oy + y });
           const [wx, wy] = spot(x, y, 200, 400, 40);
           spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
           scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
@@ -272,7 +270,7 @@ const Sectors = (() => {
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         } else if (contact.type === 'anomaly') {
           const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
-          add({ kind: 'planet', body, name: CONTACT_LABELS.anomaly, radius: body.r * 2 }, x, y);
+          add({ kind: 'planet', body, name: CONTACT.anomaly.label, radius: body.r * 2 }, x, y);
           field(x, y, 10 + Math.floor(ra() * 6), body.r * 4, body.type === 'ice' ? [['ice', 1]] : [['metal', 2], ['carbon', 1]]);
         }
       }
@@ -334,7 +332,10 @@ const Sectors = (() => {
       return sec;
     }
 
-    return { at, units };
+    // Whether a sector is built and cached, without building it (for prefetching).
+    const has = (sx, sy) => cache.has(key(sx, sy));
+
+    return { at, has, units };
   }
 
   // Position, heading and thrust of an entity at time t.

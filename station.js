@@ -20,19 +20,7 @@ const StationMenu = (() => {
   let ctx = null; // the open() options while docked
   let tab = 'trade';
 
-  // Small DOM helper: h('div', { class: 'row' }, child, 'text', ...). Text is always set as text.
-  function h(tag, attrs = {}, ...children) {
-    const n = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-      if (v === false || v === null || v === undefined) continue;
-      if (k === 'class') n.className = v;
-      else if (k === 'style') Object.assign(n.style, v);
-      else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
-      else n.setAttribute(k, v === true ? '' : v);
-    }
-    for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) n.append(c.nodeType ? c : String(c));
-    return n;
-  }
+  const { h } = UI; // ui.js
   const credits = (n) => `${n.toLocaleString('en-US')} cr`;
 
   function renderHeader() {

@@ -79,10 +79,13 @@
   </section>
 </main>
 
+<script src="../math.js"></script>
 <script src="../rng.js"></script>
+<script src="../goods.js"></script>
 <script src="../data/galaxy-config.js"></script>
 <script src="../galaxy.js"></script>
 <script src="../art/util.js"></script>
+<script src="../art/sprite-cache.js"></script>
 <script src="../art/culture.js"></script>
 <script src="../art/blueprints.js"></script>
 <script src="../art/items.js"></script>
@@ -206,7 +209,9 @@ function buildStyles() {
   const star = { r: 230, cls: Art.STAR_CLASSES[seed % Art.STAR_CLASSES.length], seed: seed % 997, rays: 8 };
   const rows = ['player', ...FACTION_TYPES, 'planet', 'star', 'asteroid', 'loot', 'trade'];
   const ast = { type: Art.ASTEROID_TYPES[seed % Art.ASTEROID_TYPES.length], r: 40, seed };
-  const lootKind = ArtItems.LOOT[seed % ArtItems.LOOT.length].id, tradeKind = ArtItems.TRADE[seed % ArtItems.TRADE.length].id;
+  // Item types (goods.js): salvaged components, and trade goods.
+  const kinds = Object.keys(Goods.TYPES), loot = kinds.filter(Goods.isSalvage), trade = kinds.filter((k) => !Goods.isSalvage(k));
+  const lootKind = loot[seed % loot.length], tradeKind = trade[seed % trade.length];
   rows.forEach((type, ri) => {
     const head = document.createElement('div');
     head.className = 'rowhead';

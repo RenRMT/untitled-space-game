@@ -16,7 +16,9 @@ function load(file, names) {
   const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
   vm.runInThisContext(`((require, module) => {${src}\n;${names.map((n) => `globalThis.${n} = ${n};`).join(' ')}\n})();`, { filename: file });
 }
+load('math.js', ['MathUtil']);
 load('rng.js', ['hashInt', 'mulberry32', 'seedToInt', 'weightedPick']);
+load('store.js', ['Params', 'Store']);
 load('goods.js', ['Goods']);
 load('data/galaxy-config.js', ['GALAXY_CONFIG']);
 load('galaxy.js', ['Galaxy']);
@@ -24,16 +26,20 @@ load('art/util.js', ['ArtUtil']);
 load('art/culture.js', ['ArtCulture']);
 load('art/blueprints.js', ['ArtBlueprints']);
 load('art/items.js', ['ArtItems']);
+load('art/sprite-cache.js', ['SpriteCache']);
+load('entities.js', ['Entities']);
 load('sector.js', ['Sectors']);
+load('interactions.js', ['Interactions']);
 load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
+load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat } = ctx;
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -96,6 +102,23 @@ test('save keys differ between galaxies and include the generator version', () =
   const keys = new Set([...galaxies.values()].map((g) => Galaxy.saveKey(g)));
   assert.strictEqual(keys.size, galaxies.size);
   assert(Galaxy.saveKey(galaxies.get(1)).endsWith(`:v${Galaxy.VERSION}`));
+});
+
+test('every deep-space contact is a row of CONTACT_TYPES, and only hostile rows attack', () => {
+  const seen = new Set();
+  for (const g of galaxies.values()) {
+    for (let y = 0; y < g.size; y++) {
+      for (let x = 0; x < g.size; x++) {
+        const c = g.deepSector(x, y);
+        if (!c) continue;
+        const t = Galaxy.CONTACT_TYPES[c.type];
+        assert(t && t.label && t.name && t.prompt && t.color, `contact type ${c.type}`);
+        assert.strictEqual(c.hostile, !!t.hostile, c.type);
+        seen.add(c.type);
+      }
+    }
+  }
+  for (const type of ['derelict', 'distress', 'ambush', 'anomaly']) assert(seen.has(type), `no ${type} rolled`);
 });
 
 // Every sector a segment passes through, found by fine sampling (slow but obviously right).
@@ -253,15 +276,142 @@ test('mined asteroids drop metals, minerals or gases, at the configured rates', 
   if (byType.stony?.drops) assert.strictEqual(byType.stony.gas, 0, 'only icy asteroids give gas');
 });
 
-test('the mining target is the nearest unmined asteroid in range', () => {
+test('the Mine shortcut picks the nearest asteroid within mining range of its edge', () => {
+  // As the flight view sets it up (game.js): a ship at the origin, gaps measured to the edge.
+  const A = Interactions.create({ gap: (e) => Math.hypot(e.x, e.y) - e.radius, speed: () => 0 });
+  const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => Mining.config.range, run() {} });
   const R = Mining.config.range;
   const rock = (key, x, r = 20) => ({ kind: 'asteroid', key, x, y: 0, radius: r, ast: { type: 'stony' } });
   const near = rock('near', 60), far = rock('far', 120), out = rock('out', R + 21 + 0.1);
-  const list = [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out];
-  assert.strictEqual(Mining.targetIn(list, 0, 0), near);
-  assert.strictEqual(Mining.targetIn(list, 0, 0, new Set(['near'])), far);
-  assert.strictEqual(Mining.targetIn([out], 0, 0), null);
-  assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
+  assert.strictEqual(A.target(mine, null, [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out]), near);
+  assert.strictEqual(A.target(mine, null, [far, out]), far);
+  assert.strictEqual(A.target(mine, null, [out]), null);
+  assert.strictEqual(A.target(mine, null, [rock('edge', R + 20)]).key, 'edge');
+});
+
+test('art ids name what an asset is built from, so a rebuilt sector finds its sprites again', () => {
+  const g = galaxies.get(1);
+  const cultures = ArtCulture.forGalaxy(g);
+  const a = Sectors.create(g, cultures, g.sectorUnits), b = Sectors.create(g, cultures, g.sectorUnits);
+  const seen = new Map(); // art id -> a fingerprint of the blueprint
+  const print = (bp) => `${bp.type}|${bp.parts.length}|${bp.radius.toFixed(3)}|${bp.label}`;
+  for (const s of g.systems) {
+    const x = a.at(s.x, s.y).entities.filter((e) => e.art), y = b.at(s.x, s.y).entities.filter((e) => e.art);
+    assert.deepStrictEqual(x.map((e) => e.art.id), y.map((e) => e.art.id), `sector ${s.x},${s.y} rebuilt with other ids`);
+    for (const e of x) {
+      assert.notStrictEqual(e.art, y[x.indexOf(e)], 'a rebuild makes new blueprints');
+      // Two blueprints may share an id only if they are the same asset.
+      if (seen.has(e.art.id)) assert.strictEqual(seen.get(e.art.id), print(e.art), e.art.id);
+      else seen.set(e.art.id, print(e.art));
+    }
+  }
+  assert.ok(seen.size > 500, `${seen.size} distinct assets`);
+  // The same item type and seed is the same art; another seed or type is not.
+  assert.strictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 7).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('copper', 7).id);
+  const c = cultures.of(0);
+  assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
+});
+
+const fakeSprite = (w, h = w) => ({ canvas: { width: w, height: h } });
+
+test('sprite cache: drops the least recently used by pixels, but never a sprite drawn this frame', () => {
+  const budget = SpriteCache.budget({ ms: 1000 });
+  const cache = SpriteCache.create({ budget, maxPixels: 300, maxEntries: 100 });
+  for (const k of ['a', 'b', 'c']) cache.get(k, () => fakeSprite(10)); // 100 px each
+  cache.get('a', () => assert.fail('a is cached'));
+  cache.get('d', () => fakeSprite(10)); // 400 px: the oldest, b, goes
+  assert.deepStrictEqual(['a', 'b', 'c', 'd'].map(cache.has), [true, false, true, true]);
+  // A frame that needs more than the limit keeps all its sprites for now...
+  budget.next();
+  for (const k of ['a', 'c', 'd', 'e']) cache.get(k, () => fakeSprite(10));
+  assert.deepStrictEqual(cache.stats(), { sprites: 4, pixels: 400, builds: 5, deferred: 0, dropped: 1 });
+  // ...and the next one trims back to it, oldest first.
+  budget.next();
+  cache.get('f', () => fakeSprite(10));
+  assert.deepStrictEqual(['a', 'c', 'd', 'e', 'f'].map(cache.has), [false, false, true, true, true]);
+  assert.strictEqual(cache.stats().pixels, 300);
+  // The count limit works the same way (here outside any frame, so nothing is held back).
+  const few = SpriteCache.create({ budget: SpriteCache.budget(), maxPixels: Infinity, maxEntries: 2 });
+  for (const k of ['a', 'b', 'c']) few.get(k, () => fakeSprite(1));
+  assert.deepStrictEqual(['a', 'b', 'c'].map(few.has), [false, true, true]);
+});
+
+test('sprite cache: once the frame\'s budget is spent, an object keeps its last sprite', () => {
+  let t = 0;
+  const budget = SpriteCache.budget({ ms: 5, now: () => t });
+  const cache = SpriteCache.create({ budget, maxPixels: Infinity, maxEntries: 100 });
+  const slow = () => { t += 6; return fakeSprite(10); }; // every build takes 6 ms
+  cache.get('ship@0', slow);
+  cache.get('ship@1', slow, { fallback: 'ship@0' });
+  assert.ok(cache.has('ship@1'), 'no budget before the first frame');
+  budget.next();
+  assert.strictEqual(cache.get('station', slow).key, 'station', 'the first build of a frame always runs');
+  assert.strictEqual(cache.get('ship@2', slow, { fallback: 'ship@1' }).key, 'ship@1', 'over budget: the last sprite stands in');
+  assert.ok(!cache.has('ship@2'));
+  assert.strictEqual(cache.get('rock', slow, { fallback: 'nothing' }).key, 'rock', 'no stand-in: built anyway');
+  assert.strictEqual(cache.get('ship@2', slow, { fallback: 'ship@1', force: true }).key, 'ship@2', 'force builds');
+  budget.next();
+  assert.strictEqual(cache.get('ship@3', slow, { fallback: 'ship@2' }).key, 'ship@3', 'a new frame builds again');
+  assert.strictEqual(cache.stats().deferred, 1);
+  // Two caches can share one budget.
+  const other = SpriteCache.create({ budget, maxPixels: Infinity, maxEntries: 100 });
+  other.get('a', slow);
+  assert.strictEqual(other.get('b', slow, { fallback: 'a' }).key, 'a');
+});
+
+test('actions: one registry gives each its button state, the things it applies to and its shortcut target', () => {
+  let speed = 0, refused = false, mining = null;
+  const A = Interactions.create({ gap: (e) => e.gap, speed: () => speed });
+  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), run() {} });
+  A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => 160, busy: (e) => (mining && { ok: false, label: mining === e ? 'Mining · 3 sec' : 'Mine · busy', inRange: true, busy: mining === e }), run() {} });
+  A.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => e.hostile, range: 900, run() {} });
+  const st = { kind: 'station', gap: 400 };
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false });
+  st.gap = 300;
+  speed = 200;
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true });
+  speed = 100;
+  assert.deepStrictEqual(A.state(A.get('dock'), st), { ok: true, label: 'Dock', inRange: true });
+  refused = true;
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Docking refused', inRange: true });
+  refused = false;
+  // While busy, the busy state wins over everything else.
+  const rock = { kind: 'asteroid', gap: 5000 }, other = { kind: 'asteroid', gap: 50 };
+  mining = rock;
+  assert.strictEqual(A.state('mine', rock).label, 'Mining · 3 sec');
+  assert.strictEqual(A.state('mine', other).label, 'Mine · busy');
+  mining = null;
+  // What applies to what.
+  assert.deepStrictEqual(A.of({ kind: 'ship', hostile: false }), []);
+  assert.deepStrictEqual(A.of({ kind: 'ship', hostile: true }).map((a) => a.id), ['attack']);
+  assert.strictEqual(A.forKey('F').id, 'dock');
+  assert.strictEqual(A.forKey('x'), null);
+  assert.strictEqual(A.range(A.get('mine')), 160);
+  // A shortcut acts on the selected thing if the action applies to it, else on the nearest in reach.
+  const near = { kind: 'station', gap: 100 }, mid = { kind: 'station', gap: 250 }, far = { kind: 'station', gap: 1000 };
+  assert.strictEqual(A.target(A.get('dock'), null, [far, mid, near, other]), near);
+  assert.strictEqual(A.target(A.get('dock'), far, [near]), far);
+  assert.strictEqual(A.target(A.get('dock'), other, [far]), null);
+});
+
+test('floating items are named by their type, with art made from their type and seed', () => {
+  const g = galaxies.get(1);
+  const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+  let n = 0;
+  for (const s of g.systems.concat(g.outposts)) {
+    for (const e of sectors.at(s.x, s.y).entities.filter((x) => x.kind === 'item')) {
+      n++;
+      assert.strictEqual(e.label, Goods.type(e.itemKind).name);
+      assert.strictEqual(e.art.kind, e.itemKind);
+      assert.ok(e.art.id.startsWith(`item:${e.itemKind}:`));
+      assert.ok(Number.isFinite(e.angle) && Number.isFinite(e.tumble) && Number.isFinite(e.x));
+    }
+  }
+  assert.ok(n > 20, `${n} items`);
+  const d = Entities.item({ key: 'k', kind: 'gold', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
+  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Gold', 'trade', 'gold', 5, 6]);
 });
 
 test('ships have a role and unique keys that survive a rebuild', () => {
@@ -553,8 +703,8 @@ test('combat rounds: initiative, shields before hull, no shots from the dead, re
   assert.strictEqual(s.player.hull, 100 - (15 - 11), 'second volley breaks through the recharged shield');
 
   // Hit chance stays within its bounds.
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), Combat.config.minHit);
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), Combat.config.maxHit);
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), CombatCore.config.minHit);
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), CombatCore.config.maxHit);
 });
 
 test('the player switches to the next enemy when the focused one is destroyed', () => {
@@ -596,7 +746,7 @@ test('fleeing skips the player\'s shots and depends on top speed', () => {
   s.fleeing = true;
   const ev = Combat.round(s);
   assert(!ev.some((e) => e.from === 'p'), 'the player fired while fleeing');
-  assert.deepStrictEqual(ev[ev.length - 1], { flee: false });
+  assert.deepStrictEqual(ev[ev.length - 1], { type: 'flee', ok: false });
   assert.strictEqual(s.fleeing, true, 'a failed attempt keeps trying next round');
   assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeBase);
   s.player.stats.maxSpeed = 5000;
@@ -607,11 +757,11 @@ test('destroyed ships leave sellable loot', () => {
   const g = galaxies.get(1);
   let fighterDrops = 0;
   for (let i = 0; i < 300; i++) {
-    const f = Combat.loot(g.seed, `x,y,s${i}`, 'fighter');
-    assert.deepStrictEqual(Combat.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
+    const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter');
+    assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
     for (const d of f) assert(Goods.isSalvage(d.kind), `fighter dropped ${d.kind}`);
     fighterDrops += f.length;
-    const fr = Combat.loot(g.seed, `x,y,s${i}`, 'freighter');
+    const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
     for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
   }
@@ -710,7 +860,7 @@ test('real-time combat: hit chance falls with crossing speed and range; evasion 
   t.x = 650;
   assert(RealtimeCombat.hitChance(a, w, t) < across, 'range does not count');
   t.vy = 5000;
-  assert.strictEqual(RealtimeCombat.hitChance(a, w, t), RealtimeCombat.config.minHit);
+  assert.strictEqual(RealtimeCombat.hitChance(a, w, t), CombatCore.config.minHit);
 });
 
 test('real-time combat: shields soak damage first and recharge only after a pause', () => {

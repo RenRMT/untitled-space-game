@@ -18,11 +18,11 @@ const ArtBlueprints = (() => {
   const { mulberry32, hashInt } = isNode ? require('../rng.js') : globalThis;
   const { TAU, lerp, clamp } = U;
 
-  let nextId = 1;
-
+  // A blueprint's id names what it is built from (type, culture and seed), so building the same
+  // asset again (a sector rebuilt from its seed) finds the same cached sprites (art/render.js).
   function builder(type, culture, seed) {
     const bp = {
-      id: nextId++, type, culture, seed, parts: [], lights: [], engines: [],
+      id: `${type}:${culture.seed ?? 0}:${seed}`, type, culture, seed, parts: [], lights: [], engines: [],
       layers: ['fixed'], spinRate: 0, glow: false, label: '',
     };
     const part = (shape, props, mat, o) => {
@@ -564,10 +564,9 @@ const ArtBlueprints = (() => {
 
   // ---------- Gate stations ----------
   // Entry and exit points for interstellar travel. Only major factions (and the legacy culture)
-  // have the technology; the culture's lineage decides the form. Every gate has a clear
-  // aperture at the origin (the 'field' material) that ships fly into.
+  // have the technology; the culture's gate design (art/culture.js) decides the form. Every gate
+  // has a clear aperture at the origin (the 'field' material) that ships fly into.
 
-  const GATE_FORMS = { wedge: 'ring', arc: 'halo', block: 'frame', shard: 'pylons', spindle: 'spar', coral: 'maw' };
   const canBuildGate = (c) => !!c && (c.kind === 'major' || c.kind === 'legacy');
 
   function aperture(b, c, pts, R, n) {
@@ -753,7 +752,7 @@ const ArtBlueprints = (() => {
     const r = mulberry32(hashInt(seed, 6, culture.seed));
     const b = builder('gate', culture, seed);
     const R = 120 * (0.92 + r() * 0.16);
-    const form = culture.gate || GATE_FORMS[culture.lineage] || 'ring';
+    const form = culture.gate || 'ring';
     const fn = { ring: gateRing, halo: gateHalo, frame: gateFrame, pylons: gatePylons, spar: gateSpar, maw: gateMaw }[form] || gateRing;
     const info = fn(b, culture, r, R);
     b.bp.label = 'Gate · ' + form + ', ' + info;
@@ -895,36 +894,6 @@ const ArtBlueprints = (() => {
     return finish(b.bp);
   }
 
-  function tarsisStation(culture, r = 90) {
-    const b = builder('station-major', culture, 2);
-    const S = { layer: 'spin' };
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.15;
-    b.ring(0, 0, r * 0.91, r * 0.18, 'hull', { ...S, lvl: 1, h: r * 0.12 });
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * TAU;
-      b.strut(Math.cos(a) * r * 0.28, Math.sin(a) * r * 0.28, Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82, 4, 'strut', { ...S, lvl: 0, thin: true, h: 3 });
-    }
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * TAU + TAU / 16;
-      b.poly([[r * 0.8, -7], [r * 1.02, -7], [r * 1.02, 7], [r * 0.8, 7]].map((p) => U.rot(p, a)), 'trim', { ...S, lvl: 2, h: r * 0.16, bevel: 2 });
-      b.light(Math.cos(a) * r * 0.94, Math.sin(a) * r * 0.94, 1.6, culture.pal.light, { layer: 'spin', line: false });
-    }
-    b.poly(U.rect(0, 0, 12, r * 3.1), 'hull2', { lvl: 4, h: 6, bevel: 2 });
-    for (const sy of [-1, 1]) {
-      const py = sy * r * 1.55;
-      const lines = [];
-      for (let i = -2; i <= 2; i++) lines.push([i * r * 0.28, py - 10, i * r * 0.28, py + 10]);
-      b.poly(U.rect(0, py, r * 1.4, 20), 'panel', { lvl: 5, h: 2, lines });
-    }
-    b.circle(0, 0, r * 0.28, 'trim', { lvl: 6, h: 8, dome: true });
-    b.light(-r * 0.7, -r * 1.55, 4, '#ff4d4d', { blink: 0 });
-    b.light(r * 0.7, r * 1.55, 4, '#4dff88', { blink: 0 });
-    b.bp.line = '#b6ff8a';
-    b.bp.label = 'Station · Tarsis Station';
-    return finish(b.bp);
-  }
-
   // ---------- Entry points ----------
 
   const TYPES = ['fighter', 'freighter', 'station-minor', 'station-major', 'wreck-ship', 'wreck-station'];
@@ -946,7 +915,7 @@ const ArtBlueprints = (() => {
   }
 
   // 'gate' is kept out of TYPES because create() returns null for cultures without gate technology.
-  return { TYPES, GATE_FORMS, canBuildGate, create, gate, wreck, playerShip, tarsisStation, SHIP_HULL, builder, finish };
+  return { TYPES, canBuildGate, create, gate, wreck, playerShip, SHIP_HULL, builder, finish };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtBlueprints;

@@ -2,6 +2,6 @@
   "name": "untitled-space-game",
   "private": true,
   "scripts": {
-    "test": "node tests/run.js"
+    "test": "node tests/run.js && node tests/smoke.js"
   }
 }

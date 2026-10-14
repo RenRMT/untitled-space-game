@@ -5,20 +5,19 @@
 //   pixel   – rasterised on a coarse texel grid with Bayer-dithered bevel shading and outlines,
 //   flat    – solid fills with one flat rim shadow and highlight per part,
 //   lowpoly – parts extruded into faceted meshes with flat per-triangle lighting.
+// What each style does is one entry in STYLE_IMPL (near the end), so the public draw functions
+// have no per-style branches and a new style is a new entry.
 // Static geometry is rendered once into cached sprites (per rotation bucket where lighting
-// depends on the angle); engine flames and blinking lights are drawn live on top.
+// depends on the angle); engine flames and blinking lights are drawn live on top. Sprites live in
+// two caches bounded by memory (art/sprite-cache.js), with a build budget per frame: the flight
+// view calls Art.beginFrame() every frame, and while the frame's budget is spent an object keeps
+// its last sprite (another rotation, scale or art style) until a later frame builds the new one.
 // Browser only (global `Art`).
 
 const Art = (() => {
   const U = ArtUtil;
   const { TAU, clamp, lerp } = U;
 
-  const STYLES = [
-    { id: 'line', label: 'Line' },
-    { id: 'pixel', label: 'Pixel' },
-    { id: 'flat', label: 'Flat' },
-    { id: 'lowpoly', label: 'Low-poly' },
-  ];
   const config = {
     texel: 2, // world units per pixel-art texel
     tilt: 0.62, // low-poly camera tilt (radians from straight down)
@@ -26,7 +25,14 @@ const Art = (() => {
     bigBuckets: 16, // ... for sprites larger than bigSprite device px
     bigSprite: 256,
     maxSprite: 768, // device px cap for vector sprites
-    maxSprites: 400, // LRU size
+    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, gates, planets and
+    // stars; asteroids have their own cache, so a busy field doesn't push the rest out.
+    maxPixels: 12e6, // about 48 MB
+    maxSprites: 2000,
+    // Mobile browsers kill tabs that hold too much canvas memory: 16M px is about 64 MB.
+    maxAsteroidPixels: 16e6,
+    maxAsteroidSprites: 3000,
+    buildBudgetMs: 4, // sprite building per frame before objects make do with their last sprite
     bg: '#05060a',
     outline: '#0e1016',
   };
@@ -37,19 +43,20 @@ const Art = (() => {
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
-  // ---------- Sprite cache ----------
+  // ---------- Sprite caches ----------
 
-  const cache = new Map();
-  // Running totals for the performance overlay (sprites rendered, as opposed to reused).
-  const counters = { builds: 0, asteroidBuilds: 0 };
-  function cached(key, make) {
-    let v = cache.get(key);
-    if (v) { cache.delete(key); cache.set(key, v); return v; }
-    counters.builds++;
-    v = make();
-    cache.set(key, v);
-    while (cache.size > config.maxSprites) cache.delete(cache.keys().next().value);
-    return v;
+  // Limits are read live from config, so they can be tuned at run time.
+  const budget = SpriteCache.budget({ get ms() { return config.buildBudgetMs; } });
+  const sprites = SpriteCache.create({ budget, get maxPixels() { return config.maxPixels; }, get maxEntries() { return config.maxSprites; } });
+  const asteroidSprites = SpriteCache.create({ budget, get maxPixels() { return config.maxAsteroidPixels; }, get maxEntries() { return config.maxAsteroidSprites; } });
+  // A sprite from a cache, remembering it as the object's last one (o[slot] holds its key) so it can
+  // stand in while a new one waits for the build budget. Every sprite records its art style.
+  // force: build it now, whatever the frame's budget; keep: false builds it now without caching it.
+  function cachedFor(cache, o, slot, key, style, make, force, keep = true) {
+    if (!keep) return Object.assign(make(), { style, key });
+    const spr = cache.get(key, () => Object.assign(make(), { style }), { fallback: o[slot], force });
+    if (spr.key === key) o[slot] = key;
+    return spr;
   }
   function canvas(w, h) {
     const c = document.createElement('canvas');
@@ -57,8 +64,10 @@ const Art = (() => {
     c.height = Math.max(1, Math.ceil(h));
     return c;
   }
-  let objId = 1;
-  const idOf = (o) => o._artId || (o._artId = 'o' + objId++);
+  // A stable id for a planet, star or asteroid body, from the fields it is drawn from (underscored
+  // fields are caches), so a sector rebuilt from its seed finds its sprites again. Blueprints get
+  // theirs from art/blueprints.js.
+  const idOf = (o) => o._artId || (o._artId = JSON.stringify(o, (k, v) => (k[0] === '_' ? undefined : v)));
   const quant = (ppu) => 2 ** (Math.round(Math.log2(ppu) * 4) / 4);
   const dprOf = () => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
@@ -624,123 +633,136 @@ const Art = (() => {
 
   // ---------- Sprites and live drawing ----------
 
-  function sprite(bp, style, layer, a, ppu, texel) {
-    const half = bp.radius + (style === 'line' ? 12 / Math.max(ppu, 0.1) + 2 : 2);
-    let nb = 1;
-    if (style === 'pixel') nb = config.buckets;
-    else if (style !== 'line') nb = half * 2 * ppu <= config.bigSprite ? config.buckets : config.bigBuckets;
+  function sprite(bp, style, layer, a, ppu, texel, force, keep) {
+    const impl = STYLE_IMPL[style];
+    const half = bp.radius + impl.pad(ppu);
+    const nb = impl.buckets(half * 2 * ppu);
     const bi = nb === 1 ? 0 : ((Math.round((a / TAU) * nb) % nb) + nb) % nb;
     const ang = (bi / nb) * TAU;
-    const q = style === 'pixel' ? 0 : quant(ppu);
-    const tx = style === 'pixel' ? texel : 0;
-    return cached(`${bp.id}|${style}|${layer}|${bi}/${nb}|${q}|${tx}`, () => {
-      const s = style === 'line' ? renderLine(bp, layer, ang, q, half)
-        : style === 'flat' ? renderFlat(bp, layer, ang, q, half)
-          : style === 'pixel' ? renderPixel(bp, layer, ang, tx)
-            : renderLow(bp, layer, ang, q, half);
+    const q = impl.texel ? 0 : quant(ppu);
+    const tx = impl.texel ? texel : 0;
+    bp._spriteKeys ||= {};
+    return cachedFor(sprites, bp._spriteKeys, layer, `${bp.id}|${style}|${layer}|${bi}/${nb}|${q}|${tx}`, style, () => {
+      const s = impl.asset(bp, layer, ang, q, half, tx);
       s.angle = ang;
       return s;
-    });
+    }, force, keep);
   }
 
   const flicker = (t, seed) => Math.sin(t * 13 + seed) + Math.sin(t * 7.3 + seed * 2) > 0.9;
 
-  function drawLights(ctx, bp, style, layer, a, t, spr, liftZ) {
+  // Blinking lights, drawn live over the sprite at (x, y) (already turned and, in a tilted style,
+  // lifted onto the hull). on: lit right now; off lights only show in line style, dimmed.
+  function drawLights(ctx, bp, impl, layer, a, t, spr, liftZ) {
     for (const l of bp.lights) {
-      if (l.layer !== layer || (style === 'line' && l.line === false)) continue;
+      if (l.layer !== layer) continue;
       const on = l.flicker ? flicker(t, l.x) : l.blink === null || l.blink === undefined ? true : Math.sin(t * 3 + l.blink) > 0.6;
-      if (!on && style !== 'line') continue;
       let [x, y] = U.rot([l.x, l.y], a);
-      if (style === 'lowpoly') [x, y] = camera().proj([x, y, liftZ(l.x, l.y) + 0.3]);
-      if (style === 'pixel') {
-        const tx = spr.texel;
-        const sx = Math.floor((x + spr.half) / tx) * tx - spr.half, sy = Math.floor((y + spr.half) / tx) * tx - spr.half;
-        const s = l.r > tx * 1.5 ? tx * 2 : tx;
-        ctx.fillStyle = l.color;
-        ctx.fillRect(sx, sy, s, s);
-        continue;
-      }
-      ctx.fillStyle = on ? l.color : U.shade(l.color, 0.3);
-      if (style === 'lowpoly') {
-        ctx.beginPath();
-        ctx.moveTo(x, y - l.r); ctx.lineTo(x + l.r, y); ctx.lineTo(x, y + l.r); ctx.lineTo(x - l.r, y);
-        ctx.fill();
-        continue;
-      }
-      if (style === 'flat' && l.blink !== null && l.blink !== undefined) {
-        ctx.fillStyle = U.rgba(l.color, 0.25);
-        ctx.beginPath(); ctx.arc(x, y, l.r * 2.2, 0, TAU); ctx.fill();
-        ctx.fillStyle = l.color;
-      }
-      ctx.beginPath();
-      ctx.arc(x, y, l.r, 0, TAU);
-      ctx.fill();
+      if (impl.tilted) [x, y] = camera().proj([x, y, liftZ(l.x, l.y) + 0.3]);
+      impl.light(ctx, l, x, y, on, spr);
     }
   }
+  const fillCircle = (ctx, x, y, r) => { ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill(); };
+  function lightLine(ctx, l, x, y, on) {
+    if (l.line === false) return; // lights that only make sense filled in
+    ctx.fillStyle = on ? l.color : U.shade(l.color, 0.3);
+    fillCircle(ctx, x, y, l.r);
+  }
+  function lightFlat(ctx, l, x, y, on) {
+    if (!on) return;
+    if (l.blink !== null && l.blink !== undefined) { ctx.fillStyle = U.rgba(l.color, 0.25); fillCircle(ctx, x, y, l.r * 2.2); }
+    ctx.fillStyle = l.color;
+    fillCircle(ctx, x, y, l.r);
+  }
+  function lightLow(ctx, l, x, y, on) {
+    if (!on) return;
+    ctx.fillStyle = l.color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - l.r); ctx.lineTo(x + l.r, y); ctx.lineTo(x, y + l.r); ctx.lineTo(x - l.r, y);
+    ctx.fill();
+  }
+  // Pixel: one or two texels on the sprite's grid.
+  function lightPixel(ctx, l, x, y, on, spr) {
+    if (!on) return;
+    const tx = spr.texel;
+    const sx = Math.floor((x + spr.half) / tx) * tx - spr.half, sy = Math.floor((y + spr.half) / tx) * tx - spr.half;
+    const s = l.r > tx * 1.5 ? tx * 2 : tx;
+    ctx.fillStyle = l.color;
+    ctx.fillRect(sx, sy, s, s);
+  }
 
-  function drawFlames(ctx, bp, style, layer, a, thrust, t, spr, liftZ) {
+  // Engine flames, drawn live under the sprite. Each style's flame(ctx, f) gets f: { e (the
+  // engine), len, tri(L, W) (a flame triangle, turned), path(pts) (traces points, lifted in a
+  // tilted style), flame and core colours, a (the angle), spr }.
+  function drawFlames(ctx, bp, impl, layer, a, thrust, t, spr, liftZ) {
     const flame = palette(bp).flame;
     const core = U.mix(flame, '#ffffff', 0.6);
     for (const [i, e] of bp.engines.entries()) {
       if (e.layer !== layer) continue;
       const len = (8 + 24 * thrust) * (0.85 + 0.15 * Math.sin(t * 45 + i * 1.7)) * Math.max(0.6, e.w / 3);
       const tri = (L, W) => [[e.x, e.y - W], [e.x - L, e.y], [e.x, e.y + W]].map((p) => U.rot(p, a));
-      const ez = style === 'lowpoly' ? liftZ(e.x + 2, e.y) * 0.5 : 0;
-      const P = style === 'lowpoly' ? camera().proj : (v) => v;
+      const ez = impl.tilted ? liftZ(e.x + 2, e.y) * 0.5 : 0;
+      const P = impl.tilted ? camera().proj : (v) => v;
       const path = (pts) => { ctx.beginPath(); pts.forEach(([x, y], k) => { const [px, py] = P([x, y, ez]); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.closePath(); };
-      if (style === 'line') {
-        path(tri(len, e.w));
-        ctx.fillStyle = U.rgba(flame, 0.25);
-        ctx.strokeStyle = flame;
-        ctx.lineWidth = 1.5;
-        ctx.fill();
-        ctx.stroke();
-      } else if (style === 'flat') {
-        path(tri(len, e.w)); ctx.fillStyle = flame; ctx.fill();
-        path(tri(len * 0.55, e.w * 0.6)); ctx.fillStyle = core; ctx.fill();
-      } else if (style === 'lowpoly') {
-        const [p0, p1, p2] = tri(len, e.w), mid = U.rot([e.x, e.y], a);
-        path([p0, p1, mid]); ctx.fillStyle = U.shade(flame, 1.1); ctx.fill();
-        path([mid, p1, p2]); ctx.fillStyle = U.shade(flame, 0.8); ctx.fill();
-        path(tri(len * 0.5, e.w * 0.55)); ctx.fillStyle = core; ctx.fill();
-      } else {
-        // Pixel: fill texels on the sprite's grid.
-        const tx = spr.texel, pts = tri(len, e.w * 1.2);
-        const [x0, y0, x1, y1] = U.bbox(pts);
-        const base = U.rot([e.x, e.y], a);
-        const snap = (v) => Math.floor((v + spr.half) / tx);
-        for (let gy = snap(y0); gy <= snap(y1); gy++) {
-          for (let gx = snap(x0); gx <= snap(x1); gx++) {
-            const cx = gx * tx - spr.half + tx / 2, cy = gy * tx - spr.half + tx / 2;
-            if (!U.inPoly(cx, cy, pts)) continue;
-            const d = Math.hypot(cx - base[0], cy - base[1]) / len;
-            const col = d < 0.3 ? core : d < 0.65 ? flame : BAYER[gy & 3][gx & 3] < 0.5 ? U.shade(flame, 0.7) : null;
-            if (!col) continue;
-            ctx.fillStyle = col;
-            ctx.fillRect(gx * tx - spr.half, gy * tx - spr.half, tx, tx);
-          }
-        }
+      impl.flame(ctx, { e, len, tri, path, flame, core, a, spr });
+    }
+  }
+  function flameLine(ctx, { e, len, tri, path, flame }) {
+    path(tri(len, e.w));
+    ctx.fillStyle = U.rgba(flame, 0.25);
+    ctx.strokeStyle = flame;
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+  }
+  function flameFlat(ctx, { e, len, tri, path, flame, core }) {
+    path(tri(len, e.w)); ctx.fillStyle = flame; ctx.fill();
+    path(tri(len * 0.55, e.w * 0.6)); ctx.fillStyle = core; ctx.fill();
+  }
+  function flameLow(ctx, { e, len, tri, path, flame, core, a }) {
+    const [p0, p1, p2] = tri(len, e.w), mid = U.rot([e.x, e.y], a);
+    path([p0, p1, mid]); ctx.fillStyle = U.shade(flame, 1.1); ctx.fill();
+    path([mid, p1, p2]); ctx.fillStyle = U.shade(flame, 0.8); ctx.fill();
+    path(tri(len * 0.5, e.w * 0.55)); ctx.fillStyle = core; ctx.fill();
+  }
+  // Pixel: fill texels on the sprite's grid.
+  function flamePixel(ctx, { e, len, tri, flame, core, a, spr }) {
+    const tx = spr.texel, pts = tri(len, e.w * 1.2);
+    const [x0, y0, x1, y1] = U.bbox(pts);
+    const base = U.rot([e.x, e.y], a);
+    const snap = (v) => Math.floor((v + spr.half) / tx);
+    for (let gy = snap(y0); gy <= snap(y1); gy++) {
+      for (let gx = snap(x0); gx <= snap(x1); gx++) {
+        const cx = gx * tx - spr.half + tx / 2, cy = gy * tx - spr.half + tx / 2;
+        if (!U.inPoly(cx, cy, pts)) continue;
+        const d = Math.hypot(cx - base[0], cy - base[1]) / len;
+        const col = d < 0.3 ? core : d < 0.65 ? flame : BAYER[gy & 3][gx & 3] < 0.5 ? U.shade(flame, 0.7) : null;
+        if (!col) continue;
+        ctx.fillStyle = col;
+        ctx.fillRect(gx * tx - spr.half, gy * tx - spr.half, tx, tx);
       }
     }
   }
 
   // Draw a blueprint. ctx must already map world units; options: x, y, angle, spin, t, thrust,
-  // texel (pixel style only).
-  function drawAsset(ctx, bp, style, o = {}) {
+  // texel (pixel style only), force (build the sprite now, whatever the frame's budget), keep: false
+  // (build it now and don't cache it: menu icons, drawn once into an image of their own).
+  function drawAsset(ctx, bp, requested, o = {}) {
     const { x = 0, y = 0, angle = 0, spin = 0, t = 0, thrust = 0 } = o;
     const m = ctx.getTransform();
     const ppu = Math.hypot(m.a, m.b);
     const texel = o.texel || config.texel;
     for (const layer of bp.layers) {
       const a = angle + (layer === 'spin' ? spin : 0);
-      const spr = sprite(bp, style, layer, a, ppu, texel);
-      const drawA = style === 'pixel' ? spr.angle : a;
-      const liftZ = style === 'lowpoly' ? (lx, ly) => buildMesh(bp, layer, ppu).surfaceAt(lx, ly) : null;
+      const spr = sprite(bp, requested, layer, a, ppu, texel, o.force, o.keep !== false);
+      const impl = STYLE_IMPL[spr.style]; // a stand-in may be from the previous style: draw it as that
+      const drawA = impl.texel ? spr.angle : a; // texels stay on their grid: no turning between buckets
+      const liftZ = impl.tilted ? (lx, ly) => buildMesh(bp, layer, ppu).surfaceAt(lx, ly) : null;
       ctx.save();
       ctx.translate(x, y);
-      if (thrust > 0.02) drawFlames(ctx, bp, style, layer, drawA, thrust, t, spr, liftZ);
+      if (thrust > 0.02) drawFlames(ctx, bp, impl, layer, drawA, thrust, t, spr, liftZ);
       ctx.save();
-      if (style === 'lowpoly') {
+      if (impl.tilted) {
         // Turn the remainder in the un-tilted plane so footprints keep their shape.
         const { ct } = camera();
         ctx.scale(1, ct);
@@ -750,7 +772,7 @@ const Art = (() => {
       ctx.imageSmoothingEnabled = spr.smooth;
       ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
       ctx.restore();
-      drawLights(ctx, bp, style, layer, drawA, t, spr, liftZ);
+      drawLights(ctx, bp, impl, layer, drawA, t, spr, liftZ);
       ctx.restore();
     }
   }
@@ -987,22 +1009,8 @@ const Art = (() => {
     const ppu = quant(Math.hypot(m.a, m.b));
     const texel = o.texel || config.texel;
     const ext = pl.ring ? ringAxes(pl)[0] * 1.08 : pl.r * 1.05;
-    const spr = cached(`${idOf(pl)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}|${Math.round(lightAngle * 8)}`, () => {
-      if (style === 'pixel') return planetPixel(pl, texel);
-      const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite * 2);
-      const k = S / (ext * 2);
-      const cv = canvas(S, S);
-      const c = cv.getContext('2d');
-      c.setTransform(k, 0, 0, k, S / 2, S / 2);
-      if (style === 'line') planetLine(c, pl, lightAngle);
-      else if (style === 'flat') planetFlat(c, pl);
-      else planetLow(c, pl);
-      return { canvas: cv, half: ext, smooth: true };
-    });
-    ctx.save();
-    ctx.imageSmoothingEnabled = spr.smooth;
-    ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
-    ctx.restore();
+    const spr = bodySprite(sprites, 'planet', pl, style, Math.round(lightAngle * 8), { ext, cap: config.maxSprite * 2, ppu, texel, o: { lightAngle }, force: o.force });
+    blit(ctx, spr, x, y);
   }
 
   // ---------- Stars ----------
@@ -1111,35 +1119,22 @@ const Art = (() => {
       0.4, (q) => [q[0], q[1], q[2]], [0, 0, 1], 0.6 / Math.hypot(ctx.getTransform().a, ctx.getTransform().b));
   }
 
+  // A star turns slowly (texel styles excepted, to stay on their grid).
   function drawStar(ctx, st, style, o = {}) {
     const { x = 0, y = 0, t = 0 } = o;
-    if (style === 'line') {
+    const impl = STYLE_IMPL[style];
+    if (!impl.star) {
       ctx.save();
       ctx.translate(x, y);
-      starLine(ctx, st, t);
+      impl.starLive(ctx, st, t);
       ctx.restore();
       return;
     }
     const m = ctx.getTransform();
     const ppu = quant(Math.hypot(m.a, m.b));
     const texel = o.texel || config.texel;
-    const ext = st.r * (style === 'flat' ? 2.25 : 1.8);
-    const spr = cached(`${idOf(st)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`, () => {
-      if (style === 'pixel') return starPixel(st, texel);
-      const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite * 2);
-      const k = S / (ext * 2);
-      const cv = canvas(S, S);
-      const c = cv.getContext('2d');
-      c.setTransform(k, 0, 0, k, S / 2, S / 2);
-      if (style === 'flat') starFlat(c, st); else starLow(c, st);
-      return { canvas: cv, half: ext, smooth: true };
-    });
-    ctx.save();
-    ctx.translate(x, y);
-    if (style !== 'pixel') ctx.rotate(t * 0.02);
-    ctx.imageSmoothingEnabled = spr.smooth;
-    ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
-    ctx.restore();
+    const spr = bodySprite(sprites, 'star', st, style, '', { ext: st.r * impl.starExt, cap: config.maxSprite * 2, ppu, texel, o: {}, force: o.force });
+    blit(ctx, spr, x, y, STYLE_IMPL[spr.style].texel ? 0 : t * 0.02);
   }
 
   // ---------- Asteroids ----------
@@ -1153,18 +1148,7 @@ const Art = (() => {
     metal: { label: 'Metallic', c: ['#8e959e', '#80634f', '#c3cad2'], line: '#cfe0f0', shine: true },
     ice: { label: 'Icy', c: ['#9fc2da', '#7598b6', '#eef7fc'], line: '#bff0ff', shine: true },
   };
-  const ASTEROID_BUCKETS = 48;
-  // Own LRU so a busy field doesn't evict ship sprites, plus a per-frame build budget: when it is
-  // spent, an asteroid reuses its last sprite until the next frame.
-  const astCache = new Map();
-  let astBudget = { t: -1, n: 0 };
-  config.maxAsteroidSprites = 3000;
-  // Each sprite is its own canvas, and mobile browsers kill tabs that hold too much canvas memory,
-  // so the cache is also capped by total pixel area (16M px is about 64 MB at 4 bytes per pixel).
-  config.maxAsteroidPixels = 16e6;
-  let astPixels = 0;
-  const pixelsOf = (spr) => spr.canvas.width * spr.canvas.height;
-  config.asteroidBuildsPerFrame = 6;
+  const ASTEROID_BUCKETS = 48; // asteroid sprites live in their own cache (asteroidSprites, above)
 
   function axisMat([x, y, z], a) {
     const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
@@ -1397,55 +1381,115 @@ const Art = (() => {
     const ppu = quant(Math.hypot(m.a, m.b));
     const texel = o.texel || config.texel;
     const nb = ASTEROID_BUCKETS, bi = ((Math.round((spin / TAU) * nb) % nb) + nb) % nb;
-    const ext = ast.r * 1.06 + (style === 'line' ? 3 / Math.max(ppu, 0.1) : 0);
-    const key = `${idOf(ast)}|${style}|${bi}|${ppu}|${style === 'pixel' ? texel : 0}`;
-    let spr = astCache.get(key);
-    const now = Math.floor((typeof performance !== 'undefined' ? performance.now() : Date.now()) / 12);
-    if (astBudget.t !== now) astBudget = { t: now, n: 0 };
-    const last = ast._astLast && ast._astLast.style === style && ast._astLast.ppu === ppu ? ast._astLast.spr : null;
-    if (spr) { astCache.delete(key); astCache.set(key, spr); }
-    else if (last && !o.force && astBudget.n >= config.asteroidBuildsPerFrame) spr = last;
-    else {
-      astBudget.n++;
-      counters.asteroidBuilds++;
-      spr = buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext);
-      astCache.set(key, spr);
-      astPixels += pixelsOf(spr);
-      while (astCache.size > 1 && (astCache.size > config.maxAsteroidSprites || astPixels > config.maxAsteroidPixels)) {
-        const [oldest, old] = astCache.entries().next().value;
-        astCache.delete(oldest);
-        astPixels -= pixelsOf(old);
-      }
-    }
-    ast._astLast = { style, ppu, spr };
-    ctx.save();
-    ctx.imageSmoothingEnabled = spr.smooth;
-    ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
-    ctx.restore();
+    const ext = ast.r * 1.06 + STYLE_IMPL[style].asteroidPad(ppu);
+    const spr = bodySprite(asteroidSprites, 'asteroid', ast, style, bi, { ext, cap: config.maxSprite, ppu, texel, o: { angle: (bi / nb) * TAU }, force: o.force });
+    blit(ctx, spr, x, y);
   }
 
-  function buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext) {
-    {
-      const M = astMat(ast, (bi / nb) * TAU);
-      if (style === 'pixel') return asteroidPixel(ast, M, texel);
-      const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite);
+  // ---------- Art styles ----------
+  //
+  // What each style draws, and how:
+  //   label                               its name in the settings menu
+  //   asset(bp, layer, ang, ppu, half, texel) -> sprite   a blueprint layer turned to ang
+  //   planet, star, asteroid              paint a body onto a canvas that maps world units:
+  //                                       (ctx, body, o); or, in a texel style, rasterise it on the
+  //                                       texel grid: (body, texel, o) -> sprite. o: { lightAngle }
+  //                                       for planets, { angle } (the tumble) for asteroids, plus k
+  //                                       (px per world unit) when painting
+  //   star: null, starLive(ctx, star, t)  the star is drawn live every frame instead
+  //   starExt                             a star sprite's half size, in star radii
+  //   light(ctx, l, x, y, on, spr), flame(ctx, f)   blinking lights and engine flames, drawn live
+  //   buckets(px) -> n                    rotation buckets for a blueprint sprite that many px across
+  //                                       (1: one sprite, turned when drawn)
+  //   pad(ppu), asteroidPad(ppu)          world units around a blueprint or asteroid (line widths)
+  //   texel                               rasterised on a texel grid: sprites keep to it (no turning
+  //                                       between buckets) and their keys include the texel size
+  //   tilted                              drawn through the low-poly camera: lights and flames sit on
+  //                                       the hull, and turning keeps footprints in shape
+  const sizedBuckets = (px) => (px <= config.bigSprite ? config.buckets : config.bigBuckets);
+  const noPad = () => 0;
+  // An asteroid painter from one taking its orientation matrix.
+  const tumbled = (paint) => (c, ast, o) => paint(c, ast, astMat(ast, o.angle), o.k);
+  const STYLE_IMPL = {
+    line: {
+      label: 'Line',
+      asset: renderLine, buckets: () => 1, pad: (ppu) => 12 / Math.max(ppu, 0.1) + 2,
+      planet: (c, pl, o) => planetLine(c, pl, o.lightAngle),
+      star: null, starLive: starLine,
+      asteroid: tumbled(asteroidLine), asteroidPad: (ppu) => 3 / Math.max(ppu, 0.1),
+      light: lightLine, flame: flameLine,
+    },
+    pixel: {
+      label: 'Pixel', texel: true,
+      asset: (bp, layer, ang, ppu, half, texel) => renderPixel(bp, layer, ang, texel), buckets: () => config.buckets, pad: () => 2,
+      planet: planetPixel, star: starPixel,
+      asteroid: (ast, texel, o) => asteroidPixel(ast, astMat(ast, o.angle), texel), asteroidPad: noPad,
+      light: lightPixel, flame: flamePixel,
+    },
+    flat: {
+      label: 'Flat',
+      asset: renderFlat, buckets: sizedBuckets, pad: () => 2,
+      planet: planetFlat, star: starFlat, starExt: 2.25,
+      asteroid: tumbled(asteroidFlat), asteroidPad: noPad,
+      light: lightFlat, flame: flameFlat,
+    },
+    lowpoly: {
+      label: 'Low-poly', tilted: true,
+      asset: renderLow, buckets: sizedBuckets, pad: () => 2,
+      planet: planetLow, star: starLow, starExt: 1.8,
+      asteroid: tumbled(asteroidLow), asteroidPad: noPad,
+      light: lightLow, flame: flameLow,
+    },
+  };
+  const STYLES = Object.entries(STYLE_IMPL).map(([id, s]) => ({ id, label: s.label }));
+
+  // A planet, star or asteroid sprite, from the cache or made by the style: painted onto a canvas
+  // reaching ext world units either side of the centre (at most cap px across), or rasterised on
+  // its texel grid. part: what else tells this body's sprites apart (light angle, tumble bucket).
+  function bodySprite(cache, kind, body, style, part, { ext, cap, ppu, texel, o, force }) {
+    const impl = STYLE_IMPL[style];
+    const key = `${idOf(body)}|${style}|${ppu}|${impl.texel ? texel : 0}|${part}`;
+    return cachedFor(cache, body, '_spriteKey', key, style, () => {
+      if (impl.texel) return impl[kind](body, texel, o);
+      const S = Math.min(Math.ceil(ext * 2 * ppu), cap);
       const k = S / (ext * 2);
       const cv = canvas(S, S);
       const c = cv.getContext('2d');
       c.setTransform(k, 0, 0, k, S / 2, S / 2);
-      if (style === 'line') asteroidLine(c, ast, M, k);
-      else if (style === 'flat') asteroidFlat(c, ast, M);
-      else asteroidLow(c, ast, M);
+      impl[kind](c, body, { ...o, k });
       return { canvas: cv, half: ext, smooth: true };
+    }, force);
+  }
+  // Draw a body's sprite centred on (x, y), turned by `turn` if given.
+  function blit(ctx, spr, x, y, turn = null) {
+    ctx.save();
+    if (turn === null) {
+      ctx.imageSmoothingEnabled = spr.smooth;
+      ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
+    } else {
+      ctx.translate(x, y);
+      if (turn) ctx.rotate(turn);
+      ctx.imageSmoothingEnabled = spr.smooth;
+      ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
     }
+    ctx.restore();
   }
 
   return {
     STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
-    clearCache: () => { cache.clear(); astCache.clear(); astPixels = 0; },
+    // Start a frame: a fresh sprite build budget (see the caches above).
+    beginFrame: () => budget.next(),
+    clearCache: () => { sprites.clear(); asteroidSprites.clear(); },
     // Sprite cache sizes and build counts, for the performance overlay.
-    stats: () => ({ sprites: cache.size, asteroids: astCache.size, asteroidPixels: astPixels, ...counters }),
+    stats() {
+      const s = sprites.stats(), a = asteroidSprites.stats();
+      return {
+        sprites: s.sprites, spritePixels: s.pixels, builds: s.builds,
+        asteroids: a.sprites, asteroidPixels: a.pixels, asteroidBuilds: a.builds,
+        deferred: s.deferred + a.deferred, buildMs: budget.spent,
+      };
+    },
   };
 })();

@@ -16,16 +16,18 @@
 //   round); ships with turrets keep their distance and circle. Pirates chase only so far from
 //   where the fight started.
 // - Escape: stay clear of every enemy's guns for a few seconds.
-// The flight view (game.js) flies the player's ship, passes its pose in every step, and draws the
-// shots; this module moves the enemies and does the numbers. Deterministic for a given rng.
+// The flight view (game.js) runs it as a combat mode (combat-core.js says what a mode offers): it
+// flies the player's ship, passes its pose in every step, and draws the shots; this module moves
+// the enemies and does the numbers. Deterministic for a given rng.
 // Works as a classic browser script (global `RealtimeCombat`) and as a Node module.
 
 const RealtimeCombat = (() => {
-  const F = typeof require === 'function' ? require('./flight.js') : Flight;
+  const isNode = typeof require === 'function';
+  const F = isNode ? require('./flight.js') : Flight;
+  const core = isNode ? require('./combat-core.js') : CombatCore;
+  const { combatant, applyDamage, limitHit, alive } = core;
 
   const config = {
-    minHit: 0.1, // hit chance never drops below this ...
-    maxHit: 0.95, // ... or rises above this
     motionPenalty: 0.3, // hit chance lost per `motionSpeed` of target speed across the line of fire
     motionSpeed: 600,
     rangePenalty: 0.2, // hit chance lost at a weapon's full range (less closer in, by distance²)
@@ -42,9 +44,7 @@ const RealtimeCombat = (() => {
     spacing: 120, // enemies keep about this far apart
   };
 
-  const TAU = Math.PI * 2;
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const { TAU, clamp, lerp } = typeof require === 'function' ? require('./math.js') : MathUtil;
   const angleDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
   const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
@@ -52,7 +52,7 @@ const RealtimeCombat = (() => {
   // defaults to the hull's); hull: current hull points (defaults to full).
   function ship(id, name, stats, body = {}, hull = stats.hull) {
     return {
-      id, name, stats, hull: clamp(hull, 0, stats.hull), shield: stats.shield,
+      ...combatant(id, name, stats, hull),
       x: body.x || 0, y: body.y || 0, vx: body.vx || 0, vy: body.vy || 0, angle: body.angle || 0, thrust: 0,
       radius: body.radius || stats.radius,
       cool: stats.weapons.map(() => 0), // seconds until each weapon can fire again
@@ -62,7 +62,6 @@ const RealtimeCombat = (() => {
     };
   }
 
-  const alive = (s) => s.enemies.filter((e) => e.hull > 0);
   const byId = (s, id) => s.enemies.find((e) => e.id === id && e.hull > 0) || null;
   const reach = (c) => Math.max(0, ...c.stats.weapons.map((w) => w.range));
 
@@ -118,16 +117,13 @@ const RealtimeCombat = (() => {
     const p = a.stats.accuracy - evasion(t)
       - (config.motionPenalty * across) / config.motionSpeed
       - config.rangePenalty * Math.min(1, Math.max(0, d - t.radius) / w.range) ** 2;
-    return clamp(p, config.minHit, config.maxHit);
+    return limitHit(p);
   }
 
   function damage(t, amount) {
-    const shieldDamage = Math.min(t.shield, amount);
-    t.shield -= shieldDamage;
-    const hullDamage = Math.min(t.hull, amount - shieldDamage);
-    t.hull -= hullDamage;
+    const d = applyDamage(t, amount);
     if (amount > 0) t.quiet = 0; // a miss doesn't hold up shield recharge
-    return { shieldDamage, hullDamage };
+    return d;
   }
 
   // Every ready weapon that can reach the target fires once per 1/fireRate seconds.
@@ -140,7 +136,7 @@ const RealtimeCombat = (() => {
         const hit = s.rng() < hitChance(a, w, t);
         const dmg = hit ? w.damage : 0;
         const d = damage(t, dmg);
-        events.push({ type: 'shot', from: a.id, to: t.id, weapon: i, hit, damage: dmg, ...d, destroyed: t.hull <= 0 });
+        events.push({ type: 'shot', from: a.id, to: t.id, weapon: i, shots: 1, hits: hit ? 1 : 0, damage: dmg, ...d, destroyed: t.hull <= 0 });
         a.cool[i] += 1 / w.fireRate;
       }
     });
@@ -238,8 +234,8 @@ const RealtimeCombat = (() => {
   // ---------- One step ----------
 
   // Advance the fight by dt seconds. pilot: the player ship's pose this step { x, y, vx, vy, angle }.
-  // Returns its events: shots { type: 'shot', from, to, weapon, hit, damage, shieldDamage,
-  // hullDamage, destroyed }, { type: 'target', id, auto }, { type: 'locked', id }, { type:
+  // Returns its events: shots { type: 'shot', from, to, weapon, shots: 1, hits: 0 | 1, damage,
+  // shieldDamage, hullDamage, destroyed }, { type: 'target', id, auto }, { type: 'locked', id }, { type:
   // 'lost-lock', id }. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
   function step(s, dt, pilot) {
     if (s.over) return [];
@@ -286,7 +282,51 @@ const RealtimeCombat = (() => {
     return s;
   }
 
-  return { config, ship, create, join, setFocus, canFire, hitChance, step, simulate, alive, reach };
+  // ---------- As a combat mode (combat-core.js) ----------
+
+  const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull);
+  const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / s.player.stats.lockTime));
+
+  // The panel's last two lines: what the guns are locking onto, shields going down, kills.
+  function log(s, events, lines) {
+    const name = (id) => (s.enemies.find((e) => e.id === id) || {}).name || 'the enemy';
+    const out = [...lines];
+    for (const ev of events) {
+      if (ev.type === 'target') out.push(`Targeting ${name(ev.id)}`);
+      else if (ev.type === 'locked') out.push(`Locked on ${name(ev.id)}`);
+      else if (ev.type === 'lost-lock') out.push(`Lost lock on ${name(ev.id)}: out of range`);
+      else if (ev.type === 'shot') {
+        if (ev.from !== 'player' && ev.shieldDamage > 0 && s.player.shield <= 0) out.push('Your shields are down!');
+        if (ev.from === 'player' && ev.destroyed) out.push(`${name(ev.to)} destroyed`);
+      }
+    }
+    return out.slice(-2);
+  }
+
+  // Everyone keeps flying; shots are quick beams, and hits on a ship add up into one number. The
+  // panel's title says what the guns are doing; its bar fills as the lock comes on, or as you get
+  // clear when breaking away.
+  const mode = {
+    id: 'realtime',
+    flying: true,
+    look: { beam: 0.14, shield: 0.3, after: 0, finish: 0, sparks: () => 2, sum: true, arcs: true },
+    start: (rng, player, enemies, { target, ambushed }) => create(rng, fromSpec(player), enemies.map(fromSpec), { focus: ambushed ? null : target }),
+    step,
+    setFocus: (s, id) => setFocus(s, id),
+    join: (s, e) => join(s, fromSpec(e)),
+    lock: lockOf,
+    panel(s) {
+      const t = byId(s, s.focus), away = s.away > 0;
+      return {
+        title: away ? 'Breaking away' : !t ? 'Combat' : s.locked ? `Locked on ${t.name}` : `Locking on ${t.name}`,
+        button: null, bar: away ? 'escape' : 'lock',
+        progress: away ? s.away / config.escapeTime : t ? lockOf(s) : 0,
+      };
+    },
+    log,
+  };
+
+  return { config, ship, create, join, setFocus, canFire, hitChance, step, simulate, alive, reach, mode };
 })();
 
 if (typeof module !== 'undefined') module.exports = RealtimeCombat;

@@ -60,12 +60,21 @@ const Galaxy = (() => {
   ];
   const MINOR_SUFFIXES = ['Compact', 'League', 'Union', 'Assembly', 'Free State', 'Collective', 'Directorate', 'Concord'];
   const OUTPOST_TYPES = ['mining camp', 'trading post', 'research outpost', 'refinery', 'hermitage', 'salvage yard'];
-  const ENCOUNTERS = {
-    claimed: [['derelict', 3], ['distress', 3], ['ambush', 1], ['anomaly', 1]],
-    deep: [['derelict', 4], ['distress', 3], ['ambush', 2], ['anomaly', 1]],
-    frontier: [['derelict', 2], ['distress', 1], ['ambush', 4], ['anomaly', 3]],
+  // Deep-space contacts, one row per type: its label on things in space, its name in notices and
+  // with an article in the map's prompt, its colour on the map, whether it attacks, and how often
+  // it turns up in each zone outside the pockets (weights; story signals are placed, not rolled).
+  const CONTACT_TYPES = {
+    derelict: { label: 'Derelict', name: 'derelict', prompt: 'a derelict', color: '#9aa4b8', weight: { claimed: 3, deep: 4, frontier: 2 } },
+    distress: { label: 'Distress signal', name: 'distress call', prompt: 'a distress call', color: '#ffd166', weight: { claimed: 3, deep: 3, frontier: 1 } },
+    ambush: { label: 'Ambush', name: 'ambush', prompt: 'an ambush', color: '#ff4d4d', hostile: true, weight: { claimed: 1, deep: 2, frontier: 4 } },
+    anomaly: { label: 'Anomaly', name: 'anomaly', prompt: 'an anomaly', color: '#c77dff', weight: { claimed: 1, deep: 1, frontier: 3 } },
+    story: { label: 'Signal', name: 'signal', prompt: 'an unidentified signal', color: '#7df9ff' },
   };
-  const HOSTILE = new Set(['ambush']);
+  const ENCOUNTERS = {}; // zone -> [[type, weight]], for weightedPick
+  for (const [type, t] of Object.entries(CONTACT_TYPES)) {
+    for (const [zone, w] of Object.entries(t.weight || {})) (ENCOUNTERS[zone] ||= []).push([type, w]);
+  }
+  const isHostile = (type) => !!CONTACT_TYPES[type].hostile;
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
   const LOCATION_TYPES = ['station', 'planet', 'outpost'];
@@ -73,6 +82,7 @@ const Galaxy = (() => {
   // or each other.
   const CODE_LETTERS = 'ABCDEFGHJKLMNPRSTVWXYZ';
   const START_STYLES = ['core', 'frontier'];
+  const INDEPENDENT = { name: 'Independent', color: '#9aa4b8' };
 
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -700,9 +710,9 @@ const Galaxy = (() => {
       if (occupied.has(idx(x, y))) return null;
       if (hashInt(x, y, seedInt) / 4294967296 >= P.encounterChance[zone]) return null;
       let table = ENCOUNTERS[zone];
-      if (nearWaystation(x, y)) table = table.filter(([t]) => !HOSTILE.has(t));
+      if (nearWaystation(x, y)) table = table.filter(([t]) => !isHostile(t));
       const type = weightedPick(table, hashInt(x, y, seedInt + 1) / 4294967296);
-      return { type, hostile: HOSTILE.has(type) };
+      return { type, hostile: isHostile(type) };
     }
 
     function territoryOf(x, y) {
@@ -721,11 +731,16 @@ const Galaxy = (() => {
       };
     }
 
+    // A faction's colour and name by id; null (independent) gets a neutral grey (theme.js's
+    // neutral) and 'Independent'.
+    const factionColor = (fid) => (fid === null || fid === undefined || !factions[fid] ? INDEPENDENT.color : factions[fid].color);
+    const factionName = (fid) => (fid === null || fid === undefined || !factions[fid] ? INDEPENDENT.name : factions[fid].name);
+
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
       factions, systems, outposts, lanes, gates, routes, pockets,
       start: startStyle, startSystem,
-      territoryOf, deepSector, pocketAt, nearWaystation,
+      territoryOf, deepSector, pocketAt, nearWaystation, factionColor, factionName,
       inFrontier: (x, y) => !inner(x, y),
     };
   }
@@ -735,7 +750,7 @@ const Galaxy = (() => {
   // keep their old form, so existing saves still load.)
   const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}${g.start === 'frontier' ? ':frontier' : ''}`;
 
-  return { generate, params: DEFAULTS, VERSION, saveKey, START_STYLES };
+  return { generate, params: DEFAULTS, VERSION, saveKey, START_STYLES, CONTACT_TYPES };
 })();
 
 if (typeof module !== 'undefined') module.exports = Galaxy;
