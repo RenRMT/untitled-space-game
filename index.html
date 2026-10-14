@@ -136,6 +136,8 @@
   .cb-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
   .cb-track { height: 2px; margin: 8px 0 4px; background: var(--line); }
   .cb-timer { display: block; height: 100%; width: 0; background: var(--hostile); }
+  .cb-timer.escape { background: var(--cyan); }
+  #combat .cb-btn[hidden] { display: none; }
   #combat:not(.won):not(.lost):not(.fled) .cb-timer { opacity: 0.8; }
   #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
   .cb-rows { display: flex; flex-direction: column; }
@@ -421,7 +423,9 @@
 <script src="economy.js"></script>
 <script src="mining.js"></script>
 <script src="loadout.js"></script>
+<script src="flight.js"></script>
 <script src="combat.js"></script>
+<script src="combat-realtime.js"></script>
 <script src="station.js"></script>
 <script src="context.js"></script>
 <script src="combat-panel.js"></script>
