@@ -4,7 +4,7 @@
 // Prices start from each item type's base price (goods.js). Every station buys every trade good;
 // what it sells, and at what price, depends on what kind of place it is:
 // - categories it produces are cheap, categories it consumes fetch a premium,
-// - outposts follow their type (mining camps sell ore, refineries want it, ...),
+// - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
 //   often where the category is produced); exotics are never sold, only found.
@@ -26,20 +26,17 @@ const Economy = (() => {
     minForSale: 3, // smallest number of categories a station stocks
     // Chance a type is stocked, by rarity (1 common ... 5 exotic), in a category the station sells,
     // and in one it produces.
-    stock: [null, 1, 0.55, 0.2, 0.05, 0],
-    stockProduced: [null, 1, 1, 0.6, 0.15, 0],
+    // Every good left is one research needs, so rarer ones are stocked more often than they
+    // used to be (very rare ones were 5% and 15%).
+    stock: [null, 1, 0.7, 0.4, 0.2, 0],
+    stockProduced: [null, 1, 1, 0.7, 0.4, 0],
     startingCredits: 500,
   };
 
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
   const PROFILES = {
-    capital: { produces: ['synthetic', 'fabrics', 'crates'], consumes: ['perishables', 'mineral', 'gas'], sellsAll: true },
-    waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true },
-    'mining camp': { produces: ['mineral', 'metal'], consumes: ['perishables', 'tubes', 'gas'] },
-    refinery: { produces: ['metal', 'gas', 'barrels'], consumes: ['mineral'] },
-    'trading post': { produces: ['crates'], consumes: [], sellsAll: true },
-    'research outpost': { produces: ['synthetic'], consumes: ['tubes', 'perishables'] },
-    hermitage: { produces: ['fabrics', 'perishables'], consumes: ['tubes', 'barrels'] },
+    capital: { produces: ['synthetic', 'crates'], consumes: ['mineral', 'gas'], sellsAll: true },
+    'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
   };
 
@@ -52,7 +49,7 @@ const Economy = (() => {
   }
 
   // A station as Sectors builds it: { key, market: { kind: 'system' | 'outpost', type } }.
-  // type is the outpost type, or for system stations 'capital' | 'waystation' | 'major' | 'minor'.
+  // type is the outpost type, or for system stations 'capital' | 'major' | 'minor'.
   function profileOf(station, r) {
     const type = station.market.type;
     return PROFILES[type] || mixedProfile(r, type === 'major');
@@ -76,7 +73,8 @@ const Economy = (() => {
       const factor = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
         const price = t.price * factor * jitter();
-        const stocked = forSale.has(category) && r() < (produced ? config.stockProduced : config.stock)[t.rarity];
+        // The commonest type of a category on sale is always stocked; the rest by rarity.
+        const stocked = forSale.has(category) && (r() < (produced ? config.stockProduced : config.stock)[t.rarity] || t === G.ofCategory(category)[0]);
         goods.push({
           kind: t.id, category, rarity: t.rarity, produced, consumed,
           buy: stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,

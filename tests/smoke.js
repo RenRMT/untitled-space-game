@@ -2,7 +2,7 @@
 
 // Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
-// every art style and both movement modes, docking and trading, mining, a gate jump, map travel,
+// every art style and both movement modes, docking and trading, mining, map travel,
 // a fight in each combat mode, the settings and a start-style switch. Each step checks its
 // effect; at the end nothing may have been drawn at a non-finite position. The steps share one
 // game, in order, as a player would play them.
@@ -172,7 +172,7 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
   // Every tab draws, with slot choices open on the Ship tab.
-  for (const t of ['research', 'ship', 'missions', 'trade']) game(`StationMenu.showTab('${t}')`);
+  for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2'); StationMenu.showTab('trade')`);
   // What Pulse laser Mk II costs, put aboard: components to their store, goods to the hold.
   const give = (id) => game(`for (const c of lab.status('${id}').cost) {
@@ -232,7 +232,7 @@ test('components go to their own store, even with a full hold, and stay when the
   game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }));
     globalThis.__had = cargo.components['hull-simple'] || 0;
     cargo.drops.push(dropEntity({ key: 'drop:smoke:c', kind: 'hull-simple', seed: 5, x: ship.x, y: ship.y }));
-    cargo.drops.push(dropEntity({ key: 'drop:smoke:g', kind: 'copper', seed: 6, x: ship.x, y: ship.y }));`);
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:g', kind: 'titanium', seed: 6, x: ship.x, y: ship.y }));`);
   browser.frames(2);
   assert.strictEqual(game(`cargo.components['hull-simple']`), game('__had') + 1, 'the component was picked up');
   assert.strictEqual(game('cargo.items.length'), game('SHIP.cargo'), 'the hold is still full');
@@ -282,28 +282,16 @@ test('builds the sectors past an edge ahead of time, one a frame', () => {
   game('fight.grace = __grace');
 });
 
-test('an off-screen gate gets an edge marker, and a tap on it selects the gate', () => {
-  game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
-  game('select(null); placeShip(__gate.x + 3000, __gate.y)');
+test('an off-screen station gets an edge marker, and a tap on it selects the station', () => {
+  game('globalThis.__st0 = __startStation(); select(null); placeShip(__st0.x + __st0.radius + 3000, __st0.y)');
   browser.frames(2);
-  const m = game('navHits.find((h) => h.ref === __gate)');
-  assert.ok(m, 'the gate has a marker');
+  const m = game('navHits.find((h) => h.ref === __st0)');
+  assert.ok(m, 'the station has a marker');
   const canvas = browser.document.getElementById('game');
   canvas.dispatch('pointerdown', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
   canvas.dispatch('pointerup', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
-  assert.strictEqual(game('selected && selected.e'), game('__gate'), 'the tap selected the gate');
+  assert.strictEqual(game('selected && selected.e'), game('__st0'), 'the tap selected the station');
   game('select(null)');
-});
-
-test('jumps through a gate', () => {
-  game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
-  assert.ok(game('!!__gate'), 'the start system has a gate');
-  game('placeShip(__gate.x + __gate.radius + 200, __gate.y)');
-  browser.frames(1);
-  game('jumpVia(__gate)');
-  assert.deepStrictEqual(game('sectorOf(ship.x, ship.y)'), game('[__gate.dest.x, __gate.dest.y]'));
-  assert.ok(game('world.knowledge.knowsRoute(__gate.link)'));
-  browser.frames(30);
 });
 
 test('travels on the galaxy map', () => {
@@ -376,20 +364,13 @@ test('fights in real time, then gets away', () => {
   browser.frames(300);
 });
 
-test('settings open, close and switch the start style', () => {
+test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
-  const seed = game('world.galaxy.seed');
-  game(`GalaxyMap.setStartStyle('frontier')`);
-  assert.strictEqual(game('world.galaxy.start'), 'frontier');
-  assert.strictEqual(game('world.galaxy.seed'), seed);
-  browser.frames(30);
-  game(`GalaxyMap.setStartStyle('core')`);
-  browser.frames(30);
-  assert.strictEqual(game('world.galaxy.start'), 'core');
+  browser.frames(3);
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {

@@ -38,13 +38,14 @@ const Entities = (() => {
     };
   }
 
-  const isHostile = (e, galaxy) => e.kind === 'ship' && galaxy.factions[e.faction]?.key === 'pirates';
+  // Pirates are the only hostile ships (and, for now, the only ships).
+  const isHostile = (e) => e.kind === 'ship' && !!e.pirate;
 
-  const MARKET_LABEL = { capital: 'Capital station', waystation: 'Waystation', major: 'Station', minor: 'Station' };
-  function stationSubtitle(st, galaxy) {
-    const type = st.market.kind === 'outpost' ? st.market.type[0].toUpperCase() + st.market.type.slice(1) : MARKET_LABEL[st.market.type];
-    if (st.market.type === 'waystation') return `${type} · neutral safe haven`;
-    return `${type} · ${st.faction === null || st.faction === undefined ? 'independent' : galaxy.factionName(st.faction)}`;
+  const MARKET_LABEL = { capital: 'Capital station', major: 'Station', minor: 'Station' };
+  function stationSubtitle(st) {
+    if (st.market.kind === 'outpost') return st.market.type[0].toUpperCase() + st.market.type.slice(1);
+    const type = MARKET_LABEL[st.market.type] || 'Station';
+    return ['capital', 'major'].includes(st.market.type) ? `${type} · shipyard` : type;
   }
 
   const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };
@@ -80,13 +81,6 @@ const Entities = (() => {
         return { title: `${pal.label} asteroid`, sub: asteroidSize(e.radius), color: pal.line };
       },
     },
-    gate: {
-      order: 2, selectable: true, hit: 0.75, // the rings are wide: only the core counts
-      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
-      label: (e) => [e.color, e.radius * 1.05],
-      mark: (e) => ({ color: e.color, r: 4, ring: true }),
-      card: (e, galaxy) => ({ title: e.name, sub: `Built by ${galaxy.factionName(e.faction)}`, color: e.color, tag: e.hidden ? 'Uncharted' : '' }),
-    },
     station: {
       order: 2, selectable: true, hit: 0.75, // docking arms reach far: only the core counts
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
@@ -110,14 +104,14 @@ const Entities = (() => {
       order: 4, selectable: true, hit: 1, follow: 600,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),
       label: named,
-      mark: (e, galaxy) => ({ color: galaxy.factionColor(e.faction), r: 1.2 }),
-      card(e, galaxy) {
-        const hostile = isHostile(e, galaxy);
+      mark: (e) => ({ color: isHostile(e) ? color().hostile : color().neutral, r: 1.2 }),
+      card(e) {
+        const hostile = isHostile(e);
         // Pirates show their gear tier, so you can judge a fight before starting it.
         const gear = hostile && e.tier ? ` · ${Loadout.MK[e.tier]} gear` : '';
         return {
-          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: `${galaxy.factionName(e.faction)}${gear}`,
-          color: hostile ? color().hostile : galaxy.factionColor(e.faction),
+          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: `${hostile ? 'Pirates' : 'Independent'}${gear}`,
+          color: hostile ? color().hostile : color().neutral,
           tag: hostile ? 'Hostile' : '', tone: hostile ? 'hostile' : '',
         };
       },

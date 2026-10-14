@@ -39,8 +39,8 @@ const Security = (() => {
   ];
   // Where packs go in a sector (world units): each member circles its pack's centre at a radius in
   // `orbit`; centres stay `spacing` apart, so the nearest members of two packs are always more than
-  // CombatCore.config.groupRange apart (1500: who joins a fight), `clear` from stations, gates
-  // and stars (docking and jumping stay safe), and `margin` inside the sector's edges.
+  // CombatCore.config.groupRange apart (1500: who joins a fight), `clear` from stations and stars
+  // (docking stays safe), and `margin` inside the sector's edges.
   const PACK = { spacing: 3200, orbit: [300, 550], clear: 2000, margin: 800 };
 
   // Component tiers by loot tier, as [tier, weight]: a pirate's loot tier is its gear tier; a

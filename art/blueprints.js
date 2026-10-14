@@ -4,7 +4,6 @@
 // of the four art styles. Coordinates are world units, nose toward +x, +y down (canvas space).
 //
 // A blueprint is { id, type, culture, parts, lights, engines, layers, spinRate, radius, label }.
-// Gate stations ('gate') exist only for major factions: create() returns null otherwise.
 // Each part is a polygon, circle or ring with a material (a palette key or a literal hex colour),
 // a draw level `lvl`, a layer ('fixed' or 'spin') and, for the low-poly style, a height `h` and an
 // optional raised top `bevel` (a ridge or apex with `roof: true`, else a chamfer). Optional extras: `lines` (detail segments), `grid` [nx, ny]
@@ -64,23 +63,12 @@ const ArtBlueprints = (() => {
   function hullOutline(c, L, W, r) {
     let half;
     switch (c.hull) {
-      case 'arc':
-        half = [[L / 2, 0], [L * 0.42, W * 0.45], [L * 0.25, W * 0.82], [0, W], [-L * 0.3, W * 0.95], [-L * 0.47, W * 0.7], [-L / 2, 0]];
-        break;
       case 'block':
         half = [[L / 2, 0], [L / 2, W * 0.45], [L * 0.36, W * 0.85], [L * 0.2, W], [-L / 2, W], [-L / 2, 0]];
         break;
       case 'shard':
         half = [[L / 2, 0], [L * 0.05, W * 0.32], [-L * 0.18, W], [-L * 0.32, W * 0.55], [-L / 2, W * 0.75], [-L / 2, 0]];
         break;
-      case 'spindle':
-        half = [[L / 2, 0], [L * 0.42, W * 0.6], [L * 0.28, W * 0.6], [L * 0.22, W * 0.3], [-L * 0.2, W * 0.3],
-          [-L * 0.26, W * 0.7], [-L * 0.44, W * 0.7], [-L / 2, W * 0.4], [-L / 2, 0]];
-        break;
-      case 'coral': {
-        const pts = U.blob(0, 0, L / 2, W, r, 0.35, 11);
-        return pts.map(([x, y]) => [x > 0 ? x * 1.12 : x, y]);
-      }
       default: // wedge
         half = [[L / 2, 0], [L * 0.12, W * 0.5], [-L * 0.3, W], [-L / 2, W * 0.85], [-L / 2, 0]];
     }
@@ -98,17 +86,6 @@ const ArtBlueprints = (() => {
         return [[[rootX1, y(rootY)], [rootX0 - sweep * 0.25, y(rootY + span * k)], [rootX0, y(rootY)]]];
       case 'swept':
         return [[[rootX1, y(rootY)], [rootX1 - sweep, y(rootY + span * k)], [rootX1 - sweep - chord, y(rootY + span * k)], [rootX0, y(rootY)]]];
-      case 'forward':
-        return [[[rootX1, y(rootY)], [rootX1 + sweep * 0.35, y(rootY + span * k)], [rootX1 + sweep * 0.35 - chord, y(rootY + span * k)], [rootX0, y(rootY)]]];
-      case 'crescent': {
-        const q = (a, b, cp, t) => [lerp(lerp(a[0], cp[0], t), lerp(cp[0], b[0], t), t), lerp(lerp(a[1], cp[1], t), lerp(cp[1], b[1], t), t)];
-        const p0 = [rootX1, rootY], tip = [rootX0 - sweep * 0.3, rootY + span * k], p4 = [rootX0, rootY];
-        const c1 = [rootX1 + chord * 0.4, rootY + span * k * 1.05], c2 = [rootX0 + (rootX1 - rootX0) * 0.15, rootY + span * k * 0.45];
-        const pts = [];
-        for (let i = 0; i <= 6; i++) pts.push(q(p0, tip, c1, i / 6));
-        for (let i = 1; i <= 6; i++) pts.push(q(tip, p4, c2, i / 6));
-        return [pts.map(([px, py]) => [px, y(py)])];
-      }
       case 'blade':
         return [[[rootX1, y(rootY)], [rootX0 - sweep * 0.9, y(rootY + span * k * 1.15)], [rootX0 + (rootX1 - rootX0) * 0.3, y(rootY)]]];
       case 'fins': {
@@ -118,8 +95,6 @@ const ArtBlueprints = (() => {
           [[x + L * 0.42, y(W * 0.5)], [x + L * 0.26, y(W + span * 0.25 * k)], [x + L * 0.24, y(W * 0.5)]],
         ];
       }
-      case 'lobes':
-        return [U.ellipse(-L * 0.08, y(W * 0.7 + span * 0.38 * k), L * 0.24, span * 0.42 * k, s * (0.3 + g.sweepRaw * 0.6), 12)];
       default:
         return [];
     }
@@ -196,10 +171,7 @@ const ArtBlueprints = (() => {
     const cx = fighter ? L * 0.18 : L * 0.3;
     let glass;
     switch (cc.hull) {
-      case 'arc': glass = U.ellipse(cx, 0, L * (fighter ? 0.12 : 0.07), W * 0.38, 0, 14); break;
       case 'block': glass = U.rect(cx + L * 0.12, 0, L * 0.05, W * 0.95); break;
-      case 'spindle': glass = U.circle(L * 0.36, 0, W * 0.4, 12); break;
-      case 'coral': glass = U.blob(cx, (r() - 0.5) * W * 0.3, L * 0.09, W * 0.3, r, 0.3, 8); break;
       case 'shard': glass = [[cx + L * 0.16, 0], [cx - L * 0.12, W * 0.2], [cx - L * 0.12, -W * 0.2]]; break;
       default: glass = [[cx + L * 0.12, 0], [cx - L * 0.1, W * 0.3], [cx - L * 0.1, -W * 0.3]];
     }
@@ -247,20 +219,12 @@ const ArtBlueprints = (() => {
       case 'chevron': return [[x + s, y], [x - s * 0.4, y + s], [x - s * 0.9, y + s], [x + s * 0.1, y], [x - s * 0.9, y - s], [x - s * 0.4, y - s]];
       case 'bar': return U.rect(x, y, s * 2, s * 0.6);
       case 'diamond': return [[x + s, y], [x, y + s * 0.7], [x - s, y], [x, y - s * 0.7]];
-      case 'ring': return U.circle(x, y, s * 0.8, 10);
       default: return U.circle(x, y, s * 0.6, 8);
     }
   }
 
   function freighterCargo(b, c, r, L, W, hull, hullH) {
     switch (c.hull) {
-      case 'arc':
-        for (const s of [1, -1]) {
-          const y = s * W * 1.5;
-          b.strut(-L * 0.05, s * W * 0.7, -L * 0.05, y, W * 0.3, 'hull2', { lvl: 0, h: hullH * 0.3 });
-          b.poly(U.chaikin(U.rect(-L * 0.08, y, L * 0.55, W * 0.85), 2), 'trim', { lvl: 1, h: hullH * 0.9, bevel: W * 0.4, roof: true });
-        }
-        break;
       case 'block': {
         const cols = 4 + Math.floor(r() * 3), cw = (L * 0.62) / cols;
         const mats = ['accent', 'hull2', 'trim', 'wing', '#8a5a3a', '#4f6a7a'];
@@ -279,17 +243,6 @@ const ArtBlueprints = (() => {
             const x = -L * 0.25 + i * L * 0.15, y = s * W * 1.05;
             b.poly([[x + L * 0.08, y], [x, y + s * W * 0.45], [x - L * 0.08, y], [x, y - s * W * 0.35]], 'trim', { lvl: 1.2, h: hullH * 0.5, bevel: W * 0.35, roof: true });
           }
-        }
-        break;
-      case 'spindle':
-        for (let i = 0; i < 4; i++) {
-          const x = -L * 0.3 + i * L * 0.16;
-          b.circle(x, 0, W * 0.95, i % 2 ? 'trim' : 'hull', { lvl: 3, h: W * 0.4, dome: true });
-        }
-        break;
-      case 'coral':
-        for (const s of [1, -1]) {
-          b.poly(U.blob(-L * 0.12 + r() * L * 0.1, s * W * 0.95, L * 0.2, W * 0.7, r, 0.35, 9), 'hull2', { lvl: 1, h: hullH * 0.7, bevel: W * 0.45, roof: true });
         }
         break;
       default: { // wedge: a gridded cargo bay along the spine
@@ -322,7 +275,7 @@ const ArtBlueprints = (() => {
     const sc = donor(culture, r);
     const R = (major ? 120 : 70) * (0.9 + r() * 0.2);
     const topo = sc.station;
-    const fn = { wheel, disk, truss, lattice, star, cluster }[topo] || wheel;
+    const fn = { wheel, lattice, star }[topo] || wheel;
     fn(b, { ...culture, round: sc.round, arrays: sc.arrays }, r, R, major);
     if (culture.lineage === 'kitbash') {
       const other = donor(culture, r);
@@ -377,83 +330,6 @@ const ArtBlueprints = (() => {
     b.circle(0, 0, R * 0.28, 'trim', { lvl: 6, h: R * 0.12, dome: true });
     b.circle(0, 0, R * 0.1, 'accent', { lvl: 7, h: R * 0.05 });
     navLights(b, R * 0.7, len / 2);
-  }
-
-  function disk(b, c, r, R, major) {
-    const S = { layer: 'spin' };
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.08;
-    const pods = major ? 10 + 2 * Math.floor(r() * 2) : 6 + 2 * Math.floor(r() * 2);
-    for (let i = 0; i < pods; i++) {
-      const a = (i / pods) * TAU;
-      b.poly(U.chaikin(U.rect(Math.cos(a) * R * 0.86, Math.sin(a) * R * 0.86, R * 0.3, R * 0.16, a), 2), i % 3 === 0 ? 'accent' : 'trim', { ...S, lvl: 0, h: R * 0.06, bevel: R * 0.06, roof: true });
-      b.light(Math.cos(a) * R * 1.0, Math.sin(a) * R * 1.0, 2.4, c.pal.light, { layer: 'spin', blink: i * 0.7 });
-    }
-    b.circle(0, 0, R * 0.74, 'hull', { ...S, lvl: 1, h: R * 0.08, bevel: R * 0.07 });
-    b.ring(0, 0, R * 0.5, R * 0.04, 'hull2', { ...S, lvl: 2, h: R * 0.12 });
-    for (let i = 0; i < 12; i++) {
-      const a = (i / 12) * TAU;
-      b.light(Math.cos(a) * R * 0.62, Math.sin(a) * R * 0.62, 1.8, c.pal.light, { layer: 'spin' });
-    }
-    if (major) {
-      b.ring(0, 0, R * 1.12, R * 0.07, 'hull2', { ...S, lvl: -1, h: R * 0.05 });
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * TAU + 0.5;
-        b.strut(Math.cos(a) * R * 0.7, Math.sin(a) * R * 0.7, Math.cos(a) * R * 1.12, Math.sin(a) * R * 1.12, R * 0.05, 'strut', { ...S, lvl: -0.5, thin: true });
-      }
-    }
-    b.ring(0, 0, R * 0.32, R * 0.05, 'accent', { lvl: 5, h: R * 0.14 });
-    b.circle(0, 0, R * 0.26, 'glass', { lvl: 6, h: R * 0.1, dome: true });
-    if (major) {
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * TAU;
-        b.strut(Math.cos(a) * R * 0.3, Math.sin(a) * R * 0.3, Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55, R * 0.04, 'strut', { lvl: 7, thin: true, h: R * 0.15 });
-        b.light(Math.cos(a) * R * 0.55, Math.sin(a) * R * 0.55, 2.6, '#ff4d4d', { blink: i });
-      }
-    }
-  }
-
-  function truss(b, c, r, R, major) {
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.2;
-    // One spin ring at the centre, under the truss.
-    b.ring(0, 0, R * 0.42, R * 0.1, 'hull', { layer: 'spin', lvl: 1, h: R * 0.1 });
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * TAU + TAU / 8;
-      b.strut(Math.cos(a) * R * 0.12, Math.sin(a) * R * 0.12, Math.cos(a) * R * 0.37, Math.sin(a) * R * 0.37, R * 0.04, 'strut', { layer: 'spin', lvl: 0, thin: true });
-    }
-    const axes = major ? [0, Math.PI / 2] : [0];
-    for (const ax of axes) {
-      const Ls = (ax ? 1.8 : major ? 2.8 : 2.1) * R;
-      b.poly(U.rect(0, 0, Ls, R * 0.08, ax), 'strut', { lvl: 3, h: R * 0.06 });
-      const nodes = ax ? 2 : major ? 3 : 2;
-      const kinds = [];
-      for (let i = 0; i < nodes; i++) kinds.push(['habitat', 'tank', 'cargo'][Math.floor(r() * 3)]);
-      for (const s of [-1, 1]) {
-        for (let i = 0; i < nodes; i++) {
-          const d = R * 0.62 + (i * (Ls / 2 - R * 0.75)) / Math.max(1, nodes - 1 || 1);
-          const [x, y] = U.rot([s * d, 0], ax);
-          if (kinds[i] === 'habitat') {
-            b.poly(U.chaikin(U.rect(x, y, R * 0.2, R * 0.55, ax), roundIters(c)), 'hull', { lvl: 4, h: R * 0.12, bevel: R * 0.08, roof: true, lines: [[x - R * 0.3 * Math.sin(ax), y, x + R * 0.3 * Math.sin(ax), y]] });
-            b.light(...U.add([x, y], U.rot([0, R * 0.2], ax)), 2, c.pal.light);
-          } else if (kinds[i] === 'tank') {
-            for (const t of [-1, 1]) b.circle(...U.add([x, y], U.rot([0, t * R * 0.13], ax)), R * 0.12, 'trim', { lvl: 4, h: R * 0.1, dome: true });
-          } else {
-            for (const t of [-1, 1]) b.poly(U.rect(...U.add([x, y], U.rot([0, t * R * 0.12], ax)), R * 0.16, R * 0.2, ax), t > 0 ? 'accent' : 'hull2', { lvl: 4, h: R * 0.08 });
-          }
-        }
-        const [ex, ey] = U.rot([s * Ls / 2, 0], ax);
-        if (c.arrays === 'solar') {
-          b.poly(U.rect(ex, ey, R * 0.18, R * 0.9, ax), 'panel', { lvl: 5, h: R * 0.02, grid: [1, 6] });
-        } else {
-          b.poly(U.rect(ex, ey, R * 0.14, R * 0.14, ax), 'hull2', { lvl: 5, h: R * 0.06 });
-        }
-        b.light(...U.add([ex, ey], U.rot([s * R * 0.12, 0], ax)), 2.6, c.pal.light, { blink: s + ax });
-      }
-    }
-    b.circle(0, 0, R * 0.14, 'trim', { lvl: 6, h: R * 0.1, dome: true });
-    b.circle(0, 0, R * 0.06, 'accent', { lvl: 7, h: R * 0.05 });
-    navLights(b, R * 0.25, R * 0.2);
   }
 
   function lattice(b, c, r, R, major) {
@@ -523,240 +399,6 @@ const ArtBlueprints = (() => {
     b.poly(U.circle(0, 0, R * 0.32, 6, a0), 'hull', { ...S, lvl: 2, h: R * 0.08, bevel: R * 0.12, roof: true });
     b.poly(U.circle(0, 0, R * 0.14, 6, a0 + Math.PI / 6), 'glass', { lvl: 5, h: R * 0.12, bevel: R * 0.08 });
     b.light(0, 0, 3, c.pal.light, { blink: 0.5 });
-  }
-
-  function cluster(b, c, r, R, major) {
-    b.poly(U.blob(0, 0, R * 0.36, R * 0.32, r, 0.3, 10), 'hull', { lvl: 2, h: R * 0.1, bevel: R * 0.14, roof: true });
-    const k = major ? 7 + Math.floor(r() * 3) : 3 + Math.floor(r() * 3);
-    const sats = [];
-    for (let i = 0; i < k; i++) {
-      const a = (i / k) * TAU + (r() - 0.5) * 0.5;
-      const d = R * (0.62 + r() * 0.4);
-      sats.push({ x: Math.cos(a) * d, y: Math.sin(a) * d, s: R * (0.12 + r() * 0.13), a });
-    }
-    const tendril = (x0, y0, x1, y1, w0, bend) => {
-      const mx = (x0 + x1) / 2 - (y1 - y0) * bend, my = (y0 + y1) / 2 + (x1 - x0) * bend;
-      const line = [];
-      for (let i = 0; i <= 8; i++) {
-        const t = i / 8;
-        line.push([lerp(lerp(x0, mx, t), lerp(mx, x1, t), t), lerp(lerp(y0, my, t), lerp(my, y1, t), t)]);
-      }
-      b.poly(U.strip(line, (t) => w0 * (1 - 0.45 * t)), 'hull2', { lvl: 1, h: R * 0.05, bevel: R * 0.02 });
-    };
-    for (const s of sats) tendril(0, 0, s.x, s.y, R * 0.1, (r() - 0.5) * 0.5);
-    for (let i = 0; i < k; i++) {
-      const a = sats[i], q = sats[(i + 1) % k];
-      if (r() < 0.4) tendril(a.x, a.y, q.x, q.y, R * 0.05, (r() - 0.5) * 0.4);
-    }
-    const mats = ['hull', 'trim', 'hull2'];
-    for (const s of sats) {
-      b.poly(U.blob(s.x, s.y, s.s, s.s * 0.85, r, 0.35, 9, s.a), mats[Math.floor(r() * 3)], { lvl: 2, h: R * 0.08, bevel: s.s * 0.5, roof: true });
-      b.circle(s.x, s.y, s.s * 0.28, 'glass', { lvl: 3, h: R * 0.1, dome: true });
-      b.light(s.x, s.y, 2, c.pal.light, { blink: s.a * 3 });
-      if (major && r() < 0.6) {
-        const px = s.x + Math.cos(s.a) * s.s * 1.3, py = s.y + Math.sin(s.a) * s.s * 1.3;
-        b.poly(U.blob(px, py, R * 0.07, R * 0.06, r, 0.3, 8), 'accent', { lvl: 1.5, h: R * 0.05, bevel: R * 0.04, roof: true });
-      }
-    }
-    b.circle(0, 0, R * 0.12, 'glass', { lvl: 3, h: R * 0.16, dome: true });
-    b.light(0, 0, 3, c.pal.light, { blink: 0.3 });
-  }
-
-  // ---------- Gate stations ----------
-  // Entry and exit points for interstellar travel. Only major factions (and the legacy culture)
-  // have the technology; the culture's gate design (art/culture.js) decides the form. Every gate
-  // has a clear aperture at the origin (the 'field' material) that ships fly into.
-
-  const canBuildGate = (c) => !!c && (c.kind === 'major' || c.kind === 'legacy');
-
-  function aperture(b, c, pts, R, n) {
-    const lines = [];
-    for (let i = 0; i < 12; i += 2) {
-      const a0 = (i / 12) * TAU, a1 = ((i + 1) / 12) * TAU;
-      lines.push([Math.cos(a0) * R * 0.55, Math.sin(a0) * R * 0.55, Math.cos(a1) * R * 0.55, Math.sin(a1) * R * 0.55]);
-    }
-    b.poly(pts, 'field', { lvl: -2, h: 0.3, lines, lineWidth: 0.5 });
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * TAU;
-      b.light(Math.cos(a) * R * 0.97, Math.sin(a) * R * 0.97, 1.8, c.pal.glass, { blink: -a * 2 });
-    }
-  }
-
-  function gateRing(b, c, r, R) {
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.25;
-    b.ring(0, 0, R * 0.86, R * 0.05, 'hull2', { layer: 'spin', lvl: 0, h: R * 0.06 });
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * TAU;
-      b.light(Math.cos(a) * R * 0.86, Math.sin(a) * R * 0.86, 2, c.pal.light, { layer: 'spin' });
-    }
-    b.ring(0, 0, R, R * 0.16, 'hull', { lvl: 1, h: R * 0.14 });
-    const k = 8 + 2 * Math.floor(r() * 3);
-    for (let i = 0; i < k; i++) {
-      const a = (i / k) * TAU;
-      b.poly(U.rect(Math.cos(a) * R, Math.sin(a) * R, R * 0.1, R * 0.26, a), 'trim', { lvl: 2, h: R * 0.18, bevel: R * 0.03 });
-      if (i % 2 === 0) b.poly(U.rect(Math.cos(a) * R * 1.1, Math.sin(a) * R * 1.1, R * 0.1, R * 0.05, a), 'accent', { lvl: 3, h: R * 0.19 });
-    }
-    const anchors = r() < 0.5 ? 3 : 4;
-    const a0 = anchors === 4 ? TAU / 8 : -Math.PI / 2;
-    for (let i = 0; i < anchors; i++) {
-      const a = a0 + (i / anchors) * TAU;
-      const P = (d) => [Math.cos(a) * d, Math.sin(a) * d];
-      b.strut(...P(R * 1.08), ...P(R * 1.5), R * 0.05, 'strut', { lvl: 0, h: R * 0.04, thin: true });
-      b.poly(U.rect(...P(R * 1.56), R * 0.2, R * 0.16, a), 'hull2', { lvl: 2, h: R * 0.1, bevel: R * 0.03 });
-      if (c.arrays !== 'radiator') b.poly(U.rect(...P(R * 1.56), R * 0.18, R * 0.9, a), 'panel', { lvl: 1, h: R * 0.02, grid: [1, 5] });
-      b.light(...P(R * 1.66), 2.6, c.pal.light, { blink: i });
-    }
-    aperture(b, c, U.circle(0, 0, R * 0.8, 32), R * 0.8, 16);
-    return k + ' clamps, ' + anchors + ' anchors';
-  }
-
-  function gateHalo(b, c, r, R) {
-    const n = 10 + 2 * Math.floor(r() * 3);
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * TAU;
-      b.poly(U.chaikin(U.rect(Math.cos(a) * R * 1.12, Math.sin(a) * R * 1.12, R * 0.2, R * 0.22, a), 2), i % 3 === 0 ? 'accent' : 'trim', { lvl: 0, h: R * 0.07, bevel: R * 0.07, roof: true });
-    }
-    b.ring(0, 0, R, R * 0.24, 'hull', { lvl: 1, h: R * 0.12 });
-    b.ring(0, 0, R * 0.86, R * 0.03, 'accent', { lvl: 2, h: R * 0.13 });
-    const emitters = 3 + Math.floor(r() * 2);
-    for (let i = 0; i < emitters; i++) {
-      const a = (i / emitters) * TAU - Math.PI / 2;
-      b.circle(Math.cos(a) * R, Math.sin(a) * R, R * 0.09, 'glass', { lvl: 3, h: R * 0.08, dome: true });
-    }
-    for (let i = 0; i < n; i++) {
-      const a = ((i + 0.5) / n) * TAU;
-      b.light(Math.cos(a) * R * 1.1, Math.sin(a) * R * 1.1, 2, c.pal.light, { blink: i * 0.6 });
-    }
-    aperture(b, c, U.circle(0, 0, R * 0.8, 32), R * 0.8, 12);
-    return n + ' pods, ' + emitters + ' emitters';
-  }
-
-  function gateFrame(b, c, r, R) {
-    const sides = r() < 0.55 ? 4 : 6;
-    const m = 2 + Math.floor(r() * 2);
-    const a0 = sides === 4 ? TAU / 8 : 0;
-    const V = Array.from({ length: sides }, (_, i) => { const a = a0 + (i / sides) * TAU; return [Math.cos(a) * R * 1.05, Math.sin(a) * R * 1.05, a]; });
-    const mats = ['hull', 'hull', 'hull2', 'trim'];
-    const matOf = Array.from({ length: m }, () => mats[Math.floor(r() * mats.length)]);
-    for (let i = 0; i < sides; i++) {
-      const [x0, y0] = V[i], [x1, y1] = V[(i + 1) % sides];
-      const ae = Math.atan2(y1 - y0, x1 - x0), E = Math.hypot(x1 - x0, y1 - y0);
-      b.strut(x0, y0, x1, y1, R * 0.06, 'strut', { lvl: 0, h: R * 0.04, thin: true });
-      for (let j = 0; j < m; j++) {
-        const t = (j + 0.5) / m, x = lerp(x0, x1, t), y = lerp(y0, y1, t);
-        const len = (E / m) * 0.62;
-        const k = Math.min(j, m - 1 - j);
-        b.poly(U.rect(x, y, len, R * 0.2, ae), matOf[k], { lvl: 2, h: R * 0.12, bevel: R * 0.03, lines: [[...U.add([x, y], U.rot([0, -R * 0.08], ae)), ...U.add([x, y], U.rot([0, R * 0.08], ae))]] });
-        if ((i + j) % 2 === 0) b.poly(U.rect(...U.add([x, y], U.rot([0, -R * 0.065], ae)), len * 0.8, R * 0.05, ae), 'accent', { lvl: 3, h: R * 0.13 });
-      }
-    }
-    for (const [x, y, a] of V) {
-      if (c.arrays === 'radiator') {
-        for (const f of [-1, 1]) {
-          const fa = a + f * 0.35;
-          b.poly(U.rect(x + Math.cos(fa) * R * 0.42, y + Math.sin(fa) * R * 0.42, R * 0.5, R * 0.1, fa), 'panel', { lvl: 1, h: R * 0.02, grid: [4, 1] });
-        }
-      }
-      b.poly(U.rect(x, y, R * 0.3, R * 0.3, a), 'hull2', { lvl: 3, h: R * 0.16, bevel: R * 0.05 });
-      b.light(x + Math.cos(a) * R * 0.17, y + Math.sin(a) * R * 0.17, 2.4, c.pal.light, { blink: a * 2 });
-    }
-    aperture(b, c, V.map(([x, y]) => [x * 0.8, y * 0.8]), R * 0.8 * Math.cos(Math.PI / sides), sides * 3);
-    return sides + '-sided, ' + m + ' modules per side';
-  }
-
-  function gatePylons(b, c, r, R) {
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.05;
-    const p = r() < 0.55 ? 2 : 3;
-    const a0 = p === 2 ? Math.PI / 2 : -Math.PI / 2;
-    for (let i = 0; i < p * 3; i++) {
-      const a = (i / (p * 3)) * TAU + r() * 0.3, d = R * (1.42 + r() * 0.12), s = R * (0.06 + r() * 0.05);
-      const P = (u, v) => [Math.cos(a) * (d + u) - Math.sin(a) * v, Math.sin(a) * (d + u) + Math.cos(a) * v];
-      b.poly([P(s, 0), P(0, s * 1.8), P(-s, 0), P(0, -s * 1.8)], 'hull2', { layer: 'spin', lvl: 0, h: R * 0.03, bevel: R * 0.04, roof: true });
-    }
-    for (let i = 0; i < p; i++) {
-      const a = a0 + (i / p) * TAU;
-      const L = R * (p === 2 ? 1.7 : 1.25) * (0.92 + r() * 0.14), w = R * 0.34, d = R * 1.02;
-      // u runs along the spire (tangent), v points outward from the aperture.
-      const P = (u, v) => [Math.cos(a) * (d + v) - Math.sin(a) * u, Math.sin(a) * (d + v) + Math.cos(a) * u];
-      b.poly([P(L / 2, 0), P(L * 0.18, w * 0.6), P(-L * 0.3, w * 0.45), P(-L / 2, 0), P(-L * 0.12, -w * 0.28), P(L * 0.22, -w * 0.28)], 'hull2', { lvl: 1, h: R * 0.1, bevel: R * 0.14, roof: true });
-      b.poly([P(L * 0.4, w * 0.05), P(-L * 0.38, w * 0.12), P(-L * 0.36, w * 0.02)], 'accent', { lvl: 1.5, h: R * 0.12 });
-      b.poly([P(L * 0.12, -w * 0.28), P(0, -w * 0.62), P(-L * 0.12, -w * 0.28), P(0, -w * 0.1)], 'glass', { lvl: 2, h: R * 0.08, bevel: R * 0.06 });
-      b.light(...P(L / 2, 0), 2.6, c.pal.light, { blink: i * 1.7 });
-      b.light(...P(-L / 2, 0), 2.6, c.pal.light, { blink: i * 1.7 + 1 });
-    }
-    aperture(b, c, U.circle(0, 0, R * 0.62, 28), R * 0.62, p * 4);
-    return p + ' pylons';
-  }
-
-  function gateSpar(b, c, r, R) {
-    b.bp.layers = ['spin', 'fixed'];
-    b.bp.spinRate = 0.12;
-    b.ring(0, 0, R, R * 0.12, 'hull', { layer: 'spin', lvl: 1, h: R * 0.1 });
-    const mods = 6 + 2 * Math.floor(r() * 2);
-    for (let i = 0; i < mods; i++) {
-      const a = (i / mods) * TAU + TAU / (mods * 2);
-      b.poly(U.chaikin(U.rect(Math.cos(a) * R, Math.sin(a) * R, R * 0.2, R * 0.16, a), roundIters(c)), 'trim', { layer: 'spin', lvl: 2, h: R * 0.14, bevel: R * 0.04, roof: true });
-      b.light(Math.cos(a) * R * 0.9, Math.sin(a) * R * 0.9, 2, c.pal.light, { layer: 'spin' });
-    }
-    const half = R * (1.6 + r() * 0.4), ty = R * 1.22;
-    const nodes = 1 + Math.floor(r() * 2);
-    const kinds = Array.from({ length: nodes }, () => ['habitat', 'tank', 'cargo'][Math.floor(r() * 3)]);
-    for (const sy of [-1, 1]) {
-      const y = sy * ty;
-      b.poly(U.rect(0, y, half * 2, R * 0.07), 'strut', { lvl: 3, h: R * 0.05 });
-      for (const sx of [-0.45, 0.45]) b.strut(sx * R, sy * R * 1.06, sx * R, y, R * 0.04, 'strut', { lvl: 0, h: R * 0.04, thin: true });
-      b.poly(U.chaikin(U.rect(0, y, R * 0.36, R * 0.2), roundIters(c)), 'hull', { lvl: 4, h: R * 0.12, bevel: R * 0.06, roof: true });
-      for (const sx of [-1, 1]) {
-        for (let i = 0; i < nodes; i++) {
-          const x = sx * (R * 0.75 + i * R * 0.42);
-          if (kinds[i] === 'habitat') b.poly(U.chaikin(U.rect(x, y, R * 0.26, R * 0.36), roundIters(c)), 'hull', { lvl: 4, h: R * 0.1, bevel: R * 0.06, roof: true });
-          else if (kinds[i] === 'tank') for (const t of [-1, 1]) b.circle(x, y + t * R * 0.1, R * 0.09, 'trim', { lvl: 4, h: R * 0.08, dome: true });
-          else for (const t of [-1, 1]) b.poly(U.rect(x, y + t * R * 0.09, R * 0.18, R * 0.14), t > 0 ? 'accent' : 'hull2', { lvl: 4, h: R * 0.08 });
-        }
-        if (c.arrays === 'solar') b.poly(U.rect(sx * half, y, R * 0.16, R * 0.75), 'panel', { lvl: 5, h: R * 0.02, grid: [1, 5] });
-        b.light(sx * (half + R * 0.1), y, 2.6, c.pal.light, { blink: sx + sy });
-      }
-    }
-    aperture(b, c, U.circle(0, 0, R * 0.84, 32), R * 0.84, 12);
-    return nodes + ' module' + (nodes > 1 ? 's' : '') + ' per arm';
-  }
-
-  function gateMaw(b, c, r, R) {
-    const k = 5 + Math.floor(r() * 3);
-    const lobes = [];
-    for (let i = 0; i < k; i++) {
-      const a = (i / k) * TAU + (r() - 0.5) * 0.35;
-      lobes.push({ a, x: Math.cos(a) * R * 1.04, y: Math.sin(a) * R * 1.04, s: R * (0.26 + r() * 0.1) });
-    }
-    const tendril = (p, q, w0) => {
-      const mx = (p.x + q.x) / 2 * 1.18, my = (p.y + q.y) / 2 * 1.18;
-      const line = [];
-      for (let i = 0; i <= 8; i++) { const t = i / 8; line.push([lerp(lerp(p.x, mx, t), lerp(mx, q.x, t), t), lerp(lerp(p.y, my, t), lerp(my, q.y, t), t)]); }
-      b.poly(U.strip(line, (t) => w0 * (1 - 0.4 * Math.sin(t * Math.PI))), 'hull2', { lvl: 0, h: R * 0.05, bevel: R * 0.02 });
-    };
-    for (let i = 0; i < k; i++) tendril(lobes[i], lobes[(i + 1) % k], R * 0.1);
-    const mats = ['hull', 'trim', 'hull2'];
-    for (const L of lobes) {
-      b.poly(U.blob(L.x, L.y, L.s, L.s * 0.62, r, 0.3, 9, L.a + Math.PI / 2), mats[Math.floor(r() * 3)], { lvl: 2, h: R * 0.1, bevel: L.s * 0.5, roof: true });
-      b.circle(L.x - Math.cos(L.a) * L.s * 0.2, L.y - Math.sin(L.a) * L.s * 0.2, L.s * 0.18, 'glass', { lvl: 3, h: R * 0.11, dome: true });
-      if (r() < 0.6) b.poly(U.blob(L.x + Math.cos(L.a) * L.s * 0.85, L.y + Math.sin(L.a) * L.s * 0.85, R * 0.07, R * 0.06, r, 0.3, 8), 'accent', { lvl: 1.5, h: R * 0.05, bevel: R * 0.04, roof: true });
-      b.light(L.x, L.y, 2, c.pal.light, { blink: L.a * 3 });
-    }
-    aperture(b, c, U.blob(0, 0, R * 0.74, R * 0.7, r, 0.12, 12), R * 0.72, 10);
-    return k + ' lobes';
-  }
-
-  function gate(culture, seed) {
-    const r = mulberry32(hashInt(seed, 6, culture.seed));
-    const b = builder('gate', culture, seed);
-    const R = 120 * (0.92 + r() * 0.16);
-    const form = culture.gate || 'ring';
-    const fn = { ring: gateRing, halo: gateHalo, frame: gateFrame, pylons: gatePylons, spar: gateSpar, maw: gateMaw }[form] || gateRing;
-    const info = fn(b, culture, r, R);
-    b.bp.label = 'Gate · ' + form + ', ' + info;
-    return finish(b.bp);
   }
 
   // ---------- Wrecks ----------
@@ -905,17 +547,13 @@ const ArtBlueprints = (() => {
       case 'freighter': return ship(culture, s, 'freighter');
       case 'station-minor': return station(culture, s, 'minor');
       case 'station-major': return station(culture, s, 'major');
-      case 'gate':
-        if (!canBuildGate(culture)) return null;
-        return gate(culture, s);
       case 'wreck-ship': return wreck(ship(culture, s, mulberry32(s)() < 0.5 ? 'fighter' : 'freighter'), s);
       case 'wreck-station': return wreck(station(culture, s, mulberry32(s + 1)() < 0.6 ? 'minor' : 'major'), s);
       default: throw new Error(`Unknown asset type: ${type}`);
     }
   }
 
-  // 'gate' is kept out of TYPES because create() returns null for cultures without gate technology.
-  return { TYPES, canBuildGate, create, gate, wreck, playerShip, SHIP_HULL, builder, finish };
+  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtBlueprints;

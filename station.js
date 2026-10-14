@@ -1,6 +1,6 @@
 'use strict';
 
-// The docked screen: station header, Trade / Ship / Research / Missions tabs and a Launch button.
+// The docked screen: station header, Trade / Ship / Research tabs and a Launch button.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
 //                    outfitting, lab, shipyard, repairs, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
@@ -34,7 +34,7 @@ const StationMenu = (() => {
     el('st-name').textContent = ctx.station.name;
     el('st-sub').textContent = ctx.station.subtitle;
     el('st-credits').textContent = credits(ctx.hold.credits);
-    root.style.setProperty('--faction', ctx.station.color);
+    root.style.setProperty('--culture', ctx.station.color);
     el('st-hold').textContent = `Hold ${ctx.hold.items.length}/${ctx.hold.capacity}`;
   }
 
@@ -282,12 +282,6 @@ const StationMenu = (() => {
     ];
   }
 
-  function renderMissions() {
-    return [h('section', { 'aria-label': 'Missions' },
-      h('h2', {}, 'Missions'),
-      h('p', { class: 'empty' }, 'No contracts posted here yet.'))];
-  }
-
   function refresh() {
     if (!ctx) return;
     renderHeader();
@@ -297,7 +291,7 @@ const StationMenu = (() => {
       t.tabIndex = on ? 0 : -1;
     }
     const scroll = body.scrollTop;
-    const parts = tab === 'trade' ? renderTrade() : tab === 'ship' ? renderShip() : tab === 'research' ? renderResearch() : renderMissions();
+    const parts = tab === 'trade' ? renderTrade() : tab === 'ship' ? renderShip() : renderResearch();
     body.replaceChildren(...parts.filter(Boolean)); // optional parts are null when absent
     body.scrollTop = scroll;
   }
@@ -331,7 +325,7 @@ const StationMenu = (() => {
       body.replaceChildren();
     },
     get isOpen() { return !!ctx; },
-    // Switch to a tab ('trade' | 'ship' | 'research' | 'missions') while open.
+    // Switch to a tab ('trade' | 'ship' | 'research') while open.
     showTab(name) { tab = name; openSlot = null; body.scrollTop = 0; refresh(); },
     // Show or hide the choices for a loadout slot on the Ship tab.
     toggleSlot(id) { openSlot = openSlot === id ? null : id; refresh(); },

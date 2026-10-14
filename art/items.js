@@ -254,24 +254,6 @@ const ArtItems = (() => {
       }
       for (const x of [-4.5, 4.5]) b.poly(U.rect(x, 0, 1.4, 14.6), 'hull2', { lvl: 2, h: 0.4 });
     }],
-    fabrics: ['Fabric bolts', (b) => {
-      [[-4.8, 0.8, 'good'], [0, -0.6, 'goodAlt'], [4.8, 0.4, 'goodHi']].forEach(([y, x, mat]) => {
-        const lines = [-5, -2, 1, 4].map((dx) => [x + dx, y - 2.2, x + dx + 1.6, y + 2.2]);
-        b.poly(rrect(x, y, 16, 4.4, 2.2), mat, { lvl: 1, h: 4, bevel: 2.2, roof: true, lines });
-        b.poly(U.rect(x - 8.4, y, 1.2, 1.8), 'hull2', { lvl: 1.5, h: 3 });
-      });
-    }],
-    perishables: ['Produce crate', (b, r) => {
-      b.poly(U.rect(0, 0, 15, 11), 'hull2', { lvl: 1, h: 1 });
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
-        b.circle(-5.1 + i * 3.4 + (r() - 0.5) * 0.4, -3.4 + j * 3.4 + (r() - 0.5) * 0.4, 1.6, r() < 0.25 ? 'goodAlt' : 'good', { lvl: 1.5, h: 2.6, dome: true });
-      }
-      for (const s of [1, -1]) {
-        b.poly(U.rect(0, s * 5.9, 16.4, 1.2), 'hull', { lvl: 2, h: 4, lines: [[-4, s * 5.9, 4, s * 5.9]] });
-        b.poly(U.rect(s * 7.6, 0, 1.2, 12.4), 'hull', { lvl: 2, h: 4 });
-      }
-      b.light(7.6, -5.9, 0.6, '#7df9ff', { blink: 0.5 });
-    }],
   };
 
   // Shape names per category (the variant a component type uses is in goods.js).

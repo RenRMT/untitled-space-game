@@ -93,7 +93,7 @@
   }
   .panel[hidden] { display: none; }
 
-  /* Context card: tap a station, gate, asteroid or ship and its card shows above the speed bar
+  /* Context card: tap a station, asteroid or ship and its card shows above the speed bar
      with what you can do there. Docked, the flight controls go away. */
   #context { width: min(360px, calc(100vw - 24px)); border-left-color: var(--accent, var(--cyan)); }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -169,7 +169,7 @@
 
   /* Station screen */
   #station {
-    --faction: var(--dim); --good: #b6ff8a; --wanted: #ffb347;
+    --culture: var(--dim); --good: #b6ff8a; --wanted: #ffb347;
     position: fixed; inset: 0; z-index: 2; background: var(--bg); color: var(--hud);
     font: 13px/1.45 var(--mono); display: flex; flex-direction: column; align-items: center;
     padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
@@ -181,7 +181,7 @@
   #station > * { width: min(560px, 100%); box-sizing: border-box; padding-left: 16px; padding-right: 16px; }
 
   .st-head { display: flex; align-items: flex-end; gap: 12px; padding-top: 18px; padding-bottom: 14px; }
-  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--faction); padding-left: 12px; }
+  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--culture); padding-left: 12px; }
   #st-name { display: block; font-size: 20px; line-height: 1.2; color: #eef1ff; overflow-wrap: anywhere; }
   #st-sub { display: block; color: var(--dim); margin-top: 2px; }
   #st-credits { font-size: 15px; color: var(--cyan); white-space: nowrap; }
@@ -395,7 +395,6 @@
     <button class="btn" type="button" role="tab" data-tab="trade">Trade</button>
     <button class="btn" type="button" role="tab" data-tab="ship">Ship</button>
     <button class="btn" type="button" role="tab" data-tab="research">Research</button>
-    <button class="btn" type="button" role="tab" data-tab="missions">Missions</button>
   </nav>
   <main id="st-body" role="tabpanel"></main>
   <footer class="st-foot">
@@ -424,7 +423,6 @@
   <div id="map-info" hidden></div>
   <div class="bar bottom">
     <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
-    <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Testing: show hidden routes" hidden>Hidden</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>

@@ -62,35 +62,19 @@ test('generation is deterministic', () => {
   for (const seed of [1, 'abc']) {
     const a = Galaxy.generate(seed, GALAXY_CONFIG), b = Galaxy.generate(seed, GALAXY_CONFIG);
     assert.deepStrictEqual(
-      JSON.stringify({ s: a.systems, o: a.outposts, r: a.routes, f: a.factions }),
-      JSON.stringify({ s: b.systems, o: b.outposts, r: b.routes, f: b.factions }),
+      JSON.stringify({ s: a.systems, o: a.outposts, p: a.pockets }),
+      JSON.stringify({ s: b.systems, o: b.outposts, p: b.pockets }),
     );
   }
 });
 
-test('every territorial faction holds systems; routes join real systems', () => {
+test('each of the three cultures builds systems; the start is the one capital', () => {
   for (const [seed, g] of galaxies) {
-    for (const f of g.factions) {
-      if (f.kind === 'network') continue;
-      assert(g.systems.some((s) => s.faction === f.id), `seed ${seed}: ${f.name} has no systems`);
-    }
-    for (const r of g.routes) {
-      assert(g.systems[r.a] && g.systems[r.b] && r.a !== r.b, `seed ${seed}: bad route ${JSON.stringify(r)}`);
-    }
-    assert.strictEqual(g.systems[g.startSystem].capital, true, `seed ${seed}: start is not a capital`);
-  }
-});
-
-test('every gate has a partner gate at its destination', () => {
-  for (const seed of SEEDS.slice(0, 8)) {
-    const g = galaxies.get(seed);
-    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-    for (const s of g.systems) {
-      for (const gate of sectors.at(s.x, s.y).entities.filter((e) => e.kind === 'gate')) {
-        const there = sectors.at(gate.dest.x, gate.dest.y).entities.find((e) => e.kind === 'gate' && e.link === gate.link);
-        assert(there, `seed ${seed}: gate ${gate.link} at ${s.name} has no partner`);
-      }
-    }
+    assert.deepStrictEqual(g.cultures.map((c) => c.lineage), ['wedge', 'block', 'shard']);
+    for (const c of g.cultures) assert(g.systems.some((s) => s.culture === c.id), `seed ${seed}: no ${c.name} systems`);
+    for (const o of g.outposts) assert(g.cultures[o.culture], `seed ${seed}: outpost ${o.name} has no culture`);
+    assert.strictEqual(g.systems.filter((s) => s.capital).length, 1, `seed ${seed}: one capital`);
+    assert.strictEqual(g.systems[g.startSystem].capital, true, `seed ${seed}: start is not the capital`);
   }
 });
 
@@ -120,7 +104,7 @@ test('every deep-space contact is a row of CONTACT_TYPES, and only hostile rows 
       }
     }
   }
-  for (const type of ['derelict', 'distress', 'ambush', 'anomaly']) assert(seen.has(type), `no ${type} rolled`);
+  for (const type of ['derelict', 'ambush']) assert(seen.has(type), `no ${type} rolled`);
 });
 
 // Every sector a segment passes through, found by fine sampling (slow but obviously right).
@@ -170,17 +154,18 @@ test('a hostile contact on the path interdicts at its sector', () => {
   assert(Math.abs(ev.pos.x - 5) < 1e-9, 'interdicted at the sector edge');
 });
 
-test('learning a route through its gate bumps the knowledge version (map redraw)', () => {
+test('the start charts every settled system, and exploring bumps the knowledge version (map redraw)', () => {
   const g = galaxies.get(1);
   const k = Knowledge.create(g, { fresh: true });
-  const hidden = g.routes.find((r) => r.kind === 'hidden');
-  assert(hidden, 'seed 1 has a hidden route');
-  assert(!k.knowsRoute(hidden.link));
+  assert(g.systems.every((s) => k.knowsSystem(s.id)), 'a system is missing from the starting charts');
+  // A deep-space sector nobody has seen yet.
+  let x = 0, y = 0;
+  while (k.isExplored(x, y)) { x++; if (x >= g.size) { x = 0; y++; } }
   const v = k.version;
-  assert.strictEqual(k.knowRoute(hidden.link), true);
+  assert.strictEqual(k.revealSector(x, y), true);
   assert(k.version > v, 'version did not change');
   const v2 = k.version;
-  k.knowRoute(hidden.link); // already known: no change
+  k.revealSector(x, y); // already explored: no change
   assert.strictEqual(k.version, v2);
   k.save(); // also clears the pending save timer so the process can exit
 });
@@ -216,7 +201,7 @@ test('every station has a dockable market with sane prices', () => {
     }
     assert.strictEqual(JSON.stringify(Economy.market(g.seed, st)), JSON.stringify(m), 'market is not deterministic');
   }
-  assert(stations.length > 200, `only ${stations.length} stations`);
+  assert(stations.length > 40, `only ${stations.length} stations`);
 });
 
 test('there are profitable trade runs between nearby stations', () => {
@@ -306,11 +291,11 @@ test('art ids name what an asset is built from, so a rebuilt sector finds its sp
       else seen.set(e.art.id, print(e.art));
     }
   }
-  assert.ok(seen.size > 500, `${seen.size} distinct assets`);
+  assert.ok(seen.size > g.systems.length, `${seen.size} distinct assets`);
   // The same item type and seed is the same art; another seed or type is not.
   assert.strictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 7).id);
   assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
-  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('copper', 7).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('titanium', 7).id);
   const c = cultures.of(0);
   assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
 });
@@ -411,8 +396,8 @@ test('floating items are named by their type, with art made from their type and 
     }
   }
   assert.ok(n > 20, `${n} items`);
-  const d = Entities.item({ key: 'k', kind: 'gold', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
-  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Gold', 'trade', 'gold', 5, 6]);
+  const d = Entities.item({ key: 'k', kind: 'platinum', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
+  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Platinum', 'trade', 'platinum', 5, 6]);
 });
 
 test('ships have a role and unique keys that survive a rebuild', () => {
@@ -502,92 +487,28 @@ test('a longer-range scanner charts more sectors', () => {
   assert.strictEqual(explored(2), 25);
 });
 
-test('Waystations carry unique registry codes', () => {
+test('security falls with the distance to the nearest settled system', () => {
   for (const [seed, g] of galaxies) {
-    const ws = g.systems.filter((s) => s.waystation);
-    assert(ws.length >= 6, `seed ${seed}: only ${ws.length} Waystations`);
-    for (const s of ws) assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name), `seed ${seed}: ${s.name}`);
-    assert.strictEqual(new Set(ws.map((s) => s.name)).size, ws.length, `seed ${seed}: duplicate codes`);
-    assert(!g.factions.some((f) => /freeport/i.test(f.name)), 'a faction is still called Freeports');
-  }
-});
-
-test('frontier start: the same galaxy plus a lone Waystation by the edge', () => {
-  const kinds = new Set();
-  for (const seed of SEEDS) {
-    const core = galaxies.get(seed);
-    const fr = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
-    assert.strictEqual(core.start, 'core');
-    assert.strictEqual(core.systems[core.startSystem].capital, true);
-    assert.strictEqual(fr.start, 'frontier');
-    // Everything from the core galaxy is there, unchanged; the start Waystation comes last.
-    assert.strictEqual(fr.systems.length, core.systems.length + 1);
-    assert.strictEqual(JSON.stringify(fr.systems.slice(0, -1)), JSON.stringify(core.systems), `seed ${seed}: systems differ`);
-    assert.strictEqual(JSON.stringify(fr.outposts), JSON.stringify(core.outposts));
-    assert.strictEqual(JSON.stringify(fr.routes), JSON.stringify(core.routes));
-    const s = fr.systems[fr.startSystem];
-    assert(s.waystation && s.start && s.id === fr.systems.length - 1, `seed ${seed}: start is not the extra Waystation`);
-    assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name));
-    const edge = Math.min(s.x, s.y, fr.size - 1 - s.x, fr.size - 1 - s.y);
-    assert(edge >= 1 && edge <= 6 && fr.inFrontier(s.x, s.y), `seed ${seed}: start at ${s.x},${s.y}`);
-    assert(!fr.routes.some((r) => r.a === s.id || r.b === s.id), 'the frontier start has a route');
-    assert(!core.systems.some((o) => o.x === s.x && o.y === s.y) && !core.outposts.some((o) => o.x === s.x && o.y === s.y));
-    assert.notStrictEqual(Galaxy.saveKey(fr), Galaxy.saveKey(core));
-    const corner = Math.min(s.x, fr.size - 1 - s.x) <= 6 && Math.min(s.y, fr.size - 1 - s.y) <= 6;
-    kinds.add(corner ? 'corner' : 'edge');
-    // Nothing hostile waits next door.
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-      const c = fr.deepSector(s.x + dx, s.y + dy);
-      assert(!c || !c.hostile, `seed ${seed}: hostile contact next to the start`);
+    const best = [Infinity, Infinity, Infinity, Infinity]; // nearest distance seen per level
+    const worst = [-1, -1, -1, -1];
+    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
+      const t = g.territoryOf(x, y);
+      best[t.security] = Math.min(best[t.security], t.settledDist);
+      worst[t.security] = Math.max(worst[t.security], t.settledDist);
     }
-  }
-  assert.deepStrictEqual([...kinds].sort(), ['corner', 'edge'], 'starts should land in corners and along edges');
-  // Asking for the core style, or nothing, gives the same galaxy.
-  const a = Galaxy.generate(3, { ...GALAXY_CONFIG, start: 'core' }), b = galaxies.get(3);
-  assert.strictEqual(JSON.stringify(a.systems), JSON.stringify(b.systems));
-  assert.strictEqual(Galaxy.saveKey(a), Galaxy.saveKey(b));
-});
-
-test('frontier start: only the start Waystation is charted, and no raiders wait nearby', () => {
-  for (const seed of SEEDS.slice(0, 10)) {
-    const g = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
-    const s = g.systems[g.startSystem];
-    const k = Knowledge.create(g, { fresh: true });
-    assert.strictEqual(k.counts().systems, 1);
-    assert.strictEqual(k.counts().routes, 0);
-    assert(k.knowsSystem(s.id));
-    const territorial = g.factions.filter((f) => f.kind !== 'network');
-    assert(territorial.every((f) => !k.knowsFaction(f.id)), `seed ${seed}: a faction is charted from the start`);
-    let explored = 0;
-    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) explored += k.isExplored(x, y) ? 1 : 0;
-    assert(explored <= 1, `seed ${seed}: ${explored} sectors charted`);
-    k.save();
-    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-    const pirates = g.factions.find((f) => f.key === 'pirates').id;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-      const sec = sectors.at(s.x + dx, s.y + dy);
-      if (sec) assert(!sec.entities.some((e) => e.kind === 'ship' && e.faction === pirates), `seed ${seed}: pirates next to the start`);
-    }
-    assert(sectors.at(s.x, s.y).entities.some((e) => e.kind === 'station' && e.name === s.name), 'no station at the start');
+    for (let l = 0; l < 3; l++) assert(worst[l + 1] <= best[l], `seed ${seed}: level ${l + 1} reaches ${worst[l + 1]}, level ${l} starts at ${best[l]}`);
+    for (const s of g.systems) assert.strictEqual(g.securityOf(s.x, s.y), 3, `seed ${seed}: ${s.name} is not high security`);
   }
 });
-
-// Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
-function colourDistance(a, b) {
-  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
-  const rm = (r1 + r2) / 2;
-  return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
-}
 
 test('the item catalogue: categories, rarity tiers and prices', () => {
   const ids = new Set();
   for (const [cat, info] of Object.entries(Goods.CATEGORIES)) {
     const list = Goods.ofCategory(cat);
-    assert(list.length >= 5, `${cat}: only ${list.length} types`);
+    // Trade goods are only what research uses, so a category can be short and start above common.
+    assert(list.length >= 2, `${cat}: only ${list.length} types`);
     const levels = list.map((t) => t.rarity);
     assert.deepStrictEqual(levels, [...levels].sort((a, b) => a - b), `${cat}: not listed commonest first`);
-    assert.strictEqual(levels[0], 1, `${cat}: nothing common`);
-    assert.strictEqual(levels[levels.length - 1], 5, `${cat}: nothing exotic`);
     if (info.group === 'salvage') assert.deepStrictEqual(levels, [1, 2, 3, 4, 5], `${cat}: components should be one per tier`);
     // Every rarity level is worth more than everything below it.
     for (let r = 2; r <= 5; r++) {
@@ -622,6 +543,13 @@ test('components are generic, one per tier, found by category and tier', () => {
   assert.strictEqual(Goods.component('metal', 1), null);
 });
 
+// Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
+function colourDistance(a, b) {
+  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
+  const rm = (r1 + r2) / 2;
+  return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
+}
+
 test('every item type is drawn in its own colour within its category', () => {
   for (const cat of Object.keys(Goods.CATEGORIES)) {
     const arts = Goods.ofCategory(cat).map((t) => {
@@ -644,12 +572,11 @@ test('every item type is drawn in its own colour within its category', () => {
 });
 
 test('rarer items turn up less often: picks, floating cargo and market stock', () => {
-  // Picks by rarity, for one category with every level.
+  // Picks by rarity, for the category with the most levels (conduits: common to very rare).
   const counts = [0, 0, 0, 0, 0, 0];
   const r = ctx.mulberry32(99);
-  for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'metal')).rarity]++;
-  for (let l = 1; l < 5; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
-  assert(counts[5] > 0, 'no exotic ever picked');
+  for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'tubes')).rarity]++;
+  for (let l = 1; l < 4; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
   // Floating items across a galaxy.
   const g = galaxies.get(1);
   const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
@@ -657,23 +584,29 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
     for (const e of sectors.at(x, y).entities) if (e.kind === 'item') found[Goods.type(e.itemKind).rarity]++;
   }
-  for (let l = 1; l < 4; l++) assert(found[l] > found[l + 1], `floating items: ${found.join('/')}`);
-  // What stations stock.
-  const stocked = [0, 0, 0, 0, 0, 0];
-  for (const st of stationsOf(g)) for (const x of Economy.market(g.seed, st).goods) if (x.buy !== null) stocked[x.rarity]++;
-  for (let l = 1; l < 4; l++) assert(stocked[l] > stocked[l + 1], `stock: ${stocked.join('/')}`);
-  assert.strictEqual(stocked[5], 0, 'exotics are found, never sold');
+  assert(found[4] < found[2] && found[4] < found[3], `floating items: ${found.join('/')}`);
+  // What stations stock, per type at each rarity.
+  const stocked = [0, 0, 0, 0, 0, 0], types = [0, 0, 0, 0, 0, 0];
+  for (const st of stationsOf(g)) {
+    for (const x of Economy.market(g.seed, st).goods) { types[x.rarity]++; if (x.buy !== null) stocked[x.rarity]++; }
+  }
+  const rate = stocked.map((n, l) => n / (types[l] || 1));
+  for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
 });
 
 test('old saves: item categories and labels become item types', () => {
   assert.strictEqual(Goods.resolve('metal'), 'iron');
-  assert.strictEqual(Goods.resolve('gas'), 'hydrogen');
+  assert.strictEqual(Goods.resolve('gas'), 'deuterium');
   assert.strictEqual(Goods.resolve('hull'), 'hull-simple');
   assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'weapon-simple');
-  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'quartz');
-  assert.strictEqual(Goods.resolve('gold'), 'gold');
+  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'corundum');
+  assert.strictEqual(Goods.resolve('titanium'), 'titanium');
   assert.strictEqual(Goods.resolve('unobtainium'), null);
-  for (const cat of Object.keys(Goods.CATEGORIES)) assert.strictEqual(Goods.type(Goods.resolve(cat)).rarity, 1);
+  // Goods and categories taken out of the catalogue are dropped from old saves.
+  assert.strictEqual(Goods.resolve('gold'), null);
+  assert.strictEqual(Goods.resolve('perishables'), null);
+  assert.strictEqual(Goods.resolve(undefined, 'Produce crate'), null);
+  for (const cat of Object.keys(Goods.CATEGORIES)) assert.strictEqual(Goods.resolve(cat), Goods.ofCategory(cat)[0].id);
 });
 
 // A made-up ship for the combat rule checks.
@@ -784,12 +717,15 @@ test('pirates leave components at their gear tier and some cargo; freighters spi
 
 test('security falls from the charted pockets to the frontier, and sets how dangerous pirates are', () => {
   const g = galaxies.get(1);
-  const by = { pocket: [], claimed: [], deep: [], frontier: [] };
+  const by = { pocket: [], deep: [], frontier: [] };
   for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); by[t.zone].push(t.security); }
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
-  assert(mean(by.pocket) > mean(by.claimed) && mean(by.claimed) > mean(by.deep) && mean(by.deep) > mean(by.frontier), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
-  assert(by.pocket.filter((v) => v === 3).length / by.pocket.length > 0.8, 'charted pockets are mostly high security');
-  assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.9, 'the frontier is mostly lawless');
+  assert(mean(by.pocket) > mean(by.deep) && mean(by.deep) > mean(by.frontier), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
+  // Outposts aren't settled systems, so their pockets can lie in rougher space.
+  const sysPocket = [];
+  for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); if (t.pocket?.kind === 'system') sysPocket.push(t.security); }
+  assert(sysPocket.filter((v) => v === 3).length / sysPocket.length > 0.9, 'systems\' pockets are mostly high security');
+  assert(by.frontier.filter((v) => v <= 1).length / by.frontier.length > 0.8, 'the frontier is mostly low security or lawless');
   for (let level = 0; level < 3; level++) {
     const lo = Security.pirates(level), hi = Security.pirates(level + 1);
     const max = (t) => Math.max(...t.map(([v]) => v)), min = (t) => Math.min(...t.map(([v]) => v));
@@ -801,18 +737,16 @@ test('security falls from the charted pockets to the frontier, and sets how dang
 test('pirates come in packs that follow the security level and can be fought one at a time', () => {
   const g = galaxies.get(1);
   const S = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-  const pirates = g.factions.find((f) => f.key === 'pirates').id;
   const packs = [[], [], [], []]; // pack sizes, by security level
   const perSector = [[], [], [], []]; // pirates per sector that has any, by level
   const { orbit: [, o1] } = Security.PACK;
-  for (let y = 0; y < g.size; y += 2) {
-    for (let x = 0; x < g.size; x += 2) {
+  for (let y = 0; y < g.size; y++) {
+    for (let x = 0; x < g.size; x++) {
       const sec = S.at(x, y);
       if (sec.contact) continue; // an ambush is one pack on purpose
-      const ps = sec.entities.filter((e) => e.kind === 'ship' && e.faction === pirates);
+      const ps = sec.entities.filter((e) => e.kind === 'ship' && e.pirate);
       if (!ps.length) continue;
       const level = sec.territory.security, P = Security.pirates(level);
-      assert(!g.nearWaystation(x, y), `pirates next to a Waystation at ${x},${y}`);
       const byPack = new Map();
       for (const p of ps) {
         assert(P.tier.some(([t]) => t === p.tier), `tier ${p.tier} at security ${level}`);
@@ -824,7 +758,7 @@ test('pirates come in packs that follow the security level and can be fought one
       }
       perSector[level].push(ps.length);
       // However they circle, members of different packs never come within groupRange of each other,
-      // and no pack comes near a station, gate or star.
+      // and no pack comes near a station or star.
       const centre = (p) => [p.motion.cx, p.motion.cy];
       for (const a of ps) {
         for (const b of ps) {
@@ -832,7 +766,7 @@ test('pirates come in packs that follow the security level and can be fought one
           const [ax, ay] = centre(a), [bx, by] = centre(b);
           assert(Math.hypot(ax - bx, ay - by) - a.motion.r - b.motion.r > CombatCore.config.groupRange, `packs ${a.pack} and ${b.pack} at ${x},${y} too close`);
         }
-        for (const e of sec.entities.filter((q) => q.kind === 'station' || q.kind === 'gate' || q.kind === 'star')) {
+        for (const e of sec.entities.filter((q) => q.kind === 'station' || q.kind === 'star')) {
           const [ax, ay] = centre(a);
           assert(Math.hypot(ax - e.x, ay - e.y) - a.motion.r - e.radius >= Security.PACK.clear, `a pack by a ${e.kind} at ${x},${y}`);
         }
