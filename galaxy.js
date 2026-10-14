@@ -17,7 +17,11 @@
 // Works as a classic browser script (global `Galaxy`) and as a Node module.
 
 const Galaxy = (() => {
-  const { hashInt, mulberry32 } = typeof require === 'function' ? require('./rng.js') : globalThis;
+  const { hashInt, mulberry32, seedToInt, weightedPick } = typeof require === 'function' ? require('./rng.js') : globalThis;
+
+  // Bump whenever a change to the generator (or to sector contents) moves things around for the
+  // same seed and settings, so saved charts and cargo from the old layout are not reused.
+  const VERSION = 1;
 
   const DEFAULTS = {
     size: 80,
@@ -62,20 +66,6 @@ const Galaxy = (() => {
   const LOCATION_TYPES = ['station', 'planet', 'outpost'];
 
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-
-  function seedToInt(seed) {
-    if (Number.isInteger(seed)) return seed >>> 0;
-    let h = 2166136261;
-    for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
-    return h >>> 0;
-  }
-
-  function weightedPick(list, r) {
-    const total = list.reduce((sum, [, w]) => sum + w, 0);
-    let x = r * total;
-    for (const [item, w] of list) if ((x -= w) < 0) return item;
-    return list[list.length - 1][0];
-  }
 
   function hslToHex(h, s, l) {
     const f = (n) => {
@@ -342,7 +332,7 @@ const Galaxy = (() => {
         let second = -1;
         for (let f = 0; f < T; f++) {
           const c = control[i * T + f];
-          const p = c + (f < T && majorIds.includes(f) ? reach(f, x, y) : 0);
+          const p = c + reach(f, x, y); // reach() is 0 for minor factions
           shares[i * T + f] = p;
           total += p;
           if (top < 0 || c > control[i * T + top]) { second = top; top = f; } else if (second < 0 || c > control[i * T + second]) second = f;
@@ -368,14 +358,19 @@ const Galaxy = (() => {
 
     // ---------- Freeports: neutral stations on the outer edge of settled space ----------
     const occupied = new Set(systems.map((s) => idx(s.x, s.y)));
-    const known = [];
-    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (ownerAt(x, y) >= 0) known.push({ x, y });
+    const FP = P.freeports;
+    // Distance to the nearest owned sector. Only distances up to FP.maxDist matter, so search that
+    // neighbourhood instead of every owned sector; anything further away is Infinity.
     const distToKnown = (x, y) => {
+      const R = Math.ceil(FP.maxDist);
       let best = Infinity;
-      for (const k of known) best = Math.min(best, Math.hypot(k.x - x, k.y - y));
+      for (let ky = Math.max(0, y - R); ky <= Math.min(size - 1, y + R); ky++) {
+        for (let kx = Math.max(0, x - R); kx <= Math.min(size - 1, x + R); kx++) {
+          if (ownerAt(kx, ky) >= 0) best = Math.min(best, Math.hypot(kx - x, ky - y));
+        }
+      }
       return best;
     };
-    const FP = P.freeports;
     const fpCandidates = innerSectors
       .filter(({ x, y }) => ownerAt(x, y) < 0 && !occupied.has(idx(x, y)) && Math.hypot(x - C, y - C) >= settledRadius * 0.45)
       .map(({ x, y }) => ({ x, y, r: Math.hypot(x - C, y - C), a: Math.atan2(y - C, x - C), dk: distToKnown(x, y) }))
@@ -680,7 +675,11 @@ const Galaxy = (() => {
     };
   }
 
-  return { generate, params: DEFAULTS };
+  // localStorage key part identifying one generated galaxy: the same seed with other generator
+  // settings or another generator version is another galaxy.
+  const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}`;
+
+  return { generate, params: DEFAULTS, VERSION, saveKey };
 })();
 
 if (typeof module !== 'undefined') module.exports = Galaxy;

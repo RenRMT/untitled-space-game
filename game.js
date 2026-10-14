@@ -108,7 +108,7 @@ const cargo = { key: '', items: [], collected: new Set() };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 
 function loadCargo(galaxy) {
-  cargo.key = `cargo:${galaxy.seed}:${galaxy.size}:${galaxy.systems.length}:${galaxy.outposts.length}`;
+  cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
   cargo.items = [];
   cargo.collected = new Set();
   try {
@@ -173,6 +173,7 @@ function dropNearContact(cell, dir) {
 }
 
 function loadGalaxy(galaxy) {
+  if (world.knowledge) world.knowledge.save(); // keep the old galaxy's charts before switching
   world.galaxy = galaxy;
   SECTOR = galaxy.sectorUnits;
   world.cultures = ArtCulture.forGalaxy(galaxy);
@@ -187,8 +188,13 @@ function loadGalaxy(galaxy) {
   Art.clearCache();
   const start = galaxy.systems[galaxy.startSystem];
   moveShipTo(start.x, start.y);
+  GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
 }
 loadGalaxy(GalaxyMap.galaxy);
+GalaxyMap.onLoad = loadGalaxy; // re-rolled on the map
+// Knowledge saves on a short debounce; write it out when the page is hidden or closed.
+window.addEventListener('pagehide', () => world.knowledge.save());
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') world.knowledge.save(); });
 GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
 
 // ---------- Map travel: plot a course on the map, cruise there, maybe get interrupted ----------
@@ -490,7 +496,6 @@ function drawBounds() {
   ctx.restore();
 }
 
-// Faint sector borders around the camera.
 // The charted pocket around a world position, or null. Pockets are circles, so the ship can be
 // outside one while still in the sector of its system.
 function pocketAt(x, y) {
@@ -532,6 +537,7 @@ function drawPocketEdges() {
   ctx.restore();
 }
 
+// Faint sector borders around the camera.
 function drawSectorGrid() {
   const [cx, cy] = sectorOf(cam.x, cam.y);
   ctx.save();
@@ -820,7 +826,6 @@ function drawHud() {
 
 function render() {
   const t = simTime;
-  if (GalaxyMap.galaxy !== world.galaxy) loadGalaxy(GalaxyMap.galaxy); // re-rolled on the map
   let list = nearbyEntities(t);
   if (checkGates(list)) list = nearbyEntities(t);
   collectItems(list);

@@ -27,8 +27,7 @@ const Knowledge = (() => {
     const outpostAt = new Map(galaxy.outposts.map((o) => [idx(o.x, o.y), o]));
     const routesOf = new Map();
     for (const r of galaxy.routes) for (const id of [r.a, r.b]) (routesOf.get(id) || routesOf.set(id, []).get(id)).push(r);
-    // Same seed with other generator settings is another galaxy, so the key includes its shape.
-    const storeKey = `knowledge:${galaxy.seed}:${size}:${galaxy.systems.length}:${galaxy.outposts.length}`;
+    const storeKey = `knowledge:${Galaxy.saveKey(galaxy)}`;
     let version = 0; // bumps on every change, so the map knows when to redraw
     let saveTimer = null;
 
@@ -120,6 +119,7 @@ const Knowledge = (() => {
     }
 
     function save() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       try {
         localStorage.setItem(storeKey, JSON.stringify({
           explored: Array.from(explored.reduce((acc, v, i) => (v && acc.push(i), acc), [])),

@@ -38,6 +38,7 @@ const GalaxyMap = (() => {
   let showContacts = false;
   let player = null; // the ship's position in sector units, set by the flight view
   let onJump = null;
+  let onLoad = null; // called with each newly generated galaxy (after the first one)
   let knowledge = null; // fog of war; null shows everything
   const dev = new URLSearchParams(location.search).has('dev');
   const fog = () => (dev ? null : knowledge);
@@ -80,8 +81,9 @@ const GalaxyMap = (() => {
     }
     selected = null;
     hovered = null;
-    const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
-    const systems = galaxy.systems.filter((s) => !s.freeport).length;
+    // Let the flight view swap its world (fog of war, travel, sectors) right away, even while the
+    // map stays open; otherwise the map would draw the new galaxy with the old galaxy's charts.
+    if (onLoad) onLoad(galaxy);
     updateStats();
     updateInfo();
     requestDraw();
@@ -488,9 +490,12 @@ const GalaxyMap = (() => {
       .map((p) => row(p.faction === null ? 'unaligned' : factions[p.faction].name, pct(p.share)))
       .join('');
   }
-  const row = (label, value) => `<div class="row"><span>${label}</span><span>${value}</span></div>`;
+  // Names come from config and the generator today, but escape them in case they ever come from
+  // saves or players.
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const row = (label, value) => `<div class="row"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
   const pct = (v) => `${Math.round(v * 100)}%`;
-  const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${color}"></span>${title}</div>`;
+  const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${esc(color)}"></span>${esc(title)}</div>`;
 
   // Sector of a pick, for jumping there.
   const sectorOfPick = (p) => (p.system ? { x: p.system.x, y: p.system.y } : p.outpost ? { x: p.outpost.x, y: p.outpost.y } : p.sector);
@@ -545,7 +550,7 @@ const GalaxyMap = (() => {
           : row('dominance', pct(s.dominance)) + presenceRows(s.presence, s.faction)) +
         row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', ')) +
         row('links', links.length ? '' : 'none · deep space only') +
-        links.map((l) => `<div class="row"><span></span><span>${l}</span></div>`).join('');
+        links.map((l) => row('', l)).join('');
       return;
     }
 
@@ -663,7 +668,9 @@ const GalaxyMap = (() => {
 
   canvas.addEventListener('wheel', (e) => {
     e.preventDefault();
-    zoomAt(e.clientX, e.clientY, view.scale * Math.pow(1.0015, -e.deltaY));
+    // Firefox often reports wheel deltas in lines or pages rather than pixels.
+    const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? view.h : 1);
+    zoomAt(e.clientX, e.clientY, view.scale * Math.pow(1.0015, -dy));
   }, { passive: false });
 
   // ---------- Open / close & controls ----------
@@ -741,6 +748,7 @@ const GalaxyMap = (() => {
       if (moved) requestDraw();
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
+    set onLoad(fn) { onLoad = fn; },
     set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
     refresh() { updateStats(); requestDraw(); },
     // Map travel: the trip to draw, the flight view's callbacks, and a cheap redraw during a trip.
