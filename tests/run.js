@@ -444,6 +444,25 @@ test('the item catalogue: categories, rarity tiers and prices', () => {
   assert.strictEqual(ids.size, Object.keys(Goods.TYPES).length);
 });
 
+test('components are generic, one per tier, found by category and tier', () => {
+  for (const cat of Goods.categories('salvage')) {
+    Goods.ofCategory(cat).forEach((t, i) => {
+      const tier = i + 1;
+      assert.strictEqual(t.tier, tier);
+      assert.strictEqual(t.rarity, tier, `${t.id}: tier and rarity differ`);
+      assert.strictEqual(Goods.component(cat, tier), t.id);
+      assert.strictEqual(t.name, `${Goods.TIERS[tier]} ${cat} components`);
+    });
+  }
+  // The same tier has the same colour in every category.
+  for (let tier = 1; tier <= 5; tier++) {
+    const colours = Goods.categories('salvage').map((c) => JSON.stringify(Goods.type(Goods.component(c, tier)).color));
+    assert.strictEqual(new Set(colours).size, 1, `tier ${tier} colours differ between categories`);
+  }
+  assert.strictEqual(Goods.component('computer', 6), null);
+  assert.strictEqual(Goods.component('metal', 1), null);
+});
+
 test('every item type is drawn in its own colour within its category', () => {
   for (const cat of Object.keys(Goods.CATEGORIES)) {
     const arts = Goods.ofCategory(cat).map((t) => {
@@ -490,8 +509,8 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
 test('old saves: item categories and labels become item types', () => {
   assert.strictEqual(Goods.resolve('metal'), 'iron');
   assert.strictEqual(Goods.resolve('gas'), 'hydrogen');
-  assert.strictEqual(Goods.resolve('hull'), 'steel-plating');
-  assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'mass-driver-barrel');
+  assert.strictEqual(Goods.resolve('hull'), 'hull-simple');
+  assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'weapon-simple');
   assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'quartz');
   assert.strictEqual(Goods.resolve('gold'), 'gold');
   assert.strictEqual(Goods.resolve('unobtainium'), null);

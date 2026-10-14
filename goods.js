@@ -4,12 +4,14 @@
 // and colour. Items are grouped into categories:
 // - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits,
 //   fabrics, food): mostly real materials and wares, with science-fiction ones at the rare end,
-// - salvaged components (hull, weapon, computer, drive): from simple parts to complex systems.
+// - salvaged components (hull, weapon, computer, drive): generic, in five tiers from simple to
+//   exotic ("Simple computer components"), as materials for crafting.
 // Each type has a rarity from 1 (common) to 5 (exotic). Rarer types are found less often, sold at
 // fewer stations (exotics never) and are worth more. Each type within a category has its own
 // colour, used for its art (art/items.js) and on the station screen.
 //
-//   Goods.type(id)              -> { id, name, category, rarity, price, color: [h, s, l], shape? }
+//   Goods.type(id)              -> { id, name, category, rarity, price, color: [h, s, l], shape?, tier? }
+//   Goods.component(cat, tier)  -> the component type id of a category at a tier (1–5)
 //   Goods.ofCategory(cat)       -> types of a category, commonest first
 //   Goods.categories(group)     -> category ids of 'trade' or 'salvage'
 //   Goods.pick(rng, cat)        -> a type id of that category, rarer ones less likely
@@ -45,9 +47,8 @@ const Goods = (() => {
     drive: { group: 'salvage', label: 'Drive components' },
   };
 
-  // [id, name, rarity, price, [hue, saturation, lightness]] per category, commonest first.
-  // Components also name the art variant they're drawn as (shape: index into the category's
-  // variants in art/items.js).
+  // Trade goods: [id, name, rarity, price, [hue, saturation, lightness]] per category, commonest
+  // first. (Components are added below.)
   const TABLE = {
     metal: [
       ['iron', 'Iron', 1, 35, [212, 0.12, 0.42]],
@@ -136,42 +137,32 @@ const Goods = (() => {
       ['saffron', 'Saffron', 4, 450, [350, 0.8, 0.45]],
       ['xenoflora', 'Xenoflora', 5, 1200, [170, 0.9, 0.55]],
     ],
-    // Components, from simple parts to complex systems.
-    hull: [
-      ['steel-plating', 'Steel plating', 1, 80, [210, 0.1, 0.62], 0],
-      ['titanium-frame', 'Titanium frame', 2, 160, [262, 0.55, 0.68], 1],
-      ['bulkhead-assembly', 'Bulkhead assembly', 3, 340, [35, 0.85, 0.55], 2],
-      ['composite-armour', 'Composite armour', 4, 700, [190, 0.8, 0.55], 0],
-      ['nanoplate', 'Self-repairing nanoplate', 5, 1600, [300, 0.8, 0.62], 2],
-    ],
-    weapon: [
-      ['mass-driver-barrel', 'Mass driver barrel', 1, 140, [30, 0.5, 0.55], 0],
-      ['missile-rack', 'Missile rack', 2, 280, [0, 0.75, 0.55], 1],
-      ['laser-emitter', 'Laser emitter', 3, 560, [120, 0.75, 0.5], 2],
-      ['plasma-chamber', 'Plasma chamber', 4, 1100, [195, 0.9, 0.58], 0],
-      ['graviton-lens', 'Graviton lens', 5, 2400, [275, 0.85, 0.62], 2],
-    ],
-    computer: [
-      ['circuit-board', 'Circuit board', 1, 120, [140, 0.45, 0.45], 0],
-      ['memory-rack', 'Memory rack', 2, 240, [45, 0.85, 0.55], 2],
-      ['processing-core', 'Processing core', 3, 500, [195, 0.85, 0.55], 1],
-      ['neural-lattice', 'Neural lattice', 4, 1000, [320, 0.75, 0.6], 0],
-      ['quantum-core', 'Quantum core', 5, 2200, [265, 0.85, 0.65], 1],
-    ],
-    drive: [
-      ['chemical-thruster', 'Chemical thruster', 1, 130, [25, 0.75, 0.55], 0],
-      ['ion-thruster', 'Ion thruster', 2, 260, [205, 0.85, 0.6], 0],
-      ['fusion-core', 'Fusion core', 3, 540, [50, 0.95, 0.55], 1],
-      ['antimatter-reactor', 'Antimatter reactor', 4, 1100, [330, 0.85, 0.6], 1],
-      ['warp-coil', 'Warp coil', 5, 2400, [270, 0.85, 0.65], 2],
-    ],
   };
+
+  // Components are generic and tiered ("Simple computer components" ... "Exotic computer
+  // components"): one type per tier, the tier being its rarity. They're meant as crafting
+  // materials, so each has a `tier`, and Goods.component(category, tier) finds one. Every
+  // category uses the same colour per tier (the rarity colours), so a tier reads the same
+  // everywhere. shapes: the art variant (art/items.js) per tier, from plainer to more intricate.
+  const TIERS = [null, 'Simple', 'Standard', 'Advanced', 'Complex', 'Exotic'];
+  const TIER_COLORS = [null, [224, 0.24, 0.73], [139, 0.52, 0.63], [211, 0.9, 0.66], [276, 0.85, 0.72], [19, 0.95, 0.66]];
+  const COMPONENTS = {
+    hull: { noun: 'hull', prices: [80, 160, 340, 700, 1600], shapes: [0, 1, 2, 0, 2] },
+    weapon: { noun: 'weapon', prices: [140, 280, 560, 1100, 2400], shapes: [0, 1, 2, 0, 2] },
+    computer: { noun: 'computer', prices: [120, 240, 500, 1000, 2200], shapes: [0, 2, 1, 0, 1] },
+    drive: { noun: 'drive', prices: [130, 260, 540, 1100, 2400], shapes: [0, 0, 1, 1, 2] },
+  };
+  for (const [category, c] of Object.entries(COMPONENTS)) {
+    TABLE[category] = [1, 2, 3, 4, 5].map((tier) => [
+      `${category}-${TIERS[tier].toLowerCase()}`, `${TIERS[tier]} ${c.noun} components`, tier, c.prices[tier - 1], TIER_COLORS[tier], c.shapes[tier - 1],
+    ]);
+  }
 
   const TYPES = {};
   const BY_CATEGORY = {};
   for (const [category, rows] of Object.entries(TABLE)) {
     BY_CATEGORY[category] = rows.map(([id, name, rarity, price, color, shape]) => {
-      const t = { id, name, category, rarity, price, color, ...(shape !== undefined ? { shape } : {}) };
+      const t = { id, name, category, rarity, price, color, ...(shape !== undefined ? { shape, tier: rarity } : {}) };
       TYPES[id] = t;
       return t;
     });
@@ -181,6 +172,9 @@ const Goods = (() => {
   const ofCategory = (cat) => BY_CATEGORY[cat] || [];
   const categories = (group) => Object.keys(CATEGORIES).filter((c) => CATEGORIES[c].group === group);
   const isSalvage = (id) => !!TYPES[id] && CATEGORIES[TYPES[id].category].group === 'salvage';
+  // The component of a category at a tier (1 simple ... 5 exotic), e.g. ('computer', 4) ->
+  // 'computer-complex', or null.
+  const component = (category, tier) => (COMPONENTS[category] && TIERS[tier] ? `${category}-${TIERS[tier].toLowerCase()}` : null);
 
   // A type of a category: first its rarity, weighted by how common each level is, then one of the
   // types at that level. Uses two numbers from rng.
@@ -210,7 +204,7 @@ const Goods = (() => {
     return cat ? ofCategory(cat)[0].id : null;
   }
 
-  return { RARITY, CATEGORIES, TYPES, type, ofCategory, categories, isSalvage, pick, resolve };
+  return { RARITY, CATEGORIES, TIERS, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
 })();
 
 if (typeof module !== 'undefined') module.exports = Goods;
