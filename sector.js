@@ -4,11 +4,12 @@
 // cultures (art/culture.js). Each map sector becomes a square play area `units` across, and its
 // contents are recreated on demand from the galaxy seed and the sector coordinates:
 // - systems: a star, one planet per planet location, stations and outposts of the owner,
-// - gates: one per gate route, on the side facing the destination; each end is built by a major
+// - gates: one per route (lanes and gates alike), on the side facing the destination; each end is built by a major
 //   faction (the system's owner, else the major at the other end, else the nearest major),
 // - outposts: a minor station; salvage yards collect wrecks,
-// - traffic: fighters patrol and freighters run toward lane neighbours; owners are picked by the
-//   sector's faction presence, and pirates lurk in the territories they operate in,
+// - traffic, only inside charted pockets: fighters patrol and freighters run to the gates; owners
+//   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
+//   patrol, and pirates lurk in the territories they operate in,
 // - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
 // - contested sectors: debris from border skirmishes.
 // Positions are world units from the galaxy's top-left corner. Browser only (global `Sectors`).
@@ -54,14 +55,14 @@ const Sectors = (() => {
       .map((m) => ({ id: m.id, d: Math.hypot(m.centre.x - s.x, m.centre.y - s.y) }))
       .sort((a, b) => a.d - b.d)[0].id;
     const gatesAt = new Map();
-    galaxy.gates.forEach((g, link) => {
-      for (const [here, there] of [[g.a, g.b], [g.b, g.a]]) {
+    for (const route of galaxy.routes) {
+      for (const [here, there] of [[route.a, route.b], [route.b, route.a]]) {
         const sys = galaxy.systems[here], other = galaxy.systems[there];
         const builder = majorOf(sys.faction) ?? majorOf(other.faction) ?? nearestMajor(sys);
         if (!gatesAt.has(here)) gatesAt.set(here, []);
-        gatesAt.get(here).push({ link, hidden: g.hidden, other, builder });
+        gatesAt.get(here).push({ link: route.link, hidden: route.kind === 'hidden', other, builder });
       }
-    });
+    }
 
     function at(sx, sy) {
       if (sx < 0 || sy < 0 || sx >= galaxy.size || sy >= galaxy.size) return null;
@@ -214,7 +215,7 @@ const Sectors = (() => {
       const owners = territory.presence.filter((p) => p.share >= 0.04);
       const known = territory.zone === 'pocket';
       const settled = 1 - (owners.find((p) => p.faction === null)?.share ?? 0);
-      let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : r() < 0.15 ? 1 : 0;
+      let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : 0;
       if (system?.freeport) count = 3 + Math.floor(r() * 3);
       const pickOwner = () => {
         if (system?.freeport) return r() < 0.3 ? system.faction : majors[Math.floor(r() * majors.length)].id;
@@ -222,18 +223,9 @@ const Sectors = (() => {
         return p === null ? null : p;
       };
       const anchors = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
-      // Freighters leave along lanes toward the sector edge, or through charted gates.
+      // Freighters leave through the charted gates, or cross the sector.
       const edge = (a) => { const k = (C - 250) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); return [C + Math.cos(a) * k, C + Math.sin(a) * k]; };
-      const exits = [];
-      if (system) {
-        for (const l of galaxy.lanes) {
-          if (l.a !== system.id && l.b !== system.id) continue;
-          const o = galaxy.systems[l.a === system.id ? l.b : l.a];
-          const a = Math.atan2(o.y - sy, o.x - sx);
-          exits.push({ a, to: edge(a) });
-        }
-        for (const g of sec.entities) if (g.kind === 'gate' && !g.hidden) exits.push({ a: g.angle, to: [g.x - ox, g.y - oy] });
-      }
+      const exits = sec.entities.filter((g) => g.kind === 'gate' && !g.hidden).map((g) => ({ a: g.angle, to: [g.x - ox, g.y - oy] }));
       for (let i = 0; i < count; i++) {
         const fid = known ? pickOwner() : null;
         const anchor = anchors.length ? anchors[Math.floor(r() * anchors.length)] : null;
@@ -248,6 +240,11 @@ const Sectors = (() => {
           const rad = (anchor ? anchor.radius : 0) + 250 + r() * 400;
           ship('fighter', fid, orbit(axl, ayl, rad, 150 + r() * 80));
         }
+      }
+      // The odd border patrol in claimed space outside the pockets.
+      if (territory.zone === 'claimed' && r() < 0.15) {
+        const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
+        for (let i = 0; i < 2; i++) ship('fighter', territory.owner, orbit(x, y, 300 + r() * 200, 170));
       }
       // Pirates prey on the territories they operate in, and haunt the frontier.
       const preyed = territory.owner !== null && pirates.operatesIn?.includes(territory.owner);

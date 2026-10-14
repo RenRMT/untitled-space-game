@@ -41,6 +41,8 @@ const particles = [];
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
+const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
+let lastPocket; // key of the pocket the ship was in last frame ('' = none), for enter/leave notices
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -117,6 +119,7 @@ function moveShipTo(sx, sy) {
   cam.y = ship.y;
   particles.length = 0;
   gateLock = null;
+  lastPocket = undefined; // no enter/leave notice for a teleport
 }
 
 function loadGalaxy(galaxy) {
@@ -285,6 +288,8 @@ function update(dt) {
   }
 
   gateFlash = Math.max(0, gateFlash - dt * 1.8);
+  toast.t = Math.max(0, toast.t - dt);
+  updatePocketNotice();
 
   // Camera leads in the direction of travel.
   const lead = 0.45;
@@ -370,6 +375,47 @@ function drawBounds() {
 }
 
 // Faint sector borders around the camera.
+// The charted pocket around a world position, or null. Pockets are circles, so the ship can be
+// outside one while still in the sector of its system.
+function pocketAt(x, y) {
+  return world.galaxy.pocketAt(x / SECTOR, y / SECTOR);
+}
+
+// Zone at the ship: charted inside a pocket, otherwise the sector's claimed / deep / frontier.
+function zoneAt(x, y, territory) {
+  if (pocketAt(x, y)) return 'pocket';
+  if (territory.owner !== null) return 'claimed';
+  return world.galaxy.inFrontier(...sectorOf(x, y)) ? 'frontier' : 'deep';
+}
+
+function updatePocketNotice() {
+  const pk = pocketAt(ship.x, ship.y);
+  const key = pk ? `${pk.kind}:${pk.id}` : '';
+  if (lastPocket !== undefined && key !== lastPocket) {
+    toast.text = pk ? `Entering ${pk.name} space` : 'Leaving charted space';
+    toast.t = 2.5;
+  }
+  lastPocket = key;
+}
+
+// Faint dashed rings marking the edges of nearby charted pockets.
+function drawPocketEdges() {
+  const reach = Math.max(view.w, view.h) / view.zoom;
+  ctx.save();
+  ctx.lineWidth = 2 / view.zoom;
+  ctx.setLineDash([24 / view.zoom, 16 / view.zoom]);
+  for (const pk of world.galaxy.pockets) {
+    const x = pk.x * SECTOR, y = pk.y * SECTOR, r = pk.r * SECTOR;
+    if (Math.abs(Math.hypot(x - cam.x, y - cam.y) - r) > reach) continue;
+    ctx.strokeStyle = pk.faction === null ? '#9aa4b8' : world.galaxy.factions[pk.faction].color;
+    ctx.globalAlpha = 0.28;
+    ctx.beginPath();
+    ctx.arc(rx(x), ry(y), r, 0, TAU);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function drawSectorGrid() {
   const [cx, cy] = sectorOf(cam.x, cam.y);
   ctx.save();
@@ -453,7 +499,8 @@ function drawLabels(list) {
 
 // Off-screen gates within 1.5 sectors get a marker at the screen edge pointing their way, with name and distance.
 function drawNavMarkers(list) {
-  const inset = 26;
+  // Margins keep markers clear of the HUD text (top left), the speed bar (bottom) and the buttons.
+  const inset = { l: 26, r: 26, t: 70, b: 64 };
   const cx = view.w / 2, cy = view.h / 2;
   ctx.save();
   ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
@@ -464,7 +511,7 @@ function drawNavMarkers(list) {
     const [gx, gy] = worldToScreen(g.x, g.y);
     const dx = gx - cx, dy = gy - cy;
     // Where the line from the screen centre to the gate leaves the inset screen rectangle.
-    const k = Math.min((cx - inset) / Math.abs(dx || 1e-6), (cy - inset) / Math.abs(dy || 1e-6));
+    const k = Math.min((dx > 0 ? cx - inset.r : cx - inset.l) / Math.abs(dx || 1e-6), (dy > 0 ? cy - inset.b : cy - inset.t) / Math.abs(dy || 1e-6));
     const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
     ctx.globalAlpha = 0.85;
     ctx.fillStyle = g.color;
@@ -623,12 +670,17 @@ function drawHud() {
   const sec = world.sectors.at(sx, sy);
   const t = sec.territory;
   const f = world.galaxy.factions;
+  const zone = zoneAt(ship.x, ship.y, t);
+  const pk = pocketAt(ship.x, ship.y);
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = COLORS.dim;
-  ctx.fillText(`SECTOR ${sx},${sy} · ${ZONE_LABEL[t.zone]}`, pad, pad + 12);
-  const place = sec.system ? sec.system.name : sec.outpost ? sec.outpost.name : null;
+  ctx.fillText(`SECTOR ${sx},${sy} · ${ZONE_LABEL[zone]}`, pad, pad + 12);
   const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.freeport ? 'Freeport' : null;
-  const line2 = [place, owner, t.contestedBy !== null ? `contested by ${f[t.contestedBy].name}` : null].filter(Boolean).join(' · ');
+  const line2 = [
+    pk ? pk.name : null,
+    zone === 'claimed' && owner ? `claimed by ${owner}` : zone === 'pocket' ? owner : null,
+    t.contestedBy !== null ? `contested by ${f[t.contestedBy].name}` : null,
+  ].filter(Boolean).join(' · ');
   if (line2) {
     ctx.fillStyle = t.owner !== null ? f[t.owner].color : COLORS.hud;
     ctx.fillText(line2, pad, pad + 28);
@@ -666,6 +718,7 @@ function render() {
   ctx.translate(-rx(cam.x), -ry(cam.y));
   drawBounds();
   drawSectorGrid();
+  drawPocketEdges();
   drawEntities(list, t);
   drawParticles();
   drawShip(t);
@@ -676,6 +729,15 @@ function render() {
     ctx.fillRect(0, 0, view.w, view.h);
   }
   drawLabels(list);
+  if (toast.t > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, toast.t / 0.6) * 0.9;
+    ctx.fillStyle = COLORS.hud;
+    ctx.font = '14px ui-monospace, Menlo, Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
+    ctx.restore();
+  }
   drawNavMarkers(list);
   drawDragIndicator();
   drawMinimap(list);
