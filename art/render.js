@@ -40,9 +40,12 @@ const Art = (() => {
   // ---------- Sprite cache ----------
 
   const cache = new Map();
+  // Running totals for the performance overlay (sprites rendered, as opposed to reused).
+  const counters = { builds: 0, asteroidBuilds: 0 };
   function cached(key, make) {
     let v = cache.get(key);
     if (v) { cache.delete(key); cache.set(key, v); return v; }
+    counters.builds++;
     v = make();
     cache.set(key, v);
     while (cache.size > config.maxSprites) cache.delete(cache.keys().next().value);
@@ -1404,6 +1407,7 @@ const Art = (() => {
     else if (last && !o.force && astBudget.n >= config.asteroidBuildsPerFrame) spr = last;
     else {
       astBudget.n++;
+      counters.asteroidBuilds++;
       spr = buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext);
       astCache.set(key, spr);
       astPixels += pixelsOf(spr);
@@ -1441,5 +1445,7 @@ const Art = (() => {
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
     clearCache: () => { cache.clear(); astCache.clear(); astPixels = 0; },
+    // Sprite cache sizes and build counts, for the performance overlay.
+    stats: () => ({ sprites: cache.size, asteroids: astCache.size, asteroidPixels: astPixels, ...counters }),
   };
 })();

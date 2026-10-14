@@ -40,7 +40,10 @@ const GalaxyMap = (() => {
   let onJump = null;
   let onLoad = null; // called with each newly generated galaxy (after the first one)
   let knowledge = null; // fog of war; null shows everything
+  let knowledgeId = 0; // bumps when the knowledge object is replaced (new galaxy), for the layer cache
   const dev = new URLSearchParams(location.search).has('dev');
+  // Performance readouts on the map and in flight: ?perf or ?dev, toggled with P.
+  let perf = dev || new URLSearchParams(location.search).has('perf');
   const fog = () => (dev ? null : knowledge);
   let trip = null; // the flight view's Travel instance, for drawing the route
   let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
@@ -152,8 +155,37 @@ const GalaxyMap = (() => {
   }
 
   // ---------- Drawing ----------
+  //
+  // Everything that only changes with the view, the player's charts or the testing toggles is drawn
+  // once into an offscreen layer; each frame copies it and adds the route, the ship and highlights.
 
-  function draw() {
+  const layer = { canvas: null, key: null };
+  const stats = { drawMs: 0, staticMs: 0, rebuilds: 0, frames: 0 }; // for the performance overlay
+  // Signature of everything the static layer depends on.
+  const layerKey = () => [galaxy.seed, galaxy.systems.length, view.ox, view.oy, view.scale, view.w, view.h, view.dpr,
+    fog() ? fog().version : -1, knowledgeId, showHidden, showContacts].join('|');
+
+  function staticLayer() {
+    const key = layerKey();
+    if (layer.canvas && layer.key === key) return layer.canvas;
+    const t0 = performance.now();
+    if (!layer.canvas) layer.canvas = document.createElement('canvas');
+    const cw = canvas.width, chh = canvas.height;
+    if (layer.canvas.width !== cw || layer.canvas.height !== chh) { layer.canvas.width = cw; layer.canvas.height = chh; }
+    drawStatic(layer.canvas.getContext('2d'));
+    layer.key = key;
+    stats.rebuilds++;
+    stats.staticMs = performance.now() - t0;
+    return layer.canvas;
+  }
+  // Free the layer's memory while the map is closed.
+  function dropLayer() {
+    if (layer.canvas) { layer.canvas.width = layer.canvas.height = 0; }
+    layer.canvas = null;
+    layer.key = null;
+  }
+
+  function drawStatic(ctx) {
     const { w, h, scale } = view;
     const { size, frontier: F, factions, systems } = galaxy;
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
@@ -370,6 +402,18 @@ const GalaxyMap = (() => {
       }
     }
     ctx.textAlign = 'left';
+  }
+
+  function draw() {
+    const t0 = performance.now();
+    const { w, h, scale } = view;
+    const { systems } = galaxy;
+    const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
+    const r = clamp(scale * 0.28, 2.5, 8); // system dot radius, as in drawStatic
+    const bg = staticLayer();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(bg, 0, 0);
+    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
 
     // Map travel: the plotted route and destination.
     if (trip && trip.active) {
@@ -407,12 +451,12 @@ const GalaxyMap = (() => {
     // Hover / selection highlights.
     for (const [sel, color] of [[hovered, '#cfd8ff'], [selected, '#7df9ff']]) {
       if (!sel) continue;
-      if (sel.system) {
-        const [sx, sy] = centreOf(sel.system.id);
+      if (sel.system || sel.outpost) {
+        const [sx, sy] = sel.system ? centreOf(sel.system.id) : toScreen(sel.outpost.x + 0.5, sel.outpost.y + 0.5);
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(sx, sy, r + 6, 0, Math.PI * 2);
+        ctx.arc(sx, sy, sel.system ? r + 6 : clamp(scale * 0.25, 2, 5) + 5, 0, Math.PI * 2);
         ctx.stroke();
       } else {
         const [sx, sy] = toScreen(sel.sector.x, sel.sector.y);
@@ -423,6 +467,24 @@ const GalaxyMap = (() => {
     }
 
     if (w >= 700) drawLegend();
+    stats.frames++;
+    stats.drawMs = performance.now() - t0;
+    if (perf) drawPerf();
+  }
+
+  // Performance readout (?perf or ?dev, or the P key), under the top bar.
+  function drawPerf() {
+    const lines = [
+      `map draw ${stats.drawMs.toFixed(1)} ms · static layer ${stats.staticMs.toFixed(1)} ms`,
+      `static rebuilds ${stats.rebuilds} in ${stats.frames} frames`,
+    ];
+    ctx.save();
+    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
+    ctx.fillRect(8, TOP_BAR, 330, lines.length * 15 + 8);
+    ctx.fillStyle = '#7df9ff';
+    lines.forEach((l, i) => ctx.fillText(l, 14, TOP_BAR + 16 + i * 15));
+    ctx.restore();
   }
 
   function drawLegend() {
@@ -689,6 +751,7 @@ const GalaxyMap = (() => {
     overlay.hidden = true;
     pointers.clear();
     gesture = null;
+    dropLayer();
   }
 
   function setToggle(btn, on) {
@@ -732,6 +795,7 @@ const GalaxyMap = (() => {
   window.addEventListener('keydown', (e) => {
     if (e.key === 'm' || e.key === 'M') isOpen ? close() : open();
     else if (e.key === 'Escape') close();
+    else if (e.key === 'p' || e.key === 'P') { perf = !perf; requestDraw(); }
   });
 
   load(initialSeed());
@@ -749,7 +813,9 @@ const GalaxyMap = (() => {
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
     set onLoad(fn) { onLoad = fn; },
-    set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
+    set knowledge(k) { knowledge = k; knowledgeId++; updateStats(); updateInfo(); requestDraw(); },
+    get perf() { return perf; },
+    stats,
     refresh() { updateStats(); requestDraw(); },
     // Map travel: the trip to draw, the flight view's callbacks, and a cheap redraw during a trip.
     set trip(t) { trip = t; updateTravelUI(); },
