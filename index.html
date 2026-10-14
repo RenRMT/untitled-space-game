@@ -254,6 +254,23 @@
   .hull-row .btn { white-space: nowrap; }
 
   .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
+
+  /* Item types: a swatch in the type's colour, and a tag for anything rarer than common
+     (colours as Goods.RARITY in goods.js). Trade lists are grouped by category. */
+  #station .swatch {
+    display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 2px; vertical-align: 0;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  }
+  .rarity { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-left: 8px; white-space: nowrap; }
+  .rarity.r2 { color: #6fd08c; }
+  .rarity.r3 { color: #5aa9ff; }
+  .rarity.r4 { color: #c77dff; }
+  .rarity.r5 { color: #ff8f5a; }
+  #st-body h3.cat {
+    display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 11px; font-weight: normal;
+    letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+  }
+  #st-body h3.cat .tag { letter-spacing: 0; text-transform: none; }
   .stats { margin: 0; }
   .stats .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
   .stats .stat:first-child { border-top: 0; }
@@ -385,6 +402,7 @@
 </div>
 
 <script src="rng.js"></script>
+<script src="goods.js"></script>
 <script src="data/galaxy-config.js"></script>
 <script src="galaxy.js"></script>
 <script src="map.js"></script>

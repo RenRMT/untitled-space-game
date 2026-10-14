@@ -16,6 +16,7 @@
 
 const Combat = (() => {
   const { hashInt, mulberry32, seedToInt, weightedPick } = typeof require === 'function' ? require('./rng.js') : globalThis;
+  const G = typeof require === 'function' ? require('./goods.js') : Goods;
 
   const config = {
     round: 1.5, // seconds per round
@@ -116,20 +117,22 @@ const Combat = (() => {
     return s;
   }
 
-  // What a destroyed ship leaves floating: [{ kind, seed }] (art/items.js kinds). Fighters may
-  // drop a salvaged component; freighters spill trade goods. Seeded by the galaxy and the ship.
+  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Fighters may drop a
+  // salvaged component; freighters spill trade goods. Types are picked by rarity, so complex
+  // components and rare goods turn up less often. Seeded by the galaxy and the ship.
   const SALVAGE = [['hull', 3], ['weapon', 2], ['drive', 2], ['computer', 1]];
-  const GOODS = ['metal', 'mineral', 'gas', 'synthetic', 'crates', 'barrels', 'tubes', 'fabrics', 'perishables'];
+  const GOODS = G.categories('trade');
   function loot(galaxySeed, key, role) {
     const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(key), 0x1007));
     const seed = () => Math.floor(r() * 4294967295);
     const out = [];
+    const component = () => ({ kind: G.pick(r, weightedPick(SALVAGE, r())), seed: seed() });
     if (role === 'freighter') {
       const n = 1 + Math.floor(r() * 2);
-      for (let i = 0; i < n; i++) out.push({ kind: GOODS[Math.floor(r() * GOODS.length)], seed: seed() });
-      if (r() < 0.3) out.push({ kind: weightedPick(SALVAGE, r()), seed: seed() });
+      for (let i = 0; i < n; i++) out.push({ kind: G.pick(r, GOODS[Math.floor(r() * GOODS.length)]), seed: seed() });
+      if (r() < 0.3) out.push(component());
     } else if (r() < 0.6) {
-      out.push({ kind: weightedPick(SALVAGE, r()), seed: seed() });
+      out.push(component());
     }
     return out;
   }

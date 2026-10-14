@@ -1,30 +1,34 @@
 'use strict';
 
 // Station markets, recreated on demand from the galaxy seed and the station (no saved state).
-// Every station buys every trade good and all salvage; what it sells, and at what price, depends on
-// what kind of place it is:
-// - goods it produces are cheap (and always on sale), goods it consumes fetch a premium,
+// Prices start from each item type's base price (goods.js). Every station buys every trade good and
+// all salvage; what it sells, and at what price, depends on what kind of place it is:
+// - categories it produces are cheap, categories it consumes fetch a premium,
 // - outposts follow their type (mining camps sell ore, refineries want it, ...),
-// - system stations get a seeded mix; capitals and major stations sell everything,
-// - salvage (loot components) is never sold, and pays best at salvage yards and Waystations.
+// - system stations get a seeded mix; capitals and major stations stock every category,
+// - within a category on sale, common types are always stocked and rarer ones less often (more
+//   often where the category is produced); exotics are never sold, only found,
+// - salvage (components) is never sold, and pays best at salvage yards and Waystations.
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // Works as a classic browser script (global `Economy`) and as a Node module.
 
 const Economy = (() => {
   const { hashInt, mulberry32, seedToInt } = typeof require === 'function' ? require('./rng.js') : globalThis;
-
-  // Base price per unit, by item kind (art/items.js ids).
-  const GOODS = { metal: 60, mineral: 45, gas: 35, synthetic: 90, crates: 50, barrels: 40, tubes: 70, fabrics: 55, perishables: 30 };
-  const SALVAGE = { hull: 120, weapon: 220, computer: 180, drive: 200 };
-  const GOOD_IDS = Object.keys(GOODS);
+  const G = typeof require === 'function' ? require('./goods.js') : Goods;
+  const CATEGORIES = G.categories('trade');
+  const SALVAGE = G.categories('salvage');
 
   const config = {
-    produced: 0.7, // price factor for goods a station produces
-    consumed: 1.35, // ... and for goods it consumes
-    jitter: 0.1, // +/- per station and good
+    produced: 0.7, // price factor for categories a station produces
+    consumed: 1.35, // ... and for categories it consumes
+    jitter: 0.1, // +/- per station and type
     spread: 0.08, // the station sells this much above its price and buys this much below
-    minForSale: 3, // smallest number of goods a station offers
+    minForSale: 3, // smallest number of categories a station stocks
+    // Chance a type is stocked, by rarity (1 common ... 5 exotic), in a category the station sells,
+    // and in one it produces.
+    stock: [null, 1, 0.55, 0.2, 0.05, 0],
+    stockProduced: [null, 1, 1, 0.6, 0.15, 0],
     startingCredits: 500,
   };
 
@@ -40,9 +44,9 @@ const Economy = (() => {
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [], salvage: 1.3 },
   };
 
-  // Seeded profile for a system station: a couple of goods made, a couple wanted.
+  // Seeded profile for a system station: a couple of categories made, a couple wanted.
   function mixedProfile(r, major) {
-    const pool = GOOD_IDS.slice();
+    const pool = CATEGORIES.slice();
     for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
     const nProd = major ? 2 : 1 + Math.floor(r() * 2);
     return { produces: pool.slice(0, nProd), consumes: pool.slice(nProd, nProd + 2), sellsAll: major };
@@ -55,32 +59,45 @@ const Economy = (() => {
     return PROFILES[type] || mixedProfile(r, type === 'major');
   }
 
-  // The market at a station: { goods: [{ kind, buy, sell, produced, consumed }], salvage: [{ kind, sell }] }.
-  // buy is null where the station doesn't sell that good.
+  // Base price of an item type (goods.js), before any station's factors.
+  const basePrice = (kind) => (G.type(kind) ? G.type(kind).price : 0);
+
+  // The market at a station:
+  //   goods:   every trade good: { kind, category, rarity, buy, sell, produced, consumed }; buy is
+  //            null where the station doesn't stock it,
+  //   salvage: every component: { kind, category, rarity, sell }.
   function market(galaxySeed, station) {
     const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(station.key), 0xec0));
     const P = profileOf(station, r);
     const jitter = () => 1 + (r() * 2 - 1) * config.jitter;
     const forSale = new Set(P.produces);
-    for (const id of GOOD_IDS) if (P.sellsAll || r() < 0.5) forSale.add(id);
-    for (const id of GOOD_IDS) if (forSale.size < config.minForSale) forSale.add(id);
-    const goods = GOOD_IDS.map((kind) => {
-      const produced = P.produces.includes(kind), consumed = P.consumes.includes(kind);
-      const price = GOODS[kind] * (produced ? config.produced : consumed ? config.consumed : 1) * jitter();
-      return {
-        kind, produced, consumed,
-        buy: forSale.has(kind) ? Math.max(1, Math.round(price * (1 + config.spread))) : null,
-        sell: Math.max(1, Math.round(price * (1 - config.spread))),
-      };
-    });
-    const salvage = Object.keys(SALVAGE).map((kind) => ({
-      kind,
-      sell: Math.max(1, Math.round(SALVAGE[kind] * (P.salvage || 1) * ((P.salvageBy || {})[kind] || 1) * jitter() * (1 - config.spread))),
-    }));
+    for (const id of CATEGORIES) if (P.sellsAll || r() < 0.5) forSale.add(id);
+    for (const id of CATEGORIES) if (forSale.size < config.minForSale) forSale.add(id);
+    const goods = [];
+    for (const category of CATEGORIES) {
+      const produced = P.produces.includes(category), consumed = P.consumes.includes(category);
+      const factor = produced ? config.produced : consumed ? config.consumed : 1;
+      for (const t of G.ofCategory(category)) {
+        const price = t.price * factor * jitter();
+        const stocked = forSale.has(category) && r() < (produced ? config.stockProduced : config.stock)[t.rarity];
+        goods.push({
+          kind: t.id, category, rarity: t.rarity, produced, consumed,
+          buy: stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,
+          sell: Math.max(1, Math.round(price * (1 - config.spread))),
+        });
+      }
+    }
+    const salvage = [];
+    for (const category of SALVAGE) {
+      const factor = (P.salvage || 1) * ((P.salvageBy || {})[category] || 1);
+      for (const t of G.ofCategory(category)) {
+        salvage.push({ kind: t.id, category, rarity: t.rarity, sell: Math.max(1, Math.round(t.price * factor * jitter() * (1 - config.spread))) });
+      }
+    }
     return { goods, salvage };
   }
 
-  return { GOODS, SALVAGE, config, market };
+  return { config, basePrice, market };
 })();
 
 if (typeof module !== 'undefined') module.exports = Economy;

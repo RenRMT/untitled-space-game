@@ -17,6 +17,7 @@ function load(file, names) {
   vm.runInThisContext(`((require, module) => {${src}\n;${names.map((n) => `globalThis.${n} = ${n};`).join(' ')}\n})();`, { filename: file });
 }
 load('rng.js', ['hashInt', 'mulberry32', 'seedToInt', 'weightedPick']);
+load('goods.js', ['Goods']);
 load('data/galaxy-config.js', ['GALAXY_CONFIG']);
 load('galaxy.js', ['Galaxy']);
 load('art/util.js', ['ArtUtil']);
@@ -30,7 +31,7 @@ load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
 load('combat.js', ['Combat']);
-const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, Loadout, Combat, GALAXY_CONFIG } = ctx;
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -174,13 +175,17 @@ test('every station has a dockable market with sane prices', () => {
     assert(!keys.has(st.key), `duplicate station key ${st.key}`);
     keys.add(st.key);
     const m = Economy.market(g.seed, st);
-    assert.strictEqual(m.goods.length, Object.keys(Economy.GOODS).length);
-    assert(m.goods.filter((x) => x.buy !== null).length >= Economy.config.minForSale, `${st.name} sells too little`);
+    // Every trade good and component has a price here; the station stocks a few categories.
+    assert.strictEqual(m.goods.length, Goods.categories('trade').reduce((n, c) => n + Goods.ofCategory(c).length, 0));
+    assert.strictEqual(m.salvage.length, Goods.categories('salvage').reduce((n, c) => n + Goods.ofCategory(c).length, 0));
+    const stocked = m.goods.filter((x) => x.buy !== null);
+    assert(new Set(stocked.map((x) => x.category)).size >= Economy.config.minForSale, `${st.name} stocks too little`);
     for (const x of m.goods) {
       assert(Number.isInteger(x.sell) && x.sell > 0, `${st.name}: bad sell price for ${x.kind}`);
       // Buying and selling back at the same station never makes money.
       if (x.buy !== null) assert(x.buy > x.sell, `${st.name}: ${x.kind} buy ${x.buy} <= sell ${x.sell}`);
-      if (x.produced) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
+      if (x.produced && x.rarity <= 2) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
+      if (x.rarity === 5) assert.strictEqual(x.buy, null, `${st.name} sells exotic ${x.kind}`);
     }
     for (const x of m.salvage) assert(Number.isInteger(x.sell) && x.sell > 0);
     assert.strictEqual(JSON.stringify(Economy.market(g.seed, st)), JSON.stringify(m), 'market is not deterministic');
@@ -220,20 +225,20 @@ test('asteroids have unique keys that survive a rebuild', () => {
   assert.deepStrictEqual(a.map((e) => [e.key, e.x, e.y]), b.map((e) => [e.key, e.x, e.y]));
 });
 
-test('mined asteroids drop only metal or mineral, at the configured rates', () => {
+test('mined asteroids drop metals, minerals or gases, at the configured rates', () => {
   const g = galaxies.get(1);
   const byType = {};
   for (const e of asteroidsOf(g)) {
     const y = Mining.yieldOf(g.seed, e);
     assert.deepStrictEqual(Mining.yieldOf(g.seed, e), y, 'yield is not deterministic');
     if (y) {
-      assert(['metal', 'mineral'].includes(y.kind), `unexpected drop ${y.kind}`);
-      assert(Economy.GOODS[y.kind], `${y.kind} is not a trade good`);
+      const cat = Goods.type(y.kind)?.category;
+      assert(['metal', 'mineral', 'gas'].includes(cat), `unexpected drop ${y.kind}`);
       assert(Number.isInteger(y.seed));
     }
-    const t = (byType[e.ast.type] ||= { n: 0, drops: 0, metal: 0 });
+    const t = (byType[e.ast.type] ||= { n: 0, drops: 0, metal: 0, gas: 0 });
     t.n++;
-    if (y) { t.drops++; if (y.kind === 'metal') t.metal++; }
+    if (y) { t.drops++; const cat = Goods.type(y.kind).category; if (cat === 'metal') t.metal++; if (cat === 'gas') t.gas++; }
   }
   for (const [type, t] of Object.entries(byType)) {
     assert(Mining.YIELD[type], `no yield table for ${type} asteroids`);
@@ -242,7 +247,8 @@ test('mined asteroids drop only metal or mineral, at the configured rates', () =
     assert(Math.abs(rate - Mining.YIELD[type].chance) < 0.1, `${type}: drop rate ${rate.toFixed(2)}`);
   }
   if (byType.metal?.drops) assert(byType.metal.metal / byType.metal.drops > 0.6, 'metallic asteroids should mostly give metal');
-  if (byType.ice?.drops) assert.strictEqual(byType.ice.metal, 0, 'icy asteroids give no metal');
+  if (byType.ice?.drops) assert(byType.ice.metal === 0 && byType.ice.gas === byType.ice.drops, 'icy asteroids give gas');
+  if (byType.stony?.drops) assert.strictEqual(byType.stony.gas, 0, 'only icy asteroids give gas');
 });
 
 test('the mining target is the nearest unmined asteroid in range', () => {
@@ -407,6 +413,91 @@ test('frontier start: only the start Waystation is charted, and no raiders wait 
   }
 });
 
+// Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
+function colourDistance(a, b) {
+  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
+  const rm = (r1 + r2) / 2;
+  return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
+}
+
+test('the item catalogue: categories, rarity tiers and prices', () => {
+  const ids = new Set();
+  for (const [cat, info] of Object.entries(Goods.CATEGORIES)) {
+    const list = Goods.ofCategory(cat);
+    assert(list.length >= 5, `${cat}: only ${list.length} types`);
+    const levels = list.map((t) => t.rarity);
+    assert.deepStrictEqual(levels, [...levels].sort((a, b) => a - b), `${cat}: not listed commonest first`);
+    assert.strictEqual(levels[0], 1, `${cat}: nothing common`);
+    assert.strictEqual(levels[levels.length - 1], 5, `${cat}: nothing exotic`);
+    if (info.group === 'salvage') assert.deepStrictEqual(levels, [1, 2, 3, 4, 5], `${cat}: components should be one per tier`);
+    // Every rarity level is worth more than everything below it.
+    for (let r = 2; r <= 5; r++) {
+      const below = list.filter((t) => t.rarity < r).map((t) => t.price), at = list.filter((t) => t.rarity === r).map((t) => t.price);
+      if (at.length) assert(Math.min(...at) > Math.max(...below), `${cat}: rarity ${r} isn't worth more than below`);
+    }
+    for (const t of list) {
+      assert(!ids.has(t.id), `duplicate type ${t.id}`);
+      ids.add(t.id);
+      assert.strictEqual(Goods.type(t.id), t);
+    }
+  }
+  assert.strictEqual(ids.size, Object.keys(Goods.TYPES).length);
+});
+
+test('every item type is drawn in its own colour within its category', () => {
+  for (const cat of Object.keys(Goods.CATEGORIES)) {
+    const arts = Goods.ofCategory(cat).map((t) => {
+      const bp = ArtItems.create(t.id, 7);
+      assert.strictEqual(bp.kind, t.id);
+      assert.strictEqual(bp.rarity, t.rarity);
+      assert.strictEqual(bp.label.split(' · ')[1], t.name);
+      assert.strictEqual(bp.category, Goods.CATEGORIES[cat].group === 'salvage' ? 'loot' : 'trade');
+      const pal = bp.culture.pal;
+      return { id: t.id, fill: pal.good || pal.accent, line: pal.line };
+    });
+    for (let i = 0; i < arts.length; i++) {
+      for (let j = i + 1; j < arts.length; j++) {
+        const [a, b] = [arts[i], arts[j]];
+        assert(colourDistance(a.fill, b.fill) >= 80, `${cat}: ${a.id} and ${b.id} look alike (${a.fill} / ${b.fill})`);
+        assert(colourDistance(a.line, b.line) >= 40, `${cat}: ${a.id} and ${b.id} have similar outlines (${a.line} / ${b.line})`);
+      }
+    }
+  }
+});
+
+test('rarer items turn up less often: picks, floating cargo and market stock', () => {
+  // Picks by rarity, for one category with every level.
+  const counts = [0, 0, 0, 0, 0, 0];
+  const r = ctx.mulberry32(99);
+  for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'metal')).rarity]++;
+  for (let l = 1; l < 5; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
+  assert(counts[5] > 0, 'no exotic ever picked');
+  // Floating items across a galaxy.
+  const g = galaxies.get(1);
+  const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+  const found = [0, 0, 0, 0, 0, 0];
+  for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
+    for (const e of sectors.at(x, y).entities) if (e.kind === 'item') found[Goods.type(e.itemKind).rarity]++;
+  }
+  for (let l = 1; l < 4; l++) assert(found[l] > found[l + 1], `floating items: ${found.join('/')}`);
+  // What stations stock.
+  const stocked = [0, 0, 0, 0, 0, 0];
+  for (const st of stationsOf(g)) for (const x of Economy.market(g.seed, st).goods) if (x.buy !== null) stocked[x.rarity]++;
+  for (let l = 1; l < 4; l++) assert(stocked[l] > stocked[l + 1], `stock: ${stocked.join('/')}`);
+  assert.strictEqual(stocked[5], 0, 'exotics are found, never sold');
+});
+
+test('old saves: item categories and labels become item types', () => {
+  assert.strictEqual(Goods.resolve('metal'), 'iron');
+  assert.strictEqual(Goods.resolve('gas'), 'hydrogen');
+  assert.strictEqual(Goods.resolve('hull'), 'steel-plating');
+  assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'mass-driver-barrel');
+  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'quartz');
+  assert.strictEqual(Goods.resolve('gold'), 'gold');
+  assert.strictEqual(Goods.resolve('unobtainium'), null);
+  for (const cat of Object.keys(Goods.CATEGORIES)) assert.strictEqual(Goods.type(Goods.resolve(cat)).rarity, 1);
+});
+
 // A made-up ship for the combat rule checks.
 const testShip = (o) => ({
   hull: 100, shield: 0, shieldRecharge: 0, accuracy: 1, evasion: 0, initiative: 1, maxSpeed: 500,
@@ -493,11 +584,11 @@ test('destroyed ships leave sellable loot', () => {
   for (let i = 0; i < 300; i++) {
     const f = Combat.loot(g.seed, `x,y,s${i}`, 'fighter');
     assert.deepStrictEqual(Combat.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
-    for (const d of f) assert(Economy.SALVAGE[d.kind], `fighter dropped ${d.kind}`);
+    for (const d of f) assert(Goods.isSalvage(d.kind), `fighter dropped ${d.kind}`);
     fighterDrops += f.length;
     const fr = Combat.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
-    for (const d of fr) assert(Economy.GOODS[d.kind] || Economy.SALVAGE[d.kind], `freighter dropped ${d.kind}`);
+    for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
   }
   assert(fighterDrops > 120 && fighterDrops < 240, `fighters dropped ${fighterDrops} of 300`);
 });

@@ -13,8 +13,6 @@ const StationMenu = (() => {
   const tabs = [...root.querySelectorAll('[role="tab"]')];
   const el = (id) => document.getElementById(id);
 
-  const GOOD_NAME = Object.fromEntries(ArtItems.TRADE.map((k) => [k.id, k.form]));
-  const SALVAGE_NAME = Object.fromEntries(ArtItems.LOOT.map((k) => [k.id, k.label]));
   // The price gauge spans this range of the base price (see economy.js factors and jitter).
   const GAUGE = [0.55, 1.6];
 
@@ -51,33 +49,58 @@ const StationMenu = (() => {
     return h('span', { class: 'gauge', 'aria-hidden': 'true' }, h('span', { class: `mark ${tone}`, style: { left: `${k * 100}%` } }));
   }
 
+  // An item type's colour swatch, name and rarity (goods.js), for list rows.
+  function itemName(kind) {
+    const t = Goods.type(kind);
+    const [hue, sat, light] = t.color;
+    return [
+      h('span', { class: 'swatch', 'aria-hidden': 'true', style: { background: `hsl(${hue} ${sat * 100}% ${light * 100}%)` } }),
+      t.name,
+      t.rarity > 1 ? h('span', { class: `rarity r${t.rarity}` }, Goods.RARITY[t.rarity].label) : null,
+    ];
+  }
+
+  // A trade good: name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
+  function goodRow(g, full) {
+    const { hold } = ctx;
+    const name = Goods.type(g.kind).name;
+    const n = hold.count(g.kind);
+    const buy = g.buy === null
+      ? h('span', { class: 'na' }, 'not sold')
+      : h('button', {
+        class: 'btn', type: 'button', disabled: full || hold.credits < g.buy,
+        'aria-label': `Buy ${name} for ${g.buy} credits`,
+        onclick: () => { hold.buy(g.kind, g.buy, name); refresh(); },
+      }, `Buy ${g.buy}`);
+    const sell = h('button', {
+      class: 'btn', type: 'button', disabled: n < 1,
+      'aria-label': `Sell ${name} for ${g.sell} credits`,
+      onclick: () => { hold.sell(g.kind, g.sell); refresh(); },
+    }, `Sell ${g.sell}`);
+    return h('li', { class: 'good' },
+      h('div', { class: 'what' },
+        h('span', { class: 'name' }, itemName(g.kind)),
+        h('span', { class: 'held' }, n ? `${n} in hold` : ''),
+        // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
+        gauge(g.buy ?? g.sell, Economy.basePrice(g.kind) * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread))),
+      h('div', { class: 'deal' }, buy, sell));
+  }
+
+  // Trade: what this station stocks, by category; anything else you're carrying, with what it
+  // fetches here; and salvage.
   function renderTrade() {
     const { market, hold } = ctx;
     const full = hold.free < 1;
-    const goods = market.goods.map((g) => {
-      const n = hold.count(g.kind);
-      const name = GOOD_NAME[g.kind];
-      const tag = g.produced ? h('span', { class: 'tag made' }, 'made here') : g.consumed ? h('span', { class: 'tag wanted' }, 'in demand') : null;
-      const buy = g.buy === null
-        ? h('span', { class: 'na' }, 'not sold')
-        : h('button', {
-          class: 'btn', type: 'button', disabled: full || hold.credits < g.buy,
-          'aria-label': `Buy ${name} for ${g.buy} credits`,
-          onclick: () => { hold.buy(g.kind, g.buy, name); refresh(); },
-        }, `Buy ${g.buy}`);
-      const sell = h('button', {
-        class: 'btn', type: 'button', disabled: n < 1,
-        'aria-label': `Sell ${name} for ${g.sell} credits`,
-        onclick: () => { hold.sell(g.kind, g.sell); refresh(); },
-      }, `Sell ${g.sell}`);
-      return h('li', { class: 'good' },
-        h('div', { class: 'what' },
-          h('span', { class: 'name' }, name, tag),
-          h('span', { class: 'held' }, n ? `${n} in hold` : ''),
-          // Against the usual price on the same side of the spread, so an ordinary good sits mid-track.
-          gauge(g.buy ?? g.sell, Economy.GOODS[g.kind] * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread))),
-        h('div', { class: 'deal' }, buy, sell));
-    });
+    const groups = [];
+    for (const category of Goods.categories('trade')) {
+      const stocked = market.goods.filter((g) => g.category === category && g.buy !== null);
+      if (!stocked.length) continue;
+      const { produced, consumed } = stocked[0];
+      groups.push(h('h3', { class: 'cat' }, Goods.CATEGORIES[category].label,
+        produced ? h('span', { class: 'tag made' }, 'made here') : consumed ? h('span', { class: 'tag wanted' }, 'in demand') : null));
+      groups.push(h('ul', { class: 'list' }, stocked.map((g) => goodRow(g, full))));
+    }
+    const carried = market.goods.filter((g) => g.buy === null && hold.count(g.kind) > 0);
 
     const salvageHeld = market.salvage.filter((s) => hold.count(s.kind) > 0);
     const sellAll = () => {
@@ -88,13 +111,14 @@ const StationMenu = (() => {
     const salvage = salvageHeld.length
       ? salvageHeld.map((s) => {
         const n = hold.count(s.kind);
+        const name = Goods.type(s.kind).name;
         return h('li', { class: 'good' },
           h('div', { class: 'what' },
-            h('span', { class: 'name' }, SALVAGE_NAME[s.kind]),
+            h('span', { class: 'name' }, itemName(s.kind)),
             h('span', { class: 'held' }, `${n} in hold`),
-            gauge(s.sell, Economy.SALVAGE[s.kind] * (1 - Economy.config.spread))),
+            gauge(s.sell, Economy.basePrice(s.kind) * (1 - Economy.config.spread))),
           h('div', { class: 'deal' }, h('button', {
-            class: 'btn', type: 'button', 'aria-label': `Sell ${SALVAGE_NAME[s.kind]} for ${s.sell} credits`,
+            class: 'btn', type: 'button', 'aria-label': `Sell ${name} for ${s.sell} credits`,
             onclick: () => { hold.sell(s.kind, s.sell); refresh(); },
           }, `Sell ${s.sell}`)));
       })
@@ -102,9 +126,12 @@ const StationMenu = (() => {
 
     return [
       full ? h('p', { class: 'note' }, 'Your hold is full. Sell cargo to make room.') : null,
-      h('section', { 'aria-label': 'Trade goods' },
-        h('h2', {}, 'Trade goods'),
-        h('ul', { class: 'list' }, goods)),
+      h('section', { 'aria-label': 'For sale here' },
+        h('h2', {}, 'For sale here'),
+        groups.length ? groups : h('p', { class: 'empty' }, 'Nothing for sale here.')),
+      carried.length ? h('section', { 'aria-label': 'Also in your hold' },
+        h('h2', {}, 'Also in your hold', h('span', { class: 'count' }, 'not sold here')),
+        h('ul', { class: 'list' }, carried.map((g) => goodRow(g, full)))) : null,
       h('section', { 'aria-label': 'Salvage' },
         h('h2', {}, 'Salvage',
           salvageHeld.length ? h('button', { class: 'btn small', type: 'button', onclick: sellAll }, `Sell all ${salvageTotal}`) : null),
@@ -145,8 +172,8 @@ const StationMenu = (() => {
     const stat = (label, value) => h('div', { class: 'stat' }, h('dt', {}, label), h('dd', {}, value));
     const slots = Loadout.slots(loadout);
     const sectors = (n) => `${n} sector${n === 1 ? '' : 's'}`;
-    const groups = new Map();
-    for (const it of hold.items) groups.set(it.label, (groups.get(it.label) || 0) + 1);
+    const groups = new Map(); // item type -> count
+    for (const it of hold.items) groups.set(it.kind, (groups.get(it.kind) || 0) + 1);
     return [
       ctx.repairs ? renderHull() : null,
       h('section', { 'aria-label': 'Loadout' },
@@ -167,7 +194,7 @@ const StationMenu = (() => {
       h('section', { 'aria-label': 'Hold' },
         h('h2', {}, `Hold ${hold.items.length}/${hold.capacity}`),
         groups.size
-          ? h('ul', { class: 'list compact' }, [...groups].map(([label, n]) => h('li', {}, h('span', {}, label), h('span', { class: 'held' }, `×${n}`))))
+          ? h('ul', { class: 'list compact' }, [...groups].map(([kind, n]) => h('li', {}, h('span', { class: 'name' }, itemName(kind)), h('span', { class: 'held' }, `×${n}`))))
           : h('p', { class: 'empty' }, 'Your hold is empty. Buy goods here or pick up cargo floating in space.')),
     ];
   }

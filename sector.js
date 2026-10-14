@@ -14,8 +14,9 @@
 // - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
 //   each has a stable key so a mined asteroid can stay destroyed,
-// - floating items to collect: loot components near wrecks, trade goods spilled by freighters and
-//   piled up at salvage yards (art/items.js). Each item has a stable key for the cargo hold.
+// - floating items to collect: salvaged components near wrecks, trade goods spilled by freighters
+//   and piled up at salvage yards, of goods.js types (rarer ones less often). Each item has a
+//   stable key for the cargo hold.
 // Positions are world units from the galaxy's top-left corner. Browser only (global `Sectors`).
 
 const Sectors = (() => {
@@ -163,9 +164,12 @@ const Sectors = (() => {
         }
       }
       let itemCount = 0;
-      const LOOT_KINDS = ArtItems.LOOT.map((k) => k.id), TRADE_KINDS = ArtItems.TRADE.map((k) => k.id);
-      const item = (kinds, x, y) => {
-        const art = ArtItems.create(kinds[Math.floor(ra() * kinds.length)], Math.floor(ra() * 4294967295));
+      const LOOT_KINDS = Goods.categories('salvage'), TRADE_KINDS = Goods.categories('trade');
+      // An item of one of these categories; its type (goods.js, rarer ones less likely) comes from
+      // the item's own seed, so the sector's random stream is used as before.
+      const item = (categories, x, y) => {
+        const category = categories[Math.floor(ra() * categories.length)], seed = Math.floor(ra() * 4294967295);
+        const art = ArtItems.create(Goods.pick(mulberry32(seed ^ 0x6e7), category), seed);
         return add({
           kind: 'item', art, key: `${sx},${sy},${itemCount++}`, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
           angle: ra() * TAU, tumble: (ra() - 0.5) * 0.3, radius: art.radius,
