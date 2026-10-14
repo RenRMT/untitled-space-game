@@ -83,6 +83,93 @@
     #map-stats { font-size: 11px; }
     #map-overlay .btn { padding: 8px 9px; font-size: 11px; }
   }
+
+  /* Docking: the button appears near a station; docked, the flight controls go away. */
+  #dock-btn {
+    position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    max-width: calc(100vw - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-color: var(--cyan); color: var(--cyan);
+  }
+  #dock-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
+  body.docked #map-btn, body.docked #style-btn, body.docked #move-btn, body.docked #dock-btn { display: none; }
+
+  /* Station screen */
+  #station {
+    --faction: var(--dim); --good: #b6ff8a; --wanted: #ffb347; --salvage: #ffcf5a;
+    position: fixed; inset: 0; z-index: 2; background: var(--bg); color: var(--hud);
+    font: 13px/1.45 var(--mono); display: flex; flex-direction: column; align-items: center;
+    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+    animation: st-in 0.22s ease-out;
+  }
+  #station[hidden] { display: none; }
+  @keyframes st-in { from { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #station { animation: none; } }
+  #station > * { width: min(560px, 100%); box-sizing: border-box; padding-left: 16px; padding-right: 16px; }
+
+  .st-head { display: flex; align-items: flex-end; gap: 12px; padding-top: 18px; padding-bottom: 14px; }
+  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--faction); padding-left: 12px; }
+  #st-name { display: block; font-size: 20px; line-height: 1.2; color: #eef1ff; overflow-wrap: anywhere; }
+  #st-sub { display: block; color: var(--dim); margin-top: 2px; }
+  #st-credits { font-size: 15px; color: var(--cyan); white-space: nowrap; }
+
+  .st-tabs { display: flex; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .st-tabs .btn { flex: 1; }
+  .st-tabs .btn[aria-selected="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
+
+  #st-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-top: 6px; padding-bottom: 16px; }
+  #st-body h2 {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    font-size: 13px; font-weight: 600; color: #eef1ff; margin: 18px 0 6px;
+  }
+  #st-body .note { color: var(--wanted); margin: 14px 0 0; }
+  #st-body .empty { color: var(--dim); padding: 10px 0; margin: 0; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  /* A row: what it is (name, tag, count, gauge) on the left; Buy and Sell in fixed columns. */
+  .list .good {
+    display: grid; grid-template-columns: minmax(0, 1fr) 174px; column-gap: 6px; align-items: center;
+    padding: 10px 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
+  }
+  .list .good:first-child { border-top: 0; }
+  .good .what { grid-column: 1; min-width: 0; padding-right: 6px; }
+  .good .what > * { display: block; }
+  .good .name { color: #eef1ff; overflow-wrap: break-word; }
+  .good .held { font-size: 11px; margin-top: 2px; min-height: 1em; }
+  .good .name .tag { margin-left: 6px; }
+  .good .held, .list.compact .held { color: var(--dim); white-space: nowrap; }
+  .tag { font-size: 11px; color: var(--good); white-space: nowrap; }
+  .tag.wanted { color: var(--wanted); }
+  .good .deal { grid-column: 2; display: grid; grid-template-columns: 84px 84px; gap: 6px; align-items: center; }
+  .good .deal .btn { width: 100%; box-sizing: border-box; padding: 9px 4px; }
+  .good .deal > :only-child { grid-column: 2; }
+  .good .na { text-align: center; color: var(--dim); font-size: 11px; }
+  .btn.small { padding: 5px 8px; font-size: 11px; }
+
+  /* Price gauge: where this station's price sits between cheap (left) and dear (right). */
+  .gauge { position: relative; height: 3px; margin: 7px 4px 2px; background: var(--line); border-radius: 2px; }
+  .gauge .mark {
+    position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
+    background: var(--hud);
+  }
+  .gauge .mark.cheap { background: var(--good); }
+  .gauge .mark.dear { background: var(--wanted); }
+  section[aria-label="Salvage"] .gauge .mark { background: var(--salvage); }
+
+  .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
+  .stats { margin: 0; }
+  .stats .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
+  .stats .stat:first-child { border-top: 0; }
+  .stats dt { color: var(--dim); }
+  .stats dd { margin: 0; text-align: right; }
+
+  .st-foot {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding-top: 12px; padding-bottom: 14px; border-top: 1px solid var(--line);
+  }
+  #st-hold { color: var(--dim); }
+  #st-launch { min-width: 140px; padding: 11px 16px; border-color: var(--cyan); background: var(--cyan); color: var(--bg); }
+  #st-launch:hover, #st-launch:focus-visible { background: #b9fcff; }
+  #station .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  #station .btn:disabled { opacity: 0.35; }
 </style>
 </head>
 <body>
@@ -90,6 +177,24 @@
 <button id="map-btn" class="btn" type="button">Map</button>
 <button id="style-btn" class="btn" type="button" title="Switch art style (V)">Line</button>
 <button id="move-btn" class="btn" type="button" title="Movement (C): Cruise keeps your speed after you let go; Direct moves only while you drag">Cruise</button>
+<button id="dock-btn" class="btn" type="button" title="Dock (F)" hidden>Dock</button>
+
+<div id="station" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
+  <header class="st-head">
+    <div class="id"><span id="st-name"></span><span id="st-sub"></span></div>
+    <span id="st-credits" aria-label="Credits"></span>
+  </header>
+  <nav class="st-tabs" role="tablist" aria-label="Station services">
+    <button class="btn" type="button" role="tab" data-tab="trade">Trade</button>
+    <button class="btn" type="button" role="tab" data-tab="ship">Ship</button>
+    <button class="btn" type="button" role="tab" data-tab="missions">Missions</button>
+  </nav>
+  <main id="st-body" role="tabpanel"></main>
+  <footer class="st-foot">
+    <span id="st-hold"></span>
+    <button id="st-launch" class="btn" type="button">Launch</button>
+  </footer>
+</div>
 
 <div id="map-overlay" hidden>
   <canvas id="map-canvas"></canvas>
@@ -131,6 +236,8 @@
 <script src="art/render.js"></script>
 <script src="sector.js"></script>
 <script src="knowledge.js"></script>
+<script src="economy.js"></script>
+<script src="station.js"></script>
 <script src="travel.js"></script>
 <script src="game.js"></script>
 </body>

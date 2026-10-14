@@ -737,8 +737,9 @@ const GalaxyMap = (() => {
 
   // ---------- Open / close & controls ----------
 
+  let blocked = false; // set by the flight view while docked
   function open() {
-    if (isOpen) return;
+    if (isOpen || blocked) return;
     isOpen = true;
     overlay.hidden = false;
     resize();
@@ -815,6 +816,7 @@ const GalaxyMap = (() => {
     set onLoad(fn) { onLoad = fn; },
     set knowledge(k) { knowledge = k; knowledgeId++; updateStats(); updateInfo(); requestDraw(); },
     get perf() { return perf; },
+    set blocked(b) { blocked = b; if (b) close(); },
     stats,
     refresh() { updateStats(); requestDraw(); },
     // Map travel: the trip to draw, the flight view's callbacks, and a cheap redraw during a trip.

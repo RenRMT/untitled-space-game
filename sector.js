@@ -112,9 +112,13 @@ const Sectors = (() => {
       }
       const add = (e, x, y) => { e.x = ox + x; e.y = oy + y; sec.entities.push(e); return e; };
 
-      const station = (type, fid, name, x, y) => {
+      // market: { kind: 'system' | 'outpost', type } for economy.js; key identifies the station.
+      const station = (type, fid, name, x, y, market) => {
         const art = ArtBlueprints.create(type, cultures.of(fid), nextSeed());
-        return add({ kind: 'station', art, name, faction: fid, color: colorOf(fid), spin: r() * TAU, radius: art.radius }, x, y);
+        return add({
+          kind: 'station', art, name, faction: fid, color: colorOf(fid), spin: r() * TAU, radius: art.radius,
+          key: `${sx},${sy}:${name}`, market,
+        }, x, y);
       };
       const wreck = (type, culture, x, y, name) => {
         const art = ArtBlueprints.create(type, culture, nextSeed());
@@ -155,7 +159,7 @@ const Sectors = (() => {
       const item = (kinds, x, y) => {
         const art = ArtItems.create(kinds[Math.floor(ra() * kinds.length)], Math.floor(ra() * 4294967295));
         return add({
-          kind: 'item', art, key: `${sx},${sy},${itemCount++}`, label: art.label.split(' · ')[1], category: art.category,
+          kind: 'item', art, key: `${sx},${sy},${itemCount++}`, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
           angle: ra() * TAU, tumble: (ra() - 0.5) * 0.3, radius: art.radius,
         }, x, y);
       };
@@ -210,7 +214,8 @@ const Sectors = (() => {
           const near = l.type === 'station' && planets.length && r() < 0.5 ? planets[Math.floor(r() * planets.length)] : null;
           const [x, y] = near ? spot(near.x - ox, near.y - oy, near.body.r * 2.2 + rad, near.body.r * 2.6 + rad, rad)
             : spot(cx, cy, l.type === 'outpost' ? 2100 * S : 900 * S + rad, l.type === 'outpost' ? 2600 * S : 1500 * S + rad, rad);
-          station(major ? 'station-major' : 'station-minor', fid, l.name, x, y);
+          const marketType = system.freeport ? 'freeport' : major && system.capital ? 'capital' : major ? 'major' : 'minor';
+          station(major ? 'station-major' : 'station-minor', fid, l.name, x, y, { kind: 'system', id: system.id, type: marketType });
         });
         if (sec.star && ra() < BELT_CHANCE) {
           const radius = (1500 + ra() * 2000) * S;
@@ -218,7 +223,7 @@ const Sectors = (() => {
         }
       } else if (outpost) {
         const [x, y] = spot(C, C, 0, 500 * S, 120);
-        station('station-minor', outpost.faction, outpost.name, x, y);
+        station('station-minor', outpost.faction, outpost.name, x, y, { kind: 'outpost', id: outpost.id, type: outpost.type });
         if (outpost.type === 'salvage yard') {
           for (let i = 0; i < 4; i++) {
             const [wx, wy] = spot(x, y, 350, 800, 90);

@@ -26,7 +26,8 @@ load('art/items.js', ['ArtItems']);
 load('sector.js', ['Sectors']);
 load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
-const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, GALAXY_CONFIG } = ctx;
+load('economy.js', ['Economy']);
+const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -151,6 +152,52 @@ test('learning a route through its gate bumps the knowledge version (map redraw)
   k.knowRoute(hidden.link); // already known: no change
   assert.strictEqual(k.version, v2);
   k.save(); // also clears the pending save timer so the process can exit
+});
+
+// Every station in a galaxy, as the flight view sees them.
+function stationsOf(g) {
+  const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+  const out = [];
+  for (const s of [...g.systems, ...g.outposts]) out.push(...sectors.at(s.x, s.y).entities.filter((e) => e.kind === 'station'));
+  return out;
+}
+
+test('every station has a dockable market with sane prices', () => {
+  const g = galaxies.get(1);
+  const stations = stationsOf(g);
+  const keys = new Set();
+  for (const st of stations) {
+    assert(st.key && st.market && st.market.type, `station ${st.name} lacks key or market`);
+    assert(!keys.has(st.key), `duplicate station key ${st.key}`);
+    keys.add(st.key);
+    const m = Economy.market(g.seed, st);
+    assert.strictEqual(m.goods.length, Object.keys(Economy.GOODS).length);
+    assert(m.goods.filter((x) => x.buy !== null).length >= Economy.config.minForSale, `${st.name} sells too little`);
+    for (const x of m.goods) {
+      assert(Number.isInteger(x.sell) && x.sell > 0, `${st.name}: bad sell price for ${x.kind}`);
+      // Buying and selling back at the same station never makes money.
+      if (x.buy !== null) assert(x.buy > x.sell, `${st.name}: ${x.kind} buy ${x.buy} <= sell ${x.sell}`);
+      if (x.produced) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
+    }
+    for (const x of m.salvage) assert(Number.isInteger(x.sell) && x.sell > 0);
+    assert.strictEqual(JSON.stringify(Economy.market(g.seed, st)), JSON.stringify(m), 'market is not deterministic');
+  }
+  assert(stations.length > 200, `only ${stations.length} stations`);
+});
+
+test('there are profitable trade runs between nearby stations', () => {
+  const g = galaxies.get(1);
+  const stations = stationsOf(g).slice(0, 80);
+  const markets = stations.map((st) => Economy.market(g.seed, st));
+  let best = 0;
+  for (let a = 0; a < stations.length; a++) for (let b = 0; b < stations.length; b++) {
+    for (const ga of markets[a].goods) {
+      if (ga.buy === null) continue;
+      const gb = markets[b].goods.find((x) => x.kind === ga.kind);
+      best = Math.max(best, (gb.sell - ga.buy) / ga.buy);
+    }
+  }
+  assert(best > 0.3, `best margin only ${(best * 100).toFixed(0)}%`);
 });
 
 if (failed) {
