@@ -4,24 +4,14 @@
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const TAU = Math.PI * 2;
+const { TAU, clamp, lerp } = MathUtil;
 
 // Each galaxy map sector is a square play area this many world units across (the galaxy's
 // sectorUnits, set in data/galaxy-config.js). World coordinates run across the whole galaxy;
 // drawing happens relative to the camera's sector to keep precision.
 let SECTOR = 6000;
 
-const COLORS = {
-  bg: '#05060a',
-  ship: '#7df9ff',
-  flame: '#ffb347',
-  station: '#b6ff8a',
-  planet: '#8ab4ff',
-  star: '#ffd27a',
-  bounds: '#ff5a6e',
-  hud: '#cfd8ff',
-  dim: '#6f7a99',
-};
+const COLORS = Theme.color; // theme.js, shared with the map and the CSS
 
 // The ship's class and fitted equipment (loadout.js), and what they add up to: handling, hold,
 // sensor ranges, mining speed. Starter gear only for now, so the loadout isn't saved yet.
@@ -64,12 +54,16 @@ let simTime = 0; // advances only while flying, so the map pause doesn't make tr
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
 const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
-const notify = (text, t = 2) => { toast.text = text; toast.t = t; };
+// Show a notice for t seconds. once: leave the same notice alone while it's still showing, so
+// something checked every frame doesn't keep restarting it.
+const notify = (text, t = 2, { once = false } = {}) => {
+  if (once && toast.text === text && toast.t >= 0.5) return;
+  toast.text = text;
+  toast.t = t;
+};
 let lastPocket; // key of the pocket the ship was in last frame ('' = none), for enter/leave notices
 let senseTimer = 0;
 
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const lerp = (a, b, t) => a + (b - a) * t;
 const { turnToward } = Flight;
 
 function resize() {
@@ -85,37 +79,29 @@ resize();
 
 // ---------- Settings: art style, movement, combat and map style (settings.js menu) ----------
 
-const params = new URLSearchParams(location.search);
-function stored(key, options, fallback) {
-  let v = fallback;
-  try { if (options.includes(localStorage.getItem(key))) v = localStorage.getItem(key); } catch (e) { /* storage unavailable */ }
-  return options.includes(params.get(key)) ? params.get(key) : v;
-}
-function store(key, v) {
-  try { localStorage.setItem(key, v); } catch (e) { /* storage unavailable */ }
-}
-// A saved choice among `options`; onChange runs after every change.
-function setting(key, options, initial, onChange) {
-  const s = { value: initial };
-  s.set = (v) => { if (!options.includes(v)) return; s.value = v; store(key, v); if (onChange) onChange(v); };
+// A saved choice among `options` (store.js; a URL parameter of the same name overrides the saved
+// one); onChange runs after every change.
+function setting(key, options, fallback, onChange) {
+  const s = { value: Store.choice(key, options, fallback) };
+  s.set = (v) => { if (!options.includes(v)) return; s.value = v; Store.set(key, v); if (onChange) onChange(v); };
   s.cycle = () => s.set(options[(options.indexOf(s.value) + 1) % options.length]);
   return s;
 }
 
 const ART_STYLES = Art.STYLES.map((s) => s.id);
-const artStyle = setting('style', ART_STYLES, stored('style', ART_STYLES, 'line'));
+const artStyle = setting('style', ART_STYLES, 'line');
 
 // Cruise: the ship holds the set speed after you let go (tap to stop).
 // Direct: the ship only moves while you drag, with no drift, and stops when you let go.
 // Both turn and change speed by the engine's numbers (flight.js).
 // Switching stops the ship, so it doesn't carry on under rules it wasn't set with.
 const MOVE_MODES = ['cruise', 'direct'];
-const moveMode = setting('move', MOVE_MODES, stored('move', MOVE_MODES, 'cruise'), () => { ship.targetSpeed = 0; autopilot.key = null; });
+const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
 // Combat: automatic rounds with the ships stopped (combat.js), or real-time, flying throughout
 // (combat-realtime.js). Each fight keeps the mode it started in; the menu is closed during fights.
 const COMBAT_MODES = ['rounds', 'realtime'];
-const combatMode = setting('combat', COMBAT_MODES, stored('combat', COMBAT_MODES, 'rounds'));
+const combatMode = setting('combat', COMBAT_MODES, 'rounds');
 
 const ART_HINT = {
   line: 'Neon outlines on the dark.',
@@ -224,32 +210,30 @@ function loadCargo(galaxy) {
   cargo.destroyed = new Set();
   cargo.hull = SHIP.hull;
   cargo.home = null;
+  if (Params.has('fresh')) Store.remove(cargo.key);
+  const d = Store.getJSON(cargo.key);
+  if (!d) return;
   try {
-    if (params.has('fresh')) localStorage.removeItem(cargo.key);
-    const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
-    if (d) {
-      cargo.items = d.items.map(upgradeItem).filter(Boolean);
-      cargo.collected = new Set(d.collected);
-      if (Number.isFinite(d.credits)) cargo.credits = d.credits;
-      if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
-      if (Array.isArray(d.drops)) {
-        cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
-          .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
-      }
-      if (Array.isArray(d.destroyed)) cargo.destroyed = new Set(d.destroyed);
-      if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
-      if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
+    cargo.items = d.items.map(upgradeItem).filter(Boolean);
+    cargo.collected = new Set(d.collected);
+    if (Number.isFinite(d.credits)) cargo.credits = d.credits;
+    if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
+    if (Array.isArray(d.drops)) {
+      cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
+        .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
     }
-  } catch (e) { /* storage unavailable: cargo lasts for this session only */ }
+    if (Array.isArray(d.destroyed)) cargo.destroyed = new Set(d.destroyed);
+    if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
+    if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
+  } catch (e) { /* a damaged save: keep what was read before the error */ }
 }
+// Storage unavailable: cargo lasts for this session only (store.js).
 function saveCargo() {
-  try {
-    localStorage.setItem(cargo.key, JSON.stringify({
-      items: cargo.items, collected: [...cargo.collected], credits: cargo.credits,
-      mined: [...cargo.mined], drops: cargo.drops.map((e) => e.drop),
-      destroyed: [...cargo.destroyed], hull: cargo.hull, home: cargo.home,
-    }));
-  } catch (e) { /* storage unavailable */ }
+  Store.setJSON(cargo.key, {
+    items: cargo.items, collected: [...cargo.collected], credits: cargo.credits,
+    mined: [...cargo.mined], drops: cargo.drops.map((e) => e.drop),
+    destroyed: [...cargo.destroyed], hull: cargo.hull, home: cargo.home,
+  });
 }
 
 // The hold as the station menu sees it: buying and selling one unit at a time.
@@ -298,15 +282,13 @@ function collectItems(list) {
     if (e.kind !== 'item' || cargo.collected.has(e.key)) continue;
     if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
     if (hold.free < 1) {
-      // Leave it floating; say so once rather than every frame.
-      if (toast.text !== 'Cargo hold full' || toast.t < 0.5) { toast.text = 'Cargo hold full'; toast.t = 2.5; }
+      notify('Cargo hold full', 2.5, { once: true }); // and leave it floating
       continue;
     }
     if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
     else cargo.collected.add(e.key);
     cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
-    toast.text = `Recovered: ${e.label}${rarityNote(e)}`;
-    toast.t = 2.5;
+    notify(`Recovered: ${e.label}${rarityNote(e)}`, 2.5);
     saveCargo();
   }
 }
@@ -359,7 +341,7 @@ function loadGalaxy(galaxy) {
   world.sectors = Sectors.create(galaxy, world.cultures, SECTOR);
   world.w = world.h = galaxy.size * SECTOR;
   // What the player knows (fog of war); ?fresh forgets saved charts.
-  world.knowledge = Knowledge.create(galaxy, { fresh: params.has('fresh') });
+  world.knowledge = Knowledge.create(galaxy, { fresh: Params.has('fresh') });
   loadCargo(galaxy);
   GalaxyMap.knowledge = world.knowledge;
   world.travel = Travel.create(galaxy, world.knowledge);
@@ -449,13 +431,12 @@ function launch() {
   const a = Math.atan2(ship.y - st.y, ship.x - st.x);
   const d = st.radius + 180;
   placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
-  toast.text = `Launched from ${st.name}`;
-  toast.t = 2.5;
+  notify(`Launched from ${st.name}`, 2.5);
 }
 
 // ---------- Mining: stop by an asteroid, mine it, collect what it leaves behind ----------
 
-const MINE_COLOR = '#ff9d5c';
+const MINE_COLOR = COLORS.busy;
 
 // Seconds to mine an asteroid: the base time, sped up by the ship computer.
 function mineTime() {
@@ -468,7 +449,7 @@ function stopMining(notice) {
   if (!mining.target) return;
   mining.target = null;
   mining.t = 0;
-  if (notice) { toast.text = notice; toast.t = 2; }
+  if (notice) notify(notice);
 }
 
 // Whether the ship can mine an asteroid right now, as the context card shows it:
@@ -516,11 +497,10 @@ function finishMining() {
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
     cargo.drops.push(e);
-    toast.text = `Asteroid broken up · ${e.label} found${rarityNote(e)}`;
+    notify(`Asteroid broken up · ${e.label} found${rarityNote(e)}`, 2.5);
   } else {
-    toast.text = 'Asteroid broken up · nothing of value';
+    notify('Asteroid broken up · nothing of value', 2.5);
   }
-  toast.t = 2.5;
   saveCargo();
 }
 
@@ -562,7 +542,7 @@ function drawMining(t) {
   ctx.globalAlpha = 0.9 * flicker;
   ctx.lineWidth = 2 / view.zoom;
   ctx.stroke();
-  ctx.fillStyle = '#fff1d0';
+  ctx.fillStyle = COLORS.flash;
   ctx.beginPath();
   ctx.arc(x1, y1, (3 + 2 * flicker) / view.zoom, 0, TAU);
   ctx.fill();
@@ -586,7 +566,7 @@ function drawMiningCountdown() {
   if (!a) return;
   const [sx, sy] = worldToScreen(a.x, a.y - a.radius - 16);
   ctx.save();
-  ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(13);
   ctx.textAlign = 'center';
   ctx.fillStyle = MINE_COLOR;
   ctx.globalAlpha = 0.95;
@@ -612,20 +592,21 @@ function finishTrip(ev) {
   if (!ev) return;
   const { dest } = ev;
   const destCell = { x: Math.floor(dest.x), y: Math.floor(dest.y) };
+  let text;
   if (ev.type === 'arrive' && (dest.kind === 'system' || dest.kind === 'outpost')) {
     moveShipTo(destCell.x, destCell.y);
-    toast.text = `Arrived at ${dest.name}`;
+    text = `Arrived at ${dest.name}`;
   } else if (ev.type === 'arrive' && world.galaxy.deepSector(destCell.x, destCell.y)) {
     dropNearContact(destCell, ev.dir);
-    toast.text = `Arrived at ${dest.name}`;
+    text = `Arrived at ${dest.name}`;
   } else if (ev.type === 'interdict' || ev.type === 'investigate') {
     dropNearContact(ev.cell, ev.dir);
-    toast.text = ev.type === 'interdict' ? 'Interdicted! Hostile contact' : `Investigating the ${CONTACT_NAMES[ev.contact.type] || 'signal'}`;
+    text = ev.type === 'interdict' ? 'Interdicted! Hostile contact' : `Investigating the ${CONTACT_NAMES[ev.contact.type] || 'signal'}`;
   } else {
     placeShip(ev.pos.x * SECTOR, ev.pos.y * SECTOR, ev.dir);
-    toast.text = ev.type === 'arrive' ? `Arrived at ${dest.name}` : 'Dropped out of cruise';
+    text = ev.type === 'arrive' ? `Arrived at ${dest.name}` : 'Dropped out of cruise';
   }
-  toast.t = 3;
+  notify(text, 3);
   GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
   GalaxyMap.close();
 }
@@ -737,8 +718,7 @@ function jumpVia(g) {
   world.knowledge.knowRoute(g.link);
   select(null);
   const sys = world.galaxy.systems.find((s) => s.x === g.dest.x && s.y === g.dest.y);
-  toast.text = sys ? `Jumped to ${sys.name}` : 'Jumped';
-  toast.t = 2.5;
+  notify(sys ? `Jumped to ${sys.name}` : 'Jumped', 2.5);
 }
 
 // ---------- Selection: tap something for its context card ----------
@@ -748,8 +728,8 @@ function jumpVia(g) {
 // tapping their marker at the screen edge. A tap on empty space clears the
 // selection (and, in Cruise mode, stops the ship as before).
 const TAP_SLOP = 26; // CSS px of forgiveness around a tap target
-const SELECT_COLOR = '#7df9ff';
-const HOSTILE_COLOR = '#ff5a6e';
+const SELECT_COLOR = COLORS.cyan;
+const HOSTILE_COLOR = COLORS.hostile;
 let selected = null; // { key, e }: the selected entity, found again by key every frame
 let frameList = []; // the entities posed last frame, for hit-testing taps
 
@@ -793,7 +773,7 @@ const isHostile = (e) => e.kind === 'ship' && e.faction !== null && e.faction !=
   && world.galaxy.factions[e.faction].key === 'pirates';
 const fmtDist = (d) => `${(Math.max(0, d) / 1000).toFixed(1)}k`;
 const factionName = (fid) => (fid === null || fid === undefined ? 'Independent' : world.galaxy.factions[fid].name);
-const factionColor = (fid) => (fid === null || fid === undefined ? '#9aa4b8' : world.galaxy.factions[fid].color);
+const factionColor = (fid) => (fid === null || fid === undefined ? COLORS.neutral : world.galaxy.factions[fid].color);
 const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };
 
 function asteroidSize(r) {
@@ -965,7 +945,7 @@ function drawSelection(t) {
 // Pirates that survive a real-time fight fly back to their usual paths.
 const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 const RESPAWN_GRACE = 8;
-const SHOT_COLOR = { player: '#7df9ff', enemy: '#ff5a6e' };
+const SHOT_COLOR = { player: COLORS.cyan, enemy: COLORS.hostile };
 const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
 function attackState(e) {
@@ -1034,8 +1014,7 @@ function engage(target, ambushed = false) {
   select(null);
   GalaxyMap.blocked = true;
   document.body.classList.add('in-combat');
-  toast.text = ambushed ? 'Pirates attack!' : 'Combat';
-  toast.t = 2;
+  notify(ambushed ? 'Pirates attack!' : 'Combat');
 }
 
 // A pirate flying into range joins a real-time fight.
@@ -1080,8 +1059,8 @@ function playRound(events) {
     fight.fx.push({ type: 'beam', delay, t: 0.4, max: 0.4, from, to, hits: ev.hits, color: mine ? SHOT_COLOR.player : SHOT_COLOR.enemy });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: delay + 0.08, t: 0.35, max: 0.35, at: to });
     const jx = (Math.random() - 0.5) * 30; // so numbers landing together don't overlap
-    if (ev.damage > 0) fight.fx.push({ type: 'number', delay: delay + 0.08, t: 1, max: 1, at: to, jx, text: `−${ev.damage}`, color: ev.hullDamage > 0 ? '#ffb347' : '#7df9ff' });
-    else fight.fx.push({ type: 'number', delay: delay + 0.08, t: 0.8, max: 0.8, at: to, jx, text: 'miss', color: '#6f7a99' });
+    if (ev.damage > 0) fight.fx.push({ type: 'number', delay: delay + 0.08, t: 1, max: 1, at: to, jx, text: `−${ev.damage}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
+    else fight.fx.push({ type: 'number', delay: delay + 0.08, t: 0.8, max: 0.8, at: to, jx, text: 'miss', color: COLORS.dim });
     if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: delay + 0.08, at: to, n: 3 + ev.hits });
     if (ev.destroyed) fight.fx.push({ type: 'call', delay: delay + 0.2, run: mine ? () => shipDestroyed(ev.to) : () => playerDestroyed() });
     const name = (id) => (fight.s ? (fight.s.enemies.find((e) => e.id === id) || {}).name : '') || 'the enemy';
@@ -1102,9 +1081,9 @@ function addDamage(id, amount, hull) {
   if (f) {
     f.sum += amount;
     f.text = `−${f.sum}`;
-    if (hull) f.color = '#ffb347';
+    if (hull) f.color = COLORS.flame;
   } else {
-    fight.fx.push({ type: 'number', delay: 0, t: 1, max: 1, at: id, jx: (Math.random() - 0.5) * 24, sum: amount, text: `−${amount}`, color: hull ? '#ffb347' : '#7df9ff' });
+    fight.fx.push({ type: 'number', delay: 0, t: 1, max: 1, at: id, jx: (Math.random() - 0.5) * 24, sum: amount, text: `−${amount}`, color: hull ? COLORS.flame : COLORS.cyan });
   }
 }
 
@@ -1135,7 +1114,7 @@ function playRealtime(events) {
 
 // Debris and a flash where a ship blew up.
 function explode(x, y, r) {
-  const colors = ['#ffb347', '#ff5a6e', '#cfd8ff', '#ffd27a'];
+  const colors = [COLORS.flame, COLORS.hostile, COLORS.hud, COLORS.star];
   for (let i = 0; i < 26 + r; i++) {
     const ang = Math.random() * TAU, sp = 60 + Math.random() * 260, life = 0.5 + Math.random() * 1.1;
     debris.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 3.5, color: colors[i % colors.length] });
@@ -1186,8 +1165,7 @@ function towHome() {
   GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
   fight.grace = RESPAWN_GRACE;
   gateFlash = 0.8;
-  toast.text = `Ship destroyed · towed to ${home ? home.name : 'your home system'}`;
-  toast.t = 4;
+  notify(`Ship destroyed · towed to ${home ? home.name : 'your home system'}`, 4);
   saveCargo();
 }
 
@@ -1211,8 +1189,8 @@ function endFight(result) {
     GalaxyMap.blocked = false;
     document.body.classList.remove('in-combat');
   }
-  if (result === 'fled') { fight.grace = FLEE_GRACE; toast.text = 'Got away'; toast.t = 2.5; }
-  else if (result === 'won') { toast.text = 'Victory'; toast.t = 2.5; }
+  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5); }
+  else if (result === 'won') notify('Victory', 2.5);
   saveCargo();
 }
 
@@ -1242,7 +1220,7 @@ function tickFight(dt) {
       fight.fx.splice(i, 1);
       for (let k = 0; k < f.n; k++) {
         const ang = Math.random() * TAU, sp = 40 + Math.random() * 140, life = 0.3 + Math.random() * 0.5;
-        debris.push({ x: f.at.x, y: f.at.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 2, color: k % 2 ? '#ffb347' : '#fff1d0' });
+        debris.push({ x: f.at.x, y: f.at.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 2, color: k % 2 ? COLORS.flame : COLORS.flash });
       }
       continue;
     }
@@ -1438,14 +1416,14 @@ function drawFight() {
     } else if (f.type === 'shield') {
       const at = fxPos(f.at);
       if (!at) continue;
-      ctx.strokeStyle = '#7df9ff';
+      ctx.strokeStyle = COLORS.cyan;
       ctx.globalAlpha = k * 0.8;
       ctx.lineWidth = 2 / view.zoom;
       ctx.beginPath();
       ctx.arc(rx(at.x), ry(at.y), at.radius + 10 + (1 - k) * 8, 0, TAU);
       ctx.stroke();
     } else if (f.type === 'flash') {
-      ctx.fillStyle = '#fff1d0';
+      ctx.fillStyle = COLORS.flash;
       ctx.globalAlpha = k * 0.6;
       ctx.beginPath();
       ctx.arc(rx(f.at.x), ry(f.at.y), f.at.radius * (1.5 + (1 - k) * 2.5), 0, TAU);
@@ -1460,7 +1438,7 @@ function drawFight() {
 function drawFightOverlay() {
   const s = fight.s;
   ctx.save();
-  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   if (s) {
     for (const c of [s.player, ...s.enemies]) {
@@ -1473,12 +1451,12 @@ function drawFightOverlay() {
       ctx.fillStyle = 'rgba(38, 48, 74, 0.9)';
       ctx.fillRect(x - w / 2, top, w, 3);
       ctx.fillRect(x - w / 2, top + 4, w, 3);
-      ctx.fillStyle = '#7df9ff';
+      ctx.fillStyle = COLORS.cyan;
       ctx.fillRect(x - w / 2, top, w * (c.stats.shield ? c.shield / c.stats.shield : 0), 3);
-      ctx.fillStyle = c === s.player ? '#b6ff8a' : HOSTILE_COLOR;
+      ctx.fillStyle = c === s.player ? COLORS.good : HOSTILE_COLOR;
       ctx.fillRect(x - w / 2, top + 4, w * (c.hull / c.stats.hull), 3);
       if (c !== s.player && s.enemies.length > 1) {
-        ctx.fillStyle = c.id === s.focus ? '#eef1ff' : '#9aa4b8';
+        ctx.fillStyle = c.id === s.focus ? COLORS.bright : COLORS.neutral;
         ctx.fillText(c.name.split(' ').pop(), x, top - 4);
       }
     }
@@ -1508,7 +1486,7 @@ function drawFoeMarkers() {
   const inset = { l: 26, r: 26, t: 70, b: panel.hidden ? 64 : Math.max(64, view.h - panel.getBoundingClientRect().top + 18) };
   const cx = view.w / 2, cy = view.h / 2;
   ctx.save();
-  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(11);
   ctx.textAlign = 'center';
   for (const e of RealtimeCombat.alive(s)) {
     const p = fight.ships.get(e.id);
@@ -1776,7 +1754,7 @@ function drawBounds() {
 
   const edgeDist = Math.min(ship.x, ship.y, world.w - ship.x, world.h - ship.y);
   const warn = clamp(1 - edgeDist / 600, 0, 1);
-  ctx.strokeStyle = COLORS.bounds;
+  ctx.strokeStyle = COLORS.hostile;
   ctx.globalAlpha = 0.35 + 0.65 * warn;
   ctx.lineWidth = 3;
   ctx.setLineDash([30, 20]);
@@ -1801,8 +1779,7 @@ function updatePocketNotice() {
   const pk = pocketAt(ship.x, ship.y);
   const key = pk ? `${pk.kind}:${pk.id}` : '';
   if (lastPocket !== undefined && key !== lastPocket) {
-    toast.text = pk ? `Entering ${pk.name} space` : 'Leaving charted space';
-    toast.t = 2.5;
+    notify(pk ? `Entering ${pk.name} space` : 'Leaving charted space', 2.5);
   }
   lastPocket = key;
 }
@@ -1816,7 +1793,7 @@ function drawPocketEdges() {
   for (const pk of world.galaxy.pockets) {
     const x = pk.x * SECTOR, y = pk.y * SECTOR, r = pk.r * SECTOR;
     if (Math.abs(Math.hypot(x - cam.x, y - cam.y) - r) > reach) continue;
-    ctx.strokeStyle = pk.faction === null ? '#9aa4b8' : world.galaxy.factions[pk.faction].color;
+    ctx.strokeStyle = pk.faction === null ? COLORS.neutral : world.galaxy.factions[pk.faction].color;
     ctx.globalAlpha = 0.28;
     ctx.beginPath();
     ctx.arc(rx(x), ry(y), r, 0, TAU);
@@ -1847,7 +1824,7 @@ const DRAW_ORDER = { star: 0, planet: 1, asteroid: 1.5, gate: 2, station: 2, wre
 // Pickup highlight: a soft glow, a steady ring and a ring pulsing outward, in the amber the minimap
 // uses for items; rare and better finds ring in their rarity's colour instead (goods.js). Each item
 // pulses on its own rhythm, and the effect brightens as the ship nears.
-const ITEM_HALO = { color: '#ffcf5a', period: 1.8, near: 900 };
+const ITEM_HALO = { color: COLORS.amber, period: 1.8, near: 900 };
 function itemPhase(e) {
   if (e.haloPhase === undefined) {
     let h = 0;
@@ -1950,11 +1927,11 @@ function labelOf(e) {
   if (e.kind === 'star') return [COLORS.star, e.body.r * 1.5];
   if (e.kind === 'planet') return [COLORS.planet, e.body.r * 1.3];
   if (e.kind === 'station' || e.kind === 'gate') return [e.color, e.radius * 1.05];
-  return ['#9aa4b8', e.radius + 20];
+  return [COLORS.neutral, e.radius + 20];
 }
 
 function drawLabels(list) {
-  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   ctx.globalAlpha = 0.75;
   for (const e of list) {
@@ -1980,7 +1957,7 @@ function drawNavMarkers(list) {
   const cx = view.w / 2, cy = view.h / 2;
   navHits = [];
   ctx.save();
-  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(11);
   for (const g of list) {
     if (g.kind !== 'gate' || visible(g)) continue;
     const d = Math.hypot(g.x - ship.x, g.y - ship.y);
@@ -2051,7 +2028,7 @@ function drawDragIndicator() {
   ctx.setLineDash([]);
 
   ctx.globalAlpha = 0.8;
-  ctx.strokeStyle = COLORS.ship;
+  ctx.strokeStyle = COLORS.cyan;
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.moveTo(drag.x0, drag.y0);
@@ -2063,8 +2040,8 @@ function drawDragIndicator() {
   ctx.stroke();
 
   if (len > DEADZONE) {
-    ctx.fillStyle = COLORS.ship;
-    ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = COLORS.cyan;
+    ctx.font = Theme.font(12);
     ctx.fillText(`${Math.round(Math.min(len / md, 1) * 100)}%`, ex + 14, ey - 14);
   }
   ctx.restore();
@@ -2109,9 +2086,9 @@ function drawMinimap(list) {
     const [color, rad] = e.kind === 'star' ? [COLORS.star, 4]
       : e.kind === 'planet' ? [COLORS.planet, 3]
         : e.kind === 'station' ? [e.color, 2.5]
-          : e.kind === 'wreck' ? ['#6f7a99', 1.5]
-            : e.kind === 'item' ? ['#ffcf5a', 1.2]
-            : [e.faction === null || e.faction === undefined ? '#9aa4b8' : world.galaxy.factions[e.faction].color, 1.2];
+          : e.kind === 'wreck' ? [COLORS.dim, 1.5]
+            : e.kind === 'item' ? [COLORS.amber, 1.2]
+            : [factionColor(e.faction), 1.2];
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(mx, my, rad, 0, TAU);
@@ -2128,7 +2105,7 @@ function drawMinimap(list) {
 
   ctx.translate(x0 + (ship.x - ox) * s, y0 + (ship.y - oy) * s);
   ctx.rotate(ship.angle);
-  ctx.fillStyle = COLORS.ship;
+  ctx.fillStyle = COLORS.cyan;
   ctx.beginPath();
   ctx.moveTo(5, 0);
   ctx.lineTo(-3, 3);
@@ -2147,13 +2124,13 @@ function drawHud() {
   const y = view.h - pad - 8;
 
   ctx.save();
-  ctx.font = '12px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(12);
   ctx.fillStyle = COLORS.hud;
   ctx.globalAlpha = 0.85;
   ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
   if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
   if (cargo.hull < SHIP.hull) { // damage shows until it's repaired at a station
-    ctx.fillStyle = cargo.hull < SHIP.hull * 0.35 ? '#ff5a6e' : '#ffb347';
+    ctx.fillStyle = cargo.hull < SHIP.hull * 0.35 ? COLORS.hostile : COLORS.flame;
     ctx.fillText(`HULL ${Math.ceil(cargo.hull)}/${SHIP.hull}`, pad + 180, y - 12);
     ctx.fillStyle = COLORS.hud;
   }
@@ -2162,7 +2139,7 @@ function drawHud() {
   ctx.globalAlpha = 0.25;
   ctx.fillRect(pad, y, barW, 6);
   ctx.globalAlpha = 0.9;
-  ctx.fillStyle = COLORS.ship;
+  ctx.fillStyle = COLORS.cyan;
   ctx.fillRect(pad, y, barW * (speed / SHIP.maxSpeed), 6);
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(pad + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, y - 3, 2, 12);
@@ -2245,7 +2222,7 @@ function render() {
     ctx.save();
     ctx.globalAlpha = Math.min(1, toast.t / 0.6) * 0.9;
     ctx.fillStyle = COLORS.hud;
-    ctx.font = '14px ui-monospace, Menlo, Consolas, monospace';
+    ctx.font = Theme.font(14);
     ctx.textAlign = 'center';
     ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
     ctx.restore();
@@ -2292,10 +2269,10 @@ function drawPerf() {
     `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
   ];
   ctx.save();
-  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  ctx.font = Theme.font(11);
   ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
   ctx.fillRect(8, 92, 330, lines.length * 15 + 8);
-  ctx.fillStyle = COLORS.ship;
+  ctx.fillStyle = COLORS.cyan;
   lines.forEach((l, i) => ctx.fillText(l, 14, 108 + i * 15));
   ctx.restore();
 }

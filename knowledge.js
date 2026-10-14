@@ -8,7 +8,7 @@
 // It starts with the charted network around the start system: everything reachable over lanes and
 // charted gates (in the frontier start style, only the start Waystation itself). It grows as the
 // ship flies (sensors), uses gates and travels on the map. Hidden
-// routes are only learned by using their gate. Saved to localStorage per galaxy.
+// routes are only learned by using their gate. Saved per galaxy (store.js).
 // Browser script (global `Knowledge`).
 
 const Knowledge = (() => {
@@ -122,20 +122,18 @@ const Knowledge = (() => {
       if (any) changed();
     }
 
+    // Storage unavailable: knowledge lasts for this session only (store.js).
     function save() {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      try {
-        localStorage.setItem(storeKey, JSON.stringify({
-          explored: Array.from(explored.reduce((acc, v, i) => (v && acc.push(i), acc), [])),
-          systems: [...systems], outposts: [...outposts], routes: [...routes], contacts: [...contacts],
-        }));
-      } catch (e) { /* storage unavailable: knowledge lasts for this session only */ }
+      Store.setJSON(storeKey, {
+        explored: Array.from(explored.reduce((acc, v, i) => (v && acc.push(i), acc), [])),
+        systems: [...systems], outposts: [...outposts], routes: [...routes], contacts: [...contacts],
+      });
     }
     function load() {
+      const d = Store.getJSON(storeKey);
+      if (!d) return false;
       try {
-        const raw = localStorage.getItem(storeKey);
-        if (!raw) return false;
-        const d = JSON.parse(raw);
         for (const i of d.explored) explored[i] = 1;
         d.systems.forEach((v) => systems.add(v));
         d.outposts.forEach((v) => outposts.add(v));
@@ -165,7 +163,7 @@ const Knowledge = (() => {
       changed();
     }
 
-    if (fresh) { try { localStorage.removeItem(storeKey); } catch (e) { /* ignore */ } }
+    if (fresh) Store.remove(storeKey);
     if (fresh || !load()) chartStart();
 
     return {

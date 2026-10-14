@@ -18,12 +18,7 @@ const Settings = (() => {
   let onToggle = null;
   let returnFocus = null;
 
-  function el(tag, cls, text) {
-    const n = document.createElement(tag);
-    if (cls) n.className = cls;
-    if (text !== undefined) n.textContent = text;
-    return n;
-  }
+  const { h } = UI; // ui.js
 
   function choose(o, value) {
     if (o.get() === value || (o.locked && o.locked())) return;
@@ -36,41 +31,26 @@ const Settings = (() => {
   function group(o) {
     const current = o.get();
     const locked = o.locked ? o.locked() : null;
-    const g = el('section', 'set-group');
-    const head = el('div', 'set-label');
-    const name = el('span', '', o.label);
-    name.id = `set-${o.id}-label`;
-    head.append(name);
-    if (o.shortcut) head.append(el('kbd', '', o.shortcut));
-    const seg = el('div', 'seg');
-    seg.setAttribute('role', 'radiogroup');
-    seg.setAttribute('aria-labelledby', name.id);
-    for (const c of o.choices) {
-      const b = el('button', 'btn', c.label);
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(c.value === current));
-      b.tabIndex = c.value === current ? 0 : -1;
-      b.disabled = !!locked && c.value !== current;
-      b.dataset.option = o.id;
-      b.dataset.value = c.value;
-      b.addEventListener('click', () => choose(o, c.value));
-      seg.append(b);
-    }
+    const labelId = `set-${o.id}-label`;
+    const choices = o.choices.map((c) => h('button', {
+      class: 'btn', type: 'button', role: 'radio', 'aria-checked': String(c.value === current),
+      tabindex: c.value === current ? 0 : -1, disabled: !!locked && c.value !== current,
+      'data-option': o.id, 'data-value': c.value, onclick: () => choose(o, c.value),
+    }, c.label));
     // Arrow keys move through the choices, as in any radio group.
-    seg.addEventListener('keydown', (e) => {
+    const onkeydown = (e) => {
       const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
       if (!step || locked) return;
       e.preventDefault();
       const i = o.choices.findIndex((c) => c.value === o.get());
       choose(o, o.choices[(i + step + o.choices.length) % o.choices.length].value);
-    });
+    };
     const hint = (o.choices.find((c) => c.value === current) || {}).hint;
-    g.append(head, seg);
-    if (hint) g.append(el('p', 'set-hint', hint));
-    if (locked) g.append(el('p', 'set-note locked', locked));
-    else if (o.note) g.append(el('p', 'set-note', o.note));
-    return g;
+    return h('section', { class: 'set-group' },
+      h('div', { class: 'set-label' }, h('span', { id: labelId }, o.label), o.shortcut ? h('kbd', {}, o.shortcut) : null),
+      h('div', { class: 'seg', role: 'radiogroup', 'aria-labelledby': labelId, onkeydown }, choices),
+      hint ? h('p', { class: 'set-hint' }, hint) : null,
+      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, o.note) : null);
   }
 
   // Rebuild the panel; keep focus on the option that just changed.

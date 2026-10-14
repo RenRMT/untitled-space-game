@@ -42,9 +42,7 @@ const RealtimeCombat = (() => {
     spacing: 120, // enemies keep about this far apart
   };
 
-  const TAU = Math.PI * 2;
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const { TAU, clamp, lerp } = typeof require === 'function' ? require('./math.js') : MathUtil;
   const angleDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
   const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 

@@ -31,7 +31,7 @@ const Combat = (() => {
     groupRange: 1500, // pirates this close to the one engaged join the fight
   };
 
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const { clamp } = typeof require === 'function' ? require('./math.js') : MathUtil;
 
   // A ship in a fight. stats: Loadout.stats(); hull: current hull points (defaults to full).
   function combatant(id, name, stats, hull = stats.hull) {

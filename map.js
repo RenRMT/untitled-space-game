@@ -26,7 +26,7 @@ const GalaxyMap = (() => {
   const promptText = document.getElementById('map-prompt-text');
 
   const ZONE_LABEL = { pocket: 'Charted pocket', claimed: 'Claimed · uncharted', deep: 'Deep space', frontier: 'Frontier' };
-  const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: '#7df9ff' };
+  const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: Theme.color.cyan };
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
   const MAX_SCALE = 90;
@@ -41,9 +41,9 @@ const GalaxyMap = (() => {
   let onLoad = null; // called with each newly generated galaxy (after the first one)
   let knowledge = null; // fog of war; null shows everything
   let knowledgeId = 0; // bumps when the knowledge object is replaced (new galaxy), for the layer cache
-  const dev = new URLSearchParams(location.search).has('dev');
+  const dev = Params.has('dev');
   // Performance readouts on the map and in flight: ?perf or ?dev, toggled with P.
-  let perf = dev || new URLSearchParams(location.search).has('perf');
+  let perf = dev || Params.has('perf');
   const fog = () => (dev ? null : knowledge);
   let trip = null; // the flight view's Travel instance, for drawing the route
   let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
@@ -60,7 +60,7 @@ const GalaxyMap = (() => {
   let hovered = null;
   let drawQueued = false;
 
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const { clamp } = MathUtil;
   const toScreen = (x, y) => [(x - view.ox) * view.scale, (y - view.oy) * view.scale];
   const toGrid = (sx, sy) => [sx / view.scale + view.ox, sy / view.scale + view.oy];
 
@@ -75,12 +75,7 @@ const GalaxyMap = (() => {
   // 'frontier' starts at a lone Waystation by the map's edge with nothing else charted.
   // Chosen in the settings menu (GalaxyMap.setStartStyle); saved, and ?start=core|frontier overrides
   // it. Each style keeps its own charts and cargo.
-  let startStyle = (() => {
-    const param = new URLSearchParams(location.search).get('start');
-    if (Galaxy.START_STYLES.includes(param)) return param;
-    try { const v = localStorage.getItem('start'); if (Galaxy.START_STYLES.includes(v)) return v; } catch (e) { /* storage unavailable */ }
-    return 'core';
-  })();
+  let startStyle = Store.choice('start', Galaxy.START_STYLES, 'core');
   const hiddenStart = () => galaxy.start === 'frontier' && !!fog(); // nothing beyond the charts is shown
 
   function load(seed) {
@@ -126,22 +121,14 @@ const GalaxyMap = (() => {
   }
 
   function initialSeed() {
-    const param = new URLSearchParams(location.search).get('seed');
+    const param = Params.get('seed');
     if (param === null || param === '') return GALAXY_CONFIG.seed;
     return /^\d+$/.test(param) ? Number(param) : param;
   }
 
-  function setUrlParam(key, value) {
-    try {
-      const url = new URL(location.href);
-      url.searchParams.set(key, value);
-      history.replaceState(null, '', url);
-    } catch (e) { /* file:// in some browsers */ }
-  }
-
   function reroll() {
     const seed = 1 + Math.floor(Math.random() * 999999);
-    setUrlParam('seed', seed);
+    Params.set('seed', seed);
     load(seed);
   }
 
@@ -149,8 +136,8 @@ const GalaxyMap = (() => {
   function setStartStyle(style) {
     if (!Galaxy.START_STYLES.includes(style) || style === startStyle) return;
     startStyle = style;
-    try { localStorage.setItem('start', startStyle); } catch (e) { /* storage unavailable */ }
-    setUrlParam('start', startStyle);
+    Store.set('start', startStyle);
+    Params.set('start', startStyle);
     fitted = false;
     load(galaxy.seed);
     if (isOpen) { fit(); fitted = true; }
@@ -258,7 +245,7 @@ const GalaxyMap = (() => {
     const { w, h, scale } = view;
     const { size, frontier: F, factions, systems } = galaxy;
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
-    ctx.fillStyle = '#05060a';
+    ctx.fillStyle = Theme.color.bg;
     ctx.fillRect(0, 0, w, h);
 
     const [bx0, by0] = toScreen(0, 0);
@@ -349,7 +336,7 @@ const GalaxyMap = (() => {
       const [sx, sy] = toScreen(pk.x, pk.y);
       const pr = pk.r * scale;
       if (sx + pr < 0 || sy + pr < 0 || sx - pr > w || sy - pr > h) continue;
-      const color = pk.faction === null ? '#9aa4b8' : factions[pk.faction].color;
+      const color = pk.faction === null ? Theme.color.neutral : factions[pk.faction].color;
       ctx.fillStyle = hexToRgba(color, 0.3);
       ctx.strokeStyle = hexToRgba(color, 0.8);
       ctx.lineWidth = 1;
@@ -369,7 +356,7 @@ const GalaxyMap = (() => {
       const r = clamp(scale * 0.22, 2, 6);
       if (state !== 'known') {
         ctx.fillStyle = c.type === 'story' ? CONTACT_COLORS.story : '#8a95b3';
-        ctx.font = `${Math.round(clamp(scale * 0.6, 9, 14))}px ui-monospace, Menlo, Consolas, monospace`;
+        ctx.font = Theme.font(Math.round(clamp(scale * 0.6, 9, 14)));
         ctx.fillText('?', sx, sy + r * 0.8);
         continue;
       }
@@ -412,7 +399,7 @@ const GalaxyMap = (() => {
       const hidden = g.kind === 'hidden';
       const [ax, ay] = centreOf(g.a);
       const [bx, by] = centreOf(g.b);
-      ctx.strokeStyle = hidden ? '#ff5a6e' : '#cfd8ff';
+      ctx.strokeStyle = hidden ? Theme.color.hostile : Theme.color.hud;
       ctx.setLineDash(hidden ? [2, 4] : [7, 5]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
     }
@@ -424,7 +411,7 @@ const GalaxyMap = (() => {
       if (!sysKnown(s)) continue;
       const [sx, sy] = centreOf(s.id);
       if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
-      const color = s.faction === null ? '#9aa4b8' : factions[s.faction].color;
+      const color = s.faction === null ? Theme.color.neutral : factions[s.faction].color;
       const sr = s.faction !== null && factions[s.faction].kind === 'minor' ? r * 0.75 : r;
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
@@ -437,7 +424,7 @@ const GalaxyMap = (() => {
         const d = r + 2;
         ctx.moveTo(sx, sy - d); ctx.lineTo(sx + d, sy); ctx.lineTo(sx, sy + d); ctx.lineTo(sx - d, sy);
         ctx.closePath();
-        ctx.fillStyle = '#05060a';
+        ctx.fillStyle = Theme.color.bg;
         ctx.fill();
         ctx.stroke();
       } else {
@@ -452,7 +439,7 @@ const GalaxyMap = (() => {
     }
 
     // Names by zoom: major capitals first, then minor capitals and Waystations, then everything.
-    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+    ctx.font = Theme.font(11);
     ctx.textAlign = 'center';
     const labelZoom = (s) => {
       if (s.capital && factions[s.faction].kind === 'major') return 6;
@@ -470,8 +457,8 @@ const GalaxyMap = (() => {
       ctx.fillText(s.name, sx, sy - r - 7);
     }
     if (scale >= 36) {
-      ctx.fillStyle = '#6f7a99';
-      ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillStyle = Theme.color.dim;
+      ctx.font = Theme.font(10);
       for (const o of galaxy.outposts) {
         if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
@@ -501,7 +488,7 @@ const GalaxyMap = (() => {
       const p = trip.pos;
       const [ax, ay] = toScreen(p.x, p.y);
       const [bx, by] = toScreen(to.x, to.y);
-      ctx.strokeStyle = '#7df9ff';
+      ctx.strokeStyle = Theme.color.cyan;
       ctx.globalAlpha = 0.7;
       ctx.lineWidth = 1.5;
       ctx.setLineDash([6, 5]);
@@ -519,17 +506,17 @@ const GalaxyMap = (() => {
 
     // You are here.
     const [hx, hy] = player ? toScreen(player.x, player.y) : centreOf(galaxy.startSystem);
-    ctx.strokeStyle = '#7df9ff';
+    ctx.strokeStyle = Theme.color.cyan;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(hx, hy, r + 8, 0, Math.PI * 2);
     ctx.stroke();
-    ctx.fillStyle = '#7df9ff';
-    ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
+    ctx.fillStyle = Theme.color.cyan;
+    ctx.font = Theme.font(10);
     ctx.fillText('YOU', hx + r + 10, hy + r + 12);
 
     // Hover / selection highlights.
-    for (const [sel, color] of [[hovered, '#cfd8ff'], [selected, '#7df9ff']]) {
+    for (const [sel, color] of [[hovered, Theme.color.hud], [selected, Theme.color.cyan]]) {
       if (!sel) continue;
       if (sel.system || sel.outpost) {
         const [sx, sy] = sel.system ? centreOf(sel.system.id) : toScreen(sel.outpost.x + 0.5, sel.outpost.y + 0.5);
@@ -559,10 +546,10 @@ const GalaxyMap = (() => {
       `static rebuilds ${stats.rebuilds} in ${stats.frames} frames`,
     ];
     ctx.save();
-    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+    ctx.font = Theme.font(11);
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
     ctx.fillRect(8, TOP_BAR, 330, lines.length * 15 + 8);
-    ctx.fillStyle = '#7df9ff';
+    ctx.fillStyle = Theme.color.cyan;
     lines.forEach((l, i) => ctx.fillText(l, 14, TOP_BAR + 16 + i * 15));
     ctx.restore();
   }
@@ -572,7 +559,7 @@ const GalaxyMap = (() => {
     let y = view.h - BOTTOM_BAR - 200;
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
     ctx.fillRect(x - 6, y - 14, 160, 200);
-    ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+    ctx.font = Theme.font(11);
     const row = (drawIcon, label) => {
       drawIcon(x + 8, y - 4);
       ctx.fillStyle = '#aab3cc';
@@ -581,11 +568,11 @@ const GalaxyMap = (() => {
     };
     row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.stroke(); }, 'capital / system');
     row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 7); ctx.fill(); }, 'minor faction');
-    row((cx, cy) => { ctx.strokeStyle = '#9aa4b8'; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 7); ctx.stroke(); }, 'independent');
+    row((cx, cy) => { ctx.strokeStyle = Theme.color.neutral; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 7); ctx.stroke(); }, 'independent');
     row((cx, cy) => { ctx.fillStyle = '#7d869e'; ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); }, 'outpost');
     row((cx, cy) => { ctx.strokeStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx, cy + 6); ctx.lineTo(cx - 6, cy); ctx.closePath(); ctx.stroke(); }, 'Waystation');
     row((cx, cy) => { ctx.strokeStyle = '#aab3cc'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.lineWidth = 1.5; }, 'lane');
-    row((cx, cy) => { ctx.strokeStyle = '#cfd8ff'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.setLineDash([]); }, 'gate');
+    row((cx, cy) => { ctx.strokeStyle = Theme.color.hud; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.setLineDash([]); }, 'gate');
     row((cx, cy) => { ctx.fillStyle = 'rgba(61, 139, 255, 0.4)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); ctx.strokeStyle = '#e0a030'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx + 3, cy - 5); ctx.stroke(); }, 'contested');
     row((cx, cy) => { ctx.fillStyle = 'rgba(255, 90, 110, 0.25)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); }, 'frontier');
     row((cx, cy) => { ctx.fillStyle = 'rgba(170, 179, 204, 0.2)'; ctx.strokeStyle = 'rgba(170, 179, 204, 0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill(); ctx.stroke(); }, 'charted pocket');
@@ -674,7 +661,7 @@ const GalaxyMap = (() => {
 
     if (sel.system) {
       const s = sel.system;
-      const f = s.faction === null ? { name: 'Independent', color: '#9aa4b8', kind: 'independent' } : factions[s.faction];
+      const f = s.faction === null ? { name: 'Independent', color: Theme.color.neutral, kind: 'independent' } : factions[s.faction];
       const links = galaxy.routes
         .filter((l) => (l.a === s.id || l.b === s.id) && routeKnown(l))
         .map((l) => `${systems[l.a === s.id ? l.b : l.a].name} (${l.kind})`);

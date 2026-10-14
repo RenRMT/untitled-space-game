@@ -14,7 +14,7 @@ const ContextCard = (() => {
   const root = document.getElementById('context');
   const el = (cls) => root.querySelector(cls);
   const titleEl = el('.cx-title'), tagEl = el('.cx-tag'), subEl = el('.cx-sub'), actionsEl = el('.cx-actions');
-  let shown = ''; // what the DOM shows, to skip unchanged frames
+  const view = UI.keyed(); // what the DOM shows, to skip unchanged frames (ui.js)
   let onAction = null, onClose = null;
 
   el('.cx-close').addEventListener('click', () => onClose && onClose());
@@ -34,10 +34,7 @@ const ContextCard = (() => {
   }
 
   function show(d) {
-    const key = JSON.stringify([d.title, d.subtitle, d.tag, d.tone, d.color,
-      d.actions.map((a) => [a.id, a.label, a.enabled, a.busy, a.title])]);
-    if (key !== shown) {
-      shown = key;
+    if (view.changed([d.title, d.subtitle, d.tag, d.tone, d.color, d.actions.map((a) => [a.id, a.label, a.enabled, a.busy, a.title])])) {
       root.hidden = false;
       root.style.setProperty('--accent', d.color || '');
       titleEl.textContent = d.title;
@@ -50,8 +47,7 @@ const ContextCard = (() => {
         d.actions.forEach((a, i) => setButton(buttons[i], a));
       } else {
         actionsEl.replaceChildren(...d.actions.map((a) => {
-          const b = document.createElement('button');
-          b.type = 'button';
+          const b = UI.h('button', { type: 'button' });
           setButton(b, a);
           return b;
         }));
@@ -66,15 +62,15 @@ const ContextCard = (() => {
   }
 
   function hide() {
-    if (!shown) return;
-    shown = '';
+    if (!view.shown) return;
+    view.reset();
     root.hidden = true;
     actionsEl.replaceChildren();
   }
 
   return {
     show, hide,
-    get isOpen() { return !!shown; },
+    get isOpen() { return view.shown; },
     set onAction(f) { onAction = f; },
     set onClose(f) { onClose = f; },
   };

@@ -15,9 +15,7 @@
 // Works as a classic browser script (global `Flight`) and as a Node module.
 
 const Flight = (() => {
-  const TAU = Math.PI * 2;
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const lerp = (a, b, t) => a + (b - a) * t;
+  const { TAU, clamp, lerp } = typeof require === 'function' ? require('./math.js') : MathUtil;
 
   // Turn from a toward target by at most maxStep, the short way round.
   function turnToward(a, target, maxStep) {

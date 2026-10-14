@@ -16,7 +16,9 @@ function load(file, names) {
   const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
   vm.runInThisContext(`((require, module) => {${src}\n;${names.map((n) => `globalThis.${n} = ${n};`).join(' ')}\n})();`, { filename: file });
 }
+load('math.js', ['MathUtil']);
 load('rng.js', ['hashInt', 'mulberry32', 'seedToInt', 'weightedPick']);
+load('store.js', ['Params', 'Store']);
 load('goods.js', ['Goods']);
 load('data/galaxy-config.js', ['GALAXY_CONFIG']);
 load('galaxy.js', ['Galaxy']);
