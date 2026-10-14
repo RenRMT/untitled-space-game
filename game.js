@@ -102,6 +102,39 @@ ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
 
 const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, travel: null, w: 0, h: 0 };
 
+// ---------- Cargo: items collected by flying over them, saved per galaxy ----------
+
+const cargo = { key: '', items: [], collected: new Set() };
+const PICKUP_RANGE = 24; // world units beyond the item's own size
+
+function loadCargo(galaxy) {
+  cargo.key = `cargo:${galaxy.seed}:${galaxy.size}:${galaxy.systems.length}:${galaxy.outposts.length}`;
+  cargo.items = [];
+  cargo.collected = new Set();
+  try {
+    if (params.has('fresh')) localStorage.removeItem(cargo.key);
+    const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
+    if (d) { cargo.items = d.items; cargo.collected = new Set(d.collected); }
+  } catch (e) { /* storage unavailable: cargo lasts for this session only */ }
+}
+function saveCargo() {
+  try {
+    localStorage.setItem(cargo.key, JSON.stringify({ items: cargo.items, collected: [...cargo.collected] }));
+  } catch (e) { /* storage unavailable */ }
+}
+
+function collectItems(list) {
+  for (const e of list) {
+    if (e.kind !== 'item' || cargo.collected.has(e.key)) continue;
+    if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
+    cargo.collected.add(e.key);
+    cargo.items.push({ label: e.label, category: e.category });
+    toast.text = `Recovered: ${e.label}`;
+    toast.t = 2.5;
+    saveCargo();
+  }
+}
+
 function sectorOf(x, y) {
   return [clamp(Math.floor(x / SECTOR), 0, world.galaxy.size - 1), clamp(Math.floor(y / SECTOR), 0, world.galaxy.size - 1)];
 }
@@ -147,6 +180,7 @@ function loadGalaxy(galaxy) {
   world.w = world.h = galaxy.size * SECTOR;
   // What the player knows (fog of war); ?fresh forgets saved charts.
   world.knowledge = Knowledge.create(galaxy, { fresh: params.has('fresh') });
+  loadCargo(galaxy);
   GalaxyMap.knowledge = world.knowledge;
   world.travel = Travel.create(galaxy, world.knowledge);
   GalaxyMap.trip = world.travel;
@@ -214,7 +248,11 @@ function nearbyEntities(t) {
     for (let x = cx - 1; x <= cx + 1; x++) {
       const sec = world.sectors.at(x, y);
       if (!sec) continue;
-      for (const e of sec.entities) { Sectors.pose(e, t); out.push(e); }
+      for (const e of sec.entities) {
+        if (e.kind === 'item' && cargo.collected.has(e.key)) continue;
+        Sectors.pose(e, t);
+        out.push(e);
+      }
     }
   }
   return out;
@@ -510,7 +548,7 @@ function drawSectorGrid() {
   ctx.restore();
 }
 
-const DRAW_ORDER = { star: 0, planet: 1, gate: 2, station: 2, wreck: 3, ship: 4 };
+const DRAW_ORDER = { star: 0, planet: 1, asteroid: 1.5, gate: 2, station: 2, wreck: 3, item: 3.5, ship: 4 };
 
 function visible(e) {
   const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.radius || 100) * 1.3;
@@ -528,6 +566,7 @@ function drawEntities(list, t) {
       Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
     } else if (e.kind === 'station') Art.drawAsset(ctx, e.art, style, { x, y, spin: e.spin + t * e.art.spinRate, t });
     else if (e.kind === 'gate') Art.drawAsset(ctx, e.art, style, { x, y, angle: e.angle, spin: e.spin + t * e.art.spinRate, t });
+    else if (e.kind === 'asteroid') Art.drawAsteroid(ctx, e.ast, style, { x, y, spin: e.spin0 + t * e.tumble });
     else Art.drawAsset(ctx, e.art, style, { x, y, angle: e.a, t, thrust: e.thrust || 0 });
   }
 }
@@ -679,6 +718,7 @@ function drawMinimap(list) {
 
   for (const e of list) {
     if (e.x < ox || e.y < oy || e.x >= ox + SECTOR || e.y >= oy + SECTOR) continue;
+    if (e.kind === 'asteroid') continue;
     const mx = x0 + (e.x - ox) * s, my = y0 + (e.y - oy) * s;
     if (e.kind === 'gate') {
       // Gates stand out as rings in their builder's colour.
@@ -693,6 +733,7 @@ function drawMinimap(list) {
       : e.kind === 'planet' ? [COLORS.planet, 3]
         : e.kind === 'station' ? [e.color, 2.5]
           : e.kind === 'wreck' ? ['#6f7a99', 1.5]
+            : e.kind === 'item' ? ['#ffcf5a', 1.2]
             : [e.faction === null || e.faction === undefined ? '#9aa4b8' : world.galaxy.factions[e.faction].color, 1.2];
     ctx.fillStyle = color;
     ctx.beginPath();
@@ -733,6 +774,7 @@ function drawHud() {
   ctx.fillStyle = COLORS.hud;
   ctx.globalAlpha = 0.85;
   ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
+  if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}`, pad + 84, y - 12);
 
   // Actual speed (filled) vs set throttle (marker).
   ctx.globalAlpha = 0.25;
@@ -781,6 +823,7 @@ function render() {
   if (GalaxyMap.galaxy !== world.galaxy) loadGalaxy(GalaxyMap.galaxy); // re-rolled on the map
   let list = nearbyEntities(t);
   if (checkGates(list)) list = nearbyEntities(t);
+  collectItems(list);
   const [cx, cy] = sectorOf(cam.x, cam.y);
   origin.x = cx * SECTOR;
   origin.y = cy * SECTOR;

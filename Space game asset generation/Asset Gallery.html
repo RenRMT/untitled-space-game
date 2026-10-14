@@ -85,6 +85,7 @@
 <script src="../art/util.js"></script>
 <script src="../art/culture.js"></script>
 <script src="../art/blueprints.js"></script>
+<script src="../art/items.js"></script>
 <script src="../art/render.js"></script>
 <script>
 'use strict';
@@ -98,7 +99,7 @@ const state = {
 };
 const TYPE_LABELS = {
   player: 'Player ship', fighter: 'Fighter', freighter: 'Freighter', 'station-minor': 'Minor station',
-  'station-major': 'Major station', gate: 'Gate', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star',
+  'station-major': 'Major station', gate: 'Gate', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star', asteroid: 'Asteroid', loot: 'Loot', trade: 'Trade goods',
 };
 const THUMB = 168;
 // Gates come right after the stations; only major factions build them.
@@ -203,16 +204,26 @@ function buildStyles() {
   const seed = state.assetSeed;
   const planet = { r: 150, type: Art.PLANET_TYPES[seed % Art.PLANET_TYPES.length], ring: seed % 3 !== 0, ringTilt: -0.35, seed };
   const star = { r: 230, cls: Art.STAR_CLASSES[seed % Art.STAR_CLASSES.length], seed: seed % 997, rays: 8 };
-  const rows = ['player', ...FACTION_TYPES, 'planet', 'star'];
+  const rows = ['player', ...FACTION_TYPES, 'planet', 'star', 'asteroid', 'loot', 'trade'];
+  const ast = { type: Art.ASTEROID_TYPES[seed % Art.ASTEROID_TYPES.length], r: 40, seed };
+  const lootKind = ArtItems.LOOT[seed % ArtItems.LOOT.length].id, tradeKind = ArtItems.TRADE[seed % ArtItems.TRADE.length].id;
   rows.forEach((type, ri) => {
     const head = document.createElement('div');
     head.className = 'rowhead';
     head.textContent = TYPE_LABELS[type];
     el.append(head);
-    const bp = type === 'planet' || type === 'star' ? null : assetFor(type, culture, seed + ri * 101);
+    const bp = type === 'planet' || type === 'star' || type === 'asteroid' ? null
+      : type === 'loot' ? ArtItems.create(lootKind, seed) : type === 'trade' ? ArtItems.create(tradeKind, seed)
+        : assetFor(type, culture, seed + ri * 101);
     for (const s of Art.STYLES) {
       if (type === 'planet') el.append(thumb(`${planet.type}${planet.ring ? ', ringed' : ''}`, bodyThumb('planet', planet, s.id), ri));
       else if (type === 'star') el.append(thumb(`${star.cls}-class`, bodyThumb('star', star, s.id), ri));
+      else if (type === 'asteroid') el.append(thumb(Art.ASTEROIDS[ast.type].label, (ctx) => {
+        const k = (THUMB * 0.42) / ast.r;
+        ctx.save(); ctx.translate(THUMB / 2, THUMB / 2); ctx.scale(k, k);
+        Art.drawAsteroid(ctx, ast, s.id, { spin: 0.6, texel: (ast.r * 2) / 48, force: true });
+        ctx.restore();
+      }, ri));
       else el.append(thumb(bp ? bp.label : 'Gate · majors only', (ctx) => drawFitted(ctx, bp, s.id), ri));
     }
   });

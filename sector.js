@@ -11,7 +11,10 @@
 //   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
 //   patrol, and pirates lurk in the territories they operate in,
 // - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
-// - contested sectors: debris from border skirmishes.
+// - contested sectors: debris from border skirmishes,
+// - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space,
+// - floating items to collect: loot components near wrecks, trade goods spilled by freighters and
+//   piled up at salvage yards (art/items.js). Each item has a stable key for the cargo hold.
 // Positions are world units from the galaxy's top-left corner. Browser only (global `Sectors`).
 
 const Sectors = (() => {
@@ -23,6 +26,11 @@ const Sectors = (() => {
   const PLANET_TYPES = [['gas', 3], ['terran', 2], ['desert', 2], ['ice', 2], ['lava', 1], ['blue', 1]];
   const CONTACT_LABELS = { derelict: 'Derelict', distress: 'Distress signal', anomaly: 'Anomaly' };
   const MAX_CACHED = 40;
+  const BELT_CHANCE = 0.45;
+  const FIELD_CHANCE = { claimed: 0.04, deep: 0.06, frontier: 0.1 };
+  const INNER_BELT = [['stony', 3], ['metal', 2], ['carbon', 1]];
+  const OUTER_BELT = [['ice', 3], ['carbon', 2], ['stony', 1]];
+  const DEEP_FIELD = [['carbon', 3], ['stony', 2], ['ice', 2], ['metal', 1]];
 
   function seedInt(seed) {
     if (Number.isInteger(seed)) return seed >>> 0;
@@ -130,6 +138,47 @@ const Sectors = (() => {
       const route = (ax, ay, bx, by, speed) => ({ type: 'route', ax: ox + ax, ay: oy + ay, bx: ox + bx, by: oy + by, speed, phase: r() * 2 });
       const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
 
+      // Asteroids and items draw from their own random stream, so they don't reshuffle the rest.
+      const ra = mulberry32(hashInt(sx, sy, base ^ 0xa57e));
+      const asteroid = (x, y, type, size) => add({
+        kind: 'asteroid', ast: { type, r: size, seed: Math.floor(ra() * 4294967295) },
+        spin0: ra() * TAU, tumble: (ra() - 0.5) * 0.5, radius: size,
+      }, x, y);
+      const rockSize = () => 8 + ra() ** 2.2 * 44;
+      function field(cx, cy, n, spread, types) {
+        for (let i = 0; i < n; i++) {
+          const a = ra() * TAU, d = spread * Math.sqrt(ra());
+          asteroid(cx + Math.cos(a) * d, cy + Math.sin(a) * d, weighted(types, ra), rockSize());
+        }
+      }
+      // A ring of clumps around a star.
+      function belt(cx, cy, radius, width, n, types) {
+        const clumps = Array.from({ length: 8 + Math.floor(ra() * 6) }, () => ra() * TAU);
+        for (let i = 0; i < n; i++) {
+          const a = clumps[Math.floor(ra() * clumps.length)] + (ra() + ra() - 1) * 0.22;
+          const d = radius + (ra() - 0.5) * width;
+          asteroid(cx + Math.cos(a) * d, cy + Math.sin(a) * d, weighted(types, ra), rockSize());
+        }
+      }
+      let itemCount = 0;
+      const LOOT_KINDS = ArtItems.LOOT.map((k) => k.id), TRADE_KINDS = ArtItems.TRADE.map((k) => k.id);
+      const item = (kinds, x, y) => {
+        const art = ArtItems.create(kinds[Math.floor(ra() * kinds.length)], Math.floor(ra() * 4294967295));
+        return add({
+          kind: 'item', art, key: `${sx},${sy},${itemCount++}`, label: art.label.split(' · ')[1], category: art.category,
+          angle: ra() * TAU, tumble: (ra() - 0.5) * 0.3, radius: art.radius,
+        }, x, y);
+      };
+      // Things floating around an entity: loot by default, trade goods from freighters.
+      function scatter(e, n, kinds) {
+        for (let i = 0; i < n; i++) {
+          const a = ra() * TAU, d = e.radius * 0.8 + 60 + ra() * 220;
+          item(kinds, e.x - ox + Math.cos(a) * d, e.y - oy + Math.sin(a) * d);
+        }
+      }
+      const spoils = (w) => scatter(w, 1 + Math.floor(ra() * 3),
+        w.art.label.includes('freighter') || (w.art.type === 'wreck-station' && ra() < 0.5) ? TRADE_KINDS : LOOT_KINDS);
+
       // ---------- Fixed features ----------
 
       if (system) {
@@ -173,15 +222,20 @@ const Sectors = (() => {
             : spot(cx, cy, l.type === 'outpost' ? 2100 * S : 900 * S + rad, l.type === 'outpost' ? 2600 * S : 1500 * S + rad, rad);
           station(major ? 'station-major' : 'station-minor', fid, l.name, x, y);
         });
+        if (sec.star && ra() < BELT_CHANCE) {
+          const radius = (1500 + ra() * 2000) * S;
+          belt(cx, cy, radius, 500 * S, 70 + Math.floor(ra() * 40), radius < 2500 * S ? INNER_BELT : OUTER_BELT);
+        }
       } else if (outpost) {
         const [x, y] = spot(C, C, 0, 500 * S, 120);
         station('station-minor', outpost.faction, outpost.name, x, y);
         if (outpost.type === 'salvage yard') {
           for (let i = 0; i < 4; i++) {
             const [wx, wy] = spot(x, y, 350, 800, 90);
-            wreck(r() < 0.75 ? 'wreck-ship' : 'wreck-station', randomCulture(), wx, wy);
+            spoils(wreck(r() < 0.75 ? 'wreck-ship' : 'wreck-station', randomCulture(), wx, wy));
           }
         }
+        if (outpost.type === 'mining camp') field(x, y, 25 + Math.floor(ra() * 16), 1500, DEEP_FIELD);
       }
 
       // ---------- Deep-space contacts ----------
@@ -189,25 +243,32 @@ const Sectors = (() => {
       if (contact) {
         const [x, y] = spot(C, C, 0, 1200 * S, 200);
         if (contact.type === 'story') {
-          wreck('wreck-station', randomCulture(), x, y, contact.name);
+          spoils(wreck('wreck-station', randomCulture(), x, y, contact.name));
         } else if (contact.type === 'derelict') {
           const c = randomCulture();
-          if (r() < 0.4) wreck('wreck-station', c, x, y, CONTACT_LABELS.derelict);
-          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT_LABELS.derelict); }
+          if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT_LABELS.derelict));
+          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT_LABELS.derelict)); }
         } else if (contact.type === 'distress') {
           const fid = majors[Math.floor(r() * majors.length)].id;
           const art = ArtBlueprints.create('freighter', cultures.of(fid), nextSeed());
-          sec.entities.push({ kind: 'ship', art, faction: fid, name: CONTACT_LABELS.distress, motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y });
+          const stranded = { kind: 'ship', art, faction: fid, name: CONTACT_LABELS.distress, motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y };
+          sec.entities.push(stranded);
           const [wx, wy] = spot(x, y, 200, 400, 40);
-          wreck('wreck-ship', cultures.of(fid), wx, wy);
+          spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
+          scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
         } else if (contact.type === 'ambush') {
           const n = 3 + Math.floor(r() * 2);
           for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60));
-          wreck('wreck-ship', randomCulture(), x, y);
+          scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         } else if (contact.type === 'anomaly') {
           const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
           add({ kind: 'planet', body, name: CONTACT_LABELS.anomaly, radius: body.r * 2 }, x, y);
+          field(x, y, 10 + Math.floor(ra() * 6), body.r * 4, body.type === 'ice' ? [['ice', 1]] : [['metal', 2], ['carbon', 1]]);
         }
+      }
+      // The odd asteroid field out in uncharted space.
+      if (!system && !outpost && !contact && ra() < (FIELD_CHANCE[territory.zone] || 0)) {
+        field(C + (ra() - 0.5) * 3000 * S, C + (ra() - 0.5) * 3000 * S, 20 + Math.floor(ra() * 16), 1400, DEEP_FIELD);
       }
 
       // ---------- Traffic ----------
@@ -256,7 +317,7 @@ const Sectors = (() => {
       if (territory.contestedBy !== null && r() < 0.5) {
         for (const fid of [territory.owner, territory.contestedBy]) {
           const [x, y] = spot(C, C, 800 * S, 2400 * S, 50);
-          wreck('wreck-ship', cultures.of(fid), x, y);
+          scatter(wreck('wreck-ship', cultures.of(fid), x, y), 1 + Math.floor(ra() * 2), LOOT_KINDS);
         }
       }
       return sec;
