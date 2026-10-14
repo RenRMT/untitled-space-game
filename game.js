@@ -24,7 +24,7 @@ const COLORS = {
 };
 
 // Handling stats; later these become per-ship-class values.
-const SHIP = { maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16 };
+const SHIP = { name: 'Courier', maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16, cargo: 20 };
 
 const ship = {
   x: 0, y: 0,
@@ -91,9 +91,10 @@ const moveMode = toggle(document.getElementById('move-btn'), 'move', MOVE_MODES,
 document.getElementById('move-btn').addEventListener('click', () => { ship.targetSpeed = 0; });
 
 window.addEventListener('keydown', (e) => {
-  if (GalaxyMap.isOpen) return;
+  if (GalaxyMap.isOpen || docked) return;
   if (e.key === 'v' || e.key === 'V') artStyle.cycle();
   if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); ship.targetSpeed = 0; }
+  if (e.key === 'f' || e.key === 'F') dockBtn.click();
 });
 
 ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
@@ -102,33 +103,74 @@ ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
 
 const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, travel: null, w: 0, h: 0 };
 
-// ---------- Cargo: items collected by flying over them, saved per galaxy ----------
+// ---------- Cargo hold and credits: items collected or bought, saved per galaxy ----------
 
-const cargo = { key: '', items: [], collected: new Set() };
+// items: { kind (art/items.js id), label, category: 'loot' | 'trade' }, one hold unit each.
+const cargo = { key: '', items: [], collected: new Set(), credits: 0 };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
+
+// Saves from before items recorded their kind: recover it from the label.
+const KIND_BY_LABEL = new Map([
+  ...ArtItems.LOOT.flatMap((k) => k.variants.map((v) => [v, k.id])),
+  ...ArtItems.TRADE.map((k) => [k.form, k.id]),
+]);
 
 function loadCargo(galaxy) {
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
   cargo.items = [];
   cargo.collected = new Set();
+  cargo.credits = Economy.config.startingCredits;
   try {
     if (params.has('fresh')) localStorage.removeItem(cargo.key);
     const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
-    if (d) { cargo.items = d.items; cargo.collected = new Set(d.collected); }
+    if (d) {
+      cargo.items = d.items.map((it) => ({ ...it, kind: it.kind || KIND_BY_LABEL.get(it.label) })).filter((it) => it.kind);
+      cargo.collected = new Set(d.collected);
+      if (Number.isFinite(d.credits)) cargo.credits = d.credits;
+    }
   } catch (e) { /* storage unavailable: cargo lasts for this session only */ }
 }
 function saveCargo() {
   try {
-    localStorage.setItem(cargo.key, JSON.stringify({ items: cargo.items, collected: [...cargo.collected] }));
+    localStorage.setItem(cargo.key, JSON.stringify({ items: cargo.items, collected: [...cargo.collected], credits: cargo.credits }));
   } catch (e) { /* storage unavailable */ }
 }
+
+// The hold as the station menu sees it: buying and selling one unit at a time.
+const hold = {
+  get credits() { return cargo.credits; },
+  get items() { return cargo.items; },
+  get capacity() { return SHIP.cargo; },
+  get free() { return SHIP.cargo - cargo.items.length; },
+  count: (kind) => cargo.items.reduce((n, it) => n + (it.kind === kind ? 1 : 0), 0),
+  buy(kind, price, label) {
+    if (hold.free < 1 || cargo.credits < price) return false;
+    cargo.credits -= price;
+    cargo.items.push({ kind, label, category: 'trade' });
+    saveCargo();
+    return true;
+  },
+  sell(kind, price) {
+    const i = cargo.items.findIndex((it) => it.kind === kind);
+    if (i < 0) return false;
+    cargo.items.splice(i, 1);
+    cargo.credits += price;
+    saveCargo();
+    return true;
+  },
+};
 
 function collectItems(list) {
   for (const e of list) {
     if (e.kind !== 'item' || cargo.collected.has(e.key)) continue;
     if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
+    if (hold.free < 1) {
+      // Leave it floating; say so once rather than every frame.
+      if (toast.text !== 'Cargo hold full' || toast.t < 0.5) { toast.text = 'Cargo hold full'; toast.t = 2.5; }
+      continue;
+    }
     cargo.collected.add(e.key);
-    cargo.items.push({ label: e.label, category: e.category });
+    cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
     toast.text = `Recovered: ${e.label}`;
     toast.t = 2.5;
     saveCargo();
@@ -196,6 +238,91 @@ GalaxyMap.onLoad = loadGalaxy; // re-rolled on the map
 window.addEventListener('pagehide', () => world.knowledge.save());
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') world.knowledge.save(); });
 GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
+
+// ---------- Docking: stop near a station, dock, trade, launch ----------
+
+const DOCK = { range: 320, maxSpeed: 150 }; // range: world units beyond the station's radius
+const dockBtn = document.getElementById('dock-btn');
+let docked = null; // { station } while docked; flight is paused and the station menu is open
+let dockTarget = null; // nearest station in range this frame
+let dockShown = ''; // last button state, so the DOM is only touched on change
+
+// Whether the player may dock at a station. Everyone is welcome for now; faction reputation
+// (refusing hostile factions, say) belongs here: return { ok: false, reason: 'Docking refused' }.
+function canDock(station) {
+  return { ok: true, reason: '' };
+}
+
+const MARKET_LABEL = {
+  capital: 'Capital station', freeport: 'Freeport', major: 'Station', minor: 'Station',
+};
+const stationSubtitle = (st) => {
+  const type = st.market.kind === 'outpost' ? st.market.type[0].toUpperCase() + st.market.type.slice(1) : MARKET_LABEL[st.market.type];
+  const f = st.faction === null || st.faction === undefined ? null : world.galaxy.factions[st.faction];
+  return f ? `${type} · ${f.name}` : `${type} · independent`;
+};
+
+// Pick the nearest station within docking range and keep the Dock button in step with it.
+function updateDockTarget(list) {
+  dockTarget = null;
+  let best = Infinity;
+  for (const e of list) {
+    if (e.kind !== 'station') continue;
+    const d = Math.hypot(ship.x - e.x, ship.y - e.y) - e.radius;
+    if (d <= DOCK.range && d < best) { best = d; dockTarget = e; }
+  }
+  let state = 'hidden', label = '';
+  if (dockTarget) {
+    const allowed = canDock(dockTarget);
+    const tooFast = Math.hypot(ship.vx, ship.vy) > DOCK.maxSpeed;
+    state = !allowed.ok ? 'refused' : tooFast ? 'slow' : 'ready';
+    label = !allowed.ok ? allowed.reason : tooFast ? 'Slow down to dock' : `Dock · ${dockTarget.name}`;
+  }
+  const shown = `${state}|${label}`;
+  if (shown === dockShown) return;
+  dockShown = shown;
+  dockBtn.hidden = state === 'hidden';
+  dockBtn.disabled = state !== 'ready';
+  dockBtn.textContent = label;
+}
+
+function dock(station) {
+  docked = { station };
+  ship.vx = ship.vy = 0;
+  ship.targetSpeed = 0;
+  ship.thrust = 0;
+  drag.active = false;
+  particles.length = 0;
+  GalaxyMap.blocked = true;
+  document.body.classList.add('docked');
+  StationMenu.open({
+    station: { name: station.name, subtitle: stationSubtitle(station), color: station.color },
+    market: Economy.market(world.galaxy.seed, station),
+    hold,
+    ship: SHIP,
+    onLaunch: launch,
+  });
+}
+
+// Back to space just outside the station, on the side the ship came in from, at rest.
+function launch() {
+  const st = docked.station;
+  docked = null;
+  StationMenu.close();
+  GalaxyMap.blocked = false;
+  document.body.classList.remove('docked');
+  const a = Math.atan2(ship.y - st.y, ship.x - st.x);
+  const d = st.radius + 180;
+  placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
+  dockShown = '';
+  toast.text = `Launched from ${st.name}`;
+  toast.t = 2.5;
+}
+
+dockBtn.addEventListener('click', () => {
+  if (!dockTarget || docked || !canDock(dockTarget).ok || Math.hypot(ship.vx, ship.vy) > DOCK.maxSpeed) return;
+  dock(dockTarget);
+});
 
 // ---------- Map travel: plot a course on the map, cruise there, maybe get interrupted ----------
 
@@ -862,7 +989,7 @@ function drawHud() {
   ctx.fillStyle = COLORS.hud;
   ctx.globalAlpha = 0.85;
   ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
-  if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}`, pad + 84, y - 12);
+  if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
 
   // Actual speed (filled) vs set throttle (marker).
   ctx.globalAlpha = 0.25;
@@ -911,6 +1038,7 @@ function render() {
   let list = nearbyEntities(t);
   if (checkGates(list)) list = nearbyEntities(t);
   collectItems(list);
+  updateDockTarget(list);
   const [cx, cy] = sectorOf(cam.x, cam.y);
   origin.x = cx * SECTOR;
   origin.y = cy * SECTOR;
@@ -1002,7 +1130,7 @@ function frame(now) {
   last = now;
   const t0 = performance.now();
   tickTravel(dt);
-  if (!GalaxyMap.isOpen) { // the map overlay pauses flight
+  if (!GalaxyMap.isOpen && !docked) { // the map overlay and docking pause flight
     update(dt);
     render();
     recordFrame(performance.now() - t0, gap);
