@@ -38,6 +38,8 @@ const ship = {
 const view = { w: 0, h: 0, dpr: 1, zoom: 1 };
 const cam = { x: 0, y: 0 };
 const particles = [];
+const debris = []; // rock fragments thrown off by mining, in world units
+const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds mined so far
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
 let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
@@ -95,6 +97,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'v' || e.key === 'V') artStyle.cycle();
   if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); ship.targetSpeed = 0; }
   if (e.key === 'f' || e.key === 'F') dockBtn.click();
+  if (e.key === 'e' || e.key === 'E') mineBtn.click();
 });
 
 ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
@@ -106,8 +109,20 @@ const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, tr
 // ---------- Cargo hold and credits: items collected or bought, saved per galaxy ----------
 
 // items: { kind (art/items.js id), label, category: 'loot' | 'trade' }, one hold unit each.
-const cargo = { key: '', items: [], collected: new Set(), credits: 0 };
+// mined: keys of asteroids broken up by mining. drops: items they left floating, not yet collected
+// (item entities; each keeps its saved form in `drop`).
+const cargo = { key: '', items: [], collected: new Set(), credits: 0, mined: new Set(), drops: [] };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
+
+// A floating item left by a mined asteroid, from its saved form { key, kind, seed, x, y }.
+function dropEntity(d) {
+  const art = ArtItems.create(d.kind, d.seed);
+  const r = mulberry32(d.seed);
+  return {
+    kind: 'item', art, key: d.key, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
+    angle: r() * TAU, tumble: (r() - 0.5) * 0.3, radius: art.radius, x: d.x, y: d.y, drop: d,
+  };
+}
 
 // Saves from before items recorded their kind: recover it from the label.
 const KIND_BY_LABEL = new Map([
@@ -120,6 +135,8 @@ function loadCargo(galaxy) {
   cargo.items = [];
   cargo.collected = new Set();
   cargo.credits = Economy.config.startingCredits;
+  cargo.mined = new Set();
+  cargo.drops = [];
   try {
     if (params.has('fresh')) localStorage.removeItem(cargo.key);
     const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
@@ -127,12 +144,17 @@ function loadCargo(galaxy) {
       cargo.items = d.items.map((it) => ({ ...it, kind: it.kind || KIND_BY_LABEL.get(it.label) })).filter((it) => it.kind);
       cargo.collected = new Set(d.collected);
       if (Number.isFinite(d.credits)) cargo.credits = d.credits;
+      if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
+      if (Array.isArray(d.drops)) cargo.drops = d.drops.filter((x) => x && Economy.GOODS[x.kind]).map(dropEntity);
     }
   } catch (e) { /* storage unavailable: cargo lasts for this session only */ }
 }
 function saveCargo() {
   try {
-    localStorage.setItem(cargo.key, JSON.stringify({ items: cargo.items, collected: [...cargo.collected], credits: cargo.credits }));
+    localStorage.setItem(cargo.key, JSON.stringify({
+      items: cargo.items, collected: [...cargo.collected], credits: cargo.credits,
+      mined: [...cargo.mined], drops: cargo.drops.map((e) => e.drop),
+    }));
   } catch (e) { /* storage unavailable */ }
 }
 
@@ -169,7 +191,8 @@ function collectItems(list) {
       if (toast.text !== 'Cargo hold full' || toast.t < 0.5) { toast.text = 'Cargo hold full'; toast.t = 2.5; }
       continue;
     }
-    cargo.collected.add(e.key);
+    if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
+    else cargo.collected.add(e.key);
     cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
     toast.text = `Recovered: ${e.label}`;
     toast.t = 2.5;
@@ -191,6 +214,8 @@ function placeShip(x, y, angle = -Math.PI / 2) {
   cam.x = ship.x;
   cam.y = ship.y;
   particles.length = 0;
+  debris.length = 0;
+  stopMining();
   gateLock = null;
   lastPocket = undefined; // no enter/leave notice for a teleport
   world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR);
@@ -287,6 +312,7 @@ function updateDockTarget(list) {
 }
 
 function dock(station) {
+  stopMining();
   docked = { station };
   ship.vx = ship.vy = 0;
   ship.targetSpeed = 0;
@@ -323,6 +349,160 @@ dockBtn.addEventListener('click', () => {
   if (!dockTarget || docked || !canDock(dockTarget).ok || Math.hypot(ship.vx, ship.vy) > DOCK.maxSpeed) return;
   dock(dockTarget);
 });
+
+// ---------- Mining: stop by an asteroid, mine it, collect what it leaves behind ----------
+
+const mineBtn = document.getElementById('mine-btn');
+const MINE_COLOR = '#ff9d5c';
+let mineTarget = null; // nearest minable asteroid in range this frame
+let mineShown = ''; // last button state, so the DOM is only touched on change
+
+// Called on teleports, docking and when the ship drifts away. Must not touch anything declared
+// below: placeShip runs it while the galaxy first loads.
+function stopMining(notice) {
+  if (!mining.target) return;
+  mining.target = null;
+  mining.t = 0;
+  if (notice) { toast.text = notice; toast.t = 2; }
+}
+
+// Keep the Mine button in step with the nearest asteroid, or with the countdown while mining.
+function updateMineButton(list) {
+  mineTarget = mining.target ? null : Mining.targetIn(list, ship.x, ship.y, cargo.mined);
+  let state = 'hidden', label = '';
+  if (mining.target) {
+    state = 'busy';
+    label = `Mining · ${Math.max(1, Math.ceil(Mining.config.duration - mining.t))} sec`;
+    mineBtn.style.setProperty('--progress', `${Math.min(100, (mining.t / Mining.config.duration) * 100).toFixed(1)}%`);
+  } else if (mineTarget) {
+    const tooFast = Math.hypot(ship.vx, ship.vy) > Mining.config.maxSpeed;
+    state = tooFast ? 'slow' : 'ready';
+    label = tooFast ? 'Slow down to mine' : `Mine · ${(Art.ASTEROIDS[mineTarget.ast.type] || Art.ASTEROIDS.stony).label} asteroid`;
+  }
+  const shown = `${state}|${label}`;
+  if (shown === mineShown) return;
+  mineShown = shown;
+  mineBtn.hidden = state === 'hidden';
+  mineBtn.disabled = state !== 'ready';
+  mineBtn.classList.toggle('busy', state === 'busy');
+  mineBtn.textContent = label;
+}
+
+mineBtn.addEventListener('click', () => {
+  if (mining.target || docked || !mineTarget || Math.hypot(ship.vx, ship.vy) > Mining.config.maxSpeed) return;
+  mining.target = mineTarget;
+  mining.t = 0;
+  ship.targetSpeed = 0; // all stop, so the ship stays in range
+});
+
+// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up.
+function chips(a, n, speed) {
+  const pal = (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
+  for (let i = 0; i < n; i++) {
+    const ang = Math.random() * TAU, d = a.radius * Math.random() * 0.6, sp = speed * (0.3 + Math.random() * 0.7);
+    const life = 0.5 + Math.random() * 0.9;
+    debris.push({
+      x: a.x + Math.cos(ang) * d, y: a.y + Math.sin(ang) * d, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+      life, max: life, size: 1.5 + Math.random() * Math.min(5, a.radius / 8), color: pal[i % pal.length],
+    });
+  }
+}
+
+function finishMining() {
+  const a = mining.target;
+  stopMining();
+  cargo.mined.add(a.key);
+  chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
+  const found = Mining.yieldOf(world.galaxy.seed, a);
+  if (found) {
+    const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
+    cargo.drops.push(e);
+    toast.text = `Asteroid broken up · ${e.label} found`;
+  } else {
+    toast.text = 'Asteroid broken up · nothing of value';
+  }
+  toast.t = 2.5;
+  saveCargo();
+}
+
+// Advance mining; runs with the flight simulation, so the map and docking pause it.
+function tickMining(dt) {
+  const a = mining.target;
+  if (!a) return;
+  if (Math.hypot(ship.x - a.x, ship.y - a.y) - a.radius > Mining.config.range + Mining.config.slack) {
+    stopMining('Mining interrupted');
+    return;
+  }
+  // Hold station facing the rock, unless the player is steering.
+  if (ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(a.y - ship.y, a.x - ship.x), SHIP.turnRate * dt);
+  mining.t += dt;
+  if (Math.random() < dt * 12) chips(a, 1, 60);
+  if (mining.t >= Mining.config.duration) finishMining();
+}
+
+// The mining beam from the ship to the rock, and a ring filling up around it.
+function drawMining(t) {
+  const a = mining.target;
+  if (!a) return;
+  const p = Math.min(1, mining.t / Mining.config.duration);
+  const ang = Math.atan2(a.y - ship.y, a.x - ship.x);
+  const x0 = rx(ship.x) + Math.cos(ang) * SHIP.radius * 0.7, y0 = ry(ship.y) + Math.sin(ang) * SHIP.radius * 0.7;
+  const wob = Math.sin(t * 37) * a.radius * 0.12;
+  const x1 = rx(a.x) - Math.cos(ang) * a.radius * 0.5 - Math.sin(ang) * wob;
+  const y1 = ry(a.y) - Math.sin(ang) * a.radius * 0.5 + Math.cos(ang) * wob;
+  const flicker = 0.75 + 0.25 * Math.sin(t * 53);
+  ctx.save();
+  ctx.strokeStyle = MINE_COLOR;
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = 0.25 * flicker;
+  ctx.lineWidth = 7 / view.zoom;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+  ctx.globalAlpha = 0.9 * flicker;
+  ctx.lineWidth = 2 / view.zoom;
+  ctx.stroke();
+  ctx.fillStyle = '#fff1d0';
+  ctx.beginPath();
+  ctx.arc(x1, y1, (3 + 2 * flicker) / view.zoom, 0, TAU);
+  ctx.fill();
+  // Progress ring.
+  const R = a.radius + 16;
+  ctx.lineWidth = 2.5 / view.zoom;
+  ctx.globalAlpha = 0.2;
+  ctx.beginPath();
+  ctx.arc(rx(a.x), ry(a.y), R, 0, TAU);
+  ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(rx(a.x), ry(a.y), R, -Math.PI / 2, -Math.PI / 2 + p * TAU);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Seconds left, in screen space beside the ring.
+function drawMiningCountdown() {
+  const a = mining.target;
+  if (!a) return;
+  const [sx, sy] = worldToScreen(a.x, a.y - a.radius - 16);
+  ctx.save();
+  ctx.font = '13px ui-monospace, Menlo, Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = MINE_COLOR;
+  ctx.globalAlpha = 0.95;
+  ctx.fillText(`${Math.max(0, Mining.config.duration - mining.t).toFixed(1)}s`, sx, sy - 10);
+  ctx.restore();
+}
+
+function drawDebris() {
+  for (const d of debris) {
+    ctx.globalAlpha = Math.min(1, (d.life / d.max) * 1.5);
+    ctx.fillStyle = d.color;
+    ctx.fillRect(rx(d.x) - d.size / 2, ry(d.y) - d.size / 2, d.size, d.size);
+  }
+  ctx.globalAlpha = 1;
+}
 
 // ---------- Map travel: plot a course on the map, cruise there, maybe get interrupted ----------
 
@@ -383,10 +563,18 @@ function nearbyEntities(t) {
       if (!sec) continue;
       for (const e of sec.entities) {
         if (e.kind === 'item' && cargo.collected.has(e.key)) continue;
+        if (e.kind === 'asteroid' && cargo.mined.has(e.key)) continue;
         Sectors.pose(e, t);
         out.push(e);
       }
     }
+  }
+  // Items left by mined asteroids live outside the generated sectors.
+  for (const e of cargo.drops) {
+    const [dx, dy] = sectorOf(e.x, e.y);
+    if (Math.abs(dx - cx) > 1 || Math.abs(dy - cy) > 1) continue;
+    Sectors.pose(e, t);
+    out.push(e);
   }
   return out;
 }
@@ -522,13 +710,16 @@ function update(dt) {
       life: 0.6, max: 0.6,
     });
   }
-  for (let i = particles.length - 1; i >= 0; i--) {
-    const p = particles[i];
-    p.life -= dt;
-    if (p.life <= 0) { particles.splice(i, 1); continue; }
-    p.x += p.vx * dt;
-    p.y += p.vy * dt;
+  for (const list of [particles, debris]) {
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i];
+      p.life -= dt;
+      if (p.life <= 0) { list.splice(i, 1); continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    }
   }
+  tickMining(dt);
 
   gateFlash = Math.max(0, gateFlash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
@@ -1039,6 +1230,7 @@ function render() {
   if (checkGates(list)) list = nearbyEntities(t);
   collectItems(list);
   updateDockTarget(list);
+  updateMineButton(list);
   const [cx, cy] = sectorOf(cam.x, cam.y);
   origin.x = cx * SECTOR;
   origin.y = cy * SECTOR;
@@ -1056,6 +1248,8 @@ function render() {
   drawSectorGrid();
   drawPocketEdges();
   drawEntities(list, t);
+  drawDebris();
+  drawMining(t);
   drawParticles();
   drawShip(t);
   ctx.restore();
@@ -1065,6 +1259,7 @@ function render() {
     ctx.fillRect(0, 0, view.w, view.h);
   }
   drawLabels(list);
+  drawMiningCountdown();
   if (toast.t > 0) {
     ctx.save();
     ctx.globalAlpha = Math.min(1, toast.t / 0.6) * 0.9;
