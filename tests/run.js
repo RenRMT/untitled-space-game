@@ -29,7 +29,8 @@ load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
-const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, Loadout, GALAXY_CONFIG } = ctx;
+load('combat.js', ['Combat']);
+const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, Loadout, Combat, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -334,6 +335,101 @@ test('a longer-range scanner charts more sectors', () => {
   };
   assert.strictEqual(explored(1), 9);
   assert.strictEqual(explored(2), 25);
+});
+
+// A made-up ship for the combat rule checks.
+const testShip = (o) => ({
+  hull: 100, shield: 0, shieldRecharge: 0, accuracy: 1, evasion: 0, initiative: 1, maxSpeed: 500,
+  weapons: [{ name: 'Gun', damage: 10, fireRate: 2 }], ...o,
+});
+const always = () => 0; // every roll succeeds
+
+test('combat rounds: initiative, shields before hull, no shots from the dead, recharge', () => {
+  // The player fires first and destroys the enemy, which never gets to shoot back.
+  let s = Combat.create(always,
+    Combat.combatant('p', 'Me', testShip({ initiative: 3, shield: 10 })),
+    [Combat.combatant('e', 'Them', testShip({ hull: 15, shield: 5, weapons: [{ name: 'Pea', damage: 1, fireRate: 2 }] }))]);
+  let ev = Combat.round(s);
+  assert.strictEqual(ev.length, 1);
+  assert.deepStrictEqual([ev[0].shots, ev[0].hits, ev[0].shieldDamage, ev[0].hullDamage, ev[0].destroyed], [3, 3, 5, 15, true]);
+  assert.strictEqual(s.over, 'won');
+  assert.strictEqual(s.player.shield, 10, 'untouched');
+
+  // With more initiative the enemy fires first; shields soak damage, then recharge up to full.
+  s = Combat.create(always,
+    Combat.combatant('p', 'Me', testShip({ shield: 20, shieldRecharge: 4, weapons: [] })),
+    [Combat.combatant('e', 'Them', testShip({ initiative: 5, weapons: [{ name: 'Gun', damage: 5, fireRate: 2 }] }))]);
+  ev = Combat.round(s);
+  assert.strictEqual(ev[0].from, 'e');
+  assert.deepStrictEqual([ev[0].damage, ev[0].shieldDamage, ev[0].hullDamage], [15, 15, 0]);
+  assert.strictEqual(s.player.shield, 5 + 4 * Combat.config.round);
+  Combat.round(s);
+  assert.strictEqual(s.player.hull, 100 - (15 - 11), 'second volley breaks through the recharged shield');
+
+  // Hit chance stays within its bounds.
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), Combat.config.minHit);
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), Combat.config.maxHit);
+});
+
+test('the player switches to the next enemy when the focused one is destroyed', () => {
+  const s = Combat.create(always,
+    Combat.combatant('p', 'Me', testShip({ initiative: 9, weapons: [{ name: 'A', damage: 10, fireRate: 2 }, { name: 'B', damage: 10, fireRate: 2 }] })),
+    [Combat.combatant('a', 'A', testShip({ hull: 20, weapons: [] })), Combat.combatant('b', 'B', testShip({ hull: 100, weapons: [] }))], 'a');
+  const ev = Combat.round(s);
+  assert.deepStrictEqual(ev.map((e) => e.to), ['a', 'b']);
+  assert.strictEqual(s.focus, 'b');
+});
+
+test('the starter Courier against pirate fighters: easy alone, costly in pairs, flee from ambushes', () => {
+  const me = Loadout.stats(Loadout.starter('courier'));
+  const fighter = Loadout.stats(Loadout.starter('fighter'));
+  const N = 1000;
+  const fight = (n, flee) => {
+    let wins = 0, escapes = 0, hull = 0;
+    for (let i = 0; i < N; i++) {
+      const s = Combat.create(ctx.mulberry32(i * 7919 + n), Combat.combatant('p', 'Me', me),
+        Array.from({ length: n }, (_, k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
+      while (!s.over) { s.fleeing = flee; Combat.round(s); }
+      if (s.over === 'won') { wins++; hull += s.player.hull; }
+      if (s.over === 'fled') escapes++;
+    }
+    return { win: wins / N, escape: escapes / N, hull: hull / Math.max(1, wins) };
+  };
+  const [one, two, three, four] = [1, 2, 3, 4].map((n) => fight(n, false));
+  assert(one.win > 0.99 && one.hull > 100, `vs 1: ${JSON.stringify(one)}`);
+  assert(two.win > 0.8 && two.hull < me.hull - 10, `vs 2: ${JSON.stringify(two)}`);
+  assert(three.win > 0.03 && three.win < 0.5, `vs 3: ${JSON.stringify(three)}`);
+  assert(four.win < 0.1, `vs 4: ${JSON.stringify(four)}`);
+  const run = fight(4, true);
+  assert(run.escape > 0.8, `fleeing 4: ${JSON.stringify(run)}`);
+});
+
+test('fleeing skips the player\'s shots and depends on top speed', () => {
+  const s = Combat.create(() => 0.99, Combat.combatant('p', 'Me', testShip({ maxSpeed: 500 })),
+    [Combat.combatant('e', 'Them', testShip({ maxSpeed: 500, weapons: [] }))]);
+  s.fleeing = true;
+  const ev = Combat.round(s);
+  assert(!ev.some((e) => e.from === 'p'), 'the player fired while fleeing');
+  assert.deepStrictEqual(ev[ev.length - 1], { flee: false });
+  assert.strictEqual(s.fleeing, true, 'a failed attempt keeps trying next round');
+  assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeBase);
+  s.player.stats.maxSpeed = 5000;
+  assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeMax);
+});
+
+test('destroyed ships leave sellable loot', () => {
+  const g = galaxies.get(1);
+  let fighterDrops = 0;
+  for (let i = 0; i < 300; i++) {
+    const f = Combat.loot(g.seed, `x,y,s${i}`, 'fighter');
+    assert.deepStrictEqual(Combat.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
+    for (const d of f) assert(Economy.SALVAGE[d.kind], `fighter dropped ${d.kind}`);
+    fighterDrops += f.length;
+    const fr = Combat.loot(g.seed, `x,y,s${i}`, 'freighter');
+    assert(fr.length >= 1);
+    for (const d of fr) assert(Economy.GOODS[d.kind] || Economy.SALVAGE[d.kind], `freighter dropped ${d.kind}`);
+  }
+  assert(fighterDrops > 120 && fighterDrops < 240, `fighters dropped ${fighterDrops} of 300`);
 });
 
 if (failed) {

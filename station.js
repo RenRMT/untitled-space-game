@@ -4,6 +4,7 @@
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship, loadout, onLaunch })
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats(loadout); loadout: the ship's class and fitted equipment (loadout.js).
+// repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // Browser script (global `StationMenu`).
 
 const StationMenu = (() => {
@@ -120,6 +121,25 @@ const StationMenu = (() => {
         h('span', { class: 'detail' }, s.item ? Loadout.summary(s.item) : s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted')));
   }
 
+  // Hull damage from combat, and repairing it for credits (as much as the credits cover).
+  function renderHull() {
+    const { repairs, hold } = ctx;
+    const damaged = repairs.hull < repairs.max;
+    const affordable = Math.min(repairs.cost, Math.floor(hold.credits / repairs.price) * repairs.price);
+    const pct = Math.max(0, Math.min(100, (repairs.hull / repairs.max) * 100));
+    return h('section', { 'aria-label': 'Hull' },
+      h('h2', {}, 'Hull', h('span', { class: 'count' }, `${Math.ceil(repairs.hull)}/${repairs.max}`)),
+      h('div', { class: `hull-row${damaged ? ' damaged' : ''}` },
+        h('span', { class: 'hull-gauge', 'aria-hidden': 'true' }, h('span', { style: { width: `${pct}%` } })),
+        damaged
+          ? h('button', {
+            class: 'btn', type: 'button', disabled: affordable <= 0,
+            'aria-label': `Repair the hull for ${affordable} credits`,
+            onclick: () => { repairs.repair(); refresh(); },
+          }, affordable < repairs.cost ? `Repair part · ${affordable} cr` : `Repair · ${repairs.cost} cr`)
+          : h('span', { class: 'held' }, 'No damage')));
+  }
+
   function renderShip() {
     const { ship, hold, loadout } = ctx;
     const stat = (label, value) => h('div', { class: 'stat' }, h('dt', {}, label), h('dd', {}, value));
@@ -128,6 +148,7 @@ const StationMenu = (() => {
     const groups = new Map();
     for (const it of hold.items) groups.set(it.label, (groups.get(it.label) || 0) + 1);
     return [
+      ctx.repairs ? renderHull() : null,
       h('section', { 'aria-label': 'Loadout' },
         h('h2', {}, ship.name, h('span', { class: 'count' }, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`)),
         h('ul', { class: 'slots' }, slots.map(slotRow))),
@@ -141,6 +162,7 @@ const StationMenu = (() => {
           stat('Mining', ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s per asteroid` : 'No ship computer'),
           stat('Shield', ship.shield ? `${ship.shield} · ${ship.shieldRecharge}/s recharge` : 'None'),
           stat('Firepower', `${ship.firepower} damage/s · ${ship.weaponsFitted} of ${ship.weaponSlots} weapons`),
+          stat('Targeting', `${Math.round(ship.accuracy * 100)}% accuracy · ${Math.round(ship.evasion * 100)}% evasion`),
           stat('Cargo hold', `${ship.cargo} units`))),
       h('section', { 'aria-label': 'Hold' },
         h('h2', {}, `Hold ${hold.items.length}/${hold.capacity}`),
