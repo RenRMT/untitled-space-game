@@ -1,15 +1,14 @@
 'use strict';
 
-// Sector contents for the flight view, generated from the galaxy (galaxy.js) and the faction
+// Sector contents for the flight view, generated from the galaxy (galaxy.js) and its
 // cultures (art/culture.js). Each map sector becomes a square play area `units` across, and its
 // contents are recreated on demand from the galaxy seed and the sector coordinates:
-// - systems: a star, one planet per planet location, stations and outposts of the owner,
+// - systems: a star, one planet per planet location, stations in the system's culture,
 // - outposts: a minor station; salvage yards collect wrecks,
 // - pirates, in packs by the sector's security (security.js): lone ones in safe space, more,
 //   larger and better-armed packs the more lawless the sector, each pack far enough from the
 //   others to be fought on its own,
 // - deep-space contacts: derelicts (wrecks with salvage) and ambushes (a pirate pack),
-// - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
 //   each has a stable key so a mined asteroid can stay destroyed,
 // - floating items to collect: salvaged components near wrecks, trade goods spilled by freighters
@@ -27,7 +26,7 @@ const Sectors = (() => {
   const CONTACT = Galaxy.CONTACT_TYPES;
   const MAX_CACHED = 40;
   const BELT_CHANCE = 0.45;
-  const FIELD_CHANCE = { claimed: 0.04, deep: 0.06, frontier: 0.1 };
+  const FIELD_CHANCE = { deep: 0.06, frontier: 0.1 };
   const INNER_BELT = [['stony', 3], ['metal', 2], ['carbon', 1]];
   const OUTER_BELT = [['ice', 3], ['carbon', 2], ['stony', 1]];
   const DEEP_FIELD = [['carbon', 3], ['stony', 2], ['ice', 2], ['metal', 1]];
@@ -43,8 +42,6 @@ const Sectors = (() => {
     const key = (x, y) => `${x},${y}`;
     const systemAt = new Map(galaxy.systems.map((s) => [key(s.x, s.y), s]));
     const outpostAt = new Map(galaxy.outposts.map((o) => [key(o.x, o.y), o]));
-    const pirates = galaxy.factions.find((f) => f.key === 'pirates');
-    const majors = galaxy.factions.filter((f) => f.kind === 'major');
     const cache = new Map();
 
     function at(sx, sy) {
@@ -67,7 +64,6 @@ const Sectors = (() => {
       const contact = system || outpost ? null : galaxy.deepSector(sx, sy);
       const sec = { x: sx, y: sy, territory, system, outpost, contact, entities: [], star: null };
       const nextSeed = () => Math.floor(r() * 4294967295);
-      const colorOf = galaxy.factionColor;
 
       // Placement in local coordinates, keeping things apart and inside the sector.
       const placed = [];
@@ -98,10 +94,11 @@ const Sectors = (() => {
       const add = (e, x, y) => { e.x = ox + x; e.y = oy + y; sec.entities.push(e); return e; };
 
       // market: { kind: 'system' | 'outpost', type } for economy.js; key identifies the station.
-      const station = (type, fid, name, x, y, market) => {
-        const art = ArtBlueprints.create(type, cultures.of(fid), nextSeed());
+      // culture: the settled culture it's built in (galaxy.js CULTURES), which also sets its colour.
+      const station = (type, culture, name, x, y, market) => {
+        const art = ArtBlueprints.create(type, cultures.of(culture), nextSeed());
         return add({
-          kind: 'station', art, name, faction: fid, color: colorOf(fid), spin: r() * TAU, radius: art.radius,
+          kind: 'station', art, name, culture, color: galaxy.cultureColor(culture), spin: r() * TAU, radius: art.radius,
           key: `${sx},${sy}:${name}`, market,
         }, x, y);
       };
@@ -109,21 +106,20 @@ const Sectors = (() => {
         const art = ArtBlueprints.create(type, culture, nextSeed());
         return add({ kind: 'wreck', art, name, angle: r() * TAU, tumble: (r() - 0.5) * 0.04, radius: art.radius }, x, y);
       };
-      // Ships have a role ('fighter' | 'freighter') and a stable key, so the flight view can keep
-      // one selected and remember the ones destroyed. motion may be a function, called once the
-      // art is made (so its random draws come after the art's seed). extra: name, position, ...
+      // Pirate ships: fighters in the pirates' kitbashed culture, each with a stable key, so the
+      // flight view can keep one selected and remember the ones destroyed. extra: tier, pack, ...
       let shipCount = 0;
-      const ship = (role, fid, motion, extra = {}) => {
-        const art = ArtBlueprints.create(role, cultures.of(fid), nextSeed());
+      const pirate = (motion, extra = {}) => {
+        const art = ArtBlueprints.create('fighter', cultures.pirates, nextSeed());
         const e = {
-          kind: 'ship', role, key: `${sx},${sy},s${shipCount++}`, art, faction: fid,
-          motion: typeof motion === 'function' ? motion() : motion, radius: art.radius, x: ox, y: oy, ...extra,
+          kind: 'ship', role: 'fighter', pirate: true, key: `${sx},${sy},s${shipCount++}`, art,
+          motion, radius: art.radius, x: ox, y: oy, ...extra,
         };
         sec.entities.push(e);
         return e;
       };
       const orbit = (cx, cy, rad, speed) => ({ type: 'orbit', cx: ox + cx, cy: oy + cy, r: rad, w: (r() < 0.5 ? -1 : 1) * speed / rad, a0: r() * TAU });
-      const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
+      const randomCulture = () => cultures.of(Math.floor(r() * galaxy.cultures.length));
       const between = ([lo, hi]) => lo + Math.floor(r() * (hi - lo + 1)); // a whole number in [lo, hi]
 
       // Asteroids and items draw from their own random stream, so they don't reshuffle the rest.
@@ -176,17 +172,12 @@ const Sectors = (() => {
       // ---------- Fixed features ----------
 
       if (system) {
-        const fid = system.faction;
-        let cx = C, cy = C;
-        if (!system.waystation) {
-          const cls = weighted(STAR_CLASSES, r);
-          const [r0, r1] = STAR_RADIUS[cls];
-          cx = C + (r() - 0.5) * 600 * S;
-          cy = C + (r() - 0.5) * 600 * S;
-          const body = { r: lerp(r0, r1, r()), cls, seed: nextSeed() % 997, rays: 8 };
-          placed.push([cx, cy, body.r * 2.2]);
-          sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
-        }
+        const cls = weighted(STAR_CLASSES, r);
+        const [r0, r1] = STAR_RADIUS[cls];
+        const cx = C + (r() - 0.5) * 600 * S, cy = C + (r() - 0.5) * 600 * S;
+        const body = { r: lerp(r0, r1, r()), cls, seed: nextSeed() % 997, rays: 8 };
+        placed.push([cx, cy, body.r * 2.2]);
+        sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
         const planets = [];
         system.locations.filter((l) => l.type === 'planet').forEach((l, i) => {
           const type = weighted(PLANET_TYPES, r);
@@ -195,14 +186,14 @@ const Sectors = (() => {
           planets.push(add({ kind: 'planet', body, name: l.name, radius: body.r * 2 }, x, y));
         });
         system.locations.filter((l) => l.type !== 'planet').forEach((l, i) => {
-          const major = l.type === 'station' && i === 0 && (system.capital || system.waystation || (fid !== null && galaxy.factions[fid].kind === 'major'));
+          const major = l.type === 'station' && i === 0 && system.major;
           const rad = major ? 230 : 120;
           // The main station sits near the star or the first planet; outposts further out.
           const near = l.type === 'station' && planets.length && r() < 0.5 ? planets[Math.floor(r() * planets.length)] : null;
           const [x, y] = near ? spot(near.x - ox, near.y - oy, near.body.r * 2.2 + rad, near.body.r * 2.6 + rad, rad)
             : spot(cx, cy, l.type === 'outpost' ? 2100 * S : 900 * S + rad, l.type === 'outpost' ? 2600 * S : 1500 * S + rad, rad);
-          const marketType = system.waystation ? 'waystation' : major && system.capital ? 'capital' : major ? 'major' : 'minor';
-          station(major ? 'station-major' : 'station-minor', fid, l.name, x, y, { kind: 'system', id: system.id, type: marketType });
+          const marketType = major && system.capital ? 'capital' : major ? 'major' : 'minor';
+          station(major ? 'station-major' : 'station-minor', system.culture, l.name, x, y, { kind: 'system', id: system.id, type: marketType });
         });
         if (sec.star && ra() < BELT_CHANCE) {
           const radius = (1500 + ra() * 2000) * S;
@@ -210,7 +201,7 @@ const Sectors = (() => {
         }
       } else if (outpost) {
         const [x, y] = spot(C, C, 0, 500 * S, 120);
-        station('station-minor', outpost.faction, outpost.name, x, y, { kind: 'outpost', id: outpost.id, type: outpost.type });
+        station('station-minor', outpost.culture, outpost.name, x, y, { kind: 'outpost', id: outpost.id, type: outpost.type });
         if (outpost.type === 'salvage yard') {
           for (let i = 0; i < 4; i++) {
             const [wx, wy] = spot(x, y, 350, 800, 90);
@@ -232,7 +223,7 @@ const Sectors = (() => {
           // One pack, as big as the sector's biggest or one larger (security.js).
           const P = Security.pirates(territory.security), tier = Security.pick(r, P.tier);
           const n = Math.max(...P.size.map(([s]) => s)) + Math.floor(r() * 2);
-          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier, pack: 0 });
+          for (let i = 0; i < n; i++) pirate(orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier, pack: 0 });
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         }
       }
@@ -246,10 +237,9 @@ const Sectors = (() => {
       // Pirates, by the sector's security (security.js): a few packs spread over the sector, far
       // enough apart that attacking one never draws in another, and clear of stations and the
       // star. Lone, lightly armed pirates in safe space; larger, better-armed packs in lawless
-      // space. Never right next to a Waystation (galaxy.nearWaystation), which hostile contacts
-      // avoid too. tier: their gear; pack: which pack a ship belongs to.
+      // space. tier: their gear; pack: which pack a ship belongs to.
       const P = Security.pirates(territory.security);
-      if (!contact && r() < P.chance && !galaxy.nearWaystation(sx, sy)) {
+      if (!contact && r() < P.chance) {
         const { spacing, orbit: [o0, o1], clear, margin } = Security.PACK;
         const keepClear = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
         const centres = [];
@@ -267,14 +257,7 @@ const Sectors = (() => {
           if (!at) break;
           centres.push(at);
           const size = Security.pick(r, P.size), tier = Security.pick(r, P.tier);
-          for (let k = 0; k < size; k++) ship('fighter', pirates.id, orbit(at[0], at[1], o0 + r() * (o1 - o0), 160 + r() * 30), { tier, pack: i });
-        }
-      }
-      // Border skirmish debris.
-      if (territory.contestedBy !== null && r() < 0.5) {
-        for (const fid of [territory.owner, territory.contestedBy]) {
-          const [x, y] = spot(C, C, 800 * S, 2400 * S, 50);
-          scatter(wreck('wreck-ship', cultures.of(fid), x, y), 1 + Math.floor(ra() * 2), LOOT_KINDS);
+          for (let k = 0; k < size; k++) pirate(orbit(at[0], at[1], o0 + r() * (o1 - o0), 160 + r() * 30), { tier, pack: i });
         }
       }
       return sec;

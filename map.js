@@ -24,7 +24,7 @@ const GalaxyMap = (() => {
   const promptEl = document.getElementById('map-prompt');
   const promptText = document.getElementById('map-prompt-text');
 
-  const ZONE_LABEL = { pocket: 'Charted pocket', claimed: 'Claimed · uncharted', deep: 'Deep space', frontier: 'Frontier' };
+  const ZONE_LABEL = { pocket: 'Charted pocket', deep: 'Deep space', frontier: 'Frontier' };
   const CONTACT = Galaxy.CONTACT_TYPES; // label, colour and prompt per contact type
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
@@ -91,13 +91,10 @@ const GalaxyMap = (() => {
 
   function updateStats() {
     statsVersion = fog() ? fog().version : -1;
-    const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
-    const systems = galaxy.systems.filter((s) => !s.waystation).length;
-    const waystations = galaxy.systems.length - systems;
     const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
     const known = fog() ? ` · ${fog().counts().systems}/${galaxy.systems.length} systems on your charts` : '';
-    statsEl.textContent = `seed ${galaxy.seed} · ${count('major')} major + ${count('minor')} minor factions · `
-      + `${systems} systems · ${galaxy.outposts.length} outposts · ${waystations} Waystations · ${Math.round(charted * 100)}% charted space${known}`;
+    statsEl.textContent = `seed ${galaxy.seed} · ${galaxy.systems.length} systems · ${galaxy.outposts.length} outposts · `
+      + `${Math.round(charted * 100)}% charted space${known}`;
   }
 
   function initialSeed() {
@@ -220,7 +217,7 @@ const GalaxyMap = (() => {
   // margin: how far past each screen edge to draw, in screen px.
   function drawStatic(ctx, margin) {
     const { w, h, scale } = view;
-    const { size, frontier: F, factions, systems } = galaxy;
+    const { size, frontier: F, systems } = galaxy;
     // The area drawn, in screen px, and whether a point (with this much around it) is in it.
     const x0 = -margin, y0 = -margin, x1 = w + margin, y1 = h + margin;
     const inside = (sx, sy, padX, padY = padX) => sx > x0 - padX && sy > y0 - padY && sx < x1 + padX && sy < y1 + padY;
@@ -255,32 +252,14 @@ const GalaxyMap = (() => {
       }
     }
 
-    // Faction borders: a faint tint and an outline, for factions on the player's charts.
-    const knownFactions = new Set(factions.filter((f) => !fog() || fog().knowsFaction(f.id)).map((f) => f.id));
-    const ownerAt = (x, y) => (x < 0 || y < 0 || x >= size || y >= size ? null : cells[y * size + x].owner);
-    ctx.lineWidth = 1;
-    for (const c of cells) {
-      if (c.owner === null || !knownFactions.has(c.owner)) continue;
-      const [sx, sy] = toScreen(c.x, c.y);
-      if (!onScreen(sx, sy)) continue;
-      const color = factions[c.owner].color;
-      ctx.fillStyle = hexToRgba(color, 0.035);
-      ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
-      ctx.strokeStyle = hexToRgba(color, 0.32);
-      ctx.beginPath();
-      if (ownerAt(c.x, c.y - 1) !== c.owner) { ctx.moveTo(sx, sy); ctx.lineTo(sx + scale, sy); }
-      if (ownerAt(c.x, c.y + 1) !== c.owner) { ctx.moveTo(sx, sy + scale); ctx.lineTo(sx + scale, sy + scale); }
-      if (ownerAt(c.x - 1, c.y) !== c.owner) { ctx.moveTo(sx, sy); ctx.lineTo(sx, sy + scale); }
-      if (ownerAt(c.x + 1, c.y) !== c.owner) { ctx.moveTo(sx + scale, sy); ctx.lineTo(sx + scale, sy + scale); }
-      ctx.stroke();
-      // Contested: a stripe in the rival's colour.
-      if (c.contestedBy !== null && knownFactions.has(c.contestedBy) && scale >= 4) {
-        ctx.strokeStyle = hexToRgba(factions[c.contestedBy].color, 0.8);
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(sx, sy + scale);
-        ctx.lineTo(sx + scale, sy);
-        ctx.stroke();
+    // Security: a faint tint over explored sectors, safe space blue through lawless red.
+    if (fog()) {
+      for (const c of cells) {
+        if (!fog().isExplored(c.x, c.y)) continue;
+        const [sx, sy] = toScreen(c.x, c.y);
+        if (!onScreen(sx, sy)) continue;
+        ctx.fillStyle = hexToRgba(Security.LEVELS[c.security].color, 0.06);
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
       }
     }
 
@@ -304,13 +283,13 @@ const GalaxyMap = (() => {
     ctx.strokeStyle = 'rgba(255, 90, 110, 0.6)';
     ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(bx1 - bx0), Math.round(by1 - by0));
 
-    // Charted pockets: soft discs in the owner's colour around known settlements.
+    // Charted pockets: soft discs in the culture's colour around known settlements.
     for (const pk of galaxy.pockets) {
       if (pk.kind === 'system' ? !sysKnown(systems[pk.id]) : !outpostKnown(galaxy.outposts[pk.id])) continue;
       const [sx, sy] = toScreen(pk.x, pk.y);
       const pr = pk.r * scale;
       if (sx + pr < x0 || sy + pr < y0 || sx - pr > x1 || sy - pr > y1) continue;
-      const color = galaxy.factionColor(pk.faction);
+      const color = galaxy.cultureColor(pk.culture);
       ctx.fillStyle = hexToRgba(color, 0.3);
       ctx.strokeStyle = hexToRgba(color, 0.8);
       ctx.lineWidth = 1;
@@ -349,52 +328,40 @@ const GalaxyMap = (() => {
         if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
         if (!inside(sx, sy, 5)) continue;
-        ctx.fillStyle = o.faction === null ? '#7d869e' : factions[o.faction].color;
+        ctx.fillStyle = galaxy.cultureColor(o.culture);
         ctx.fillRect(sx - op / 2, sy - op / 2, op, op);
       }
     }
 
     const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
 
-    // Systems, capitals and Waystations.
+    // Systems: major ones larger, the capital ringed.
     const r = clamp(scale * 0.28, 2.5, 8);
     for (const s of systems) {
       if (!sysKnown(s)) continue;
       const [sx, sy] = centreOf(s.id);
       if (!inside(sx, sy, 20)) continue;
-      const color = galaxy.factionColor(s.faction);
-      const sr = s.faction !== null && factions[s.faction].kind === 'minor' ? r * 0.75 : r;
+      const color = galaxy.cultureColor(s.culture);
+      const sr = s.capital || s.major ? r : r * 0.75;
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
-      if (s.faction === null) {
-        ctx.arc(sx, sy, sr * 0.8, 0, Math.PI * 2);
+      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+      ctx.fill();
+      if (s.capital) {
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr + 3.5, 0, Math.PI * 2);
         ctx.stroke();
-      } else if (s.waystation) {
-        const d = r + 2;
-        ctx.moveTo(sx, sy - d); ctx.lineTo(sx + d, sy); ctx.lineTo(sx, sy + d); ctx.lineTo(sx - d, sy);
-        ctx.closePath();
-        ctx.fillStyle = Theme.color.bg;
-        ctx.fill();
-        ctx.stroke();
-      } else {
-        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-        ctx.fill();
-        if (s.capital && factions[s.faction].kind === 'major') {
-          ctx.beginPath();
-          ctx.arc(sx, sy, sr + 3.5, 0, Math.PI * 2);
-          ctx.stroke();
-        }
       }
     }
 
-    // Names by zoom: major capitals first, then minor capitals and Waystations, then everything.
+    // Names by zoom: the capital first, then major systems, then everything.
     ctx.font = Theme.font(11);
     ctx.textAlign = 'center';
     const labelZoom = (s) => {
-      if (s.capital && factions[s.faction].kind === 'major') return 6;
-      if (s.capital || s.waystation) return 14;
+      if (s.capital) return 6;
+      if (s.major) return 14;
       return 24;
     };
     const labelColor = { 6: '#e6ebff', 14: '#c3cae0', 24: '#8a95b3' };
@@ -505,7 +472,7 @@ const GalaxyMap = (() => {
 
   function drawLegend() {
     const x = 14;
-    let y = view.h - BOTTOM_BAR - 200;
+    let y = view.h - BOTTOM_BAR - 150;
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
     ctx.fillRect(x - 6, y - 14, 160, 200);
     ctx.font = Theme.font(11);
@@ -515,12 +482,11 @@ const GalaxyMap = (() => {
       ctx.fillText(label, x + 24, y);
       y += 18;
     };
-    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.stroke(); }, 'capital / system');
-    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 7); ctx.fill(); }, 'minor faction');
-    row((cx, cy) => { ctx.strokeStyle = Theme.color.neutral; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 7); ctx.stroke(); }, 'independent');
+    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.stroke(); }, 'capital / major system');
+    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 7); ctx.fill(); }, 'minor system');
     row((cx, cy) => { ctx.fillStyle = '#7d869e'; ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); }, 'outpost');
-    row((cx, cy) => { ctx.strokeStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx, cy + 6); ctx.lineTo(cx - 6, cy); ctx.closePath(); ctx.stroke(); }, 'Waystation');
-    row((cx, cy) => { ctx.fillStyle = 'rgba(61, 139, 255, 0.4)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); ctx.strokeStyle = '#e0a030'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx + 3, cy - 5); ctx.stroke(); }, 'contested');
+    // Security, high to none: the tint over explored sectors.
+    row((cx, cy) => { [3, 2, 1, 0].forEach((l, i) => { ctx.fillStyle = Security.LEVELS[l].color; ctx.fillRect(cx - 8 + i * 4, cy - 4, 4, 8); }); }, 'security high → none');
     row((cx, cy) => { ctx.fillStyle = 'rgba(255, 90, 110, 0.25)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); }, 'frontier');
     row((cx, cy) => { ctx.fillStyle = 'rgba(170, 179, 204, 0.2)'; ctx.strokeStyle = 'rgba(170, 179, 204, 0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill(); ctx.stroke(); }, 'charted pocket');
     row((cx, cy) => { ctx.fillStyle = '#8a95b3'; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy + 4); ctx.textAlign = 'left'; }, 'unidentified signal');
@@ -558,19 +524,10 @@ const GalaxyMap = (() => {
     ? a.system === b.system && a.outpost === b.outpost
     : !!b.sector && a.sector.x === b.sector.x && a.sector.y === b.sector.y);
 
-  function presenceRows(presence, skip) {
-    const { factions } = galaxy;
-    return presence
-      .filter((p) => p.faction !== skip && p.share >= 0.05)
-      .slice(0, 3)
-      .map((p) => row(p.faction === null ? 'unaligned' : factions[p.faction].name, pct(p.share)))
-      .join('');
-  }
   // Names come from config and the generator today, but escape them in case they ever come from
   // saves or players.
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const row = (label, value) => `<div class="row"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
-  const pct = (v) => `${Math.round(v * 100)}%`;
   const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${esc(color)}"></span>${esc(title)}</div>`;
 
   // Sector of a pick, for jumping there.
@@ -609,35 +566,28 @@ const GalaxyMap = (() => {
     const sel = selected || hovered;
     info.hidden = !sel;
     if (!sel) return;
-    const { factions, systems } = galaxy;
+    const culture = (id) => galaxy.cultures[id];
 
     if (sel.system) {
       const s = sel.system;
-      const f = s.faction === null ? { name: galaxy.factionName(null), color: galaxy.factionColor(null), kind: 'independent' } : factions[s.faction];
       const counts = {};
       for (const loc of s.locations) counts[loc.type] = (counts[loc.type] || 0) + 1;
       info.innerHTML =
-        swatchHead(f.color, s.name) +
-        row('type', s.waystation ? 'Waystation · safe haven'
-          : f.kind === 'independent' ? 'independent system'
-          : `${f.name}${s.capital ? ' capital' : s.exclave ? ' colony' : ''}`) +
-        (f.kind === 'minor' ? row('tier', 'minor faction') : '') +
+        swatchHead(galaxy.cultureColor(s.culture), s.name) +
+        row('type', s.capital ? 'capital' : s.major ? 'major system' : 'minor system') +
+        row('culture', culture(s.culture).name) +
         row('sector', `${s.x}, ${s.y}`) +
         securityRow(s.x, s.y) +
-        (s.waystation ? row('faction', 'neutral')
-          : f.kind === 'independent' ? presenceRows(s.presence)
-          : row('dominance', pct(s.dominance)) + presenceRows(s.presence, s.faction)) +
         row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', '));
       return;
     }
 
     if (sel.outpost) {
       const o = sel.outpost;
-      const f = o.faction === null ? null : factions[o.faction];
       info.innerHTML =
-        swatchHead(f ? f.color : '#7d869e', o.name) +
+        swatchHead(galaxy.cultureColor(o.culture), o.name) +
         row('type', o.type) +
-        row('faction', f ? f.name : 'independent') +
+        row('culture', culture(o.culture).name) +
         row('sector', `${o.x}, ${o.y}`) +
         securityRow(o.x, o.y);
       return;
@@ -651,14 +601,11 @@ const GalaxyMap = (() => {
     }
     const contact = galaxy.deepSector(t.x, t.y);
     const contactShown = contact && (showContacts || !fog() || fog().contactState(t.x, t.y) === 'known');
-    const owner = t.owner === null ? null : factions[t.owner];
     info.innerHTML =
-      swatchHead(owner ? owner.color : '#2a3350', `Sector ${t.x}, ${t.y}`) +
+      swatchHead(t.pocket ? galaxy.cultureColor(t.pocket.culture) : '#2a3350', `Sector ${t.x}, ${t.y}`) +
       row('zone', ZONE_LABEL[t.zone]) +
       securityRow(t.x, t.y) +
-      (owner ? row('owner', `${owner.name} ${pct(t.dominance)}`) : '') +
-      (t.contestedBy !== null ? row('contested by', factions[t.contestedBy].name) : '') +
-      (owner ? presenceRows(t.presence, t.owner) : presenceRows(t.presence)) +
+      (t.pocket ? row('near', t.pocket.name) : '') +
       (t.zone === 'pocket' ? '' : row('contact', contactShown
         ? (contact.name || contact.type) + (contact.hostile ? ' · hostile' : '')
         : contact && fog()?.contactState(t.x, t.y) === 'ping' ? 'unidentified signal' : 'none detected'));

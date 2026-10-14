@@ -144,9 +144,6 @@ const Knowledge = (() => {
       knowsSystem: (id) => systems.has(id),
       knowsOutpost: (id) => outposts.has(id),
       contactState: (x, y) => (inside(x, y) ? contacts.get(idx(x, y)) || null : null),
-      // A faction is known once any of its systems or outposts is.
-      knowsFaction: (fid) => galaxy.systems.some((s) => s.faction === fid && systems.has(s.id))
-        || galaxy.outposts.some((o) => o.faction === fid && outposts.has(o.id)),
       counts: () => ({ systems: systems.size, outposts: outposts.size }),
     };
   }

@@ -36,7 +36,6 @@ const Economy = (() => {
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
   const PROFILES = {
     capital: { produces: ['synthetic', 'crates'], consumes: ['mineral', 'gas'], sellsAll: true },
-    waystation: { produces: [], consumes: ['barrels'], sellsAll: true },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
   };
@@ -50,7 +49,7 @@ const Economy = (() => {
   }
 
   // A station as Sectors builds it: { key, market: { kind: 'system' | 'outpost', type } }.
-  // type is the outpost type, or for system stations 'capital' | 'waystation' | 'major' | 'minor'.
+  // type is the outpost type, or for system stations 'capital' | 'major' | 'minor'.
   function profileOf(station, r) {
     const type = station.market.type;
     return PROFILES[type] || mixedProfile(r, type === 'major');

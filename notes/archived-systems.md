@@ -161,3 +161,59 @@ lineage), `art/render.js` (the `field` material), tests in both suites.
 **To bring them back.** Routes need something to join; with factions gone they'd join systems
 directly (nearest neighbours). Restore the gate art and the gate entity first, then
 `checkGates`/`jumpVia` and route knowledge; the rest of the network logic depended on factions.
+
+## Factions, territory and Waystations
+
+**What they were.** The galaxy's politics. A *main faction* held the centre (its capital the start
+system), seven to nine *major factions* of uneven size grew outward from capitals at least 14
+sectors from the centre, and 15–25 *minor factions* of one to three systems filled the gaps; some
+majors had a colony away from home. Each faction spread a control field over the map (a Gaussian
+per system, `sigma` and `reach` per tier): a sector belonged to the faction with the most control
+above `ownThreshold`, and was *contested* when a rival had at least 60% of the owner's control.
+Every sector had a `presence` list (each faction's share), each system a `dominance`. Outside the
+charted pockets, owned space was the *claimed* zone. There were also network factions without
+territory: the *Waystations* (neutral safe havens on the outer edge of settled space, named by a
+registry code like "Waystation KX-418", with their own market profile and no pirates nearby), and
+the pirates, smugglers and guild.
+
+None of this changed play beyond colour: no reputation, no prices by faction, no wars. Security
+came from the zone (pocket, claimed, deep, frontier) plus Waystation proximity.
+
+Art followed politics: each major faction got one of six lineages (wedge, arc, block, shard,
+spindle, coral), minor factions *descended* from the nearest major (blending its numbers by an
+`influence` share), and independents used a fixed culture.
+
+The map drew faction borders (a tint and an outline per owned sector, for factions on your
+charts), contested stripes, systems in faction colours (minor ones smaller, independents hollow,
+Waystations as diamonds, major capitals ringed), presence and dominance rows on the info panels,
+and a stats line counting factions and Waystations. The flight HUD named the sector's owner and
+any rival, and the minimap's frame took the owner's colour. Station cards named the owning
+faction, and ships the faction they flew for.
+
+**What replaced them.**
+- *Cultures*: three regions, wedge, block and shard (`galaxy.cultures`), each system taking
+  the culture of the nearest of three anchor points, and each outpost the culture of its nearest
+  system. Culture sets the art and the colour on the map, nothing else. Pirates kitbash from all
+  three. The one capital is still at the centre.
+- *Security from distance*: each sector's security comes from its distance to the nearest
+  settled system (`params.security`: high within 1.5 sectors, medium within 3.5, low within 6,
+  lawless beyond). Outposts don't count, so a mining camp can sit in rough space.
+- The map tints explored sectors by security; info panels show culture and security; the HUD
+  shows the pocket's name in its culture's colour; the minimap frame shows the security colour.
+
+**Where it lived.** `galaxy.js` (the "Factions", "Control", "Territory" and "Waystations"
+sections, `factions`, `presence`, `owner`/`dominance`/`contestedBy` on `territoryOf`,
+`factionColor`, `factionName`, `nearWaystation`), `data/galaxy-config.js` (`factions`,
+`networks`, sigma overrides), `art/culture.js` (`descend`, the arc, spindle and coral lineages,
+`independent`, faction assignment in `forGalaxy`), `art/blueprints.js` (the arc, spindle and
+coral hulls, wings, insignia and station topologies), `sector.js` (station owners, border
+skirmish debris, the Waystation sector), `economy.js` (the `waystation` profile), `entities.js`
+(faction names on cards), `map.js` (borders, contested stripes, faction legend rows,
+`presenceRows`), `game.js` (owner and rival on the HUD, the claimed zone), `knowledge.js`
+(`knowsFaction`), the Asset Gallery's faction picker, tests in `tests/run.js`.
+
+**To bring them back.** Factions want a mechanic first: reputation (docking, prices, which
+pirates hunt you), territory that pirates or players can change, or missions given per faction.
+The control-field generator can come back almost unchanged from `galaxy.js` on the archive
+branch; security would then add faction strength back to distance. The extra lineages are pure
+art and can return on their own (add them to `LINEAGES` and `CULTURES`).

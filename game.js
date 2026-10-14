@@ -497,8 +497,8 @@ GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
 const DOCK = { range: 320, maxSpeed: 150 }; // range: world units beyond the station's radius
 let docked = null; // { station } while docked; flight is paused and the station menu is open
 
-// Whether the player may dock at a station. Everyone is welcome for now; faction reputation
-// (refusing hostile factions, say) belongs here: return { ok: false, reason: 'Docking refused' }.
+// Whether the player may dock at a station. Everyone is welcome for now; reputation
+// (refusing a wanted pilot, say) belongs here: return { ok: false, reason: 'Docking refused' }.
 function canDock(station) {
   return { ok: true, reason: '' };
 }
@@ -1702,10 +1702,9 @@ function pocketAt(x, y) {
   return world.galaxy.pocketAt(x / SECTOR, y / SECTOR);
 }
 
-// Zone at the ship: charted inside a pocket, otherwise the sector's claimed / deep / frontier.
-function zoneAt(x, y, territory) {
+// Zone at the ship: charted inside a pocket, otherwise the sector's deep space or frontier.
+function zoneAt(x, y) {
   if (pocketAt(x, y)) return 'pocket';
-  if (territory.owner !== null) return 'claimed';
   return world.galaxy.inFrontier(...sectorOf(x, y)) ? 'frontier' : 'deep';
 }
 
@@ -1727,7 +1726,7 @@ function drawPocketEdges() {
   for (const pk of world.galaxy.pockets) {
     const x = pk.x * SECTOR, y = pk.y * SECTOR, r = pk.r * SECTOR;
     if (Math.abs(Math.hypot(x - cam.x, y - cam.y) - r) > reach) continue;
-    ctx.strokeStyle = world.galaxy.factionColor(pk.faction);
+    ctx.strokeStyle = world.galaxy.cultureColor(pk.culture);
     ctx.globalAlpha = 0.28;
     ctx.beginPath();
     ctx.arc(rx(x), ry(y), r, 0, TAU);
@@ -1998,12 +1997,12 @@ function drawMinimap(list) {
   const s = size / SECTOR;
   const [sx, sy] = sectorOf(ship.x, ship.y);
   const ox = sx * SECTOR, oy = sy * SECTOR;
-  const owner = world.galaxy.territoryOf(sx, sy).owner;
+  const security = Security.LEVELS[world.galaxy.territoryOf(sx, sy).security];
 
   ctx.save();
   ctx.fillStyle = 'rgba(5, 6, 10, 0.75)';
   ctx.fillRect(x0, y0, size, size);
-  ctx.strokeStyle = owner === null ? COLORS.dim : world.galaxy.factions[owner].color;
+  ctx.strokeStyle = security.color;
   ctx.globalAlpha = 0.6;
   ctx.lineWidth = 1;
   ctx.strokeRect(x0 + 0.5, y0 + 0.5, size - 1, size - 1);
@@ -2048,7 +2047,7 @@ function drawMinimap(list) {
   ctx.restore();
 }
 
-const ZONE_LABEL = { pocket: 'CHARTED', claimed: 'UNCHARTED · CLAIMED', deep: 'DEEP SPACE', frontier: 'FRONTIER' };
+const ZONE_LABEL = { pocket: 'CHARTED', deep: 'DEEP SPACE', frontier: 'FRONTIER' };
 
 function drawHud() {
   const speed = Math.hypot(ship.vx, ship.vy);
@@ -2077,12 +2076,10 @@ function drawHud() {
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(pad + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, y - 3, 2, 12);
 
-  // Where you are: sector, zone, system and owner.
+  // Where you are: sector, zone, security and the charted pocket you're in.
   const [sx, sy] = sectorOf(ship.x, ship.y);
-  const sec = world.sectors.at(sx, sy);
-  const t = sec.territory;
-  const f = world.galaxy.factions;
-  const zone = zoneAt(ship.x, ship.y, t);
+  const t = world.sectors.at(sx, sy).territory;
+  const zone = zoneAt(ship.x, ship.y);
   const pk = pocketAt(ship.x, ship.y);
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = COLORS.dim;
@@ -2091,16 +2088,9 @@ function drawHud() {
   const security = Security.LEVELS[t.security]; // how dangerous it is here (security.js)
   ctx.fillStyle = security.color;
   ctx.fillText(`SECURITY ${security.label.toUpperCase()}`, pad + ctx.measureText(head).width, pad + 12);
-  ctx.fillStyle = COLORS.dim;
-  const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.waystation ? 'safe haven' : null;
-  const line2 = [
-    pk ? pk.name : null,
-    zone === 'claimed' && owner ? `claimed by ${owner}` : zone === 'pocket' ? owner : null,
-    t.contestedBy !== null ? `contested by ${f[t.contestedBy].name}` : null,
-  ].filter(Boolean).join(' · ');
-  if (line2) {
-    ctx.fillStyle = t.owner !== null ? f[t.owner].color : COLORS.hud;
-    ctx.fillText(line2, pad, pad + 28);
+  if (pk) {
+    ctx.fillStyle = world.galaxy.cultureColor(pk.culture);
+    ctx.fillText(pk.name, pad, pad + 28);
   }
 
   if (!interacted) {

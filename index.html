@@ -169,7 +169,7 @@
 
   /* Station screen */
   #station {
-    --faction: var(--dim); --good: #b6ff8a; --wanted: #ffb347;
+    --culture: var(--dim); --good: #b6ff8a; --wanted: #ffb347;
     position: fixed; inset: 0; z-index: 2; background: var(--bg); color: var(--hud);
     font: 13px/1.45 var(--mono); display: flex; flex-direction: column; align-items: center;
     padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
@@ -181,7 +181,7 @@
   #station > * { width: min(560px, 100%); box-sizing: border-box; padding-left: 16px; padding-right: 16px; }
 
   .st-head { display: flex; align-items: flex-end; gap: 12px; padding-top: 18px; padding-bottom: 14px; }
-  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--faction); padding-left: 12px; }
+  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--culture); padding-left: 12px; }
   #st-name { display: block; font-size: 20px; line-height: 1.2; color: #eef1ff; overflow-wrap: anywhere; }
   #st-sub { display: block; color: var(--dim); margin-top: 2px; }
   #st-credits { font-size: 15px; color: var(--cyan); white-space: nowrap; }

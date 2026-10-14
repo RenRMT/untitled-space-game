@@ -34,7 +34,7 @@ const StationMenu = (() => {
     el('st-name').textContent = ctx.station.name;
     el('st-sub').textContent = ctx.station.subtitle;
     el('st-credits').textContent = credits(ctx.hold.credits);
-    root.style.setProperty('--faction', ctx.station.color);
+    root.style.setProperty('--culture', ctx.station.color);
     el('st-hold').textContent = `Hold ${ctx.hold.items.length}/${ctx.hold.capacity}`;
   }
 

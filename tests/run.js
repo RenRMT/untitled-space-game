@@ -62,19 +62,19 @@ test('generation is deterministic', () => {
   for (const seed of [1, 'abc']) {
     const a = Galaxy.generate(seed, GALAXY_CONFIG), b = Galaxy.generate(seed, GALAXY_CONFIG);
     assert.deepStrictEqual(
-      JSON.stringify({ s: a.systems, o: a.outposts, f: a.factions }),
-      JSON.stringify({ s: b.systems, o: b.outposts, f: b.factions }),
+      JSON.stringify({ s: a.systems, o: a.outposts, p: a.pockets }),
+      JSON.stringify({ s: b.systems, o: b.outposts, p: b.pockets }),
     );
   }
 });
 
-test('every territorial faction holds systems; the start is a capital', () => {
+test('each of the three cultures builds systems; the start is the one capital', () => {
   for (const [seed, g] of galaxies) {
-    for (const f of g.factions) {
-      if (f.kind === 'network') continue;
-      assert(g.systems.some((s) => s.faction === f.id), `seed ${seed}: ${f.name} has no systems`);
-    }
-    assert.strictEqual(g.systems[g.startSystem].capital, true, `seed ${seed}: start is not a capital`);
+    assert.deepStrictEqual(g.cultures.map((c) => c.lineage), ['wedge', 'block', 'shard']);
+    for (const c of g.cultures) assert(g.systems.some((s) => s.culture === c.id), `seed ${seed}: no ${c.name} systems`);
+    for (const o of g.outposts) assert(g.cultures[o.culture], `seed ${seed}: outpost ${o.name} has no culture`);
+    assert.strictEqual(g.systems.filter((s) => s.capital).length, 1, `seed ${seed}: one capital`);
+    assert.strictEqual(g.systems[g.startSystem].capital, true, `seed ${seed}: start is not the capital`);
   }
 });
 
@@ -487,13 +487,17 @@ test('a longer-range scanner charts more sectors', () => {
   assert.strictEqual(explored(2), 25);
 });
 
-test('Waystations carry unique registry codes', () => {
+test('security falls with the distance to the nearest settled system', () => {
   for (const [seed, g] of galaxies) {
-    const ws = g.systems.filter((s) => s.waystation);
-    assert(ws.length >= 6, `seed ${seed}: only ${ws.length} Waystations`);
-    for (const s of ws) assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name), `seed ${seed}: ${s.name}`);
-    assert.strictEqual(new Set(ws.map((s) => s.name)).size, ws.length, `seed ${seed}: duplicate codes`);
-    assert(!g.factions.some((f) => /freeport/i.test(f.name)), 'a faction is still called Freeports');
+    const best = [Infinity, Infinity, Infinity, Infinity]; // nearest distance seen per level
+    const worst = [-1, -1, -1, -1];
+    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
+      const t = g.territoryOf(x, y);
+      best[t.security] = Math.min(best[t.security], t.settledDist);
+      worst[t.security] = Math.max(worst[t.security], t.settledDist);
+    }
+    for (let l = 0; l < 3; l++) assert(worst[l + 1] <= best[l], `seed ${seed}: level ${l + 1} reaches ${worst[l + 1]}, level ${l} starts at ${best[l]}`);
+    for (const s of g.systems) assert.strictEqual(g.securityOf(s.x, s.y), 3, `seed ${seed}: ${s.name} is not high security`);
   }
 });
 
@@ -713,12 +717,15 @@ test('pirates leave components at their gear tier and some cargo; freighters spi
 
 test('security falls from the charted pockets to the frontier, and sets how dangerous pirates are', () => {
   const g = galaxies.get(1);
-  const by = { pocket: [], claimed: [], deep: [], frontier: [] };
+  const by = { pocket: [], deep: [], frontier: [] };
   for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); by[t.zone].push(t.security); }
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
-  assert(mean(by.pocket) > mean(by.claimed) && mean(by.claimed) > mean(by.deep) && mean(by.deep) > mean(by.frontier), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
-  assert(by.pocket.filter((v) => v === 3).length / by.pocket.length > 0.8, 'charted pockets are mostly high security');
-  assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.9, 'the frontier is mostly lawless');
+  assert(mean(by.pocket) > mean(by.deep) && mean(by.deep) > mean(by.frontier), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
+  // Outposts aren't settled systems, so their pockets can lie in rougher space.
+  const sysPocket = [];
+  for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) { const t = g.territoryOf(x, y); if (t.pocket?.kind === 'system') sysPocket.push(t.security); }
+  assert(sysPocket.filter((v) => v === 3).length / sysPocket.length > 0.9, 'systems\' pockets are mostly high security');
+  assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.75, 'the frontier is mostly lawless');
   for (let level = 0; level < 3; level++) {
     const lo = Security.pirates(level), hi = Security.pirates(level + 1);
     const max = (t) => Math.max(...t.map(([v]) => v)), min = (t) => Math.min(...t.map(([v]) => v));
@@ -730,7 +737,6 @@ test('security falls from the charted pockets to the frontier, and sets how dang
 test('pirates come in packs that follow the security level and can be fought one at a time', () => {
   const g = galaxies.get(1);
   const S = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-  const pirates = g.factions.find((f) => f.key === 'pirates').id;
   const packs = [[], [], [], []]; // pack sizes, by security level
   const perSector = [[], [], [], []]; // pirates per sector that has any, by level
   const { orbit: [, o1] } = Security.PACK;
@@ -738,10 +744,9 @@ test('pirates come in packs that follow the security level and can be fought one
     for (let x = 0; x < g.size; x += 2) {
       const sec = S.at(x, y);
       if (sec.contact) continue; // an ambush is one pack on purpose
-      const ps = sec.entities.filter((e) => e.kind === 'ship' && e.faction === pirates);
+      const ps = sec.entities.filter((e) => e.kind === 'ship' && e.pirate);
       if (!ps.length) continue;
       const level = sec.territory.security, P = Security.pirates(level);
-      assert(!g.nearWaystation(x, y), `pirates next to a Waystation at ${x},${y}`);
       const byPack = new Map();
       for (const p of ps) {
         assert(P.tier.some(([t]) => t === p.tier), `tier ${p.tier} at security ${level}`);
