@@ -27,7 +27,9 @@ load('art/culture.js', ['ArtCulture']);
 load('art/blueprints.js', ['ArtBlueprints']);
 load('art/items.js', ['ArtItems']);
 load('art/sprite-cache.js', ['SpriteCache']);
+load('entities.js', ['Entities']);
 load('sector.js', ['Sectors']);
+load('interactions.js', ['Interactions']);
 load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
@@ -36,7 +38,7 @@ load('loadout.js', ['Loadout']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints } = ctx;
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -337,6 +339,59 @@ test('sprite cache: once the frame\'s budget is spent, an object keeps its last 
   const other = SpriteCache.create({ budget, maxPixels: Infinity, maxEntries: 100 });
   other.get('a', slow);
   assert.strictEqual(other.get('b', slow, { fallback: 'a' }).key, 'a');
+});
+
+test('actions: one registry gives each its button state, the things it applies to and its shortcut target', () => {
+  let speed = 0, refused = false, mining = null;
+  const A = Interactions.create({ gap: (e) => e.gap, speed: () => speed });
+  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), run() {} });
+  A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => 160, busy: (e) => (mining && { ok: false, label: mining === e ? 'Mining · 3 sec' : 'Mine · busy', inRange: true, busy: mining === e }), run() {} });
+  A.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => e.hostile, range: 900, run() {} });
+  const st = { kind: 'station', gap: 400 };
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false });
+  st.gap = 300;
+  speed = 200;
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true });
+  speed = 100;
+  assert.deepStrictEqual(A.state(A.get('dock'), st), { ok: true, label: 'Dock', inRange: true });
+  refused = true;
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Docking refused', inRange: true });
+  refused = false;
+  // While busy, the busy state wins over everything else.
+  const rock = { kind: 'asteroid', gap: 5000 }, other = { kind: 'asteroid', gap: 50 };
+  mining = rock;
+  assert.strictEqual(A.state('mine', rock).label, 'Mining · 3 sec');
+  assert.strictEqual(A.state('mine', other).label, 'Mine · busy');
+  mining = null;
+  // What applies to what.
+  assert.deepStrictEqual(A.of({ kind: 'ship', hostile: false }), []);
+  assert.deepStrictEqual(A.of({ kind: 'ship', hostile: true }).map((a) => a.id), ['attack']);
+  assert.strictEqual(A.forKey('F').id, 'dock');
+  assert.strictEqual(A.forKey('x'), null);
+  assert.strictEqual(A.range(A.get('mine')), 160);
+  // A shortcut acts on the selected thing if the action applies to it, else on the nearest in reach.
+  const near = { kind: 'station', gap: 100 }, mid = { kind: 'station', gap: 250 }, far = { kind: 'station', gap: 1000 };
+  assert.strictEqual(A.target(A.get('dock'), null, [far, mid, near, other]), near);
+  assert.strictEqual(A.target(A.get('dock'), far, [near]), far);
+  assert.strictEqual(A.target(A.get('dock'), other, [far]), null);
+});
+
+test('floating items are named by their type, with art made from their type and seed', () => {
+  const g = galaxies.get(1);
+  const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+  let n = 0;
+  for (const s of g.systems.concat(g.outposts)) {
+    for (const e of sectors.at(s.x, s.y).entities.filter((x) => x.kind === 'item')) {
+      n++;
+      assert.strictEqual(e.label, Goods.type(e.itemKind).name);
+      assert.strictEqual(e.art.kind, e.itemKind);
+      assert.ok(e.art.id.startsWith(`item:${e.itemKind}:`));
+      assert.ok(Number.isFinite(e.angle) && Number.isFinite(e.tumble) && Number.isFinite(e.x));
+    }
+  }
+  assert.ok(n > 20, `${n} items`);
+  const d = Entities.item({ key: 'k', kind: 'gold', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
+  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Gold', 'trade', 'gold', 5, 6]);
 });
 
 test('ships have a role and unique keys that survive a rebuild', () => {

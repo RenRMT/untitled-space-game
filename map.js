@@ -336,7 +336,7 @@ const GalaxyMap = (() => {
       const [sx, sy] = toScreen(pk.x, pk.y);
       const pr = pk.r * scale;
       if (sx + pr < 0 || sy + pr < 0 || sx - pr > w || sy - pr > h) continue;
-      const color = pk.faction === null ? Theme.color.neutral : factions[pk.faction].color;
+      const color = galaxy.factionColor(pk.faction);
       ctx.fillStyle = hexToRgba(color, 0.3);
       ctx.strokeStyle = hexToRgba(color, 0.8);
       ctx.lineWidth = 1;
@@ -411,7 +411,7 @@ const GalaxyMap = (() => {
       if (!sysKnown(s)) continue;
       const [sx, sy] = centreOf(s.id);
       if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
-      const color = s.faction === null ? Theme.color.neutral : factions[s.faction].color;
+      const color = galaxy.factionColor(s.faction);
       const sr = s.faction !== null && factions[s.faction].kind === 'minor' ? r * 0.75 : r;
       ctx.fillStyle = color;
       ctx.strokeStyle = color;
@@ -661,7 +661,7 @@ const GalaxyMap = (() => {
 
     if (sel.system) {
       const s = sel.system;
-      const f = s.faction === null ? { name: 'Independent', color: Theme.color.neutral, kind: 'independent' } : factions[s.faction];
+      const f = s.faction === null ? { name: galaxy.factionName(null), color: galaxy.factionColor(null), kind: 'independent' } : factions[s.faction];
       const links = galaxy.routes
         .filter((l) => (l.a === s.id || l.b === s.id) && routeKnown(l))
         .map((l) => `${systems[l.a === s.id ? l.b : l.a].name} (${l.kind})`);

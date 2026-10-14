@@ -149,15 +149,17 @@ Settings.onToggle = (open) => {
   if (open) drag.active = false;
 };
 
-// Keyboard shortcuts act on the selected object, or else on the nearest one in range.
+// Keyboard shortcuts. An action's key (F to dock, E to mine: see `actions` below) acts on the
+// selected object, or else on the nearest one in reach.
 window.addEventListener('keydown', (e) => {
   if (GalaxyMap.isOpen || docked) return;
   // With no buttons showing them any more, the V and C shortcuts say what they switched to.
   if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
   if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
-  if (e.key === 'f' || e.key === 'F') shortcut('station', dockState, dock);
-  if (e.key === 'e' || e.key === 'E') shortcut('asteroid', mineState, startMining);
   if (e.key === 'Escape') select(null);
+  const a = actions.forKey(e.key);
+  const target = a && actions.target(a, selected && selected.e, frameList);
+  if (target) a.run(target);
 });
 
 ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
@@ -183,12 +185,8 @@ const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].
 
 // A floating item from its saved form { key, kind (a goods.js type), seed, x, y }.
 function dropEntity(d) {
-  const art = ArtItems.create(d.kind, d.seed);
   const r = mulberry32(d.seed);
-  return {
-    kind: 'item', art, key: d.key, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
-    angle: r() * TAU, tumble: (r() - 0.5) * 0.3, radius: art.radius, x: d.x, y: d.y, drop: d,
-  };
+  return { ...Entities.item({ key: d.key, kind: d.kind, seed: d.seed, x: d.x, y: d.y, angle: r() * TAU, tumble: (r() - 0.5) * 0.3 }), drop: d };
 }
 
 // An item record from a save, brought up to date: saves from before item types stored a category
@@ -369,32 +367,17 @@ function canDock(station) {
   return { ok: true, reason: '' };
 }
 
-const MARKET_LABEL = {
-  capital: 'Capital station', waystation: 'Waystation', major: 'Station', minor: 'Station',
-};
-const stationSubtitle = (st) => {
-  const type = st.market.kind === 'outpost' ? st.market.type[0].toUpperCase() + st.market.type.slice(1) : MARKET_LABEL[st.market.type];
-  if (st.market.type === 'waystation') return `${type} · neutral safe haven`;
-  const f = st.faction === null || st.faction === undefined ? null : world.galaxy.factions[st.faction];
-  return f ? `${type} · ${f.name}` : `${type} · independent`;
-};
-
 // Distance from the ship to an object's edge.
 const gapTo = (e) => Math.hypot(ship.x - e.x, ship.y - e.y) - e.radius;
 const shipSpeed = () => Math.hypot(ship.vx, ship.vy);
 
-// Whether the ship can dock at a station right now, as the context card shows it:
-// { ok, label, inRange }. inRange is false when the ship has to come closer first.
-function dockState(st) {
-  const allowed = canDock(st);
-  if (!allowed.ok) return { ok: false, label: allowed.reason, inRange: true };
-  if (gapTo(st) > DOCK.range) return { ok: false, label: 'Dock · too far', inRange: false };
-  if (shipSpeed() > DOCK.maxSpeed) return { ok: false, label: 'Dock · slow down', inRange: true };
-  return { ok: true, label: 'Dock', inRange: true };
-}
+// What the player can do with things in space (interactions.js): each action is added next to its
+// code below. Its state ({ ok, label, inRange }) is what the context card's button shows; inRange
+// is false while the ship has to come closer first.
+const actions = Interactions.create({ gap: gapTo, speed: shipSpeed });
 
 function dock(station) {
-  if (docked || inFight() || !dockState(station).ok) return;
+  if (docked || inFight() || !actions.state('dock', station).ok) return;
   stopMining();
   select(null);
   autopilot.key = null;
@@ -410,7 +393,7 @@ function dock(station) {
   GalaxyMap.blocked = true;
   document.body.classList.add('docked');
   StationMenu.open({
-    station: { name: station.name, subtitle: stationSubtitle(station), color: station.color },
+    station: { name: station.name, subtitle: Entities.stationSubtitle(station, world.galaxy), color: station.color },
     market: Economy.market(world.galaxy.seed, station),
     hold,
     ship: SHIP,
@@ -420,6 +403,8 @@ function dock(station) {
     onLaunch: launch,
   });
 }
+
+actions.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: () => DOCK.range, maxSpeed: () => DOCK.maxSpeed, allowed: canDock, run: dock });
 
 // Back to space just outside the station, on the side the ship came in from, at rest.
 function launch() {
@@ -452,28 +437,29 @@ function stopMining(notice) {
   if (notice) notify(notice);
 }
 
-// Whether the ship can mine an asteroid right now, as the context card shows it:
-// { ok, label, inRange, busy, progress }. While mining it, the label counts down.
-function mineState(a) {
-  if (mining.target) {
-    if (mining.target.key !== a.key) return { ok: false, label: 'Mine · busy', inRange: true };
-    return {
-      ok: false, busy: true, inRange: true, progress: mining.t / mineTime(),
-      label: `Mining · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`,
-    };
-  }
-  if (gapTo(a) > Mining.config.range) return { ok: false, label: 'Mine · too far', inRange: false };
-  if (shipSpeed() > Mining.config.maxSpeed) return { ok: false, label: 'Mine · slow down', inRange: true };
-  return { ok: true, label: 'Mine', inRange: true };
+// While mining, the Mine button counts down on the asteroid being mined (with a progress bar),
+// and is busy on any other.
+function miningBusy(a) {
+  if (!mining.target) return null;
+  if (mining.target.key !== a.key) return { ok: false, label: 'Mine · busy', inRange: true };
+  return {
+    ok: false, busy: true, inRange: true, progress: mining.t / mineTime(),
+    label: `Mining · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`,
+  };
 }
 
 function startMining(a) {
-  if (docked || inFight() || !mineState(a).ok) return;
+  if (docked || inFight() || !actions.state('mine', a).ok) return;
   mining.target = a;
   mining.t = 0;
   autopilot.key = null;
   ship.targetSpeed = 0; // all stop, so the ship stays in range
 }
+
+actions.add({
+  id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
+  busy: miningBusy, run: startMining,
+});
 
 // Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up.
 function chips(a, n, speed) {
@@ -664,7 +650,8 @@ function nearbyEntities(t) {
 
 // ---------- Gates: flying into the aperture jumps to the gate at the other end ----------
 
-const gateKey = (g) => `${g.link}@${Math.floor(g.x / SECTOR)},${Math.floor(g.y / SECTOR)}`;
+// The gate at the other end of a gate's route.
+const partnerGate = (g) => world.sectors.at(g.dest.x, g.dest.y).entities.find((e) => e.kind === 'gate' && e.link === g.link);
 
 // Returns true when the ship jumped.
 function checkGates(list) {
@@ -675,19 +662,19 @@ function checkGates(list) {
   for (const g of list) {
     if (g.kind !== 'gate') continue;
     const d = Math.hypot(ship.x - g.x, ship.y - g.y);
-    if (gateLock === gateKey(g)) {
+    if (gateLock === g.key) {
       if (d > g.aperture + 80) gateLock = null;
       continue;
     }
     if (d > g.aperture * 0.7) continue;
-    const there = world.sectors.at(g.dest.x, g.dest.y).entities.find((e) => e.kind === 'gate' && e.link === g.link);
+    const there = partnerGate(g);
     if (!there) continue;
     // Keep the offset within the aperture and the velocity, so the ship carries straight through.
     const dx = there.x - g.x, dy = there.y - g.y;
     ship.x += dx; ship.y += dy;
     cam.x += dx; cam.y += dy;
     particles.length = 0;
-    gateLock = gateKey(there);
+    gateLock = there.key;
     gateFlash = 1;
     world.knowledge.knowRoute(g.link); // using a gate charts its route, hidden ones included
     return true;
@@ -698,28 +685,23 @@ function checkGates(list) {
 // Jumping from the context card: no need to thread the aperture, just be close.
 const JUMP = { range: 500 }; // world units beyond the gate's radius
 
-const partnerGate = (g) => world.sectors.at(g.dest.x, g.dest.y).entities.find((e) => e.kind === 'gate' && e.link === g.link);
-
-function jumpState(g) {
-  if (gapTo(g) > JUMP.range) return { ok: false, label: 'Jump · too far', inRange: false };
-  return { ok: true, label: 'Jump', inRange: true };
-}
-
 // Come out on the system side of the gate at the other end, heading into the system.
 function jumpVia(g) {
-  if (inFight() || !jumpState(g).ok) return;
+  if (inFight() || !actions.state('jump', g).ok) return;
   const there = partnerGate(g);
   if (!there) return;
   const out = there.angle + Math.PI;
   const d = there.aperture + 160;
   placeShip(there.x + Math.cos(out) * d, there.y + Math.sin(out) * d, out);
-  gateLock = gateKey(there);
+  gateLock = there.key;
   gateFlash = 1;
   world.knowledge.knowRoute(g.link);
   select(null);
   const sys = world.galaxy.systems.find((s) => s.x === g.dest.x && s.y === g.dest.y);
   notify(sys ? `Jumped to ${sys.name}` : 'Jumped', 2.5);
 }
+
+actions.add({ id: 'jump', kind: 'gate', verb: 'Jump', range: () => JUMP.range, run: jumpVia });
 
 // ---------- Selection: tap something for its context card ----------
 
@@ -733,16 +715,14 @@ const HOSTILE_COLOR = COLORS.hostile;
 let selected = null; // { key, e }: the selected entity, found again by key every frame
 let frameList = []; // the entities posed last frame, for hit-testing taps
 
-// A stable identity for anything selectable, or null.
-function entityKey(e) {
-  if (e.kind === 'gate') return `gate:${gateKey(e)}`;
-  if (e.kind === 'station' || e.kind === 'asteroid' || e.kind === 'ship') return e.key ? `${e.kind}:${e.key}` : null;
-  return null;
-}
+// What each kind of thing is: draw order, labels, the minimap, the context card (entities.js).
+const KINDS = Entities.KINDS;
 
-// How far from its centre a tap still hits the object. Stations and gates have wide bounds
-// (docking arms, rings), so only their core counts.
-const hitRadius = (e) => (e.kind === 'station' || e.kind === 'gate' ? e.radius * 0.75 : e.radius);
+// A stable identity for anything selectable, or null.
+const entityKey = (e) => (KINDS[e.kind].selectable && e.key ? `${e.kind}:${e.key}` : null);
+
+// How far from its centre a tap still hits the object (for stations and gates only their core).
+const hitRadius = (e) => e.radius * (KINDS[e.kind].hit || 1);
 
 const screenToWorld = (sx, sy) => [(sx - view.w / 2) / view.zoom + cam.x, (sy - view.h / 2) / view.zoom + cam.y];
 
@@ -769,18 +749,10 @@ function select(e) {
 }
 ContextCard.onClose = () => select(null);
 
-const isHostile = (e) => e.kind === 'ship' && e.faction !== null && e.faction !== undefined
-  && world.galaxy.factions[e.faction].key === 'pirates';
+const isHostile = (e) => Entities.isHostile(e, world.galaxy);
 const fmtDist = (d) => `${(Math.max(0, d) / 1000).toFixed(1)}k`;
-const factionName = (fid) => (fid === null || fid === undefined ? 'Independent' : world.galaxy.factions[fid].name);
-const factionColor = (fid) => (fid === null || fid === undefined ? COLORS.neutral : world.galaxy.factions[fid].color);
-const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };
 
-function asteroidSize(r) {
-  return r < 16 ? 'Small' : r < 32 ? 'Medium' : 'Large';
-}
-
-// The primary action for an object (Dock, Mine, Jump), from its state function.
+// An action's button on the context card, from its state.
 function primary(id, state) {
   return { id, label: state.label, enabled: state.ok, busy: !!state.busy, progress: state.progress };
 }
@@ -791,51 +763,25 @@ function approachActions(e, inRange) {
   return inRange ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
 }
 
-// What the context card shows for the selected object.
+// What the context card shows for the selected object: what it is (its kind's card) and what can
+// be done with it (its actions), plus Approach while it's out of reach. Anything without an
+// action (a friendly ship) can always be approached, and ships are followed.
 function describe(e) {
-  const dist = fmtDist(gapTo(e));
-  if (e.kind === 'station') {
-    const s = dockState(e);
-    return {
-      title: e.name, subtitle: `${stationSubtitle(e)} · ${dist}`, color: e.color,
-      actions: [primary('dock', s), ...approachActions(e, s.inRange)],
-    };
-  }
-  if (e.kind === 'asteroid') {
-    const s = mineState(e);
-    const pal = Art.ASTEROIDS[e.ast.type] || Art.ASTEROIDS.stony;
-    return {
-      title: `${pal.label} asteroid`, subtitle: `${asteroidSize(e.radius)} · ${dist}`, color: pal.line,
-      actions: [primary('mine', s), ...approachActions(e, s.inRange)],
-    };
-  }
-  if (e.kind === 'gate') {
-    const s = jumpState(e);
-    return {
-      title: e.name, subtitle: `Built by ${factionName(e.faction)} · ${dist}`, color: e.color,
-      tag: e.hidden ? 'Uncharted' : '', actions: [primary('jump', s), ...approachActions(e, s.inRange)],
-    };
-  }
-  // Ships: hostile ones can be attacked; any ship can be approached (and followed).
-  const hostile = isHostile(e);
-  const attack = hostile ? attackState(e) : null;
+  const card = KINDS[e.kind].card(e, world.galaxy);
+  const states = actions.of(e).map((a) => [a, actions.state(a, e)]);
+  const inRange = states.length > 0 && states.every(([, s]) => s.inRange);
   return {
-    title: e.name || ROLE_LABEL[e.role] || 'Ship', subtitle: `${factionName(e.faction)} · ${dist}`,
-    color: hostile ? HOSTILE_COLOR : factionColor(e.faction),
-    tag: hostile ? 'Hostile' : '', tone: hostile ? 'hostile' : '',
-    actions: hostile ? [primary('attack', attack), ...approachActions(e, attack.inRange)] : approachActions(e, false),
+    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color, tag: card.tag || '', tone: card.tone || '',
+    actions: [...states.map(([a, s]) => primary(a.id, s)), ...approachActions(e, inRange)],
   };
 }
 
 ContextCard.onAction = (id) => {
   const e = selected && selected.e;
   if (!e) return;
-  if (id === 'dock') dock(e);
-  else if (id === 'mine') startMining(e);
-  else if (id === 'jump') jumpVia(e);
-  else if (id === 'attack') engage(e);
-  else if (id === 'approach') approach(e);
+  if (id === 'approach') approach(e);
   else if (id === 'cancel-approach') { autopilot.key = null; ship.targetSpeed = 0; }
+  else if (actions.get(id)) actions.get(id).run(e);
 };
 
 // Find the selected and approached objects among this frame's entities, and refresh the card.
@@ -852,26 +798,15 @@ function updateSelection(list) {
   ContextCard.show(describe(selected.e));
 }
 
-// F and E: act on the selected object if it's the right kind, else on the nearest one in range.
-function shortcut(kind, state, act) {
-  let e = selected && selected.e && selected.e.kind === kind ? selected.e : null;
-  if (!e) {
-    let best = Infinity;
-    for (const x of frameList) {
-      if (x.kind !== kind || !state(x).inRange) continue;
-      const d = gapTo(x);
-      if (d < best) { best = d; e = x; }
-    }
-  }
-  if (e) act(e);
-}
-
 // ---------- Approach: fly to an object and stop beside it ----------
 
+// Stop halfway into the reach of the object's action; things that move (ships) are followed at
+// their kind's distance.
 function approach(e) {
   if (inFight()) return;
-  const reach = e.kind === 'station' ? DOCK.range : e.kind === 'asteroid' ? Mining.config.range : e.kind === 'gate' ? JUMP.range : 600;
-  Object.assign(autopilot, { key: entityKey(e), e, stop: e.radius + reach * 0.5, follow: e.kind === 'ship' });
+  const follow = KINDS[e.kind].follow, a = actions.of(e)[0];
+  const reach = follow || (a ? actions.range(a) : 600);
+  Object.assign(autopilot, { key: entityKey(e), e, stop: e.radius + reach * 0.5, follow: !!follow });
   stopMining();
 }
 
@@ -948,11 +883,6 @@ const RESPAWN_GRACE = 8;
 const SHOT_COLOR = { player: COLORS.cyan, enemy: COLORS.hostile };
 const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
-function attackState(e) {
-  if (gapTo(e) > Combat.config.engageRange) return { ok: false, label: 'Attack · too far', inRange: false };
-  return { ok: true, label: 'Attack', inRange: true };
-}
-
 // Where a combatant is: the player ship, or an enemy's pose.
 function fighterPos(id) {
   if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius };
@@ -969,7 +899,7 @@ function pathVelocity(e) {
   return [(next.x - e.x) / 0.1, (next.y - e.y) / 0.1];
 }
 
-const shipName = (e, i, n) => `${ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`;
+const shipName = (e, i, n) => `${Entities.ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`;
 const fightLog = (line) => { fight.log = [...fight.log, line].slice(-2); };
 
 // An enemy as the flight view keeps it during a fight: its pose (frozen facing you in rounds,
@@ -987,7 +917,7 @@ function realtimeShip(e, name) {
 
 function engage(target, ambushed = false) {
   if (inFight() || docked || !isHostile(target)) return;
-  if (!ambushed && !attackState(target).ok) return;
+  if (!ambushed && !actions.state('attack', target).ok) return;
   const group = frameList.filter((e) => isHostile(e) && e !== target
     && Math.hypot(e.x - target.x, e.y - target.y) <= Combat.config.groupRange);
   group.unshift(target);
@@ -1016,6 +946,9 @@ function engage(target, ambushed = false) {
   document.body.classList.add('in-combat');
   notify(ambushed ? 'Pirates attack!' : 'Combat');
 }
+
+// Hostile ships can be attacked; any ship can be approached (and followed).
+actions.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => isHostile(e), range: () => Combat.config.engageRange, run: (e) => engage(e) });
 
 // A pirate flying into range joins a real-time fight.
 function joinFight(e) {
@@ -1793,7 +1726,7 @@ function drawPocketEdges() {
   for (const pk of world.galaxy.pockets) {
     const x = pk.x * SECTOR, y = pk.y * SECTOR, r = pk.r * SECTOR;
     if (Math.abs(Math.hypot(x - cam.x, y - cam.y) - r) > reach) continue;
-    ctx.strokeStyle = pk.faction === null ? COLORS.neutral : world.galaxy.factions[pk.faction].color;
+    ctx.strokeStyle = world.galaxy.factionColor(pk.faction);
     ctx.globalAlpha = 0.28;
     ctx.beginPath();
     ctx.arc(rx(x), ry(y), r, 0, TAU);
@@ -1818,8 +1751,6 @@ function drawSectorGrid() {
   ctx.stroke();
   ctx.restore();
 }
-
-const DRAW_ORDER = { star: 0, planet: 1, asteroid: 1.5, gate: 2, station: 2, wreck: 3, item: 3.5, ship: 4 };
 
 // Pickup highlight: a soft glow, a steady ring and a ring pulsing outward, in the amber the minimap
 // uses for items; rare and better finds ring in their rarity's colour instead (goods.js). Each item
@@ -1882,22 +1813,15 @@ function visible(e) {
 
 function drawEntities(list, t) {
   const style = artStyle.value;
-  const shown = list.filter(visible).sort((a, b) => DRAW_ORDER[a.kind] - DRAW_ORDER[b.kind]);
+  const shown = list.filter(visible).sort((a, b) => KINDS[a.kind].order - KINDS[b.kind].order);
   perfStats.posed = list.length;
   perfStats.drawn = shown.length;
+  const scene = { t, list, sector: SECTOR };
   let halos = false;
   for (const e of shown) {
     // Pickup highlights go above wrecks and asteroids, just under the items themselves.
     if (e.kind === 'item' && !halos) { drawItemHalos(shown, t); halos = true; }
-    const x = rx(e.x), y = ry(e.y);
-    if (e.kind === 'star') Art.drawStar(ctx, e.body, style, { x, y, t });
-    else if (e.kind === 'planet') {
-      const star = list.find((s) => s.kind === 'star' && Math.abs(s.x - e.x) < SECTOR && Math.abs(s.y - e.y) < SECTOR);
-      Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
-    } else if (e.kind === 'station') Art.drawAsset(ctx, e.art, style, { x, y, spin: e.spin + t * e.art.spinRate, t });
-    else if (e.kind === 'gate') Art.drawAsset(ctx, e.art, style, { x, y, angle: e.angle, spin: e.spin + t * e.art.spinRate, t });
-    else if (e.kind === 'asteroid') Art.drawAsteroid(ctx, e.ast, style, { x, y, spin: e.spin0 + t * e.tumble });
-    else Art.drawAsset(ctx, e.art, style, { x, y, angle: e.a, t, thrust: e.thrust || 0 });
+    KINDS[e.kind].draw(ctx, e, style, rx(e.x), ry(e.y), scene);
   }
 }
 
@@ -1922,21 +1846,13 @@ const worldToScreen = (x, y) => [
   (y - cam.y) * view.zoom + view.h / 2,
 ];
 
-function labelOf(e) {
-  if (!e.name) return null;
-  if (e.kind === 'star') return [COLORS.star, e.body.r * 1.5];
-  if (e.kind === 'planet') return [COLORS.planet, e.body.r * 1.3];
-  if (e.kind === 'station' || e.kind === 'gate') return [e.color, e.radius * 1.05];
-  return [COLORS.neutral, e.radius + 20];
-}
-
 function drawLabels(list) {
   ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   ctx.globalAlpha = 0.75;
   for (const e of list) {
-    const l = labelOf(e);
-    if (!l || !visible(e)) continue;
+    if (!e.name || !visible(e)) continue;
+    const l = KINDS[e.kind].label(e);
     const [sx, sy] = worldToScreen(e.x, e.y + l[1]);
     ctx.fillStyle = l[0];
     ctx.fillText(e.name.toUpperCase(), sx, sy + 14);
@@ -2072,27 +1988,18 @@ function drawMinimap(list) {
 
   for (const e of list) {
     if (e.x < ox || e.y < oy || e.x >= ox + SECTOR || e.y >= oy + SECTOR) continue;
-    if (e.kind === 'asteroid') continue;
-    const mx = x0 + (e.x - ox) * s, my = y0 + (e.y - oy) * s;
-    if (e.kind === 'gate') {
-      // Gates stand out as rings in their builder's colour.
-      ctx.strokeStyle = e.color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(mx, my, 4, 0, TAU);
-      ctx.stroke();
-      continue;
-    }
-    const [color, rad] = e.kind === 'star' ? [COLORS.star, 4]
-      : e.kind === 'planet' ? [COLORS.planet, 3]
-        : e.kind === 'station' ? [e.color, 2.5]
-          : e.kind === 'wreck' ? [COLORS.dim, 1.5]
-            : e.kind === 'item' ? [COLORS.amber, 1.2]
-            : [factionColor(e.faction), 1.2];
-    ctx.fillStyle = color;
+    const m = KINDS[e.kind].mark(e, world.galaxy); // a dot, or a ring (gates)
+    if (!m) continue;
     ctx.beginPath();
-    ctx.arc(mx, my, rad, 0, TAU);
-    ctx.fill();
+    ctx.arc(x0 + (e.x - ox) * s, y0 + (e.y - oy) * s, m.r, 0, TAU);
+    if (m.ring) {
+      ctx.strokeStyle = m.color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = m.color;
+      ctx.fill();
+    }
   }
 
   // Camera viewport.

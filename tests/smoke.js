@@ -51,6 +51,11 @@ game(`
     return world.sectors.at(s.x, s.y).entities.filter((e) => e.kind === 'station').sort((a, b) => b.radius - a.radius)[0];
   };
 `);
+// A click on one of the context card's buttons, as the card's click handler sees it.
+function clickCard(id) {
+  const button = { disabled: false, dataset: { id } };
+  browser.document.getElementById('context').querySelector('.cx-actions').dispatch('click', { target: { closest: () => button } });
+}
 function until(cond, maxFrames, each = '') {
   for (let i = 0; i < maxFrames; i++) {
     if (game(cond)) return true;
@@ -133,8 +138,8 @@ test('selects, approaches and docks at a station', () => {
   browser.frames(1);
   assert.ok(game('ContextCard.isOpen'), 'the context card shows');
   assert.ok(until('!autopilot.key', 3000), 'the approach finishes');
-  assert.ok(game('dockState(__st).ok'), `can dock: ${game('dockState(__st).label')}`);
-  game('dock(__st)');
+  assert.ok(game(`actions.state('dock', __st).ok`), `can dock: ${game(`actions.state('dock', __st).label`)}`);
+  browser.key('f'); // the Dock shortcut, on the selected station
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked with the station menu open');
   browser.frames(3);
 });
@@ -161,8 +166,13 @@ test('mines an asteroid and collects what it leaves', () => {
   assert.ok(found, 'an asteroid with a yield');
   game('placeShip(__rock.x, __rock.y + __rock.radius + 60)');
   browser.frames(1);
-  game('startMining(__rock)');
-  assert.ok(game('mining.target === __rock'), `mining started: ${game('mineState(__rock).label')}`);
+  // Select it and press the context card's Mine button.
+  game('select(__rock)');
+  browser.frames(1);
+  assert.deepStrictEqual(game('describe(__rock).actions.map((a) => a.id)'), ['mine']);
+  clickCard('mine');
+  assert.ok(game('mining.target === __rock'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
+  assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+ sec$/);
   assert.ok(until('cargo.mined.has(__rock.key)', Math.ceil(game('mineTime()') * 60) + 30), 'the asteroid broke up');
   const held = game('cargo.items.length');
   game(`{ const d = cargo.drops.find((e) => e.key === 'drop:' + __rock.key); placeShip(d.x, d.y); }`);

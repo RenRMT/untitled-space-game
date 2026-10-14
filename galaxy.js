@@ -73,6 +73,7 @@ const Galaxy = (() => {
   // or each other.
   const CODE_LETTERS = 'ABCDEFGHJKLMNPRSTVWXYZ';
   const START_STYLES = ['core', 'frontier'];
+  const INDEPENDENT = { name: 'Independent', color: '#9aa4b8' };
 
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
@@ -721,11 +722,16 @@ const Galaxy = (() => {
       };
     }
 
+    // A faction's colour and name by id; null (independent) gets a neutral grey (theme.js's
+    // neutral) and 'Independent'.
+    const factionColor = (fid) => (fid === null || fid === undefined || !factions[fid] ? INDEPENDENT.color : factions[fid].color);
+    const factionName = (fid) => (fid === null || fid === undefined || !factions[fid] ? INDEPENDENT.name : factions[fid].name);
+
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
       factions, systems, outposts, lanes, gates, routes, pockets,
       start: startStyle, startSystem,
-      territoryOf, deepSector, pocketAt, nearWaystation,
+      territoryOf, deepSector, pocketAt, nearWaystation, factionColor, factionName,
       inFrontier: (x, y) => !inner(x, y),
     };
   }
