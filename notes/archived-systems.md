@@ -44,3 +44,19 @@ branches under "Deep-space contacts"), `map.js` (story signals pinged in cyan).
 for credits, or a reward on docking), or a trap (an ambush pack arrives). Anomaly: something to
 scan or mine there (rare goods or components). Story signals: a reason to visit, such as a
 unique component or a research unlock.
+
+## Trading posts, research outposts, refineries and hermitages
+
+**What they were.** Four of the six outpost types (`OUTPOST_TYPES` in `galaxy.js`). An outpost is a
+single minor station in its own sector. These four only differed in their market
+(`Economy` `PROFILES`): trading posts made manufactured goods and stocked every category,
+research outposts made synthetics, refineries made metals, gases and liquids and wanted
+minerals, hermitages made fabrics and food. Nothing else set them apart; the research outpost had
+nothing to do with research. Mining camps (an asteroid field) and salvage yards (wrecks with
+salvage) stay.
+
+**Where they lived.** `galaxy.js` (`OUTPOST_TYPES`), `economy.js` (`PROFILES`).
+
+**To bring them back.** Add the types back to `OUTPOST_TYPES` and their profiles to `PROFILES`;
+better, give each something of its own first (a refinery that turns ore into metal, a research
+outpost that researches cheaper or faster, a trading post with contracts).

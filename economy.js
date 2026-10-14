@@ -4,7 +4,7 @@
 // Prices start from each item type's base price (goods.js). Every station buys every trade good;
 // what it sells, and at what price, depends on what kind of place it is:
 // - categories it produces are cheap, categories it consumes fetch a premium,
-// - outposts follow their type (mining camps sell ore, refineries want it, ...),
+// - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
 //   often where the category is produced); exotics are never sold, only found.
@@ -36,10 +36,6 @@ const Economy = (() => {
     capital: { produces: ['synthetic', 'fabrics', 'crates'], consumes: ['perishables', 'mineral', 'gas'], sellsAll: true },
     waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['perishables', 'tubes', 'gas'] },
-    refinery: { produces: ['metal', 'gas', 'barrels'], consumes: ['mineral'] },
-    'trading post': { produces: ['crates'], consumes: [], sellsAll: true },
-    'research outpost': { produces: ['synthetic'], consumes: ['tubes', 'perishables'] },
-    hermitage: { produces: ['fabrics', 'perishables'], consumes: ['tubes', 'barrels'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
   };
 

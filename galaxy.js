@@ -59,7 +59,8 @@ const Galaxy = (() => {
     { key: 'guild', name: 'Guild', color: '#9fd3ff' },
   ];
   const MINOR_SUFFIXES = ['Compact', 'League', 'Union', 'Assembly', 'Free State', 'Collective', 'Directorate', 'Concord'];
-  const OUTPOST_TYPES = ['mining camp', 'trading post', 'research outpost', 'refinery', 'hermitage', 'salvage yard'];
+  // Outposts: mining camps sit in an asteroid field, salvage yards among wrecks (sector.js).
+  const OUTPOST_TYPES = ['mining camp', 'salvage yard'];
   // Deep-space contacts, one row per type: its label on things in space, its name in notices and
   // with an article in the map's prompt, its colour on the map, whether it attacks, and how often
   // it turns up in each zone outside the pockets (weights). Derelicts hold salvage; ambushes are a
