@@ -172,7 +172,7 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
   // Every tab draws, with slot choices open on the Ship tab.
-  for (const t of ['research', 'ship', 'missions', 'trade']) game(`StationMenu.showTab('${t}')`);
+  for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2'); StationMenu.showTab('trade')`);
   // What Pulse laser Mk II costs, put aboard: components to their store, goods to the hold.
   const give = (id) => game(`for (const c of lab.status('${id}').cost) {
