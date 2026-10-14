@@ -102,11 +102,10 @@ const state = {
 };
 const TYPE_LABELS = {
   player: 'Player ship', fighter: 'Fighter', freighter: 'Freighter', 'station-minor': 'Minor station',
-  'station-major': 'Major station', gate: 'Gate', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star', asteroid: 'Asteroid', loot: 'Loot', trade: 'Trade goods',
+  'station-major': 'Major station', 'wreck-ship': 'Ship wreck', 'wreck-station': 'Station wreck', planet: 'Planet', star: 'Star', asteroid: 'Asteroid', loot: 'Loot', trade: 'Trade goods',
 };
 const THUMB = 168;
-// Gates come right after the stations; only major factions build them.
-const FACTION_TYPES = [...ArtBlueprints.TYPES.slice(0, 4), 'gate', ...ArtBlueprints.TYPES.slice(4)];
+const FACTION_TYPES = ArtBlueprints.TYPES;
 let galaxy, cultures;
 let jobs = [];
 
@@ -139,13 +138,6 @@ function thumb(caption, draw, seed) {
 }
 
 function drawFitted(ctx, bp, style) {
-  if (!bp) {
-    ctx.fillStyle = '#5b626d';
-    ctx.font = '11px IBM Plex Mono, monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('no gate technology', THUMB / 2, THUMB / 2);
-    return;
-  }
   const k = (THUMB * 0.44) / bp.radius;
   ctx.save();
   ctx.translate(THUMB / 2, THUMB / 2);
@@ -229,7 +221,7 @@ function buildStyles() {
         Art.drawAsteroid(ctx, ast, s.id, { spin: 0.6, texel: (ast.r * 2) / 48, force: true });
         ctx.restore();
       }, ri));
-      else el.append(thumb(bp ? bp.label : 'Gate · majors only', (ctx) => drawFitted(ctx, bp, s.id), ri));
+      else el.append(thumb(bp.label, (ctx) => drawFitted(ctx, bp, s.id), ri));
     }
   });
 }

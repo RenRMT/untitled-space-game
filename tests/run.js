@@ -62,35 +62,19 @@ test('generation is deterministic', () => {
   for (const seed of [1, 'abc']) {
     const a = Galaxy.generate(seed, GALAXY_CONFIG), b = Galaxy.generate(seed, GALAXY_CONFIG);
     assert.deepStrictEqual(
-      JSON.stringify({ s: a.systems, o: a.outposts, r: a.routes, f: a.factions }),
-      JSON.stringify({ s: b.systems, o: b.outposts, r: b.routes, f: b.factions }),
+      JSON.stringify({ s: a.systems, o: a.outposts, f: a.factions }),
+      JSON.stringify({ s: b.systems, o: b.outposts, f: b.factions }),
     );
   }
 });
 
-test('every territorial faction holds systems; routes join real systems', () => {
+test('every territorial faction holds systems; the start is a capital', () => {
   for (const [seed, g] of galaxies) {
     for (const f of g.factions) {
       if (f.kind === 'network') continue;
       assert(g.systems.some((s) => s.faction === f.id), `seed ${seed}: ${f.name} has no systems`);
     }
-    for (const r of g.routes) {
-      assert(g.systems[r.a] && g.systems[r.b] && r.a !== r.b, `seed ${seed}: bad route ${JSON.stringify(r)}`);
-    }
     assert.strictEqual(g.systems[g.startSystem].capital, true, `seed ${seed}: start is not a capital`);
-  }
-});
-
-test('every gate has a partner gate at its destination', () => {
-  for (const seed of SEEDS.slice(0, 8)) {
-    const g = galaxies.get(seed);
-    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-    for (const s of g.systems) {
-      for (const gate of sectors.at(s.x, s.y).entities.filter((e) => e.kind === 'gate')) {
-        const there = sectors.at(gate.dest.x, gate.dest.y).entities.find((e) => e.kind === 'gate' && e.link === gate.link);
-        assert(there, `seed ${seed}: gate ${gate.link} at ${s.name} has no partner`);
-      }
-    }
   }
 });
 
@@ -170,17 +154,18 @@ test('a hostile contact on the path interdicts at its sector', () => {
   assert(Math.abs(ev.pos.x - 5) < 1e-9, 'interdicted at the sector edge');
 });
 
-test('learning a route through its gate bumps the knowledge version (map redraw)', () => {
+test('the start charts every settled system, and exploring bumps the knowledge version (map redraw)', () => {
   const g = galaxies.get(1);
   const k = Knowledge.create(g, { fresh: true });
-  const hidden = g.routes.find((r) => r.kind === 'hidden');
-  assert(hidden, 'seed 1 has a hidden route');
-  assert(!k.knowsRoute(hidden.link));
+  assert(g.systems.every((s) => k.knowsSystem(s.id)), 'a system is missing from the starting charts');
+  // A deep-space sector nobody has seen yet.
+  let x = 0, y = 0;
+  while (k.isExplored(x, y)) { x++; if (x >= g.size) { x = 0; y++; } }
   const v = k.version;
-  assert.strictEqual(k.knowRoute(hidden.link), true);
+  assert.strictEqual(k.revealSector(x, y), true);
   assert(k.version > v, 'version did not change');
   const v2 = k.version;
-  k.knowRoute(hidden.link); // already known: no change
+  k.revealSector(x, y); // already explored: no change
   assert.strictEqual(k.version, v2);
   k.save(); // also clears the pending save timer so the process can exit
 });
@@ -306,7 +291,7 @@ test('art ids name what an asset is built from, so a rebuilt sector finds its sp
       else seen.set(e.art.id, print(e.art));
     }
   }
-  assert.ok(seen.size > 500, `${seen.size} distinct assets`);
+  assert.ok(seen.size > g.systems.length, `${seen.size} distinct assets`);
   // The same item type and seed is the same art; another seed or type is not.
   assert.strictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 7).id);
   assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
@@ -768,7 +753,7 @@ test('pirates come in packs that follow the security level and can be fought one
       }
       perSector[level].push(ps.length);
       // However they circle, members of different packs never come within groupRange of each other,
-      // and no pack comes near a station, gate or star.
+      // and no pack comes near a station or star.
       const centre = (p) => [p.motion.cx, p.motion.cy];
       for (const a of ps) {
         for (const b of ps) {
@@ -776,7 +761,7 @@ test('pirates come in packs that follow the security level and can be fought one
           const [ax, ay] = centre(a), [bx, by] = centre(b);
           assert(Math.hypot(ax - bx, ay - by) - a.motion.r - b.motion.r > CombatCore.config.groupRange, `packs ${a.pack} and ${b.pack} at ${x},${y} too close`);
         }
-        for (const e of sec.entities.filter((q) => q.kind === 'station' || q.kind === 'gate' || q.kind === 'star')) {
+        for (const e of sec.entities.filter((q) => q.kind === 'station' || q.kind === 'star')) {
           const [ax, ay] = centre(a);
           assert(Math.hypot(ax - e.x, ay - e.y) - a.motion.r - e.radius >= Security.PACK.clear, `a pack by a ${e.kind} at ${x},${y}`);
         }

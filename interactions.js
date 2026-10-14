@@ -1,7 +1,7 @@
 'use strict';
 
-// What the player can do with a thing in space (dock at a station, mine an asteroid, jump through a
-// gate, attack a pirate), as one registry. The flight view (game.js) adds each action once; the
+// What the player can do with a thing in space (dock at a station, mine an asteroid, attack a
+// pirate), as one registry. The flight view (game.js) adds each action once; the
 // context card's buttons, the keyboard shortcuts and how close an approach stops all come from it,
 // so a new action is one add() call.
 //

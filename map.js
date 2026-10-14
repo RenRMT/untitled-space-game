@@ -3,8 +3,8 @@
 // Full-screen galaxy map overlay. Generates the galaxy from GALAXY_CONFIG (data/galaxy-config.js)
 // with Galaxy.generate (galaxy.js); a ?seed= URL parameter overrides the configured seed.
 // With fog of war (GalaxyMap.knowledge, see knowledge.js) it shows only what the player knows:
-// explored sectors, charted pockets, known systems, outposts and routes, and contacts as signals.
-// ?dev shows everything, plus the testing buttons (Jump, Hidden, Contacts).
+// explored sectors, charted pockets, known systems and outposts, and contacts as signals.
+// ?dev shows everything, plus the testing buttons (Jump, Contacts).
 // Map travel: select a known place or any sector and press Travel; the flight view runs the trip
 // (travel.js) and the map shows the route, progress, signal prompts, Stop and fast-forward.
 
@@ -14,7 +14,6 @@ const GalaxyMap = (() => {
   const ctx = canvas.getContext('2d');
   const info = document.getElementById('map-info');
   const statsEl = document.getElementById('map-stats');
-  const hiddenBtn = document.getElementById('map-hidden');
   const contactsBtn = document.getElementById('map-contacts');
   const jumpBtn = document.getElementById('map-jump');
   const travelBtn = document.getElementById('map-travel');
@@ -34,7 +33,6 @@ const GalaxyMap = (() => {
   let galaxy = null;
   let cells = []; // territoryOf() per sector, cached for drawing
   let contacts = []; // deep-space encounters, for the dev layer
-  let showHidden = false;
   let showContacts = false;
   let player = null; // the ship's position in sector units, set by the flight view
   let onJump = null;
@@ -47,10 +45,9 @@ const GalaxyMap = (() => {
   const fog = () => (dev ? null : knowledge);
   let trip = null; // the flight view's Travel instance, for drawing the route
   let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
-  for (const id of ['map-jump', 'map-hidden', 'map-contacts']) document.getElementById(id).hidden = !dev;
+  for (const id of ['map-jump', 'map-contacts']) document.getElementById(id).hidden = !dev;
   const sysKnown = (s) => !fog() || fog().knowsSystem(s.id);
   const outpostKnown = (o) => !fog() || fog().knowsOutpost(o.id);
-  const routeKnown = (r) => (!fog() || fog().knowsRoute(r.link)) && (r.kind !== 'hidden' || showHidden || fog());
 
   // scale = screen px per sector; (ox, oy) = sector coordinate at the screen's top-left.
   const view = { w: 0, h: 0, dpr: 1, scale: 1, minScale: 0.3, ox: 0, oy: 0 };
@@ -177,7 +174,7 @@ const GalaxyMap = (() => {
   const stats = { drawMs: 0, staticMs: 0, rebuilds: 0, frames: 0 }; // for the performance overlay
   // Signature of everything the static layer depends on, other than where the view is.
   const layerKey = () => [galaxy.seed, galaxy.systems.length, view.w, view.h, view.dpr,
-    fog() ? fog().version : -1, knowledgeId, showHidden, showContacts].join('|');
+    fog() ? fog().version : -1, knowledgeId, showContacts].join('|');
   const sameView = (v) => v.ox === view.ox && v.oy === view.oy && v.scale === view.scale;
 
   let wheeling = false; // a wheel zoom is under way
@@ -357,29 +354,7 @@ const GalaxyMap = (() => {
       }
     }
 
-    // Lanes and gates.
     const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
-    ctx.lineWidth = clamp(scale * 0.12, 1.5, 3);
-    ctx.globalAlpha = 0.85;
-    for (const l of galaxy.routes) {
-      if (l.kind !== 'lane' || !routeKnown(l)) continue;
-      const [ax, ay] = centreOf(l.a);
-      const [bx, by] = centreOf(l.b);
-      ctx.strokeStyle = factions[systems[l.a].faction].color;
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    ctx.lineWidth = 1.5;
-    for (const g of galaxy.routes) {
-      if (g.kind === 'lane' || !routeKnown(g)) continue;
-      const hidden = g.kind === 'hidden';
-      const [ax, ay] = centreOf(g.a);
-      const [bx, by] = centreOf(g.b);
-      ctx.strokeStyle = hidden ? Theme.color.hostile : Theme.color.hud;
-      ctx.setLineDash(hidden ? [2, 4] : [7, 5]);
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    }
-    ctx.setLineDash([]);
 
     // Systems, capitals and Waystations.
     const r = clamp(scale * 0.28, 2.5, 8);
@@ -545,8 +520,6 @@ const GalaxyMap = (() => {
     row((cx, cy) => { ctx.strokeStyle = Theme.color.neutral; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, 7); ctx.stroke(); }, 'independent');
     row((cx, cy) => { ctx.fillStyle = '#7d869e'; ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); }, 'outpost');
     row((cx, cy) => { ctx.strokeStyle = '#f2f2f2'; ctx.beginPath(); ctx.moveTo(cx, cy - 6); ctx.lineTo(cx + 6, cy); ctx.lineTo(cx, cy + 6); ctx.lineTo(cx - 6, cy); ctx.closePath(); ctx.stroke(); }, 'Waystation');
-    row((cx, cy) => { ctx.strokeStyle = '#aab3cc'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.lineWidth = 1.5; }, 'lane');
-    row((cx, cy) => { ctx.strokeStyle = Theme.color.hud; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.setLineDash([]); }, 'gate');
     row((cx, cy) => { ctx.fillStyle = 'rgba(61, 139, 255, 0.4)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); ctx.strokeStyle = '#e0a030'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx + 3, cy - 5); ctx.stroke(); }, 'contested');
     row((cx, cy) => { ctx.fillStyle = 'rgba(255, 90, 110, 0.25)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); }, 'frontier');
     row((cx, cy) => { ctx.fillStyle = 'rgba(170, 179, 204, 0.2)'; ctx.strokeStyle = 'rgba(170, 179, 204, 0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill(); ctx.stroke(); }, 'charted pocket');
@@ -641,9 +614,6 @@ const GalaxyMap = (() => {
     if (sel.system) {
       const s = sel.system;
       const f = s.faction === null ? { name: galaxy.factionName(null), color: galaxy.factionColor(null), kind: 'independent' } : factions[s.faction];
-      const links = galaxy.routes
-        .filter((l) => (l.a === s.id || l.b === s.id) && routeKnown(l))
-        .map((l) => `${systems[l.a === s.id ? l.b : l.a].name} (${l.kind})`);
       const counts = {};
       for (const loc of s.locations) counts[loc.type] = (counts[loc.type] || 0) + 1;
       info.innerHTML =
@@ -657,9 +627,7 @@ const GalaxyMap = (() => {
         (s.waystation ? row('faction', 'neutral')
           : f.kind === 'independent' ? presenceRows(s.presence)
           : row('dominance', pct(s.dominance)) + presenceRows(s.presence, s.faction)) +
-        row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', ')) +
-        row('links', links.length ? '' : 'none · deep space only') +
-        links.map((l) => row('', l)).join('');
+        row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', '));
       return;
     }
 
@@ -840,7 +808,6 @@ const GalaxyMap = (() => {
     updateInfo();
     close();
   });
-  hiddenBtn.addEventListener('click', () => { showHidden = setToggle(hiddenBtn, !showHidden); });
   contactsBtn.addEventListener('click', () => { showContacts = setToggle(contactsBtn, !showContacts); });
   document.getElementById('map-reset').addEventListener('click', () => {
     selected = null;

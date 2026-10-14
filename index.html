@@ -93,7 +93,7 @@
   }
   .panel[hidden] { display: none; }
 
-  /* Context card: tap a station, gate, asteroid or ship and its card shows above the speed bar
+  /* Context card: tap a station, asteroid or ship and its card shows above the speed bar
      with what you can do there. Docked, the flight controls go away. */
   #context { width: min(360px, calc(100vw - 24px)); border-left-color: var(--accent, var(--cyan)); }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
@@ -423,7 +423,6 @@
   <div id="map-info" hidden></div>
   <div class="bar bottom">
     <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
-    <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Testing: show hidden routes" hidden>Hidden</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>

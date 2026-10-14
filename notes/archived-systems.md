@@ -127,3 +127,37 @@ category shapes), `economy.js` (`PROFILES`, `config.stock`).
 **To bring them back.** Copy the rows back into `TABLE` (and the fabric and food shapes into
 `art/items.js`). They'd want a use beyond buying low and selling high: more research recipes, or
 station demand that makes some runs worth flying.
+
+## Jump gates, lanes and hidden routes
+
+**What they were.** A fast-travel network between systems (`galaxy.routes`): *lanes* joined each
+faction's neighbouring systems (a minimum spanning tree per cluster plus a loop or two), *gates*
+joined factions to each other (a spanning network over nearby majors, links to the main
+faction's network, about half the minor factions, colonies back to their home cluster), and
+*hidden* routes led into one or two isolated major factions and sometimes to a Waystation. Every
+route had a gate station at each end, built in the culture of the faction that owned the system
+(or the major at the other end), on the side facing the destination. Flying into a gate's
+aperture (or pressing Jump on its card within 500 units) carried the ship to the partner gate,
+with a white flash; a gate lock stopped it bouncing straight back, and jumping was locked in
+combat. Using a gate charted its route, hidden ones included. The fog of war started with the
+start system's whole network charted, the map drew lanes in faction colours and gates as dashed
+lines (hidden ones red, behind the dev "Hidden" toggle), and a system's map card listed its links.
+Off-screen gates within 1.5 sectors got edge markers.
+
+The art had six gate forms, one per lineage (ring, halo, frame, pylons, spar, maw), each with a
+clear "field" aperture.
+
+**What replaced them.** Flying and map travel (`travel.js`). Every settled system is charted
+from the start. Off-screen *stations* within 1.5 sectors now get the edge markers gates had.
+
+**Where it lived.** `galaxy.js` (the "Lanes", "Gates" and "Routes" sections, `isolated` on
+factions), `sector.js` (`gatesAt`, gate entities with `dest`, `link`, `aperture`), `entities.js`
+(the `gate` kind), `game.js` (`partnerGate`, `checkGates`, `jumpVia`, the `jump` action,
+`gateLock`, `gateFlash`, gate nav markers), `knowledge.js` (`routes`, `knowRoute`, charting the
+start network), `map.js` (route drawing, `routeKnown`, the Hidden toggle, links rows, legend),
+`art/blueprints.js` (the "Gate stations" section), `art/culture.js` (`gate` and `gateNote` per
+lineage), `art/render.js` (the `field` material), tests in both suites.
+
+**To bring them back.** Routes need something to join; with factions gone they'd join systems
+directly (nearest neighbours). Restore the gate art and the gate entity first, then
+`checkGates`/`jumpVia` and route knowledge; the rest of the network logic depended on factions.

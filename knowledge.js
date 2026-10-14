@@ -3,12 +3,10 @@
 // What the player knows about the galaxy (fog of war for the map):
 // - explored sectors,
 // - known systems and outposts (their pockets count as explored),
-// - known routes (lanes and gates),
 // - deep-space contacts, either pinged (something is there) or identified.
-// It starts with the charted network around the start system: everything reachable over lanes and
-// charted gates. It grows as the
-// ship flies (sensors), uses gates and travels on the map. Hidden
-// routes are only learned by using their gate. Saved per galaxy (store.js).
+// It starts with every settled system charted (and the outposts in their pockets): where to trade
+// and research is known; what lies between them is found by flying (sensors) and travelling on the
+// map. Saved per galaxy (store.js).
 // Browser script (global `Knowledge`).
 
 const Knowledge = (() => {
@@ -23,12 +21,9 @@ const Knowledge = (() => {
     const explored = new Uint8Array(size * size);
     const systems = new Set();
     const outposts = new Set();
-    const routes = new Set();
     const contacts = new Map(); // sector index -> 'ping' | 'known'
     const systemAt = new Map(galaxy.systems.map((s) => [idx(s.x, s.y), s]));
     const outpostAt = new Map(galaxy.outposts.map((o) => [idx(o.x, o.y), o]));
-    const routesOf = new Map();
-    for (const r of galaxy.routes) for (const id of [r.a, r.b]) (routesOf.get(id) || routesOf.set(id, []).get(id)).push(r);
     const storeKey = `knowledge:${Galaxy.saveKey(galaxy)}`;
     let version = 0; // bumps on every change, so the map knows when to redraw
     let saveTimer = null;
@@ -69,25 +64,12 @@ const Knowledge = (() => {
       for (const o of galaxy.outposts) if (Math.hypot(o.x - s.x, o.y - s.y) <= s.pocket) knowOutpost(o);
       return true;
     }
-    function knowRoute(link) {
-      const r = galaxy.routes[link];
-      if (!r || routes.has(link)) return false;
-      routes.add(link);
-      knowSystem(galaxy.systems[r.a]);
-      knowSystem(galaxy.systems[r.b]);
-      return true;
-    }
-
-    // Arriving in a sector: everything in it is identified. In a system, its charted routes become
-    // known too (their gates are signposted); hidden routes stay unknown until used.
+    // Arriving in a sector: everything in it is identified.
     function revealSector(x, y) {
       if (!inside(x, y)) return false;
       let any = explore(x, y);
       const s = systemAt.get(idx(x, y));
-      if (s) {
-        any = knowSystem(s) || any;
-        for (const r of routesOf.get(s.id) || []) if (r.kind !== 'hidden') any = knowRoute(r.link) || any;
-      }
+      if (s) any = knowSystem(s) || any;
       const o = outpostAt.get(idx(x, y));
       if (o) any = knowOutpost(o) || any;
       if (galaxy.deepSector(x, y) && contacts.get(idx(x, y)) !== 'known') { contacts.set(idx(x, y), 'known'); any = true; }
@@ -127,7 +109,7 @@ const Knowledge = (() => {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       Store.setJSON(storeKey, {
         explored: Array.from(explored.reduce((acc, v, i) => (v && acc.push(i), acc), [])),
-        systems: [...systems], outposts: [...outposts], routes: [...routes], contacts: [...contacts],
+        systems: [...systems], outposts: [...outposts], contacts: [...contacts],
       });
     }
     function load() {
@@ -137,7 +119,6 @@ const Knowledge = (() => {
         for (const i of d.explored) explored[i] = 1;
         d.systems.forEach((v) => systems.add(v));
         d.outposts.forEach((v) => outposts.add(v));
-        d.routes.forEach((v) => routes.add(v));
         d.contacts.forEach(([k, v]) => contacts.set(k, v));
         return true;
       } catch (e) {
@@ -145,19 +126,9 @@ const Knowledge = (() => {
       }
     }
 
-    // Starting charts: the network reachable from the start system over lanes and charted gates.
+    // Starting charts: every settled system, with the outposts in its pocket.
     function chartStart() {
-      const start = galaxy.systems[galaxy.startSystem];
-      knowSystem(start);
-      const queue = [start.id];
-      while (queue.length) {
-        const id = queue.shift();
-        for (const r of routesOf.get(id) || []) {
-          if (r.kind === 'hidden' || routes.has(r.link)) continue;
-          knowRoute(r.link);
-          queue.push(r.a === id ? r.b : r.a);
-        }
-      }
+      for (const s of galaxy.systems) knowSystem(s);
       changed();
     }
 
@@ -169,16 +140,14 @@ const Knowledge = (() => {
       sense, pass, save,
       // Public versions record the change (version bump and save), like sense() and pass() do.
       revealSector: (x, y) => { const any = revealSector(x, y); if (any) changed(); return any; },
-      knowRoute: (link) => { const any = knowRoute(link); if (any) changed(); return any; },
       isExplored: (x, y) => inside(x, y) && explored[idx(x, y)] === 1,
       knowsSystem: (id) => systems.has(id),
       knowsOutpost: (id) => outposts.has(id),
-      knowsRoute: (link) => routes.has(link),
       contactState: (x, y) => (inside(x, y) ? contacts.get(idx(x, y)) || null : null),
       // A faction is known once any of its systems or outposts is.
       knowsFaction: (fid) => galaxy.systems.some((s) => s.faction === fid && systems.has(s.id))
         || galaxy.outposts.some((o) => o.faction === fid && outposts.has(o.id)),
-      counts: () => ({ systems: systems.size, outposts: outposts.size, routes: routes.size }),
+      counts: () => ({ systems: systems.size, outposts: outposts.size }),
     };
   }
 

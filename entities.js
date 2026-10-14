@@ -80,13 +80,6 @@ const Entities = (() => {
         return { title: `${pal.label} asteroid`, sub: asteroidSize(e.radius), color: pal.line };
       },
     },
-    gate: {
-      order: 2, selectable: true, hit: 0.75, // the rings are wide: only the core counts
-      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
-      label: (e) => [e.color, e.radius * 1.05],
-      mark: (e) => ({ color: e.color, r: 4, ring: true }),
-      card: (e, galaxy) => ({ title: e.name, sub: `Built by ${galaxy.factionName(e.faction)}`, color: e.color, tag: e.hidden ? 'Uncharted' : '' }),
-    },
     station: {
       order: 2, selectable: true, hit: 0.75, // docking arms reach far: only the core counts
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),

@@ -4,9 +4,6 @@
 // cultures (art/culture.js). Each map sector becomes a square play area `units` across, and its
 // contents are recreated on demand from the galaxy seed and the sector coordinates:
 // - systems: a star, one planet per planet location, stations and outposts of the owner,
-// - gates: one per route (lanes and gates alike), on the side facing the destination; each end is built by a major
-//   faction (the system's owner, else the major at the other end, else the nearest major), with a
-//   stable key (sector and route) for the flight view's selection and gate lock,
 // - outposts: a minor station; salvage yards collect wrecks,
 // - pirates, in packs by the sector's security (security.js): lone ones in safe space, more,
 //   larger and better-armed packs the more lawless the sector, each pack far enough from the
@@ -49,21 +46,6 @@ const Sectors = (() => {
     const pirates = galaxy.factions.find((f) => f.key === 'pirates');
     const majors = galaxy.factions.filter((f) => f.kind === 'major');
     const cache = new Map();
-
-    // Gate ends per system, with the faction that built each end.
-    const majorOf = (fid) => (fid !== null && fid !== undefined && galaxy.factions[fid].kind === 'major' ? fid : null);
-    const nearestMajor = (s) => majors
-      .map((m) => ({ id: m.id, d: Math.hypot(m.centre.x - s.x, m.centre.y - s.y) }))
-      .sort((a, b) => a.d - b.d)[0].id;
-    const gatesAt = new Map();
-    for (const route of galaxy.routes) {
-      for (const [here, there] of [[route.a, route.b], [route.b, route.a]]) {
-        const sys = galaxy.systems[here], other = galaxy.systems[there];
-        const builder = majorOf(sys.faction) ?? majorOf(other.faction) ?? nearestMajor(sys);
-        if (!gatesAt.has(here)) gatesAt.set(here, []);
-        gatesAt.get(here).push({ link: route.link, hidden: route.kind === 'hidden', other, builder });
-      }
-    }
 
     function at(sx, sy) {
       if (sx < 0 || sy < 0 || sx >= galaxy.size || sy >= galaxy.size) return null;
@@ -205,19 +187,6 @@ const Sectors = (() => {
           placed.push([cx, cy, body.r * 2.2]);
           sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
         }
-        for (const end of gatesAt.get(system.id) || []) {
-          const art = ArtBlueprints.create('gate', cultures.of(end.builder), nextSeed());
-          if (!art) continue;
-          const field = art.parts.find((q) => q.mat === 'field');
-          const aperture = Math.min(...field.pts.map(([px, py]) => Math.hypot(px, py)));
-          const a = Math.atan2(end.other.y - sy, end.other.x - sx);
-          const [x, y] = spotToward(cx, cy, a, 2300 * S, art.bodyRadius);
-          add({
-            kind: 'gate', art, key: `${sx},${sy},g${end.link}`, link: end.link, hidden: end.hidden, dest: { x: end.other.x, y: end.other.y },
-            name: end.hidden ? 'Uncharted gate' : `Gate to ${end.other.name}`,
-            faction: end.builder, color: colorOf(end.builder), aperture, angle: a, spin: r() * TAU, radius: art.radius,
-          }, x, y);
-        }
         const planets = [];
         system.locations.filter((l) => l.type === 'planet').forEach((l, i) => {
           const type = weighted(PLANET_TYPES, r);
@@ -275,14 +244,14 @@ const Sectors = (() => {
       // ---------- Pirates ----------
 
       // Pirates, by the sector's security (security.js): a few packs spread over the sector, far
-      // enough apart that attacking one never draws in another, and clear of stations, gates and
-      // the star. Lone, lightly armed pirates in safe space; larger, better-armed packs in lawless
+      // enough apart that attacking one never draws in another, and clear of stations and the
+      // star. Lone, lightly armed pirates in safe space; larger, better-armed packs in lawless
       // space. Never right next to a Waystation (galaxy.nearWaystation), which hostile contacts
       // avoid too. tier: their gear; pack: which pack a ship belongs to.
       const P = Security.pirates(territory.security);
       if (!contact && r() < P.chance && !galaxy.nearWaystation(sx, sy)) {
         const { spacing, orbit: [o0, o1], clear, margin } = Security.PACK;
-        const keepClear = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'gate' || e.kind === 'star');
+        const keepClear = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
         const centres = [];
         // A spot for a pack's centre (sector coordinates), or null when the sector is too crowded.
         const packSpot = () => {

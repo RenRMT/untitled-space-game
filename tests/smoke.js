@@ -2,7 +2,7 @@
 
 // Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
-// every art style and both movement modes, docking and trading, mining, a gate jump, map travel,
+// every art style and both movement modes, docking and trading, mining, map travel,
 // a fight in each combat mode, the settings and a start-style switch. Each step checks its
 // effect; at the end nothing may have been drawn at a non-finite position. The steps share one
 // game, in order, as a player would play them.
@@ -282,28 +282,16 @@ test('builds the sectors past an edge ahead of time, one a frame', () => {
   game('fight.grace = __grace');
 });
 
-test('an off-screen gate gets an edge marker, and a tap on it selects the gate', () => {
-  game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
-  game('select(null); placeShip(__gate.x + 3000, __gate.y)');
+test('an off-screen station gets an edge marker, and a tap on it selects the station', () => {
+  game('globalThis.__st0 = __startStation(); select(null); placeShip(__st0.x + __st0.radius + 3000, __st0.y)');
   browser.frames(2);
-  const m = game('navHits.find((h) => h.ref === __gate)');
-  assert.ok(m, 'the gate has a marker');
+  const m = game('navHits.find((h) => h.ref === __st0)');
+  assert.ok(m, 'the station has a marker');
   const canvas = browser.document.getElementById('game');
   canvas.dispatch('pointerdown', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
   canvas.dispatch('pointerup', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
-  assert.strictEqual(game('selected && selected.e'), game('__gate'), 'the tap selected the gate');
+  assert.strictEqual(game('selected && selected.e'), game('__st0'), 'the tap selected the station');
   game('select(null)');
-});
-
-test('jumps through a gate', () => {
-  game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
-  assert.ok(game('!!__gate'), 'the start system has a gate');
-  game('placeShip(__gate.x + __gate.radius + 200, __gate.y)');
-  browser.frames(1);
-  game('jumpVia(__gate)');
-  assert.deepStrictEqual(game('sectorOf(ship.x, ship.y)'), game('[__gate.dest.x, __gate.dest.y]'));
-  assert.ok(game('world.knowledge.knowsRoute(__gate.link)'));
-  browser.frames(30);
 });
 
 test('travels on the galaxy map', () => {

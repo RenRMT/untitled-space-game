@@ -51,8 +51,7 @@ const inFight = () => !!fight.s || fight.wreckT > 0;
 const fightMode = () => COMBAT[fight.mode];
 const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
 let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
-let gateFlash = 0; // white-out after a gate jump, fading from 1
-let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
+let flash = 0; // white-out when the wrecked ship is towed home, fading from 1
 const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
 // Show a notice for t seconds. once: leave the same notice alone while it's still showing, so
 // something checked every frame doesn't keep restarting it.
@@ -442,7 +441,6 @@ function placeShip(x, y, angle = -Math.PI / 2) {
   debris.length = 0;
   stopMining();
   autopilot.key = null;
-  gateLock = null;
   lastPocket = undefined; // no enter/leave notice for a teleport
   world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR, SHIP.sensorRange, SHIP.pingRange);
 }
@@ -458,7 +456,7 @@ function moveShipTo(sx, sy) {
 // Drop the ship short of whatever is in a deep-space sector, facing it.
 function dropNearContact(cell, dir) {
   const sec = world.sectors.at(cell.x, cell.y);
-  const things = sec.entities.filter((e) => e.kind !== 'gate' && e.kind !== 'station' && e.kind !== 'star');
+  const things = sec.entities.filter((e) => e.kind !== 'station' && e.kind !== 'star');
   for (const e of things) Sectors.pose(e, simTime);
   const cx = things.length ? things.reduce((a, e) => a + e.x, 0) / things.length : (cell.x + 0.5) * SECTOR;
   const cy = things.length ? things.reduce((a, e) => a + e.y, 0) / things.length : (cell.y + 0.5) * SECTOR;
@@ -814,65 +812,10 @@ function prefetchSectors() {
   }
 }
 
-// ---------- Gates: flying into the aperture jumps to the gate at the other end ----------
-
-// The gate at the other end of a gate's route.
-const partnerGate = (g) => world.sectors.at(g.dest.x, g.dest.y).entities.find((e) => e.kind === 'gate' && e.link === g.link);
-
-// Returns true when the ship jumped.
-function checkGates(list) {
-  if (inFight()) { // no jumping out of a fight
-    if (toast.t < 0.3 && list.some((g) => g.kind === 'gate' && Math.hypot(ship.x - g.x, ship.y - g.y) <= g.aperture * 0.7)) notify('Gate locked · in combat');
-    return false;
-  }
-  for (const g of list) {
-    if (g.kind !== 'gate') continue;
-    const d = Math.hypot(ship.x - g.x, ship.y - g.y);
-    if (gateLock === g.key) {
-      if (d > g.aperture + 80) gateLock = null;
-      continue;
-    }
-    if (d > g.aperture * 0.7) continue;
-    const there = partnerGate(g);
-    if (!there) continue;
-    // Keep the offset within the aperture and the velocity, so the ship carries straight through.
-    const dx = there.x - g.x, dy = there.y - g.y;
-    ship.x += dx; ship.y += dy;
-    cam.x += dx; cam.y += dy;
-    particles.length = 0;
-    gateLock = there.key;
-    gateFlash = 1;
-    world.knowledge.knowRoute(g.link); // using a gate charts its route, hidden ones included
-    return true;
-  }
-  return false;
-}
-
-// Jumping from the context card: no need to thread the aperture, just be close.
-const JUMP = { range: 500 }; // world units beyond the gate's radius
-
-// Come out on the system side of the gate at the other end, heading into the system.
-function jumpVia(g) {
-  if (inFight() || !actions.state('jump', g).ok) return;
-  const there = partnerGate(g);
-  if (!there) return;
-  const out = there.angle + Math.PI;
-  const d = there.aperture + 160;
-  placeShip(there.x + Math.cos(out) * d, there.y + Math.sin(out) * d, out);
-  gateLock = there.key;
-  gateFlash = 1;
-  world.knowledge.knowRoute(g.link);
-  select(null);
-  const sys = world.galaxy.systems.find((s) => s.x === g.dest.x && s.y === g.dest.y);
-  notify(sys ? `Jumped to ${sys.name}` : 'Jumped', 2.5);
-}
-
-actions.add({ id: 'jump', kind: 'gate', verb: 'Jump', range: () => JUMP.range, run: jumpVia });
-
 // ---------- Selection: tap something for its context card ----------
 
-// Tapping a station, gate, asteroid or ship selects it: a bracket marks it in space and the
-// context card (context.js) offers what can be done there. Off-screen gates are selected by
+// Tapping a station, asteroid or ship selects it: a bracket marks it in space and the
+// context card (context.js) offers what can be done there. Off-screen stations are selected by
 // tapping their marker at the screen edge. A tap on empty space clears the
 // selection (and, in Cruise mode, stops the ship as before).
 const TAP_SLOP = 26; // CSS px of forgiveness around a tap target
@@ -887,7 +830,7 @@ const KINDS = Entities.KINDS;
 // A stable identity for anything selectable, or null.
 const entityKey = (e) => (KINDS[e.kind].selectable && e.key ? `${e.kind}:${e.key}` : null);
 
-// How far from its centre a tap still hits the object (for stations and gates only their core).
+// How far from its centre a tap still hits the object (for stations only their core).
 const hitRadius = (e) => e.radius * (KINDS[e.kind].hit || 1);
 
 const screenToWorld = (sx, sy) => [(sx - view.w / 2) / view.zoom + cam.x, (sy - view.h / 2) / view.zoom + cam.y];
@@ -895,7 +838,7 @@ const screenToWorld = (sx, sy) => [(sx - view.w / 2) / view.zoom + cam.x, (sy - 
 // The object under a tap. When several overlap, the one whose centre is relatively closest wins,
 // so a ship passing in front of a station gets picked over the station.
 function pickAt(sx, sy) {
-  const marker = navMarkerAt(sx, sy); // off-screen gates, by their edge marker
+  const marker = navMarkerAt(sx, sy); // off-screen stations, by their edge marker
   if (marker) return marker;
   const [wx, wy] = screenToWorld(sx, sy);
   const slop = TAP_SLOP / view.zoom;
@@ -1239,7 +1182,7 @@ function towHome() {
   else { const s = world.galaxy.systems[world.galaxy.startSystem]; moveShipTo(s.x, s.y); }
   GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
   fight.grace = RESPAWN_GRACE;
-  gateFlash = 0.8;
+  flash = 0.8;
   notify(`Ship destroyed · towed to ${home ? home.name : 'your home system'}`, 4);
   saveCargo();
 }
@@ -1621,7 +1564,7 @@ function update(dt) {
   tickMining(dt);
   tickFight(dt);
 
-  gateFlash = Math.max(0, gateFlash - dt * 1.8);
+  flash = Math.max(0, flash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
   updatePocketNotice();
   // Ship sensors chart the sectors around it, a few times a second.
@@ -1986,24 +1929,24 @@ function markerAt(hits, sx, sy) {
   return null;
 }
 
-// Off-screen gates within 1.5 sectors get an edge marker with their name and distance; a tap on
-// one selects its gate.
+// Off-screen stations within 1.5 sectors get an edge marker with their name and distance; a tap
+// on one selects its station.
 let navHits = [];
 
 function drawNavMarkers(list) {
-  const gates = [];
-  for (const g of list) {
-    if (g.kind !== 'gate' || visible(g)) continue;
-    const d = Math.hypot(g.x - ship.x, g.y - ship.y);
+  const stations = [];
+  for (const st of list) {
+    if (st.kind !== 'station' || visible(st)) continue;
+    const d = Math.hypot(st.x - ship.x, st.y - ship.y);
     if (d > SECTOR * 1.5) continue;
-    const ring = selected && selected.key === entityKey(g) ? SELECT_COLOR : null; // the selected gate's marker
-    gates.push({ ref: g, x: g.x, y: g.y, color: g.color, ring, label: `${g.name.toUpperCase()} · ${fmtDist(d - g.radius)}` }); // to its edge, as the card shows
+    const ring = selected && selected.key === entityKey(st) ? SELECT_COLOR : null; // the selected station's marker
+    stations.push({ ref: st, x: st.x, y: st.y, color: st.color, ring, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
   }
   const top = ContextCard.isOpen ? ContextCard.top : null;
-  navHits = edgeMarkers(gates, top === null ? 64 : Math.max(64, view.h - top + 16), 0.85);
+  navHits = edgeMarkers(stations, top === null ? 64 : Math.max(64, view.h - top + 16), 0.85);
 }
 
-// The gate whose edge marker is under a tap, if any.
+// The station whose edge marker is under a tap, if any.
 function navMarkerAt(sx, sy) { return markerAt(navHits, sx, sy); }
 
 function drawDragIndicator() {
@@ -2071,7 +2014,7 @@ function drawMinimap(list) {
 
   for (const e of list) {
     if (e.x < ox || e.y < oy || e.x >= ox + SECTOR || e.y >= oy + SECTOR) continue;
-    const m = KINDS[e.kind].mark(e, world.galaxy); // a dot, or a ring (gates)
+    const m = KINDS[e.kind].mark(e, world.galaxy); // a dot, or a ring
     if (!m) continue;
     ctx.beginPath();
     ctx.arc(x0 + (e.x - ox) * s, y0 + (e.y - oy) * s, m.r, 0, TAU);
@@ -2166,7 +2109,7 @@ function drawHud() {
     const direct = moveMode.value === 'direct';
     ctx.fillText(direct ? 'Hold and drag to fly; drag length sets speed' : 'Drag to fly; drag length sets speed', pad, pad + 56);
     ctx.fillText(direct ? 'Let go to stop' : 'Tap empty space to stop', pad, pad + 72);
-    ctx.fillText('Tap a station, gate, asteroid or ship for options', pad, pad + 88);
+    ctx.fillText('Tap a station, asteroid or ship for options', pad, pad + 88);
   }
   ctx.restore();
 }
@@ -2176,8 +2119,7 @@ function drawHud() {
 function render() {
   Art.beginFrame();
   const t = simTime;
-  let list = nearbyEntities(t);
-  if (checkGates(list)) list = nearbyEntities(t);
+  const list = nearbyEntities(t);
   collectItems(list);
   updateSelection(list);
   checkAggro(list);
@@ -2207,8 +2149,8 @@ function render() {
   drawShip(t);
   ctx.restore();
 
-  if (gateFlash > 0) {
-    ctx.fillStyle = `rgba(210, 240, 255, ${gateFlash * gateFlash * 0.85})`;
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(210, 240, 255, ${flash * flash * 0.85})`;
     ctx.fillRect(0, 0, view.w, view.h);
   }
   drawLabels(list);

@@ -10,10 +10,8 @@
 //   them, even inside a faction's border, is uncharted,
 // - Waystations (neutral safe havens) on the outer edge of settled space, named by a registry
 //   code ("Waystation KX-418"),
-// - lanes inside territories, gates between them, and a few hidden routes (together `routes`,
-//   the fast-travel network: every route has a gate at each end),
 // - deep-space encounters recreated on demand from the seed and sector coordinates.
-// The player starts at the main capital in the centre, with its network charted (knowledge.js).
+// The player starts at the main capital in the centre, with the settled systems charted (knowledge.js).
 // Every tuning value lives in Galaxy.params; pass `overrides.params` to generate() to change any of
 // them for one galaxy (nested objects merge, arrays and numbers replace).
 // Works as a classic browser script (global `Galaxy`) and as a Node module.
@@ -33,7 +31,7 @@ const Galaxy = (() => {
     density: { cell1: 14, cell2: 6, noise1: 0.6, noise2: 0.25, radial: 0.55, cutoff: 0.5 },
     systems: { count: [120, 150], spacing: 2 },
     outposts: { count: [150, 250], spacing: 0 }, // spacing: minimum distance to any other settlement
-    linkRange: 6, // systems this close are neighbours: territories grow and lanes run between them
+    linkRange: 6, // systems this close are neighbours: territories grow between them
     main: { size: [14, 20], strength: 1.4, sigma: 1.5, reach: 0.6, reachSigma: 13 },
     majors: { count: [7, 9], size: [4, 16], spacing: 14, minFromCentre: 14, sigma: 1.35, reach: 0.3, reachSigma: 8 },
     minors: { count: [15, 25], size: [1, 3], spacing: 5, strength: 0.7, sigma: 1.1 },
@@ -41,7 +39,6 @@ const Galaxy = (() => {
     ownThreshold: 0.3, // minimum control to own a sector
     contestedRatio: 0.6, // a rival with this share of the owner's control contests the sector
     unaligned: 0.1, // baseline presence of no faction, so every faction fades toward the edges
-    gateRange: 14,
     waystations: { count: [6, 9], minDist: 3, maxDist: 6, spacing: 8 },
     // Safe, charted pocket radius around each settlement, in sectors.
     pockets: { mainCapital: 1.5, capital: 1, minorCapital: 0.7, major: 0.7, minor: 0.5, independent: 0.5, waystation: 0.7, outpost: 0.4 },
@@ -463,155 +460,11 @@ const Galaxy = (() => {
       o.name = `${makeName()} ${t[t.length - 1][0].toUpperCase()}${t[t.length - 1].slice(1)}`;
     }
 
-    // ---------- Lanes: within each connected cluster of a faction's systems ----------
-    const lanes = [];
-    const clustersOf = (list) => {
-      const parent = new Map(list.map((s) => [s.id, s.id]));
-      const find = (i) => (parent.get(i) === i ? i : find(parent.get(i)));
-      for (const a of list) for (const b of list) if (a.id < b.id && dist(a, b) <= P.linkRange + 1) parent.set(find(a.id), find(b.id));
-      const groups = new Map();
-      for (const s of list) {
-        const r = find(s.id);
-        if (!groups.has(r)) groups.set(r, []);
-        groups.get(r).push(s);
-      }
-      return [...groups.values()];
-    };
-    const linkKey = (a, b) => (a < b ? `${a}-${b}` : `${b}-${a}`);
-    const clustersByFaction = [];
-    for (let f = 0; f < T; f++) {
-      const clusters = clustersOf(systems.filter((s) => s.faction === f));
-      clustersByFaction[f] = clusters;
-      for (const list of clusters) {
-        if (list.length < 2) continue;
-        const inTree = new Set([list[0].id]);
-        const tree = new Set();
-        let longest = 0;
-        while (inTree.size < list.length) {
-          let best = null;
-          for (const a of list) {
-            if (!inTree.has(a.id)) continue;
-            for (const b of list) {
-              if (inTree.has(b.id)) continue;
-              const d = dist(a, b);
-              if (!best || d < best.d) best = { a, b, d };
-            }
-          }
-          inTree.add(best.b.id);
-          tree.add(linkKey(best.a.id, best.b.id));
-          lanes.push({ a: best.a.id, b: best.b.id });
-          longest = Math.max(longest, best.d);
-        }
-        if (list.length < 4) continue;
-        const extras = [];
-        for (const a of list) {
-          for (const b of list) {
-            const d = dist(a, b);
-            if (a.id < b.id && !tree.has(linkKey(a.id, b.id)) && d <= longest * 1.5) extras.push({ a: a.id, b: b.id, d });
-          }
-        }
-        extras.sort((p, q) => p.d - q.d);
-        for (const e of extras.slice(0, randInt(1, 2))) lanes.push({ a: e.a, b: e.b });
-      }
-    }
-
-    // ---------- Gates: between factions, plus hidden routes ----------
-    const homeOf = (f) => {
-      const capital = systems.find((s) => s.faction === f && s.capital);
-      return clustersByFaction[f].find((c) => c.includes(capital));
-    };
-    function closestPair(listA, listB) {
-      let best = null;
-      for (const a of listA) {
-        for (const b of listB) {
-          const d = dist(a, b);
-          if (!best || d < best.d) best = { a: a.id, b: b.id, d };
-        }
-      }
-      return best;
-    }
-    const pairOf = (fa, fb) => closestPair(homeOf(fa), homeOf(fb));
-    const gates = [];
-    const gateKeys = new Set();
-    const factionLinks = [];
-    function addGate(fa, fb, hidden = false) {
-      const k = linkKey(fa, fb) + (hidden ? 'h' : '');
-      if (gateKeys.has(k)) return;
-      gateKeys.add(k);
-      const p = pairOf(fa, fb);
-      gates.push({ a: p.a, b: p.b, hidden });
-      if (!hidden) factionLinks.push([fa, fb]);
-    }
-    const componentOf = (start) => {
-      const seen = new Set([start]);
-      for (let grew = true; grew;) {
-        grew = false;
-        for (const [a, b] of factionLinks) if (seen.has(a) !== seen.has(b)) { seen.add(a); seen.add(b); grew = true; }
-      }
-      return seen;
-    };
-
-    // 1–2 outlying majors get no gates at all.
-    const outlying = majorIds.filter((f) => f !== 0)
-      .sort((p, q) => dist(factions[q].centre, centre) - dist(factions[p].centre, centre))
-      .slice(0, randInt(1, 2));
-    const isolated = new Set(outlying);
-    const gated = majorIds.filter((f) => !isolated.has(f));
-
-    // Majors: a spanning network over nearby pairs, a few loops, and links to the main network.
-    const pairs = [];
-    for (const a of gated) for (const b of gated) if (a < b) pairs.push({ a, b, d: pairOf(a, b).d });
-    pairs.sort((p, q) => p.d - q.d);
-    const extraPairs = [];
-    for (const p of pairs) {
-      if (p.d > P.gateRange) break;
-      if (!componentOf(p.a).has(p.b)) addGate(p.a, p.b); else extraPairs.push(p);
-    }
-    for (const p of extraPairs.slice(0, Math.round(gated.length * 0.3))) addGate(p.a, p.b);
-    for (const f of gated) {
-      const main = componentOf(0);
-      if (main.has(f)) continue;
-      const best = [...main].sort((p, q) => pairOf(f, p).d - pairOf(f, q).d)[0];
-      addGate(f, best);
-    }
-    // Minors: about half connect to their nearest gated neighbour; the rest are deep-space enclaves.
-    const minorIds = factions.filter((f) => f.kind === 'minor').map((f) => f.id);
-    for (const f of minorIds) {
-      if (rnd() >= 0.5) continue;
-      const near = gated.map((g) => ({ g, d: pairOf(f, g).d })).sort((p, q) => p.d - q.d)[0];
-      if (near && near.d <= P.gateRange) addGate(f, near.g);
-    }
-    // Colonies: usually gated to home.
-    for (const f of gated) {
-      for (const cluster of clustersByFaction[f]) {
-        if (cluster === homeOf(f) || rnd() >= 0.6) continue;
-        const p = closestPair(cluster, homeOf(f));
-        gates.push({ a: p.a, b: p.b, hidden: false });
-      }
-    }
-    // Hidden routes: into each isolated major, sometimes to a Waystation.
-    for (const f of isolated) {
-      const target = [...gated].sort((p, q) => pairOf(f, p).d - pairOf(f, q).d)[0];
-      addGate(f, target, true);
-    }
-    if (waystations.length && rnd() < 0.6) {
-      const ws = waystations[Math.floor(rnd() * waystations.length)];
-      const near = systems.filter((s) => s.faction !== null && !s.waystation).sort((p, q) => dist(p, ws) - dist(q, ws))[0];
-      gates.push({ a: near.id, b: ws.id, hidden: true });
-    }
-    for (const f of factions) if (f.kind !== 'network') f.isolated = isolated.has(f.id);
-
     // Networks without land operate inside a few territories.
     for (const f of factions) {
       if (f.kind !== 'network' || f.neutral) continue;
-      f.operatesIn = shuffle([...majorIds, ...minorIds]).slice(0, randInt(3, 6));
+      f.operatesIn = shuffle([...majorIds, ...factions.filter((x) => x.kind === 'minor').map((x) => x.id)]).slice(0, randInt(3, 6));
     }
-
-    // ---------- Routes: the fast-travel network (every route gets a gate at each end) ----------
-    const routes = [
-      ...lanes.map((l) => ({ a: l.a, b: l.b, kind: 'lane' })),
-      ...gates.map((g) => ({ a: g.a, b: g.b, kind: g.hidden ? 'hidden' : 'gate' })),
-    ].map((r, link) => ({ ...r, link }));
 
     const startSystem = 0; // the main capital
     // Waystations keep their neighbourhood safe: no hostile contacts within 1 sector, and no pirates
@@ -717,7 +570,7 @@ const Galaxy = (() => {
 
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
-      factions, systems, outposts, lanes, gates, routes, pockets,
+      factions, systems, outposts, pockets,
       startSystem,
       territoryOf, deepSector, securityOf, pocketAt, nearWaystation, factionColor, factionName,
       inFrontier: (x, y) => !inner(x, y),
