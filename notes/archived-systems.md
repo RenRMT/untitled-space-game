@@ -60,3 +60,22 @@ salvage) stay.
 **To bring them back.** Add the types back to `OUTPOST_TYPES` and their profiles to `PROFILES`;
 better, give each something of its own first (a refinery that turns ore into metal, a research
 outpost that researches cheaper or faster, a trading post with contracts).
+
+## Frontier start
+
+**What it was.** A second way to begin, chosen under Settings → Map ("Core start" / "Frontier
+start", also `?start=frontier`). The same galaxy plus one extra Waystation 2–4 sectors in from a
+corner or an edge, placed from its own random stream so the rest of the galaxy stayed identical.
+The player started there with only that Waystation charted: the map showed nothing beyond what
+had been explored (stats line, framing and the frontier ring all followed the charts), and no
+hostile contacts or raiders spawned within two sectors. Each start style kept its own charts and
+cargo (the save key gained `:frontier`).
+
+**Where it lived.** `galaxy.js` (`START_STYLES`, the "Frontier start" block, `w.start` in
+`nearWaystation`, `saveKey`), `map.js` (`startStyle`, `setStartStyle`, `hiddenStart` and its uses
+in `updateStats`, `frameArea` and `drawStatic`), `knowledge.js` (`chartStart`), `game.js` (the
+Map setting), tests in `tests/run.js` and `tests/smoke.js`.
+
+**To bring it back.** It depended on Waystations and the frontier ring, both of which are later
+removed or reshaped; it would now be "start at a remote outpost with nothing charted". The fog of
+war (`knowledge.js`) still supports it: chart only the start, and hide what isn't explored.

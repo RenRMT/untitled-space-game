@@ -13,10 +13,7 @@
 // - lanes inside territories, gates between them, and a few hidden routes (together `routes`,
 //   the fast-travel network: every route has a gate at each end),
 // - deep-space encounters recreated on demand from the seed and sector coordinates.
-// Two start styles (`overrides.start`):
-// - 'core' (default): the player starts at the main capital in the centre, with its network charted,
-// - 'frontier': the same galaxy plus one extra Waystation near a corner or along an edge of the
-//   map, where the player starts with nothing else charted (see knowledge.js).
+// The player starts at the main capital in the centre, with its network charted (knowledge.js).
 // Every tuning value lives in Galaxy.params; pass `overrides.params` to generate() to change any of
 // them for one galaxy (nested objects merge, arrays and numbers replace).
 // Works as a classic browser script (global `Galaxy`) and as a Node module.
@@ -80,7 +77,6 @@ const Galaxy = (() => {
   // Waystation registry codes: two letters and three digits. No I, O, Q or U, which read as digits
   // or each other.
   const CODE_LETTERS = 'ABCDEFGHJKLMNPRSTVWXYZ';
-  const START_STYLES = ['core', 'frontier'];
   const INDEPENDENT = { name: 'Independent', color: '#9aa4b8' };
 
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -617,43 +613,10 @@ const Galaxy = (() => {
       ...gates.map((g) => ({ a: g.a, b: g.b, kind: g.hidden ? 'hidden' : 'gate' })),
     ].map((r, link) => ({ ...r, link }));
 
-    // ---------- Frontier start: a lone Waystation out by the edge ----------
-    // Added after everything else, from its own random stream, so the rest of the galaxy is exactly
-    // the core-style galaxy for the same seed. It has no routes: the way in is through deep space.
-    const startStyle = START_STYLES.includes(overrides.start) ? overrides.start : 'core';
-    let startSystem = 0;
-    if (startStyle === 'frontier') {
-      const sr = mulberry32((seedInt ^ 0xf2a7) >>> 0);
-      const inset = () => 2 + Math.floor(sr() * 3); // 2–4 sectors in from the map's edge
-      const side = (a) => (sr() < 0.5 ? a : size - 1 - a);
-      let x, y;
-      if (sr() < 0.5) { // a corner
-        x = side(inset());
-        y = side(inset());
-      } else { // somewhere along an edge, clear of the corners
-        const t = F + Math.floor(sr() * (size - 2 * F));
-        const a = inset();
-        [x, y] = [[a, t], [size - 1 - a, t], [t, a], [t, size - 1 - a]][Math.floor(sr() * 4)];
-      }
-      // The nearest free sector that is still in the frontier, a little in from the very edge.
-      const ok = (cx, cy) => cx >= 1 && cy >= 1 && cx <= size - 2 && cy <= size - 2 && !inner(cx, cy) && !occupied.has(idx(cx, cy));
-      search: for (let r = 0; r <= 4; r++) {
-        for (let dy = -r; dy <= r; dy++) {
-          for (let dx = -r; dx <= r; dx++) {
-            if (Math.max(Math.abs(dx), Math.abs(dy)) === r && ok(x + dx, y + dy)) { x += dx; y += dy; break search; }
-          }
-        }
-      }
-      const s = addSystem(x, y, { faction: factionByKey('waystations'), waystation: true, start: true });
-      s.name = `Waystation ${registryCode(x, y)}`;
-      s.locations = [{ type: 'station', name: s.name }];
-      waystations.push(s);
-      occupied.add(idx(x, y));
-      startSystem = s.id;
-    }
-    // Waystations keep their neighbourhood safe: no hostile contacts within 1 sector (2 around the
-    // frontier start, which sits in raider country), and no frontier raiders there either (sector.js).
-    const nearWaystation = (x, y) => waystations.some((w) => Math.max(Math.abs(w.x - x), Math.abs(w.y - y)) <= (w.start ? 2 : 1));
+    const startSystem = 0; // the main capital
+    // Waystations keep their neighbourhood safe: no hostile contacts within 1 sector, and no pirates
+    // there either (sector.js).
+    const nearWaystation = (x, y) => waystations.some((w) => Math.max(Math.abs(w.x - x), Math.abs(w.y - y)) <= 1);
 
     // ---------- Pockets: small charted, safe bubbles around settlements ----------
     const PK = P.pockets;
@@ -755,18 +718,17 @@ const Galaxy = (() => {
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
       factions, systems, outposts, lanes, gates, routes, pockets,
-      start: startStyle, startSystem,
+      startSystem,
       territoryOf, deepSector, securityOf, pocketAt, nearWaystation, factionColor, factionName,
       inFrontier: (x, y) => !inner(x, y),
     };
   }
 
   // localStorage key part identifying one generated galaxy: the same seed with other generator
-  // settings, another generator version or another start style is another galaxy. (Core-style keys
-  // keep their old form, so existing saves still load.)
-  const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}${g.start === 'frontier' ? ':frontier' : ''}`;
+  // settings or another generator version is another galaxy.
+  const saveKey = (g) => `${g.seed}:${g.size}:${g.systems.length}:${g.outposts.length}:v${VERSION}`;
 
-  return { generate, params: DEFAULTS, VERSION, saveKey, START_STYLES, CONTACT_TYPES };
+  return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES };
 })();
 
 if (typeof module !== 'undefined') module.exports = Galaxy;

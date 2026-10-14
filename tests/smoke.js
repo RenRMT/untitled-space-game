@@ -376,20 +376,13 @@ test('fights in real time, then gets away', () => {
   browser.frames(300);
 });
 
-test('settings open, close and switch the start style', () => {
+test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
-  const seed = game('world.galaxy.seed');
-  game(`GalaxyMap.setStartStyle('frontier')`);
-  assert.strictEqual(game('world.galaxy.start'), 'frontier');
-  assert.strictEqual(game('world.galaxy.seed'), seed);
-  browser.frames(30);
-  game(`GalaxyMap.setStartStyle('core')`);
-  browser.frames(30);
-  assert.strictEqual(game('world.galaxy.start'), 'core');
+  browser.frames(3);
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {

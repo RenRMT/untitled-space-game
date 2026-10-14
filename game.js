@@ -131,15 +131,6 @@ Settings.add({
   ],
   get: () => combatMode.value, set: (v) => combatMode.set(v),
 });
-Settings.add({
-  id: 'start', label: 'Map',
-  choices: [
-    { value: 'core', label: 'Core start', hint: 'Start at the central capital, with its network of lanes and gates charted.' },
-    { value: 'frontier', label: 'Frontier start', hint: 'Start at a lone Waystation by the edge of the map, with nothing else charted.' },
-  ],
-  note: 'Switching keeps this galaxy and moves you to that start. Each map keeps its own charts and cargo.',
-  get: () => GalaxyMap.startStyle, set: (v) => GalaxyMap.setStartStyle(v),
-});
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
 const settingsBtn = document.getElementById('settings-btn');

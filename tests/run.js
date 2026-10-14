@@ -512,73 +512,6 @@ test('Waystations carry unique registry codes', () => {
   }
 });
 
-test('frontier start: the same galaxy plus a lone Waystation by the edge', () => {
-  const kinds = new Set();
-  for (const seed of SEEDS) {
-    const core = galaxies.get(seed);
-    const fr = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
-    assert.strictEqual(core.start, 'core');
-    assert.strictEqual(core.systems[core.startSystem].capital, true);
-    assert.strictEqual(fr.start, 'frontier');
-    // Everything from the core galaxy is there, unchanged; the start Waystation comes last.
-    assert.strictEqual(fr.systems.length, core.systems.length + 1);
-    assert.strictEqual(JSON.stringify(fr.systems.slice(0, -1)), JSON.stringify(core.systems), `seed ${seed}: systems differ`);
-    assert.strictEqual(JSON.stringify(fr.outposts), JSON.stringify(core.outposts));
-    assert.strictEqual(JSON.stringify(fr.routes), JSON.stringify(core.routes));
-    const s = fr.systems[fr.startSystem];
-    assert(s.waystation && s.start && s.id === fr.systems.length - 1, `seed ${seed}: start is not the extra Waystation`);
-    assert(/^Waystation [A-Z]{2}-\d{3}$/.test(s.name));
-    const edge = Math.min(s.x, s.y, fr.size - 1 - s.x, fr.size - 1 - s.y);
-    assert(edge >= 1 && edge <= 6 && fr.inFrontier(s.x, s.y), `seed ${seed}: start at ${s.x},${s.y}`);
-    assert(!fr.routes.some((r) => r.a === s.id || r.b === s.id), 'the frontier start has a route');
-    assert(!core.systems.some((o) => o.x === s.x && o.y === s.y) && !core.outposts.some((o) => o.x === s.x && o.y === s.y));
-    assert.notStrictEqual(Galaxy.saveKey(fr), Galaxy.saveKey(core));
-    const corner = Math.min(s.x, fr.size - 1 - s.x) <= 6 && Math.min(s.y, fr.size - 1 - s.y) <= 6;
-    kinds.add(corner ? 'corner' : 'edge');
-    // Nothing hostile waits next door.
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-      const c = fr.deepSector(s.x + dx, s.y + dy);
-      assert(!c || !c.hostile, `seed ${seed}: hostile contact next to the start`);
-    }
-  }
-  assert.deepStrictEqual([...kinds].sort(), ['corner', 'edge'], 'starts should land in corners and along edges');
-  // Asking for the core style, or nothing, gives the same galaxy.
-  const a = Galaxy.generate(3, { ...GALAXY_CONFIG, start: 'core' }), b = galaxies.get(3);
-  assert.strictEqual(JSON.stringify(a.systems), JSON.stringify(b.systems));
-  assert.strictEqual(Galaxy.saveKey(a), Galaxy.saveKey(b));
-});
-
-test('frontier start: only the start Waystation is charted, and no raiders wait nearby', () => {
-  for (const seed of SEEDS.slice(0, 10)) {
-    const g = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: 'frontier' });
-    const s = g.systems[g.startSystem];
-    const k = Knowledge.create(g, { fresh: true });
-    assert.strictEqual(k.counts().systems, 1);
-    assert.strictEqual(k.counts().routes, 0);
-    assert(k.knowsSystem(s.id));
-    const territorial = g.factions.filter((f) => f.kind !== 'network');
-    assert(territorial.every((f) => !k.knowsFaction(f.id)), `seed ${seed}: a faction is charted from the start`);
-    let explored = 0;
-    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) explored += k.isExplored(x, y) ? 1 : 0;
-    assert(explored <= 1, `seed ${seed}: ${explored} sectors charted`);
-    k.save();
-    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
-    const pirates = g.factions.find((f) => f.key === 'pirates').id;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
-      const sec = sectors.at(s.x + dx, s.y + dy);
-      if (sec) assert(!sec.entities.some((e) => e.kind === 'ship' && e.faction === pirates), `seed ${seed}: pirates next to the start`);
-    }
-    assert(sectors.at(s.x, s.y).entities.some((e) => e.kind === 'station' && e.name === s.name), 'no station at the start');
-  }
-});
-
-// Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
-function colourDistance(a, b) {
-  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
-  const rm = (r1 + r2) / 2;
-  return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
-}
-
 test('the item catalogue: categories, rarity tiers and prices', () => {
   const ids = new Set();
   for (const [cat, info] of Object.entries(Goods.CATEGORIES)) {
@@ -621,6 +554,13 @@ test('components are generic, one per tier, found by category and tier', () => {
   assert.strictEqual(Goods.component('computer', 6), null);
   assert.strictEqual(Goods.component('metal', 1), null);
 });
+
+// Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
+function colourDistance(a, b) {
+  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
+  const rm = (r1 + r2) / 2;
+  return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
+}
 
 test('every item type is drawn in its own colour within its category', () => {
   for (const cat of Object.keys(Goods.CATEGORIES)) {

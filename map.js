@@ -71,15 +71,8 @@ const GalaxyMap = (() => {
 
   // ---------- Galaxy ----------
 
-  // Start style (galaxy.js): 'core' starts at the main capital with its network charted;
-  // 'frontier' starts at a lone Waystation by the map's edge with nothing else charted.
-  // Chosen in the settings menu (GalaxyMap.setStartStyle); saved, and ?start=core|frontier overrides
-  // it. Each style keeps its own charts and cargo.
-  let startStyle = Store.choice('start', Galaxy.START_STYLES, 'core');
-  const hiddenStart = () => galaxy.start === 'frontier' && !!fog(); // nothing beyond the charts is shown
-
   function load(seed) {
-    galaxy = Galaxy.generate(seed, { ...GALAXY_CONFIG, start: startStyle });
+    galaxy = Galaxy.generate(seed, GALAXY_CONFIG);
     cells = [];
     contacts = [];
     for (let y = 0; y < galaxy.size; y++) {
@@ -101,16 +94,6 @@ const GalaxyMap = (() => {
 
   function updateStats() {
     statsVersion = fog() ? fog().version : -1;
-    if (hiddenStart()) {
-      // Only what's on the charts: no totals that would give away what's out there.
-      let explored = 0;
-      for (let y = 0; y < galaxy.size; y++) for (let x = 0; x < galaxy.size; x++) explored += fog().isExplored(x, y) ? 1 : 0;
-      const c = fog().counts();
-      const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
-      statsEl.textContent = `seed ${galaxy.seed} · frontier start · on your charts: ${plural(c.systems, 'system')}, `
-        + `${plural(c.outposts, 'outpost')}, ${plural(c.routes, 'route')} · ${(explored / (galaxy.size * galaxy.size) * 100).toFixed(1)}% explored`;
-      return;
-    }
     const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
     const systems = galaxy.systems.filter((s) => !s.waystation).length;
     const waystations = galaxy.systems.length - systems;
@@ -132,16 +115,6 @@ const GalaxyMap = (() => {
     load(seed);
   }
 
-  // Same seed, another start style. Progress in each style is kept, so switching back resumes it.
-  function setStartStyle(style) {
-    if (!Galaxy.START_STYLES.includes(style) || style === startStyle) return;
-    startStyle = style;
-    Store.set('start', startStyle);
-    Params.set('start', startStyle);
-    fitted = false;
-    load(galaxy.seed);
-    if (isOpen) { fit(); fitted = true; }
-  }
 
   // ---------- View ----------
 
@@ -154,28 +127,8 @@ const GalaxyMap = (() => {
     requestDraw();
   }
 
-  // The area to frame: the whole galaxy, or with a frontier start just what's been explored (and
-  // the ship), at least MIN_FRAME sectors across, so the start isn't a dot in a corner.
-  const MIN_FRAME = 20;
-  function frameArea() {
-    const all = { x0: 0, y0: 0, x1: galaxy.size, y1: galaxy.size };
-    if (!hiddenStart()) return all;
-    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-    const take = (x, y) => { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); };
-    for (let y = 0; y < galaxy.size; y++) for (let x = 0; x < galaxy.size; x++) if (fog().isExplored(x, y)) take(x, y);
-    const s = galaxy.systems[galaxy.startSystem];
-    take(player ? Math.floor(player.x) : s.x, player ? Math.floor(player.y) : s.y);
-    const grow = (lo, hi) => {
-      const need = Math.max(0, MIN_FRAME - (hi - lo)) / 2 + 2;
-      let a = lo - need, b = hi + need;
-      if (a < 0) { b -= a; a = 0; }
-      if (b > galaxy.size) { a -= b - galaxy.size; b = galaxy.size; }
-      return [Math.max(0, a), Math.min(galaxy.size, b)];
-    };
-    [x0, x1] = grow(x0, x1);
-    [y0, y1] = grow(y0, y1);
-    return { x0, y0, x1, y1 };
-  }
+  // The area to frame: the whole galaxy.
+  const frameArea = () => ({ x0: 0, y0: 0, x1: galaxy.size, y1: galaxy.size });
 
   function fit() {
     const pad = 12;
@@ -285,16 +238,12 @@ const GalaxyMap = (() => {
     ctx.fillStyle = '#090c14';
     ctx.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
 
-    // Frontier ring. With a frontier start it isn't known yet: it shows sector by sector as the
-    // sectors are explored (below).
-    const hidden = hiddenStart();
-    if (!hidden) {
-      ctx.beginPath();
-      ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
-      ctx.rect(ix0, iy0, ix1 - ix0, iy1 - iy0);
-      ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
-      ctx.fill('evenodd');
-    }
+    // Frontier ring.
+    ctx.beginPath();
+    ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
+    ctx.rect(ix0, iy0, ix1 - ix0, iy1 - iy0);
+    ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
+    ctx.fill('evenodd');
 
     // Explored sectors are lighter than the unknown.
     const px = Math.ceil(scale) + 1;
@@ -304,7 +253,7 @@ const GalaxyMap = (() => {
         if (!fog().isExplored(c.x, c.y)) continue;
         const [sx, sy] = toScreen(c.x, c.y);
         if (!onScreen(sx, sy)) continue;
-        ctx.fillStyle = hidden && galaxy.inFrontier(c.x, c.y) ? '#1a1424' : '#101727';
+        ctx.fillStyle = '#101727';
         ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
       }
     }
@@ -351,12 +300,10 @@ const GalaxyMap = (() => {
       ctx.lineTo(bx1, Math.round(sy) + 0.5);
     }
     ctx.stroke();
-    if (!hidden) {
-      ctx.strokeStyle = 'rgba(255, 90, 110, 0.35)';
-      ctx.setLineDash([4, 4]);
-      ctx.strokeRect(Math.round(ix0) + 0.5, Math.round(iy0) + 0.5, Math.round(ix1 - ix0), Math.round(iy1 - iy0));
-      ctx.setLineDash([]);
-    }
+    ctx.strokeStyle = 'rgba(255, 90, 110, 0.35)';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(Math.round(ix0) + 0.5, Math.round(iy0) + 0.5, Math.round(ix1 - ix0), Math.round(iy1 - iy0));
+    ctx.setLineDash([]);
     ctx.strokeStyle = 'rgba(255, 90, 110, 0.6)';
     ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(bx1 - bx0), Math.round(by1 - by0));
 
@@ -915,9 +862,6 @@ const GalaxyMap = (() => {
     close,
     get isOpen() { return isOpen; },
     get galaxy() { return galaxy; },
-    // Start style ('core' | 'frontier'), for the settings menu. Setting it regenerates the galaxy.
-    get startStyle() { return startStyle; },
-    setStartStyle,
     // Flight view hooks: where the ship is (in sector units), and what to do on Jump.
     setPlayer(x, y) {
       const moved = !player || Math.floor(player.x * 4) !== Math.floor(x * 4) || Math.floor(player.y * 4) !== Math.floor(y * 4);
