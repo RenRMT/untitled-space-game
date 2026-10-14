@@ -27,7 +27,8 @@ load('sector.js', ['Sectors']);
 load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
-const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, GALAXY_CONFIG } = ctx;
+load('mining.js', ['Mining']);
+const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -198,6 +199,59 @@ test('there are profitable trade runs between nearby stations', () => {
     }
   }
   assert(best > 0.3, `best margin only ${(best * 100).toFixed(0)}%`);
+});
+
+// Every asteroid in a galaxy, as the flight view sees them.
+function asteroidsOf(g, sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits)) {
+  const out = [];
+  for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
+    out.push(...sectors.at(x, y).entities.filter((e) => e.kind === 'asteroid'));
+  }
+  return out;
+}
+
+test('asteroids have unique keys that survive a rebuild', () => {
+  const g = galaxies.get(1);
+  const a = asteroidsOf(g), b = asteroidsOf(g);
+  assert(a.length > 500, `only ${a.length} asteroids`);
+  assert.strictEqual(new Set(a.map((e) => e.key)).size, a.length, 'duplicate asteroid keys');
+  assert.deepStrictEqual(a.map((e) => [e.key, e.x, e.y]), b.map((e) => [e.key, e.x, e.y]));
+});
+
+test('mined asteroids drop only metal or mineral, at the configured rates', () => {
+  const g = galaxies.get(1);
+  const byType = {};
+  for (const e of asteroidsOf(g)) {
+    const y = Mining.yieldOf(g.seed, e);
+    assert.deepStrictEqual(Mining.yieldOf(g.seed, e), y, 'yield is not deterministic');
+    if (y) {
+      assert(['metal', 'mineral'].includes(y.kind), `unexpected drop ${y.kind}`);
+      assert(Economy.GOODS[y.kind], `${y.kind} is not a trade good`);
+      assert(Number.isInteger(y.seed));
+    }
+    const t = (byType[e.ast.type] ||= { n: 0, drops: 0, metal: 0 });
+    t.n++;
+    if (y) { t.drops++; if (y.kind === 'metal') t.metal++; }
+  }
+  for (const [type, t] of Object.entries(byType)) {
+    assert(Mining.YIELD[type], `no yield table for ${type} asteroids`);
+    if (t.n < 100) continue;
+    const rate = t.drops / t.n;
+    assert(Math.abs(rate - Mining.YIELD[type].chance) < 0.1, `${type}: drop rate ${rate.toFixed(2)}`);
+  }
+  if (byType.metal?.drops) assert(byType.metal.metal / byType.metal.drops > 0.6, 'metallic asteroids should mostly give metal');
+  if (byType.ice?.drops) assert.strictEqual(byType.ice.metal, 0, 'icy asteroids give no metal');
+});
+
+test('the mining target is the nearest unmined asteroid in range', () => {
+  const R = Mining.config.range;
+  const rock = (key, x, r = 20) => ({ kind: 'asteroid', key, x, y: 0, radius: r, ast: { type: 'stony' } });
+  const near = rock('near', 60), far = rock('far', 120), out = rock('out', R + 21 + 0.1);
+  const list = [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out];
+  assert.strictEqual(Mining.targetIn(list, 0, 0), near);
+  assert.strictEqual(Mining.targetIn(list, 0, 0, new Set(['near'])), far);
+  assert.strictEqual(Mining.targetIn([out], 0, 0), null);
+  assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
 });
 
 if (failed) {

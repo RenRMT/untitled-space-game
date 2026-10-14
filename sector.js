@@ -12,7 +12,8 @@
 //   patrol, and pirates lurk in the territories they operate in,
 // - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
 // - contested sectors: debris from border skirmishes,
-// - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space,
+// - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
+//   each has a stable key so a mined asteroid can stay destroyed,
 // - floating items to collect: loot components near wrecks, trade goods spilled by freighters and
 //   piled up at salvage yards (art/items.js). Each item has a stable key for the cargo hold.
 // Positions are world units from the galaxy's top-left corner. Browser only (global `Sectors`).
@@ -133,10 +134,12 @@ const Sectors = (() => {
       const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
 
       // Asteroids and items draw from their own random stream, so they don't reshuffle the rest.
+      // Each asteroid has a stable key, so a mined one stays gone (mining.js, game.js).
       const ra = mulberry32(hashInt(sx, sy, base ^ 0xa57e));
+      let asteroidCount = 0;
       const asteroid = (x, y, type, size) => add({
         kind: 'asteroid', ast: { type, r: size, seed: Math.floor(ra() * 4294967295) },
-        spin0: ra() * TAU, tumble: (ra() - 0.5) * 0.5, radius: size,
+        key: `${sx},${sy},a${asteroidCount++}`, spin0: ra() * TAU, tumble: (ra() - 0.5) * 0.5, radius: size,
       }, x, y);
       const rockSize = () => 8 + ra() ** 2.2 * 44;
       function field(cx, cy, n, spread, types) {

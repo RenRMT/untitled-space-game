@@ -84,14 +84,25 @@
     #map-overlay .btn { padding: 8px 9px; font-size: 11px; }
   }
 
-  /* Docking: the button appears near a station; docked, the flight controls go away. */
-  #dock-btn {
+  /* Context actions above the speed bar: Dock near a station, Mine near an asteroid.
+     Docked, the flight controls go away. */
+  #actions {
     position: absolute; left: 50%; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-    max-width: calc(100vw - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; gap: 8px; justify-content: center; width: max-content; max-width: calc(100vw - 24px);
+    pointer-events: none;
+  }
+  #actions .btn {
+    pointer-events: auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     border-color: var(--cyan); color: var(--cyan);
   }
-  #dock-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
-  body.docked #map-btn, body.docked #style-btn, body.docked #move-btn, body.docked #dock-btn { display: none; }
+  #actions .btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
+  /* While mining, the button shows the countdown and fills up left to right. */
+  #mine-btn.busy:disabled {
+    --mine: #ff9d5c;
+    border-color: var(--mine); color: var(--mine); cursor: default;
+    background: linear-gradient(90deg, rgba(255, 157, 92, 0.22) var(--progress, 0%), var(--panel) var(--progress, 0%));
+  }
+  body.docked #map-btn, body.docked #style-btn, body.docked #move-btn, body.docked #actions { display: none; }
 
   /* Station screen */
   #station {
@@ -177,7 +188,10 @@
 <button id="map-btn" class="btn" type="button">Map</button>
 <button id="style-btn" class="btn" type="button" title="Switch art style (V)">Line</button>
 <button id="move-btn" class="btn" type="button" title="Movement (C): Cruise keeps your speed after you let go; Direct moves only while you drag">Cruise</button>
-<button id="dock-btn" class="btn" type="button" title="Dock (F)" hidden>Dock</button>
+<div id="actions">
+  <button id="dock-btn" class="btn" type="button" title="Dock (F)" hidden>Dock</button>
+  <button id="mine-btn" class="btn" type="button" title="Mine (E)" hidden>Mine</button>
+</div>
 
 <div id="station" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
   <header class="st-head">
@@ -237,6 +251,7 @@
 <script src="sector.js"></script>
 <script src="knowledge.js"></script>
 <script src="economy.js"></script>
+<script src="mining.js"></script>
 <script src="station.js"></script>
 <script src="travel.js"></script>
 <script src="game.js"></script>
