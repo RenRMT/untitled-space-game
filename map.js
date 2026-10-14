@@ -4,7 +4,9 @@
 // with Galaxy.generate (galaxy.js); a ?seed= URL parameter overrides the configured seed.
 // With fog of war (GalaxyMap.knowledge, see knowledge.js) it shows only what the player knows:
 // explored sectors, charted pockets, known systems, outposts and routes, and contacts as signals.
-// ?dev shows everything.
+// ?dev shows everything, plus the testing buttons (Jump, Hidden, Contacts).
+// Map travel: select a known place or any sector and press Travel; the flight view runs the trip
+// (travel.js) and the map shows the route, progress, signal prompts, Stop and fast-forward.
 
 const GalaxyMap = (() => {
   const overlay = document.getElementById('map-overlay');
@@ -15,6 +17,13 @@ const GalaxyMap = (() => {
   const hiddenBtn = document.getElementById('map-hidden');
   const contactsBtn = document.getElementById('map-contacts');
   const jumpBtn = document.getElementById('map-jump');
+  const travelBtn = document.getElementById('map-travel');
+  const stopBtn = document.getElementById('map-stop');
+  const fastBtn = document.getElementById('map-fast');
+  const rerollBtn = document.getElementById('map-reroll');
+  const travelStatus = document.getElementById('map-travel-status');
+  const promptEl = document.getElementById('map-prompt');
+  const promptText = document.getElementById('map-prompt-text');
 
   const ZONE_LABEL = { pocket: 'Charted pocket', claimed: 'Claimed · uncharted', deep: 'Deep space', frontier: 'Frontier' };
   const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: '#7df9ff' };
@@ -32,6 +41,9 @@ const GalaxyMap = (() => {
   let knowledge = null; // fog of war; null shows everything
   const dev = new URLSearchParams(location.search).has('dev');
   const fog = () => (dev ? null : knowledge);
+  let trip = null; // the flight view's Travel instance, for drawing the route
+  let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
+  for (const id of ['map-jump', 'map-hidden', 'map-contacts']) document.getElementById(id).hidden = !dev;
   const sysKnown = (s) => !fog() || fog().knowsSystem(s.id);
   const outpostKnown = (o) => !fog() || fog().knowsOutpost(o.id);
   const routeKnown = (r) => (!fog() || fog().knowsRoute(r.link)) && (r.kind !== 'hidden' || showHidden || fog());
@@ -357,6 +369,28 @@ const GalaxyMap = (() => {
     }
     ctx.textAlign = 'left';
 
+    // Map travel: the plotted route and destination.
+    if (trip && trip.active) {
+      const { to } = trip.route;
+      const p = trip.pos;
+      const [ax, ay] = toScreen(p.x, p.y);
+      const [bx, by] = toScreen(to.x, to.y);
+      ctx.strokeStyle = '#7df9ff';
+      ctx.globalAlpha = 0.7;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(bx, by, r + 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+      if (trip.prompt) {
+        const [qx, qy] = toScreen(trip.prompt.x + 0.5, trip.prompt.y + 0.5);
+        ctx.strokeStyle = '#ffd166';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(qx, qy, r + 9, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+
     // You are here.
     const [hx, hy] = player ? toScreen(player.x, player.y) : centreOf(galaxy.startSystem);
     ctx.strokeStyle = '#7df9ff';
@@ -439,7 +473,7 @@ const GalaxyMap = (() => {
     const x = Math.floor(gx);
     const y = Math.floor(gy);
     if (x < 0 || y < 0 || x >= galaxy.size || y >= galaxy.size) return null;
-    return { sector: { x, y } };
+    return { sector: { x, y, fx: gx, fy: gy } };
   }
 
   const samePick = (a, b) => a && b && (a.system || a.outpost
@@ -461,8 +495,31 @@ const GalaxyMap = (() => {
   // Sector of a pick, for jumping there.
   const sectorOfPick = (p) => (p.system ? { x: p.system.x, y: p.system.y } : p.outpost ? { x: p.outpost.x, y: p.outpost.y } : p.sector);
 
+  // Travel destination for a pick: known systems and outposts by name, any sector by coordinates.
+  function destOf(p) {
+    if (p.system) return { kind: 'system', id: p.system.id, x: p.system.x + 0.5, y: p.system.y + 0.5, name: p.system.name };
+    if (p.outpost) return { kind: 'outpost', id: p.outpost.id, x: p.outpost.x + 0.5, y: p.outpost.y + 0.5, name: p.outpost.name };
+    const { x, y, fx, fy } = p.sector;
+    return { kind: 'sector', x: fx ?? x + 0.5, y: fy ?? y + 0.5, name: `sector ${x}, ${y}` };
+  }
+
+  const PROMPT_LABEL = { derelict: 'a derelict', distress: 'a distress call', anomaly: 'an anomaly', story: 'an unidentified signal' };
+  function updateTravelUI() {
+    const travelling = !!(trip && trip.active);
+    travelBtn.hidden = travelling;
+    travelBtn.disabled = !selected || !hooks.travel;
+    stopBtn.hidden = fastBtn.hidden = travelStatus.hidden = !travelling;
+    rerollBtn.disabled = travelling;
+    jumpBtn.disabled = travelling || !selected || !onJump;
+    fastBtn.setAttribute('aria-pressed', String(travelling && trip.fast));
+    promptEl.hidden = !(travelling && trip.prompt);
+    if (!travelling) return;
+    travelStatus.textContent = `Travelling to ${trip.dest.name} · ${trip.remaining.toFixed(1)} sectors · ${Math.ceil(trip.eta)} s`;
+    if (trip.prompt) promptText.textContent = `Signal detected: ${PROMPT_LABEL[trip.prompt.contact.type] || 'a contact'} in sector ${trip.prompt.x}, ${trip.prompt.y}.`;
+  }
+
   function updateInfo() {
-    jumpBtn.disabled = !selected || !onJump;
+    updateTravelUI();
     const sel = selected || hovered;
     info.hidden = !sel;
     if (!sel) return;
@@ -637,6 +694,17 @@ const GalaxyMap = (() => {
   document.getElementById('map-btn').addEventListener('click', open);
   document.getElementById('map-close').addEventListener('click', close);
   document.getElementById('map-reroll').addEventListener('click', reroll);
+  travelBtn.addEventListener('click', () => {
+    if (!selected || !hooks.travel) return;
+    hooks.travel(destOf(selected));
+    selected = null;
+    updateInfo();
+    requestDraw();
+  });
+  stopBtn.addEventListener('click', () => hooks.stop && hooks.stop());
+  fastBtn.addEventListener('click', () => hooks.fast && hooks.fast());
+  document.getElementById('map-investigate').addEventListener('click', () => hooks.investigate && hooks.investigate());
+  document.getElementById('map-ignore').addEventListener('click', () => hooks.ignore && hooks.ignore());
   jumpBtn.addEventListener('click', () => {
     if (!selected || !onJump) return;
     const { x, y } = sectorOfPick(selected);
@@ -675,5 +743,10 @@ const GalaxyMap = (() => {
     set onJump(fn) { onJump = fn; updateInfo(); },
     set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
     refresh() { updateStats(); requestDraw(); },
+    // Map travel: the trip to draw, the flight view's callbacks, and a cheap redraw during a trip.
+    set trip(t) { trip = t; updateTravelUI(); },
+    set hooks(h) { hooks = h; updateTravelUI(); },
+    get hooks() { return hooks; },
+    redraw() { updateTravelUI(); requestDraw(); },
   };
 })();

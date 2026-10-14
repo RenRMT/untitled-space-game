@@ -100,10 +100,25 @@ ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
 
 // ---------- World: sectors generated from the galaxy map ----------
 
-const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, w: 0, h: 0 };
+const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, travel: null, w: 0, h: 0 };
 
 function sectorOf(x, y) {
   return [clamp(Math.floor(x / SECTOR), 0, world.galaxy.size - 1), clamp(Math.floor(y / SECTOR), 0, world.galaxy.size - 1)];
+}
+
+// Put the ship at a world position, at rest.
+function placeShip(x, y, angle = -Math.PI / 2) {
+  ship.x = clamp(x, SHIP.radius, world.w - SHIP.radius);
+  ship.y = clamp(y, SHIP.radius, world.h - SHIP.radius);
+  ship.vx = ship.vy = 0;
+  ship.targetSpeed = 0;
+  ship.angle = ship.targetAngle = angle;
+  cam.x = ship.x;
+  cam.y = ship.y;
+  particles.length = 0;
+  gateLock = null;
+  lastPocket = undefined; // no enter/leave notice for a teleport
+  world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR);
 }
 
 // Place the ship in a sector, beside its main station when there is one.
@@ -111,16 +126,17 @@ function moveShipTo(sx, sy) {
   const sec = world.sectors.at(sx, sy);
   const stations = sec.entities.filter((e) => e.kind === 'station').sort((a, b) => b.radius - a.radius);
   const s = stations[0];
-  ship.x = s ? s.x : (sx + 0.5) * SECTOR;
-  ship.y = s ? s.y + s.radius + 220 : (sy + 0.5) * SECTOR;
-  ship.vx = ship.vy = 0;
-  ship.targetSpeed = 0;
-  ship.angle = ship.targetAngle = -Math.PI / 2;
-  cam.x = ship.x;
-  cam.y = ship.y;
-  particles.length = 0;
-  gateLock = null;
-  lastPocket = undefined; // no enter/leave notice for a teleport
+  placeShip(s ? s.x : (sx + 0.5) * SECTOR, s ? s.y + s.radius + 220 : (sy + 0.5) * SECTOR);
+}
+
+// Drop the ship short of whatever is in a deep-space sector, facing it.
+function dropNearContact(cell, dir) {
+  const sec = world.sectors.at(cell.x, cell.y);
+  const things = sec.entities.filter((e) => e.kind !== 'gate' && e.kind !== 'station' && e.kind !== 'star');
+  for (const e of things) Sectors.pose(e, simTime);
+  const cx = things.length ? things.reduce((a, e) => a + e.x, 0) / things.length : (cell.x + 0.5) * SECTOR;
+  const cy = things.length ? things.reduce((a, e) => a + e.y, 0) / things.length : (cell.y + 0.5) * SECTOR;
+  placeShip(cx - Math.cos(dir) * 1600, cy - Math.sin(dir) * 1600, dir);
 }
 
 function loadGalaxy(galaxy) {
@@ -132,12 +148,63 @@ function loadGalaxy(galaxy) {
   // What the player knows (fog of war); ?fresh forgets saved charts.
   world.knowledge = Knowledge.create(galaxy, { fresh: params.has('fresh') });
   GalaxyMap.knowledge = world.knowledge;
+  world.travel = Travel.create(galaxy, world.knowledge);
+  GalaxyMap.trip = world.travel;
   Art.clearCache();
   const start = galaxy.systems[galaxy.startSystem];
   moveShipTo(start.x, start.y);
 }
 loadGalaxy(GalaxyMap.galaxy);
 GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
+
+// ---------- Map travel: plot a course on the map, cruise there, maybe get interrupted ----------
+
+const CONTACT_NAMES = { derelict: 'derelict', distress: 'distress call', anomaly: 'anomaly', ambush: 'ambush', story: 'signal' };
+
+// Where a finished trip leaves the ship, and what it says.
+function finishTrip(ev) {
+  if (!ev) return;
+  const { dest } = ev;
+  const destCell = { x: Math.floor(dest.x), y: Math.floor(dest.y) };
+  if (ev.type === 'arrive' && (dest.kind === 'system' || dest.kind === 'outpost')) {
+    moveShipTo(destCell.x, destCell.y);
+    toast.text = `Arrived at ${dest.name}`;
+  } else if (ev.type === 'arrive' && world.galaxy.deepSector(destCell.x, destCell.y)) {
+    dropNearContact(destCell, ev.dir);
+    toast.text = `Arrived at ${dest.name}`;
+  } else if (ev.type === 'interdict' || ev.type === 'investigate') {
+    dropNearContact(ev.cell, ev.dir);
+    toast.text = ev.type === 'interdict' ? 'Interdicted! Hostile contact' : `Investigating the ${CONTACT_NAMES[ev.contact.type] || 'signal'}`;
+  } else {
+    placeShip(ev.pos.x * SECTOR, ev.pos.y * SECTOR, ev.dir);
+    toast.text = ev.type === 'arrive' ? `Arrived at ${dest.name}` : 'Dropped out of cruise';
+  }
+  toast.t = 3;
+  GalaxyMap.setPlayer(ship.x / SECTOR, ship.y / SECTOR);
+  GalaxyMap.close();
+}
+
+GalaxyMap.hooks = {
+  travel(dest) {
+    world.travel.start({ x: ship.x / SECTOR, y: ship.y / SECTOR }, dest);
+    GalaxyMap.redraw();
+  },
+  stop: () => finishTrip(world.travel.stop()),
+  fast() { world.travel.toggleFast(); GalaxyMap.redraw(); },
+  investigate: () => finishTrip(world.travel.investigate()),
+  ignore() { world.travel.ignore(); GalaxyMap.redraw(); },
+};
+
+// Advance a trip; runs while the map is open. Closing the map drops out of cruise.
+function tickTravel(dt) {
+  if (!world.travel.active) return;
+  if (!GalaxyMap.isOpen) { finishTrip(world.travel.stop()); return; }
+  const ev = world.travel.step(dt);
+  const p = world.travel.pos;
+  if (p) GalaxyMap.setPlayer(p.x, p.y);
+  if (ev && ev.type !== 'prompt') finishTrip(ev);
+  else GalaxyMap.redraw();
+}
 
 // Entities of the sectors around the camera, posed for time t.
 function nearbyEntities(t) {
@@ -759,6 +826,7 @@ let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   last = now;
+  tickTravel(dt);
   if (!GalaxyMap.isOpen) { // the map overlay pauses flight
     update(dt);
     render();
