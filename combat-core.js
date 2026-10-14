@@ -1,0 +1,92 @@
+'use strict';
+
+// What both combat modes share (rounds: combat.js, real time: combat-realtime.js), and the shape
+// every mode takes, so the flight view (game.js) runs any of them the same way and a new mode is a
+// new module rather than new branches in game.js.
+//
+// Shared:
+//   CombatCore.config                  hit chance limits, and the flight view's ranges: where Attack
+//                                      is offered, where pirates attack, who joins a fight
+//   CombatCore.combatant(id, name, stats, hull = full) -> { id, name, stats, hull, shield }
+//   CombatCore.applyDamage(target, amount) -> { shieldDamage, hullDamage }   shields first
+//   CombatCore.limitHit(p)             a hit chance kept within [minHit, maxHit]
+//   CombatCore.alive(s)                the enemies still flying
+//   CombatCore.loot(galaxySeed, key, role) -> [{ kind, seed }]   what a destroyed ship leaves
+//
+// A mode (each module's `mode`):
+//   id, flying               ships keep flying (real time), or are held in place (rounds)
+//   start(rng, player, enemies, { target, ambushed }) -> s
+//       player, enemies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
+//       target: the enemy attacked; ambushed: the pirates attacked first
+//   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
+//   setFocus(s, id)                    the player picks a target
+//   press?(s, id)                      a combat panel button (Flee)
+//   join?(s, enemy)                    another ship joins the fight under way
+//   lock(s) -> 0..1                    how far the lock on the target has come (1: locked)
+//   panel(s) -> { title, button, bar?, progress }   the combat panel while the fight runs
+//   log(s, events, lines) -> lines     the panel's last lines after these events
+//   look                               how its events are shown (game.js): seconds a beam and a
+//                                      shield flash last (beam, shield), the wait before hits
+//                                      show (after) and before a destroyed ship blows up
+//                                      (finish), sparks(ev) per hull hit, whether hits on a ship
+//                                      add up into one number (sum), and whether the guns' field
+//                                      of fire is shown (arcs)
+// Events: { type: 'shot', from, to, shots, hits, damage, shieldDamage, hullDamage, destroyed,
+//   delay? } (delay: seconds before it shows), { type: 'flee', ok }, and in real time
+//   { type: 'target' | 'locked' | 'lost-lock', id }. s.player, s.enemies and s.focus as named;
+//   s.over becomes 'won', 'lost' or 'fled' when the fight ends.
+// Works as a classic browser script (global `CombatCore`) and as a Node module.
+
+const CombatCore = (() => {
+  const isNode = typeof require === 'function';
+  const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('./rng.js') : globalThis;
+  const G = isNode ? require('./goods.js') : Goods;
+  const { clamp } = isNode ? require('./math.js') : MathUtil;
+
+  const config = {
+    minHit: 0.1, // a hit chance never drops below this ...
+    maxHit: 0.95, // ... or rises above this
+    engageRange: 900, // world units from the target's edge within which Attack is offered
+    aggroRange: 600, // pirates attack a ship this close
+    groupRange: 1500, // pirates this close to the one engaged join the fight
+  };
+
+  // A ship in a fight. stats: Loadout.stats(); hull: current hull points (defaults to full).
+  const combatant = (id, name, stats, hull = stats.hull) => ({ id, name, stats, hull: clamp(hull, 0, stats.hull), shield: stats.shield });
+
+  // Damage hits the shields first, then the hull.
+  function applyDamage(t, amount) {
+    const shieldDamage = Math.min(t.shield, amount);
+    t.shield -= shieldDamage;
+    const hullDamage = Math.min(t.hull, amount - shieldDamage);
+    t.hull -= hullDamage;
+    return { shieldDamage, hullDamage };
+  }
+
+  const limitHit = (p) => clamp(p, config.minHit, config.maxHit);
+  const alive = (s) => s.enemies.filter((e) => e.hull > 0);
+
+  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Fighters may drop a
+  // salvaged component; freighters spill trade goods. Types are picked by rarity, so complex
+  // components and rare goods turn up less often. Seeded by the galaxy and the ship.
+  const SALVAGE = [['hull', 3], ['weapon', 2], ['drive', 2], ['computer', 1]];
+  const GOODS = G.categories('trade');
+  function loot(galaxySeed, key, role) {
+    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(key), 0x1007));
+    const seed = () => Math.floor(r() * 4294967295);
+    const out = [];
+    const component = () => ({ kind: G.pick(r, weightedPick(SALVAGE, r())), seed: seed() });
+    if (role === 'freighter') {
+      const n = 1 + Math.floor(r() * 2);
+      for (let i = 0; i < n; i++) out.push({ kind: G.pick(r, GOODS[Math.floor(r() * GOODS.length)]), seed: seed() });
+      if (r() < 0.3) out.push(component());
+    } else if (r() < 0.6) {
+      out.push(component());
+    }
+    return out;
+  }
+
+  return { config, combatant, applyDamage, limitHit, alive, loot };
+})();
+
+if (typeof module !== 'undefined') module.exports = CombatCore;

@@ -35,10 +35,11 @@ load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
+load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions } = ctx;
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -683,8 +684,8 @@ test('combat rounds: initiative, shields before hull, no shots from the dead, re
   assert.strictEqual(s.player.hull, 100 - (15 - 11), 'second volley breaks through the recharged shield');
 
   // Hit chance stays within its bounds.
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), Combat.config.minHit);
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), Combat.config.maxHit);
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), CombatCore.config.minHit);
+  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), CombatCore.config.maxHit);
 });
 
 test('the player switches to the next enemy when the focused one is destroyed', () => {
@@ -726,7 +727,7 @@ test('fleeing skips the player\'s shots and depends on top speed', () => {
   s.fleeing = true;
   const ev = Combat.round(s);
   assert(!ev.some((e) => e.from === 'p'), 'the player fired while fleeing');
-  assert.deepStrictEqual(ev[ev.length - 1], { flee: false });
+  assert.deepStrictEqual(ev[ev.length - 1], { type: 'flee', ok: false });
   assert.strictEqual(s.fleeing, true, 'a failed attempt keeps trying next round');
   assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeBase);
   s.player.stats.maxSpeed = 5000;
@@ -737,11 +738,11 @@ test('destroyed ships leave sellable loot', () => {
   const g = galaxies.get(1);
   let fighterDrops = 0;
   for (let i = 0; i < 300; i++) {
-    const f = Combat.loot(g.seed, `x,y,s${i}`, 'fighter');
-    assert.deepStrictEqual(Combat.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
+    const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter');
+    assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter'), f, 'loot is not deterministic');
     for (const d of f) assert(Goods.isSalvage(d.kind), `fighter dropped ${d.kind}`);
     fighterDrops += f.length;
-    const fr = Combat.loot(g.seed, `x,y,s${i}`, 'freighter');
+    const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
     for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
   }
@@ -840,7 +841,7 @@ test('real-time combat: hit chance falls with crossing speed and range; evasion 
   t.x = 650;
   assert(RealtimeCombat.hitChance(a, w, t) < across, 'range does not count');
   t.vy = 5000;
-  assert.strictEqual(RealtimeCombat.hitChance(a, w, t), RealtimeCombat.config.minHit);
+  assert.strictEqual(RealtimeCombat.hitChance(a, w, t), CombatCore.config.minHit);
 });
 
 test('real-time combat: shields soak damage first and recharge only after a pause', () => {
