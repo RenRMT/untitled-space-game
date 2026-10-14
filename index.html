@@ -255,12 +255,16 @@
 
   .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
 
-  /* Item types: a swatch in the type's colour, and a tag for anything rarer than common
-     (colours as Goods.RARITY in goods.js). Trade lists are grouped by category. */
-  #station .swatch {
-    display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 2px; vertical-align: 0;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
-  }
+  /* Item types: the item's icon (its own art, in the current style; art/icons.js), and a tag for
+     anything rarer than common (colours as Goods.RARITY in goods.js). Trade lists are grouped
+     by category. In a trade row the icon sits to the left of the name, count and gauge. */
+  #station .icon { display: block; flex: none; } /* sized by its width/height attributes */
+  .good .what.with-icon { display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 10px; align-items: center; }
+  .good .what.with-icon > .icon { grid-row: 1 / span 3; }
+  .good .what.with-icon > :not(.icon) { grid-column: 2; }
+  .list.compact .name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .list.compact .icon { margin: -4px 0; }
+  .list.compact li { align-items: center; }
   .rarity { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-left: 8px; white-space: nowrap; }
   .rarity.r2 { color: #6fd08c; }
   .rarity.r3 { color: #5aa9ff; }
@@ -411,6 +415,7 @@
 <script src="art/blueprints.js"></script>
 <script src="art/items.js"></script>
 <script src="art/render.js"></script>
+<script src="art/icons.js"></script>
 <script src="sector.js"></script>
 <script src="knowledge.js"></script>
 <script src="economy.js"></script>

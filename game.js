@@ -415,6 +415,7 @@ function dock(station) {
     ship: SHIP,
     loadout,
     repairs,
+    artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
 }

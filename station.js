@@ -1,7 +1,8 @@
 'use strict';
 
 // The docked screen: station header, Trade / Ship / Missions tabs and a Launch button.
-// StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship, loadout, onLaunch })
+// StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship, loadout, artStyle, onLaunch })
+// artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats(loadout); loadout: the ship's class and fitted equipment (loadout.js).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
@@ -49,15 +50,19 @@ const StationMenu = (() => {
     return h('span', { class: 'gauge', 'aria-hidden': 'true' }, h('span', { class: `mark ${tone}`, style: { left: `${k * 100}%` } }));
   }
 
-  // An item type's colour swatch, name and rarity (goods.js), for list rows.
+  // An item type's icon: its own art in the current style (art/icons.js). The name is beside it,
+  // so the icon is decoration to screen readers.
+  function itemIcon(kind, size) {
+    return h('img', {
+      class: 'icon', src: ItemIcons.url(kind, ctx.artStyle, size), alt: '', 'aria-hidden': 'true',
+      width: size, height: size, draggable: 'false',
+    });
+  }
+
+  // An item type's name and rarity (goods.js), for list rows.
   function itemName(kind) {
     const t = Goods.type(kind);
-    const [hue, sat, light] = t.color;
-    return [
-      h('span', { class: 'swatch', 'aria-hidden': 'true', style: { background: `hsl(${hue} ${sat * 100}% ${light * 100}%)` } }),
-      t.name,
-      t.rarity > 1 ? h('span', { class: `rarity r${t.rarity}` }, Goods.RARITY[t.rarity].label) : null,
-    ];
+    return [t.name, t.rarity > 1 ? h('span', { class: `rarity r${t.rarity}` }, Goods.RARITY[t.rarity].label) : null];
   }
 
   // A trade good: name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
@@ -78,7 +83,8 @@ const StationMenu = (() => {
       onclick: () => { hold.sell(g.kind, g.sell); refresh(); },
     }, `Sell ${g.sell}`);
     return h('li', { class: 'good' },
-      h('div', { class: 'what' },
+      h('div', { class: 'what with-icon' },
+        itemIcon(g.kind, 32),
         h('span', { class: 'name' }, itemName(g.kind)),
         h('span', { class: 'held' }, n ? `${n} in hold` : ''),
         // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
@@ -113,7 +119,8 @@ const StationMenu = (() => {
         const n = hold.count(s.kind);
         const name = Goods.type(s.kind).name;
         return h('li', { class: 'good' },
-          h('div', { class: 'what' },
+          h('div', { class: 'what with-icon' },
+            itemIcon(s.kind, 32),
             h('span', { class: 'name' }, itemName(s.kind)),
             h('span', { class: 'held' }, `${n} in hold`),
             gauge(s.sell, Economy.basePrice(s.kind) * (1 - Economy.config.spread))),
@@ -194,7 +201,9 @@ const StationMenu = (() => {
       h('section', { 'aria-label': 'Hold' },
         h('h2', {}, `Hold ${hold.items.length}/${hold.capacity}`),
         groups.size
-          ? h('ul', { class: 'list compact' }, [...groups].map(([kind, n]) => h('li', {}, h('span', { class: 'name' }, itemName(kind)), h('span', { class: 'held' }, `×${n}`))))
+          ? h('ul', { class: 'list compact' }, [...groups].map(([kind, n]) => h('li', {},
+            h('span', { class: 'name' }, itemIcon(kind, 24), h('span', {}, itemName(kind))),
+            h('span', { class: 'held' }, `×${n}`))))
           : h('p', { class: 'empty' }, 'Your hold is empty. Buy goods here or pick up cargo floating in space.')),
     ];
   }
