@@ -6,7 +6,8 @@
 // - known routes (lanes and gates),
 // - deep-space contacts, either pinged (something is there) or identified.
 // It starts with the charted network around the start system: everything reachable over lanes and
-// charted gates. It grows as the ship flies (sensors), uses gates and travels on the map. Hidden
+// charted gates (in the frontier start style, only the start Waystation itself). It grows as the
+// ship flies (sensors), uses gates and travels on the map. Hidden
 // routes are only learned by using their gate. Saved to localStorage per galaxy.
 // Browser script (global `Knowledge`).
 
@@ -147,9 +148,11 @@ const Knowledge = (() => {
     }
 
     // Starting charts: the network reachable from the start system over lanes and charted gates.
+    // A frontier start (galaxy.js) charts only its own Waystation; everything else is found by flying.
     function chartStart() {
       const start = galaxy.systems[galaxy.startSystem];
       knowSystem(start);
+      if (galaxy.start === 'frontier') { changed(); return; }
       const queue = [start.id];
       while (queue.length) {
         const id = queue.shift();
