@@ -18,11 +18,11 @@ const ArtBlueprints = (() => {
   const { mulberry32, hashInt } = isNode ? require('../rng.js') : globalThis;
   const { TAU, lerp, clamp } = U;
 
-  let nextId = 1;
-
+  // A blueprint's id names what it is built from (type, culture and seed), so building the same
+  // asset again (a sector rebuilt from its seed) finds the same cached sprites (art/render.js).
   function builder(type, culture, seed) {
     const bp = {
-      id: nextId++, type, culture, seed, parts: [], lights: [], engines: [],
+      id: `${type}:${culture.seed ?? 0}:${seed}`, type, culture, seed, parts: [], lights: [], engines: [],
       layers: ['fixed'], spinRate: 0, glow: false, label: '',
     };
     const part = (shape, props, mat, o) => {
@@ -897,6 +897,7 @@ const ArtBlueprints = (() => {
 
   function tarsisStation(culture, r = 90) {
     const b = builder('station-major', culture, 2);
+    b.bp.id = `tarsis:${culture.seed}:${r}`; // not a generated station-major, whatever the seed
     const S = { layer: 'spin' };
     b.bp.layers = ['spin', 'fixed'];
     b.bp.spinRate = 0.15;

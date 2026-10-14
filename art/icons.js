@@ -41,7 +41,7 @@ const ItemIcons = (() => {
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.setTransform(k, 0, 0, k, ox, oy);
     // t only matters for blinking lights; at 0.4 most are on.
-    Art.drawAsset(ctx, bp, style, { angle: config.angle, t: 0.4, texel: texel / k });
+    Art.drawAsset(ctx, bp, style, { angle: config.angle, t: 0.4, texel: texel / k, force: true });
   }
 
   function canvas(px, read) {

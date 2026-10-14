@@ -6,7 +6,10 @@
 //   flat    – solid fills with one flat rim shadow and highlight per part,
 //   lowpoly – parts extruded into faceted meshes with flat per-triangle lighting.
 // Static geometry is rendered once into cached sprites (per rotation bucket where lighting
-// depends on the angle); engine flames and blinking lights are drawn live on top.
+// depends on the angle); engine flames and blinking lights are drawn live on top. Sprites live in
+// two caches bounded by memory (art/sprite-cache.js), with a build budget per frame: the flight
+// view calls Art.beginFrame() every frame, and while the frame's budget is spent an object keeps
+// its last sprite (another rotation, scale or art style) until a later frame builds the new one.
 // Browser only (global `Art`).
 
 const Art = (() => {
@@ -26,7 +29,14 @@ const Art = (() => {
     bigBuckets: 16, // ... for sprites larger than bigSprite device px
     bigSprite: 256,
     maxSprite: 768, // device px cap for vector sprites
-    maxSprites: 400, // LRU size
+    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, gates, planets and
+    // stars; asteroids have their own cache, so a busy field doesn't push the rest out.
+    maxPixels: 12e6, // about 48 MB
+    maxSprites: 2000,
+    // Mobile browsers kill tabs that hold too much canvas memory: 16M px is about 64 MB.
+    maxAsteroidPixels: 16e6,
+    maxAsteroidSprites: 3000,
+    buildBudgetMs: 4, // sprite building per frame before objects make do with their last sprite
     bg: '#05060a',
     outline: '#0e1016',
   };
@@ -37,19 +47,18 @@ const Art = (() => {
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 
-  // ---------- Sprite cache ----------
+  // ---------- Sprite caches ----------
 
-  const cache = new Map();
-  // Running totals for the performance overlay (sprites rendered, as opposed to reused).
-  const counters = { builds: 0, asteroidBuilds: 0 };
-  function cached(key, make) {
-    let v = cache.get(key);
-    if (v) { cache.delete(key); cache.set(key, v); return v; }
-    counters.builds++;
-    v = make();
-    cache.set(key, v);
-    while (cache.size > config.maxSprites) cache.delete(cache.keys().next().value);
-    return v;
+  // Limits are read live from config, so they can be tuned at run time.
+  const budget = SpriteCache.budget({ get ms() { return config.buildBudgetMs; } });
+  const sprites = SpriteCache.create({ budget, get maxPixels() { return config.maxPixels; }, get maxEntries() { return config.maxSprites; } });
+  const asteroidSprites = SpriteCache.create({ budget, get maxPixels() { return config.maxAsteroidPixels; }, get maxEntries() { return config.maxAsteroidSprites; } });
+  // A sprite from a cache, remembering it as the object's last one (o[slot] holds its key) so it can
+  // stand in while a new one waits for the build budget. Every sprite records its art style.
+  function cachedFor(cache, o, slot, key, style, make, force) {
+    const spr = cache.get(key, () => Object.assign(make(), { style }), { fallback: o[slot], force });
+    if (spr.key === key) o[slot] = key;
+    return spr;
   }
   function canvas(w, h) {
     const c = document.createElement('canvas');
@@ -57,8 +66,10 @@ const Art = (() => {
     c.height = Math.max(1, Math.ceil(h));
     return c;
   }
-  let objId = 1;
-  const idOf = (o) => o._artId || (o._artId = 'o' + objId++);
+  // A stable id for a planet, star or asteroid body, from the fields it is drawn from (underscored
+  // fields are caches), so a sector rebuilt from its seed finds its sprites again. Blueprints get
+  // theirs from art/blueprints.js.
+  const idOf = (o) => o._artId || (o._artId = JSON.stringify(o, (k, v) => (k[0] === '_' ? undefined : v)));
   const quant = (ppu) => 2 ** (Math.round(Math.log2(ppu) * 4) / 4);
   const dprOf = () => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
 
@@ -624,7 +635,7 @@ const Art = (() => {
 
   // ---------- Sprites and live drawing ----------
 
-  function sprite(bp, style, layer, a, ppu, texel) {
+  function sprite(bp, style, layer, a, ppu, texel, force) {
     const half = bp.radius + (style === 'line' ? 12 / Math.max(ppu, 0.1) + 2 : 2);
     let nb = 1;
     if (style === 'pixel') nb = config.buckets;
@@ -633,14 +644,15 @@ const Art = (() => {
     const ang = (bi / nb) * TAU;
     const q = style === 'pixel' ? 0 : quant(ppu);
     const tx = style === 'pixel' ? texel : 0;
-    return cached(`${bp.id}|${style}|${layer}|${bi}/${nb}|${q}|${tx}`, () => {
+    bp._spriteKeys ||= {};
+    return cachedFor(sprites, bp._spriteKeys, layer, `${bp.id}|${style}|${layer}|${bi}/${nb}|${q}|${tx}`, style, () => {
       const s = style === 'line' ? renderLine(bp, layer, ang, q, half)
         : style === 'flat' ? renderFlat(bp, layer, ang, q, half)
           : style === 'pixel' ? renderPixel(bp, layer, ang, tx)
             : renderLow(bp, layer, ang, q, half);
       s.angle = ang;
       return s;
-    });
+    }, force);
   }
 
   const flicker = (t, seed) => Math.sin(t * 13 + seed) + Math.sin(t * 7.3 + seed * 2) > 0.9;
@@ -725,15 +737,16 @@ const Art = (() => {
   }
 
   // Draw a blueprint. ctx must already map world units; options: x, y, angle, spin, t, thrust,
-  // texel (pixel style only).
-  function drawAsset(ctx, bp, style, o = {}) {
+  // texel (pixel style only), force (build the sprite now, whatever the frame's budget).
+  function drawAsset(ctx, bp, requested, o = {}) {
     const { x = 0, y = 0, angle = 0, spin = 0, t = 0, thrust = 0 } = o;
     const m = ctx.getTransform();
     const ppu = Math.hypot(m.a, m.b);
     const texel = o.texel || config.texel;
     for (const layer of bp.layers) {
       const a = angle + (layer === 'spin' ? spin : 0);
-      const spr = sprite(bp, style, layer, a, ppu, texel);
+      const spr = sprite(bp, requested, layer, a, ppu, texel, o.force);
+      const style = spr.style; // a stand-in may be from the previous style: draw it as that
       const drawA = style === 'pixel' ? spr.angle : a;
       const liftZ = style === 'lowpoly' ? (lx, ly) => buildMesh(bp, layer, ppu).surfaceAt(lx, ly) : null;
       ctx.save();
@@ -987,7 +1000,7 @@ const Art = (() => {
     const ppu = quant(Math.hypot(m.a, m.b));
     const texel = o.texel || config.texel;
     const ext = pl.ring ? ringAxes(pl)[0] * 1.08 : pl.r * 1.05;
-    const spr = cached(`${idOf(pl)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}|${Math.round(lightAngle * 8)}`, () => {
+    const spr = cachedFor(sprites, pl, '_spriteKey', `${idOf(pl)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}|${Math.round(lightAngle * 8)}`, style, () => {
       if (style === 'pixel') return planetPixel(pl, texel);
       const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite * 2);
       const k = S / (ext * 2);
@@ -998,7 +1011,7 @@ const Art = (() => {
       else if (style === 'flat') planetFlat(c, pl);
       else planetLow(c, pl);
       return { canvas: cv, half: ext, smooth: true };
-    });
+    }, o.force);
     ctx.save();
     ctx.imageSmoothingEnabled = spr.smooth;
     ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
@@ -1124,7 +1137,7 @@ const Art = (() => {
     const ppu = quant(Math.hypot(m.a, m.b));
     const texel = o.texel || config.texel;
     const ext = st.r * (style === 'flat' ? 2.25 : 1.8);
-    const spr = cached(`${idOf(st)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`, () => {
+    const spr = cachedFor(sprites, st, '_spriteKey', `${idOf(st)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`, style, () => {
       if (style === 'pixel') return starPixel(st, texel);
       const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite * 2);
       const k = S / (ext * 2);
@@ -1133,10 +1146,10 @@ const Art = (() => {
       c.setTransform(k, 0, 0, k, S / 2, S / 2);
       if (style === 'flat') starFlat(c, st); else starLow(c, st);
       return { canvas: cv, half: ext, smooth: true };
-    });
+    }, o.force);
     ctx.save();
     ctx.translate(x, y);
-    if (style !== 'pixel') ctx.rotate(t * 0.02);
+    if (spr.style !== 'pixel') ctx.rotate(t * 0.02);
     ctx.imageSmoothingEnabled = spr.smooth;
     ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
     ctx.restore();
@@ -1153,18 +1166,7 @@ const Art = (() => {
     metal: { label: 'Metallic', c: ['#8e959e', '#80634f', '#c3cad2'], line: '#cfe0f0', shine: true },
     ice: { label: 'Icy', c: ['#9fc2da', '#7598b6', '#eef7fc'], line: '#bff0ff', shine: true },
   };
-  const ASTEROID_BUCKETS = 48;
-  // Own LRU so a busy field doesn't evict ship sprites, plus a per-frame build budget: when it is
-  // spent, an asteroid reuses its last sprite until the next frame.
-  const astCache = new Map();
-  let astBudget = { t: -1, n: 0 };
-  config.maxAsteroidSprites = 3000;
-  // Each sprite is its own canvas, and mobile browsers kill tabs that hold too much canvas memory,
-  // so the cache is also capped by total pixel area (16M px is about 64 MB at 4 bytes per pixel).
-  config.maxAsteroidPixels = 16e6;
-  let astPixels = 0;
-  const pixelsOf = (spr) => spr.canvas.width * spr.canvas.height;
-  config.asteroidBuildsPerFrame = 6;
+  const ASTEROID_BUCKETS = 48; // asteroid sprites live in their own cache (asteroidSprites, above)
 
   function axisMat([x, y, z], a) {
     const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
@@ -1399,25 +1401,7 @@ const Art = (() => {
     const nb = ASTEROID_BUCKETS, bi = ((Math.round((spin / TAU) * nb) % nb) + nb) % nb;
     const ext = ast.r * 1.06 + (style === 'line' ? 3 / Math.max(ppu, 0.1) : 0);
     const key = `${idOf(ast)}|${style}|${bi}|${ppu}|${style === 'pixel' ? texel : 0}`;
-    let spr = astCache.get(key);
-    const now = Math.floor((typeof performance !== 'undefined' ? performance.now() : Date.now()) / 12);
-    if (astBudget.t !== now) astBudget = { t: now, n: 0 };
-    const last = ast._astLast && ast._astLast.style === style && ast._astLast.ppu === ppu ? ast._astLast.spr : null;
-    if (spr) { astCache.delete(key); astCache.set(key, spr); }
-    else if (last && !o.force && astBudget.n >= config.asteroidBuildsPerFrame) spr = last;
-    else {
-      astBudget.n++;
-      counters.asteroidBuilds++;
-      spr = buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext);
-      astCache.set(key, spr);
-      astPixels += pixelsOf(spr);
-      while (astCache.size > 1 && (astCache.size > config.maxAsteroidSprites || astPixels > config.maxAsteroidPixels)) {
-        const [oldest, old] = astCache.entries().next().value;
-        astCache.delete(oldest);
-        astPixels -= pixelsOf(old);
-      }
-    }
-    ast._astLast = { style, ppu, spr };
+    const spr = cachedFor(asteroidSprites, ast, '_spriteKey', key, style, () => buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext), o.force);
     ctx.save();
     ctx.imageSmoothingEnabled = spr.smooth;
     ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
@@ -1444,8 +1428,17 @@ const Art = (() => {
     STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
-    clearCache: () => { cache.clear(); astCache.clear(); astPixels = 0; },
+    // Start a frame: a fresh sprite build budget (see the caches above).
+    beginFrame: () => budget.next(),
+    clearCache: () => { sprites.clear(); asteroidSprites.clear(); },
     // Sprite cache sizes and build counts, for the performance overlay.
-    stats: () => ({ sprites: cache.size, asteroids: astCache.size, asteroidPixels: astPixels, ...counters }),
+    stats() {
+      const s = sprites.stats(), a = asteroidSprites.stats();
+      return {
+        sprites: s.sprites, spritePixels: s.pixels, builds: s.builds,
+        asteroids: a.sprites, asteroidPixels: a.pixels, asteroidBuilds: a.builds,
+        deferred: s.deferred + a.deferred, buildMs: budget.spent,
+      };
+    },
   };
 })();

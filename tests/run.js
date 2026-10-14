@@ -26,6 +26,7 @@ load('art/util.js', ['ArtUtil']);
 load('art/culture.js', ['ArtCulture']);
 load('art/blueprints.js', ['ArtBlueprints']);
 load('art/items.js', ['ArtItems']);
+load('art/sprite-cache.js', ['SpriteCache']);
 load('sector.js', ['Sectors']);
 load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
@@ -35,7 +36,7 @@ load('loadout.js', ['Loadout']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat } = ctx;
+const { Galaxy, Sectors, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, GALAXY_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -264,6 +265,78 @@ test('the mining target is the nearest unmined asteroid in range', () => {
   assert.strictEqual(Mining.targetIn(list, 0, 0, new Set(['near'])), far);
   assert.strictEqual(Mining.targetIn([out], 0, 0), null);
   assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
+});
+
+test('art ids name what an asset is built from, so a rebuilt sector finds its sprites again', () => {
+  const g = galaxies.get(1);
+  const cultures = ArtCulture.forGalaxy(g);
+  const a = Sectors.create(g, cultures, g.sectorUnits), b = Sectors.create(g, cultures, g.sectorUnits);
+  const seen = new Map(); // art id -> a fingerprint of the blueprint
+  const print = (bp) => `${bp.type}|${bp.parts.length}|${bp.radius.toFixed(3)}|${bp.label}`;
+  for (const s of g.systems) {
+    const x = a.at(s.x, s.y).entities.filter((e) => e.art), y = b.at(s.x, s.y).entities.filter((e) => e.art);
+    assert.deepStrictEqual(x.map((e) => e.art.id), y.map((e) => e.art.id), `sector ${s.x},${s.y} rebuilt with other ids`);
+    for (const e of x) {
+      assert.notStrictEqual(e.art, y[x.indexOf(e)], 'a rebuild makes new blueprints');
+      // Two blueprints may share an id only if they are the same asset.
+      if (seen.has(e.art.id)) assert.strictEqual(seen.get(e.art.id), print(e.art), e.art.id);
+      else seen.set(e.art.id, print(e.art));
+    }
+  }
+  assert.ok(seen.size > 500, `${seen.size} distinct assets`);
+  // The same item type and seed is the same art; another seed or type is not.
+  assert.strictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 7).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('copper', 7).id);
+  const c = cultures.of(0);
+  assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.tarsisStation(c).id);
+});
+
+const fakeSprite = (w, h = w) => ({ canvas: { width: w, height: h } });
+
+test('sprite cache: drops the least recently used by pixels, but never a sprite drawn this frame', () => {
+  const budget = SpriteCache.budget({ ms: 1000 });
+  const cache = SpriteCache.create({ budget, maxPixels: 300, maxEntries: 100 });
+  for (const k of ['a', 'b', 'c']) cache.get(k, () => fakeSprite(10)); // 100 px each
+  cache.get('a', () => assert.fail('a is cached'));
+  cache.get('d', () => fakeSprite(10)); // 400 px: the oldest, b, goes
+  assert.deepStrictEqual(['a', 'b', 'c', 'd'].map(cache.has), [true, false, true, true]);
+  // A frame that needs more than the limit keeps all its sprites for now...
+  budget.next();
+  for (const k of ['a', 'c', 'd', 'e']) cache.get(k, () => fakeSprite(10));
+  assert.deepStrictEqual(cache.stats(), { sprites: 4, pixels: 400, builds: 5, deferred: 0, dropped: 1 });
+  // ...and the next one trims back to it, oldest first.
+  budget.next();
+  cache.get('f', () => fakeSprite(10));
+  assert.deepStrictEqual(['a', 'c', 'd', 'e', 'f'].map(cache.has), [false, false, true, true, true]);
+  assert.strictEqual(cache.stats().pixels, 300);
+  // The count limit works the same way (here outside any frame, so nothing is held back).
+  const few = SpriteCache.create({ budget: SpriteCache.budget(), maxPixels: Infinity, maxEntries: 2 });
+  for (const k of ['a', 'b', 'c']) few.get(k, () => fakeSprite(1));
+  assert.deepStrictEqual(['a', 'b', 'c'].map(few.has), [false, true, true]);
+});
+
+test('sprite cache: once the frame\'s budget is spent, an object keeps its last sprite', () => {
+  let t = 0;
+  const budget = SpriteCache.budget({ ms: 5, now: () => t });
+  const cache = SpriteCache.create({ budget, maxPixels: Infinity, maxEntries: 100 });
+  const slow = () => { t += 6; return fakeSprite(10); }; // every build takes 6 ms
+  cache.get('ship@0', slow);
+  cache.get('ship@1', slow, { fallback: 'ship@0' });
+  assert.ok(cache.has('ship@1'), 'no budget before the first frame');
+  budget.next();
+  assert.strictEqual(cache.get('station', slow).key, 'station', 'the first build of a frame always runs');
+  assert.strictEqual(cache.get('ship@2', slow, { fallback: 'ship@1' }).key, 'ship@1', 'over budget: the last sprite stands in');
+  assert.ok(!cache.has('ship@2'));
+  assert.strictEqual(cache.get('rock', slow, { fallback: 'nothing' }).key, 'rock', 'no stand-in: built anyway');
+  assert.strictEqual(cache.get('ship@2', slow, { fallback: 'ship@1', force: true }).key, 'ship@2', 'force builds');
+  budget.next();
+  assert.strictEqual(cache.get('ship@3', slow, { fallback: 'ship@2' }).key, 'ship@3', 'a new frame builds again');
+  assert.strictEqual(cache.stats().deferred, 1);
+  // Two caches can share one budget.
+  const other = SpriteCache.create({ budget, maxPixels: Infinity, maxEntries: 100 });
+  other.get('a', slow);
+  assert.strictEqual(other.get('b', slow, { fallback: 'a' }).key, 'a');
 });
 
 test('ships have a role and unique keys that survive a rebuild', () => {

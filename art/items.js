@@ -282,6 +282,7 @@ const ArtItems = (() => {
     if (!type) throw new Error(`Unknown item: ${kind}`);
     const s = seed >>> 0;
     const r = mulberry32(hashInt(s, 7, kind.length * 131 + kind.charCodeAt(0)));
+    const id = `item:${kind}:${s}`; // items have no culture: the type and seed make one
     const loot = LOOT_BUILD[type.category];
     let b;
     if (loot) {
@@ -295,7 +296,7 @@ const ArtItems = (() => {
       build(b, r);
       b.bp.category = 'trade';
     }
-    Object.assign(b.bp, { kind, rarity: type.rarity, label: `${loot ? 'Loot' : 'Trade'} · ${type.name}` });
+    Object.assign(b.bp, { id, kind, rarity: type.rarity, label: `${loot ? 'Loot' : 'Trade'} · ${type.name}` });
     return B.finish(b.bp);
   }
 

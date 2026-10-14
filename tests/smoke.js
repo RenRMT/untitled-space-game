@@ -87,6 +87,45 @@ test('flies in every art style and both movement modes', () => {
   browser.frames(5);
 });
 
+test('a rebuilt sector finds its sprites again', () => {
+  // Beside a station, a star, a planet and an asteroid in turn: the same frame drawn from freshly
+  // built sectors (new objects from the same seeds) builds no sprite.
+  game('fight.grace = 1e9');
+  for (const kind of ['station', 'star', 'planet', 'asteroid']) {
+    assert.ok(game(`!!(globalThis.__near = __find((e) => e.kind === '${kind}', __systemSectors()))`), kind);
+    game('placeShip(__near.x, __near.y + __near.radius + 100)');
+    browser.frames(2);
+    game('render()');
+    const before = game('Art.stats()');
+    game('world.sectors = Sectors.create(world.galaxy, world.cultures, SECTOR); render();');
+    const after = game('Art.stats()');
+    assert.ok(game(`frameList.some((e) => e.kind === '${kind}' && visible(e))`), `a ${kind} on screen`);
+    assert.deepStrictEqual([after.builds, after.asteroidBuilds], [before.builds, before.asteroidBuilds], `near a ${kind}`);
+  }
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
+  browser.frames(2);
+});
+
+test('switching art style spreads the rebuild over frames', () => {
+  // Only this style's sprites cached (earlier steps flew in every style), then a tiny budget: one
+  // sprite per frame, the others keep their old-style sprite meanwhile.
+  game('Art.clearCache(); render(); Art.config.buildBudgetMs = 1e-9;');
+  const d0 = game('Art.stats().deferred'), b0 = game('Art.stats().builds');
+  game(`artStyle.set('lowpoly')`);
+  browser.frames(1);
+  assert.strictEqual(game('Art.stats().builds'), b0 + 1, 'one build in the first frame');
+  assert.ok(game('Art.stats().deferred') > d0, 'the rest waited');
+  let settled = false;
+  for (let i = 0; i < 120 && !settled; i++) {
+    const d = game('Art.stats().deferred');
+    browser.frames(1);
+    settled = game('Art.stats().deferred') === d;
+  }
+  assert.ok(settled, 'every sprite was rebuilt within two seconds');
+  game(`Art.config.buildBudgetMs = 4; artStyle.set('flat');`);
+  browser.frames(3);
+});
+
 test('selects, approaches and docks at a station', () => {
   game(`fight.grace = 1e9; globalThis.__st = __startStation(); placeShip(__st.x, __st.y + __st.radius + 2500);`);
   browser.frames(1);

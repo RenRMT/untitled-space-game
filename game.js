@@ -2179,6 +2179,7 @@ function drawHud() {
 // ---------- Main loop ----------
 
 function render() {
+  Art.beginFrame();
   const t = simTime;
   let list = nearbyEntities(t);
   if (checkGates(list)) list = nearbyEntities(t);
@@ -2241,7 +2242,7 @@ const PERF_FRAMES = 60;
 const perfStats = {
   posed: 0, drawn: 0, // entities posed (nearby sectors) and drawn (on screen) last frame
   work: new Float32Array(PERF_FRAMES), gap: new Float32Array(PERF_FRAMES), i: 0, // ms per frame
-  rates: { builds: 0, asteroidBuilds: 0 }, prev: null, prevT: 0, // sprite builds per second
+  rates: { builds: 0, asteroidBuilds: 0, deferred: 0 }, prev: null, prevT: 0, // sprite builds per second
 };
 function recordFrame(workMs, gapMs) {
   perfStats.work[perfStats.i] = workMs;
@@ -2254,7 +2255,10 @@ function drawPerf() {
   if (!perfStats.prev || now - perfStats.prevT >= 1000) {
     if (perfStats.prev) {
       const secs = (now - perfStats.prevT) / 1000;
-      perfStats.rates = { builds: (s.builds - perfStats.prev.builds) / secs, asteroidBuilds: (s.asteroidBuilds - perfStats.prev.asteroidBuilds) / secs };
+      perfStats.rates = {
+        builds: (s.builds - perfStats.prev.builds) / secs, asteroidBuilds: (s.asteroidBuilds - perfStats.prev.asteroidBuilds) / secs,
+        deferred: (s.deferred - perfStats.prev.deferred) / secs,
+      };
     }
     perfStats.prev = s;
     perfStats.prevT = now;
@@ -2265,7 +2269,7 @@ function drawPerf() {
   const lines = [
     `frame ${(sum / PERF_FRAMES).toFixed(1)} ms avg · ${worst.toFixed(1)} worst · ${Math.round(fps)} fps`,
     `entities ${perfStats.posed} posed · ${perfStats.drawn} drawn · ${starCount} stars`,
-    `sprites ${s.sprites} cached · ${Math.round(perfStats.rates.builds)} built/s`,
+    `sprites ${s.sprites} cached · ${Math.round((s.spritePixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.builds)} built/s · ${Math.round(perfStats.rates.deferred)} waited/s`,
     `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
   ];
   ctx.save();
