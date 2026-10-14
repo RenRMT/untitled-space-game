@@ -232,7 +232,7 @@ test('components go to their own store, even with a full hold, and stay when the
   game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }));
     globalThis.__had = cargo.components['hull-simple'] || 0;
     cargo.drops.push(dropEntity({ key: 'drop:smoke:c', kind: 'hull-simple', seed: 5, x: ship.x, y: ship.y }));
-    cargo.drops.push(dropEntity({ key: 'drop:smoke:g', kind: 'copper', seed: 6, x: ship.x, y: ship.y }));`);
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:g', kind: 'titanium', seed: 6, x: ship.x, y: ship.y }));`);
   browser.frames(2);
   assert.strictEqual(game(`cargo.components['hull-simple']`), game('__had') + 1, 'the component was picked up');
   assert.strictEqual(game('cargo.items.length'), game('SHIP.cargo'), 'the hold is still full');

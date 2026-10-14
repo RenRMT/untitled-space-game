@@ -26,16 +26,18 @@ const Economy = (() => {
     minForSale: 3, // smallest number of categories a station stocks
     // Chance a type is stocked, by rarity (1 common ... 5 exotic), in a category the station sells,
     // and in one it produces.
-    stock: [null, 1, 0.55, 0.2, 0.05, 0],
-    stockProduced: [null, 1, 1, 0.6, 0.15, 0],
+    // Every good left is one research needs, so rarer ones are stocked more often than they
+    // used to be (very rare ones were 5% and 15%).
+    stock: [null, 1, 0.7, 0.4, 0.2, 0],
+    stockProduced: [null, 1, 1, 0.7, 0.4, 0],
     startingCredits: 500,
   };
 
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
   const PROFILES = {
-    capital: { produces: ['synthetic', 'fabrics', 'crates'], consumes: ['perishables', 'mineral', 'gas'], sellsAll: true },
-    waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true },
-    'mining camp': { produces: ['mineral', 'metal'], consumes: ['perishables', 'tubes', 'gas'] },
+    capital: { produces: ['synthetic', 'crates'], consumes: ['mineral', 'gas'], sellsAll: true },
+    waystation: { produces: [], consumes: ['barrels'], sellsAll: true },
+    'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
   };
 
@@ -72,7 +74,8 @@ const Economy = (() => {
       const factor = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
         const price = t.price * factor * jitter();
-        const stocked = forSale.has(category) && r() < (produced ? config.stockProduced : config.stock)[t.rarity];
+        // The commonest type of a category on sale is always stocked; the rest by rarity.
+        const stocked = forSale.has(category) && (r() < (produced ? config.stockProduced : config.stock)[t.rarity] || t === G.ofCategory(category)[0]);
         goods.push({
           kind: t.id, category, rarity: t.rarity, produced, consumed,
           buy: stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,

@@ -310,7 +310,7 @@ test('art ids name what an asset is built from, so a rebuilt sector finds its sp
   // The same item type and seed is the same art; another seed or type is not.
   assert.strictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 7).id);
   assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
-  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('copper', 7).id);
+  assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('titanium', 7).id);
   const c = cultures.of(0);
   assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
 });
@@ -411,8 +411,8 @@ test('floating items are named by their type, with art made from their type and 
     }
   }
   assert.ok(n > 20, `${n} items`);
-  const d = Entities.item({ key: 'k', kind: 'gold', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
-  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Gold', 'trade', 'gold', 5, 6]);
+  const d = Entities.item({ key: 'k', kind: 'platinum', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
+  assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Platinum', 'trade', 'platinum', 5, 6]);
 });
 
 test('ships have a role and unique keys that survive a rebuild', () => {
@@ -516,11 +516,10 @@ test('the item catalogue: categories, rarity tiers and prices', () => {
   const ids = new Set();
   for (const [cat, info] of Object.entries(Goods.CATEGORIES)) {
     const list = Goods.ofCategory(cat);
-    assert(list.length >= 5, `${cat}: only ${list.length} types`);
+    // Trade goods are only what research uses, so a category can be short and start above common.
+    assert(list.length >= 2, `${cat}: only ${list.length} types`);
     const levels = list.map((t) => t.rarity);
     assert.deepStrictEqual(levels, [...levels].sort((a, b) => a - b), `${cat}: not listed commonest first`);
-    assert.strictEqual(levels[0], 1, `${cat}: nothing common`);
-    assert.strictEqual(levels[levels.length - 1], 5, `${cat}: nothing exotic`);
     if (info.group === 'salvage') assert.deepStrictEqual(levels, [1, 2, 3, 4, 5], `${cat}: components should be one per tier`);
     // Every rarity level is worth more than everything below it.
     for (let r = 2; r <= 5; r++) {
@@ -584,12 +583,11 @@ test('every item type is drawn in its own colour within its category', () => {
 });
 
 test('rarer items turn up less often: picks, floating cargo and market stock', () => {
-  // Picks by rarity, for one category with every level.
+  // Picks by rarity, for the category with the most levels (conduits: common to very rare).
   const counts = [0, 0, 0, 0, 0, 0];
   const r = ctx.mulberry32(99);
-  for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'metal')).rarity]++;
-  for (let l = 1; l < 5; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
-  assert(counts[5] > 0, 'no exotic ever picked');
+  for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'tubes')).rarity]++;
+  for (let l = 1; l < 4; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
   // Floating items across a galaxy.
   const g = galaxies.get(1);
   const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
@@ -597,23 +595,29 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) {
     for (const e of sectors.at(x, y).entities) if (e.kind === 'item') found[Goods.type(e.itemKind).rarity]++;
   }
-  for (let l = 1; l < 4; l++) assert(found[l] > found[l + 1], `floating items: ${found.join('/')}`);
-  // What stations stock.
-  const stocked = [0, 0, 0, 0, 0, 0];
-  for (const st of stationsOf(g)) for (const x of Economy.market(g.seed, st).goods) if (x.buy !== null) stocked[x.rarity]++;
-  for (let l = 1; l < 4; l++) assert(stocked[l] > stocked[l + 1], `stock: ${stocked.join('/')}`);
-  assert.strictEqual(stocked[5], 0, 'exotics are found, never sold');
+  assert(found[4] < found[2] && found[4] < found[3], `floating items: ${found.join('/')}`);
+  // What stations stock, per type at each rarity.
+  const stocked = [0, 0, 0, 0, 0, 0], types = [0, 0, 0, 0, 0, 0];
+  for (const st of stationsOf(g)) {
+    for (const x of Economy.market(g.seed, st).goods) { types[x.rarity]++; if (x.buy !== null) stocked[x.rarity]++; }
+  }
+  const rate = stocked.map((n, l) => n / (types[l] || 1));
+  for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
 });
 
 test('old saves: item categories and labels become item types', () => {
   assert.strictEqual(Goods.resolve('metal'), 'iron');
-  assert.strictEqual(Goods.resolve('gas'), 'hydrogen');
+  assert.strictEqual(Goods.resolve('gas'), 'deuterium');
   assert.strictEqual(Goods.resolve('hull'), 'hull-simple');
   assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'weapon-simple');
-  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'quartz');
-  assert.strictEqual(Goods.resolve('gold'), 'gold');
+  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'corundum');
+  assert.strictEqual(Goods.resolve('titanium'), 'titanium');
   assert.strictEqual(Goods.resolve('unobtainium'), null);
-  for (const cat of Object.keys(Goods.CATEGORIES)) assert.strictEqual(Goods.type(Goods.resolve(cat)).rarity, 1);
+  // Goods and categories taken out of the catalogue are dropped from old saves.
+  assert.strictEqual(Goods.resolve('gold'), null);
+  assert.strictEqual(Goods.resolve('perishables'), null);
+  assert.strictEqual(Goods.resolve(undefined, 'Produce crate'), null);
+  for (const cat of Object.keys(Goods.CATEGORIES)) assert.strictEqual(Goods.resolve(cat), Goods.ofCategory(cat)[0].id);
 });
 
 // A made-up ship for the combat rule checks.

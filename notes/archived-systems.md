@@ -95,3 +95,35 @@ freighter loot and the hauler's art).
 
 **To bring it back.** It needs factions (who owns the ships) or a stand-in. To matter it needs
 interaction: escort or trade contracts, freighters pirates attack, patrols that help in a fight.
+
+## Trade goods research doesn't use
+
+**What they were.** The catalogue (`goods.js`) had 62 trade goods in nine categories, each with a
+rarity (common to exotic), a base price and a colour of its own. It now keeps the 21 that research
+(`research.js`) asks for:
+
+| Category | Kept | Taken out |
+| --- | --- | --- |
+| Metals | iron, titanium, platinum | aluminium, copper, silver, gold, neutronium |
+| Minerals | corundum, diamond | quartz, hematite, malachite, fluorite, beryl, void crystal |
+| Gases | deuterium, helium-3 | hydrogen, nitrogen, ammonia, argon, xenon, antihydrogen |
+| Synthetics | carbon fibre, aerogel, graphene, metamaterial | polymer sheet, fibreglass, aramid weave, programmable matter |
+| Manufactured | electronics, robotics, AI cores | tools, spare parts, medical supplies, luxury goods, precursor relics |
+| Liquids | hydrazine, nanite suspension | water, coolant, sulphuric acid, heavy water, ferrofluid, quantum fluid |
+| Conduits | steel pipe, copper cable, optical fibre, superconductor cable, plasma conduit | plastic conduit, tachyon conduit |
+| Fabrics (whole category) | | cotton, nylon, wool, silk, spider silk, smart fabric, nanoweave |
+| Food (whole category) | | algae paste, grain, fresh fruit, coffee, spices, saffron, xenoflora |
+
+With them went every exotic trade good (rarity 5), the fabric and food item art
+(`art/items.js`: "Fabric bolts", "Produce crate"), and the market profiles' uses of those two
+categories. Because everything left is needed for research, markets stock rarer goods more
+often (`Economy.config.stock`), and each category on sale always stocks its commonest type.
+Minerals and gases now start at rare, so mined stony and icy asteroids are worth more than before.
+Old saves drop goods that no longer exist (`Goods.resolve` gives null).
+
+**Where it lived.** `goods.js` (`TABLE`, `CATEGORIES`, `LEGACY_LABELS`), `art/items.js` (the two
+category shapes), `economy.js` (`PROFILES`, `config.stock`).
+
+**To bring them back.** Copy the rows back into `TABLE` (and the fabric and food shapes into
+`art/items.js`). They'd want a use beyond buying low and selling high: more research recipes, or
+station demand that makes some runs worth flying.
