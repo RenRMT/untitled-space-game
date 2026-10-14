@@ -79,3 +79,19 @@ Map setting), tests in `tests/run.js` and `tests/smoke.js`.
 **To bring it back.** It depended on Waystations and the frontier ring, both of which are later
 removed or reshaped; it would now be "start at a remote outpost with nothing charted". The fog of
 war (`knowledge.js`) still supports it: chart only the start, and hide what isn't explored.
+
+## NPC traffic
+
+**What it was.** Ships of the factions going about their business, inside the charted pockets
+only: 1–6 per sector (more around systems, 3–5 at Waystations), owners picked by the sector's
+faction presence. Freighters ran out and back between a station or star and a gate (or the
+sector's edge) on a `route` motion; fighters circled a station or star on an `orbit`. In claimed
+space outside the pockets a pair of the owner's fighters patrolled now and then (15% of
+sectors). None of them could be attacked, hailed or traded with: only pirates are hostile.
+
+**Where it lived.** `sector.js` (the "Traffic" block in `build()`, the `route` motion helper and
+its case in `pose()`), `loadout.js` (the NPC `freighter` hull and its gear, still there for
+freighter loot and the hauler's art).
+
+**To bring it back.** It needs factions (who owns the ships) or a stand-in. To matter it needs
+interaction: escort or trade contracts, freighters pirates attack, patrols that help in a fight.

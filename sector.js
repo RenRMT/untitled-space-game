@@ -8,11 +8,9 @@
 //   faction (the system's owner, else the major at the other end, else the nearest major), with a
 //   stable key (sector and route) for the flight view's selection and gate lock,
 // - outposts: a minor station; salvage yards collect wrecks,
-// - traffic, only inside charted pockets: fighters patrol and freighters run to the gates; owners
-//   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
-//   patrol. Pirates lurk in packs by the sector's security (security.js): lone ones in safe
-//   space, more, larger and better-armed packs the more lawless the sector, each pack far enough
-//   from the others to be fought on its own,
+// - pirates, in packs by the sector's security (security.js): lone ones in safe space, more,
+//   larger and better-armed packs the more lawless the sector, each pack far enough from the
+//   others to be fought on its own,
 // - deep-space contacts: derelicts (wrecks with salvage) and ambushes (a pirate pack),
 // - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
@@ -143,7 +141,6 @@ const Sectors = (() => {
         return e;
       };
       const orbit = (cx, cy, rad, speed) => ({ type: 'orbit', cx: ox + cx, cy: oy + cy, r: rad, w: (r() < 0.5 ? -1 : 1) * speed / rad, a0: r() * TAU });
-      const route = (ax, ay, bx, by, speed) => ({ type: 'route', ax: ox + ax, ay: oy + ay, bx: ox + bx, by: oy + by, speed, phase: r() * 2 });
       const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
       const between = ([lo, hi]) => lo + Math.floor(r() * (hi - lo + 1)); // a whole number in [lo, hi]
 
@@ -275,42 +272,8 @@ const Sectors = (() => {
         field(C + (ra() - 0.5) * 3000 * S, C + (ra() - 0.5) * 3000 * S, 20 + Math.floor(ra() * 16), 1400, DEEP_FIELD);
       }
 
-      // ---------- Traffic ----------
+      // ---------- Pirates ----------
 
-      const owners = territory.presence.filter((p) => p.share >= 0.04);
-      const known = territory.zone === 'pocket';
-      const settled = 1 - (owners.find((p) => p.faction === null)?.share ?? 0);
-      let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : 0;
-      if (system?.waystation) count = 3 + Math.floor(r() * 3);
-      const pickOwner = () => {
-        if (system?.waystation) return r() < 0.3 ? system.faction : majors[Math.floor(r() * majors.length)].id;
-        const p = weighted(owners.map((o) => [o.faction, o.share]), r);
-        return p === null ? null : p;
-      };
-      const anchors = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'star');
-      // Freighters leave through the charted gates, or cross the sector.
-      const edge = (a) => { const k = (C - 250) / Math.max(Math.abs(Math.cos(a)), Math.abs(Math.sin(a))); return [C + Math.cos(a) * k, C + Math.sin(a) * k]; };
-      const exits = sec.entities.filter((g) => g.kind === 'gate' && !g.hidden).map((g) => ({ a: g.angle, to: [g.x - ox, g.y - oy] }));
-      for (let i = 0; i < count; i++) {
-        const fid = known ? pickOwner() : null;
-        const anchor = anchors.length ? anchors[Math.floor(r() * anchors.length)] : null;
-        const [axl, ayl] = anchor ? [anchor.x - ox, anchor.y - oy] : [C + (r() - 0.5) * 2000 * S, C + (r() - 0.5) * 2000 * S];
-        if (r() < (anchor ? 0.45 : 0.6)) {
-          const exit = exits.length ? exits[Math.floor(r() * exits.length)] : null;
-          const a = exit ? exit.a : r() * TAU;
-          const [ex, ey] = exit ? exit.to : edge(a);
-          const [bx, by] = anchor ? [axl + Math.cos(a) * (anchor.radius + 120), ayl + Math.sin(a) * (anchor.radius + 120)] : edge(a + Math.PI);
-          ship('freighter', fid, route(bx, by, ex, ey, 90 + r() * 70));
-        } else {
-          const rad = (anchor ? anchor.radius : 0) + 250 + r() * 400;
-          ship('fighter', fid, orbit(axl, ayl, rad, 150 + r() * 80));
-        }
-      }
-      // The odd border patrol in claimed space outside the pockets.
-      if (territory.zone === 'claimed' && r() < 0.15) {
-        const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
-        for (let i = 0; i < 2; i++) ship('fighter', territory.owner, orbit(x, y, 300 + r() * 200, 170));
-      }
       // Pirates, by the sector's security (security.js): a few packs spread over the sector, far
       // enough apart that attacking one never draws in another, and clear of stations, gates and
       // the star. Lone, lightly armed pirates in safe space; larger, better-armed packs in lawless
@@ -367,19 +330,6 @@ const Sectors = (() => {
       e.y = m.cy + Math.sin(a) * m.r;
       e.a = a + Math.sign(m.w) * Math.PI / 2;
       e.thrust = 0.45;
-    } else if (m.type === 'route') {
-      // Out and back with an ease at each end.
-      const len = Math.hypot(m.bx - m.ax, m.by - m.ay) || 1;
-      const u = ((t * m.speed) / len + m.phase) % 2;
-      const s = u < 1 ? u : 2 - u;
-      const k = s * s * (3 - 2 * s);
-      e.x = lerp(m.ax, m.bx, k);
-      e.y = lerp(m.ay, m.by, k);
-      e.a = Math.atan2(m.by - m.ay, m.bx - m.ax) + (u < 1 ? 0 : Math.PI);
-      e.thrust = 0.25 + 0.5 * (1 - Math.abs(2 * s - 1));
-    } else {
-      e.a = m.angle + 0.03 * Math.sin(t * 0.3);
-      e.thrust = 0;
     }
   }
 
