@@ -43,6 +43,7 @@ let gateFlash = 0; // white-out after a gate jump, fading from 1
 let gateLock = null; // the gate just arrived through, ignored until the ship leaves its aperture
 const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
 let lastPocket; // key of the pocket the ship was in last frame ('' = none), for enter/leave notices
+let senseTimer = 0;
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -99,7 +100,7 @@ ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
 
 // ---------- World: sectors generated from the galaxy map ----------
 
-const world = { galaxy: null, cultures: null, sectors: null, w: 0, h: 0 };
+const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, w: 0, h: 0 };
 
 function sectorOf(x, y) {
   return [clamp(Math.floor(x / SECTOR), 0, world.galaxy.size - 1), clamp(Math.floor(y / SECTOR), 0, world.galaxy.size - 1)];
@@ -128,6 +129,9 @@ function loadGalaxy(galaxy) {
   world.cultures = ArtCulture.forGalaxy(galaxy);
   world.sectors = Sectors.create(galaxy, world.cultures, SECTOR);
   world.w = world.h = galaxy.size * SECTOR;
+  // What the player knows (fog of war); ?fresh forgets saved charts.
+  world.knowledge = Knowledge.create(galaxy, { fresh: params.has('fresh') });
+  GalaxyMap.knowledge = world.knowledge;
   Art.clearCache();
   const start = galaxy.systems[galaxy.startSystem];
   moveShipTo(start.x, start.y);
@@ -172,6 +176,7 @@ function checkGates(list) {
     particles.length = 0;
     gateLock = gateKey(there);
     gateFlash = 1;
+    world.knowledge.knowRoute(g.link); // using a gate charts its route, hidden ones included
     return true;
   }
   return false;
@@ -290,6 +295,12 @@ function update(dt) {
   gateFlash = Math.max(0, gateFlash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
   updatePocketNotice();
+  // Ship sensors chart the sectors around it, a few times a second.
+  senseTimer -= dt;
+  if (senseTimer <= 0) {
+    senseTimer = 0.25;
+    world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR);
+  }
 
   // Camera leads in the direction of travel.
   const lead = 0.45;

@@ -2,6 +2,9 @@
 
 // Full-screen galaxy map overlay. Generates the galaxy from GALAXY_CONFIG (data/galaxy-config.js)
 // with Galaxy.generate (galaxy.js); a ?seed= URL parameter overrides the configured seed.
+// With fog of war (GalaxyMap.knowledge, see knowledge.js) it shows only what the player knows:
+// explored sectors, charted pockets, known systems, outposts and routes, and contacts as signals.
+// ?dev shows everything.
 
 const GalaxyMap = (() => {
   const overlay = document.getElementById('map-overlay');
@@ -26,6 +29,12 @@ const GalaxyMap = (() => {
   let showContacts = false;
   let player = null; // the ship's position in sector units, set by the flight view
   let onJump = null;
+  let knowledge = null; // fog of war; null shows everything
+  const dev = new URLSearchParams(location.search).has('dev');
+  const fog = () => (dev ? null : knowledge);
+  const sysKnown = (s) => !fog() || fog().knowsSystem(s.id);
+  const outpostKnown = (o) => !fog() || fog().knowsOutpost(o.id);
+  const routeKnown = (r) => (!fog() || fog().knowsRoute(r.link)) && (r.kind !== 'hidden' || showHidden || fog());
 
   // scale = screen px per sector; (ox, oy) = sector coordinate at the screen's top-left.
   const view = { w: 0, h: 0, dpr: 1, scale: 1, minScale: 0.3, ox: 0, oy: 0 };
@@ -61,12 +70,19 @@ const GalaxyMap = (() => {
     hovered = null;
     const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
     const systems = galaxy.systems.filter((s) => !s.freeport).length;
-    const freeports = galaxy.systems.length - systems;
-    const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
-    statsEl.textContent = `seed ${galaxy.seed} · ${count('major')} major + ${count('minor')} minor factions · `
-      + `${systems} systems · ${galaxy.outposts.length} outposts · ${freeports} Freeports · ${Math.round(charted * 100)}% charted`;
+    updateStats();
     updateInfo();
     requestDraw();
+  }
+
+  function updateStats() {
+    const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
+    const systems = galaxy.systems.filter((s) => !s.freeport).length;
+    const freeports = galaxy.systems.length - systems;
+    const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
+    const known = fog() ? ` · ${fog().counts().systems}/${galaxy.systems.length} systems on your charts` : '';
+    statsEl.textContent = `seed ${galaxy.seed} · ${count('major')} major + ${count('minor')} minor factions · `
+      + `${systems} systems · ${galaxy.outposts.length} outposts · ${freeports} Freeports · ${Math.round(charted * 100)}% charted space${known}`;
   }
 
   function initialSeed() {
@@ -144,16 +160,38 @@ const GalaxyMap = (() => {
     ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
     ctx.fill('evenodd');
 
-    // Territories; tint strength follows the owner's dominance.
+    // Explored sectors are lighter than the unknown.
     const px = Math.ceil(scale) + 1;
+    const onScreen = (sx, sy) => sx + px >= 0 && sy + px >= 0 && sx <= w && sy <= h;
+    if (fog()) {
+      ctx.fillStyle = '#101727';
+      for (const c of cells) {
+        if (!fog().isExplored(c.x, c.y)) continue;
+        const [sx, sy] = toScreen(c.x, c.y);
+        if (onScreen(sx, sy)) ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
+      }
+    }
+
+    // Faction borders: a faint tint and an outline, for factions on the player's charts.
+    const knownFactions = new Set(factions.filter((f) => !fog() || fog().knowsFaction(f.id)).map((f) => f.id));
+    const ownerAt = (x, y) => (x < 0 || y < 0 || x >= size || y >= size ? null : cells[y * size + x].owner);
+    ctx.lineWidth = 1;
     for (const c of cells) {
-      if (c.owner === null) continue;
+      if (c.owner === null || !knownFactions.has(c.owner)) continue;
       const [sx, sy] = toScreen(c.x, c.y);
-      if (sx + px < 0 || sy + px < 0 || sx > w || sy > h) continue;
-      ctx.fillStyle = hexToRgba(factions[c.owner].color, 0.06 + 0.5 * c.dominance * c.dominance);
+      if (!onScreen(sx, sy)) continue;
+      const color = factions[c.owner].color;
+      ctx.fillStyle = hexToRgba(color, 0.035);
       ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
+      ctx.strokeStyle = hexToRgba(color, 0.32);
+      ctx.beginPath();
+      if (ownerAt(c.x, c.y - 1) !== c.owner) { ctx.moveTo(sx, sy); ctx.lineTo(sx + scale, sy); }
+      if (ownerAt(c.x, c.y + 1) !== c.owner) { ctx.moveTo(sx, sy + scale); ctx.lineTo(sx + scale, sy + scale); }
+      if (ownerAt(c.x - 1, c.y) !== c.owner) { ctx.moveTo(sx, sy); ctx.lineTo(sx, sy + scale); }
+      if (ownerAt(c.x + 1, c.y) !== c.owner) { ctx.moveTo(sx + scale, sy); ctx.lineTo(sx + scale, sy + scale); }
+      ctx.stroke();
       // Contested: a stripe in the rival's colour.
-      if (c.contestedBy !== null && scale >= 4) {
+      if (c.contestedBy !== null && knownFactions.has(c.contestedBy) && scale >= 4) {
         ctx.strokeStyle = hexToRgba(factions[c.contestedBy].color, 0.8);
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -183,11 +221,35 @@ const GalaxyMap = (() => {
     ctx.strokeStyle = 'rgba(255, 90, 110, 0.6)';
     ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(bx1 - bx0), Math.round(by1 - by0));
 
-    // Deep-space contacts (dev layer); story points of interest always show.
+    // Charted pockets: soft discs in the owner's colour around known settlements.
+    for (const pk of galaxy.pockets) {
+      if (pk.kind === 'system' ? !sysKnown(systems[pk.id]) : !outpostKnown(galaxy.outposts[pk.id])) continue;
+      const [sx, sy] = toScreen(pk.x, pk.y);
+      const pr = pk.r * scale;
+      if (sx + pr < 0 || sy + pr < 0 || sx - pr > w || sy - pr > h) continue;
+      const color = pk.faction === null ? '#9aa4b8' : factions[pk.faction].color;
+      ctx.fillStyle = hexToRgba(color, 0.3);
+      ctx.strokeStyle = hexToRgba(color, 0.8);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.max(pr, 2), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Deep-space contacts: identified ones by type, pings as '?'. The Contacts toggle shows all.
+    ctx.textAlign = 'center';
     for (const c of contacts) {
-      if (!showContacts && c.type !== 'story') continue;
+      const state = showContacts || !fog() ? 'known' : fog().contactState(c.x, c.y);
+      if (!state && c.type !== 'story') continue;
       const [sx, sy] = toScreen(c.x + 0.5, c.y + 0.5);
       const r = clamp(scale * 0.22, 2, 6);
+      if (state !== 'known') {
+        ctx.fillStyle = c.type === 'story' ? CONTACT_COLORS.story : '#8a95b3';
+        ctx.font = `${Math.round(clamp(scale * 0.6, 9, 14))}px ui-monospace, Menlo, Consolas, monospace`;
+        ctx.fillText('?', sx, sy + r * 0.8);
+        continue;
+      }
       ctx.strokeStyle = CONTACT_COLORS[c.type];
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -195,11 +257,13 @@ const GalaxyMap = (() => {
       ctx.moveTo(sx + r, sy - r); ctx.lineTo(sx - r, sy + r);
       ctx.stroke();
     }
+    ctx.textAlign = 'left';
 
     // Outposts.
     if (scale >= 4) {
       const op = clamp(scale * 0.25, 2, 5);
       for (const o of galaxy.outposts) {
+        if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
         if (sx < -5 || sy < -5 || sx > w + 5 || sy > h + 5) continue;
         ctx.fillStyle = o.faction === null ? '#7d869e' : factions[o.faction].color;
@@ -211,7 +275,8 @@ const GalaxyMap = (() => {
     const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
     ctx.lineWidth = clamp(scale * 0.12, 1.5, 3);
     ctx.globalAlpha = 0.85;
-    for (const l of galaxy.lanes) {
+    for (const l of galaxy.routes) {
+      if (l.kind !== 'lane' || !routeKnown(l)) continue;
       const [ax, ay] = centreOf(l.a);
       const [bx, by] = centreOf(l.b);
       ctx.strokeStyle = factions[systems[l.a].faction].color;
@@ -219,12 +284,13 @@ const GalaxyMap = (() => {
     }
     ctx.globalAlpha = 1;
     ctx.lineWidth = 1.5;
-    for (const g of galaxy.gates) {
-      if (g.hidden && !showHidden) continue;
+    for (const g of galaxy.routes) {
+      if (g.kind === 'lane' || !routeKnown(g)) continue;
+      const hidden = g.kind === 'hidden';
       const [ax, ay] = centreOf(g.a);
       const [bx, by] = centreOf(g.b);
-      ctx.strokeStyle = g.hidden ? '#ff5a6e' : '#cfd8ff';
-      ctx.setLineDash(g.hidden ? [2, 4] : [7, 5]);
+      ctx.strokeStyle = hidden ? '#ff5a6e' : '#cfd8ff';
+      ctx.setLineDash(hidden ? [2, 4] : [7, 5]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
     }
     ctx.setLineDash([]);
@@ -232,6 +298,7 @@ const GalaxyMap = (() => {
     // Systems, capitals and Freeports.
     const r = clamp(scale * 0.28, 2.5, 8);
     for (const s of systems) {
+      if (!sysKnown(s)) continue;
       const [sx, sy] = centreOf(s.id);
       if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
       const color = s.faction === null ? '#9aa4b8' : factions[s.faction].color;
@@ -271,6 +338,7 @@ const GalaxyMap = (() => {
     };
     const labelColor = { 6: '#e6ebff', 14: '#c3cae0', 24: '#8a95b3' };
     for (const s of systems) {
+      if (!sysKnown(s)) continue;
       const z = labelZoom(s);
       if (scale < z) continue;
       const [sx, sy] = centreOf(s.id);
@@ -282,6 +350,7 @@ const GalaxyMap = (() => {
       ctx.fillStyle = '#6f7a99';
       ctx.font = '10px ui-monospace, Menlo, Consolas, monospace';
       for (const o of galaxy.outposts) {
+        if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
         if (sx > -60 && sy > -20 && sx < w + 60 && sy < h + 20) ctx.fillText(o.name, sx, sy + 14);
       }
@@ -322,9 +391,9 @@ const GalaxyMap = (() => {
 
   function drawLegend() {
     const x = 14;
-    let y = view.h - BOTTOM_BAR - 164;
+    let y = view.h - BOTTOM_BAR - 200;
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
-    ctx.fillRect(x - 6, y - 14, 160, 164);
+    ctx.fillRect(x - 6, y - 14, 160, 200);
     ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
     const row = (drawIcon, label) => {
       drawIcon(x + 8, y - 4);
@@ -341,6 +410,8 @@ const GalaxyMap = (() => {
     row((cx, cy) => { ctx.strokeStyle = '#cfd8ff'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); ctx.setLineDash([]); }, 'gate');
     row((cx, cy) => { ctx.fillStyle = 'rgba(61, 139, 255, 0.4)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); ctx.strokeStyle = '#e0a030'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 7, cy + 5); ctx.lineTo(cx + 3, cy - 5); ctx.stroke(); }, 'contested');
     row((cx, cy) => { ctx.fillStyle = 'rgba(255, 90, 110, 0.25)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); }, 'frontier');
+    row((cx, cy) => { ctx.fillStyle = 'rgba(170, 179, 204, 0.2)'; ctx.strokeStyle = 'rgba(170, 179, 204, 0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill(); ctx.stroke(); }, 'charted pocket');
+    row((cx, cy) => { ctx.fillStyle = '#8a95b3'; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy + 4); ctx.textAlign = 'left'; }, 'unidentified signal');
   }
 
   // ---------- Selection & info panel ----------
@@ -350,6 +421,7 @@ const GalaxyMap = (() => {
     let best = null;
     let bestDist = Math.max(tolerancePx / view.scale, 0.6);
     for (const s of galaxy.systems) {
+      if (!sysKnown(s)) continue;
       const d = Math.hypot(s.x + 0.5 - gx, s.y + 0.5 - gy);
       if (d < bestDist) { bestDist = d; best = s; }
     }
@@ -358,6 +430,7 @@ const GalaxyMap = (() => {
       let bestO = null;
       let bestOD = Math.max(tolerancePx * 0.6 / view.scale, 0.35);
       for (const o of galaxy.outposts) {
+        if (!outpostKnown(o)) continue;
         const d = Math.hypot(o.x + 0.5 - gx, o.y + 0.5 - gy);
         if (d < bestOD) { bestOD = d; bestO = o; }
       }
@@ -398,10 +471,9 @@ const GalaxyMap = (() => {
     if (sel.system) {
       const s = sel.system;
       const f = s.faction === null ? { name: 'Independent', color: '#9aa4b8', kind: 'independent' } : factions[s.faction];
-      const links = [
-        ...galaxy.lanes.filter((l) => l.a === s.id || l.b === s.id).map((l) => ['lane', l]),
-        ...galaxy.gates.filter((g) => (g.a === s.id || g.b === s.id) && (!g.hidden || showHidden)).map((g) => [g.hidden ? 'hidden' : 'gate', g]),
-      ].map(([kind, l]) => `${systems[l.a === s.id ? l.b : l.a].name} (${kind})`);
+      const links = galaxy.routes
+        .filter((l) => (l.a === s.id || l.b === s.id) && routeKnown(l))
+        .map((l) => `${systems[l.a === s.id ? l.b : l.a].name} (${l.kind})`);
       const counts = {};
       for (const loc of s.locations) counts[loc.type] = (counts[loc.type] || 0) + 1;
       info.innerHTML =
@@ -432,7 +504,13 @@ const GalaxyMap = (() => {
     }
 
     const t = galaxy.territoryOf(sel.sector.x, sel.sector.y);
+    if (fog() && !fog().isExplored(t.x, t.y)) {
+      const signal = fog().contactState(t.x, t.y) === 'ping';
+      info.innerHTML = swatchHead('#2a3350', `Sector ${t.x}, ${t.y}`) + row('status', 'uncharted') + (signal ? row('contact', 'unidentified signal') : '');
+      return;
+    }
     const contact = galaxy.deepSector(t.x, t.y);
+    const contactShown = contact && (showContacts || !fog() || fog().contactState(t.x, t.y) === 'known');
     const owner = t.owner === null ? null : factions[t.owner];
     info.innerHTML =
       swatchHead(owner ? owner.color : '#2a3350', `Sector ${t.x}, ${t.y}`) +
@@ -440,9 +518,9 @@ const GalaxyMap = (() => {
       (owner ? row('owner', `${owner.name} ${pct(t.dominance)}`) : '') +
       (t.contestedBy !== null ? row('contested by', factions[t.contestedBy].name) : '') +
       (owner ? presenceRows(t.presence, t.owner) : presenceRows(t.presence)) +
-      (t.zone === 'pocket' ? '' : row('contact', contact && (showContacts || contact.type === 'story')
+      (t.zone === 'pocket' ? '' : row('contact', contactShown
         ? (contact.name || contact.type) + (contact.hostile ? ' · hostile' : '')
-        : showContacts ? 'none' : 'unidentified'));
+        : contact && fog()?.contactState(t.x, t.y) === 'ping' ? 'unidentified signal' : 'none detected'));
   }
 
   // ---------- Input: drag to pan, wheel/pinch to zoom, tap to select ----------
@@ -595,5 +673,7 @@ const GalaxyMap = (() => {
       if (moved) requestDraw();
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
+    set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
+    refresh() { updateStats(); requestDraw(); },
   };
 })();
