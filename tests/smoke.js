@@ -162,7 +162,7 @@ test('trades and launches', () => {
 });
 
 test('mines an asteroid and collects what it leaves', () => {
-  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.mined.has(e.key) && Mining.yieldOf(world.galaxy.seed, e), __systemSectors())) && __rock.key`);
+  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.galaxy.seed, e), __systemSectors())) && __rock.key`);
   assert.ok(found, 'an asteroid with a yield');
   game('placeShip(__rock.x, __rock.y + __rock.radius + 60)');
   browser.frames(1);
@@ -173,11 +173,29 @@ test('mines an asteroid and collects what it leaves', () => {
   clickCard('mine');
   assert.ok(game('mining.target === __rock'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
   assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+ sec$/);
-  assert.ok(until('cargo.mined.has(__rock.key)', Math.ceil(game('mineTime()') * 60) + 30), 'the asteroid broke up');
+  assert.ok(until('cargo.removed.has(__rock.key)', Math.ceil(game('mineTime()') * 60) + 30), 'the asteroid broke up');
   const held = game('cargo.items.length');
   game(`{ const d = cargo.drops.find((e) => e.key === 'drop:' + __rock.key); placeShip(d.x, d.y); }`);
   browser.frames(2);
   assert.strictEqual(game('cargo.items.length'), held + 1, 'the drop was collected');
+});
+
+test('builds the sectors past an edge ahead of time, one a frame', () => {
+  // Near the east edge of a sector in the middle of the galaxy: the column two sectors east comes
+  // into the 3×3 around the camera once the ship crosses, so it is built beforehand.
+  game(`globalThis.__grace = fight.grace; fight.grace = 1e9; globalThis.__c = Math.floor(world.galaxy.size / 2);
+    globalThis.__ahead = () => [-1, 0, 1].filter((d) => !world.sectors.has(__c + 2, __c + d)).length;`);
+  game('placeShip((__c + 0.9) * SECTOR, (__c + 0.5) * SECTOR)');
+  browser.frames(1);
+  let left = game('__ahead()');
+  for (let i = 0; i < 3; i++) {
+    browser.frames(1);
+    const now = game('__ahead()');
+    assert.ok(left - now <= 1, 'at most one sector is built ahead per frame');
+    left = now;
+  }
+  assert.strictEqual(left, 0, 'the sectors past the edge are built');
+  game('fight.grace = __grace');
 });
 
 test('jumps through a gate', () => {
@@ -197,11 +215,17 @@ test('travels on the galaxy map', () => {
   assert.ok(game('GalaxyMap.isOpen'));
   // Drag and zoom the map.
   const map = browser.document.getElementById('map-canvas');
+  const rebuilds = () => game('GalaxyMap.stats.rebuilds');
+  const before = rebuilds();
   map.dispatch('pointerdown', { pointerId: 7, pointerType: 'mouse', clientX: 600, clientY: 400 });
   for (let i = 1; i <= 10; i++) { map.dispatch('pointermove', { pointerId: 7, pointerType: 'mouse', clientX: 600 + i * 8, clientY: 400 + i * 4 }); browser.frames(1); }
+  assert.strictEqual(rebuilds(), before, 'a drag moves the map\'s layer rather than redrawing it');
   map.dispatch('pointerup', { pointerId: 7, pointerType: 'mouse', clientX: 680, clientY: 440 });
+  browser.frames(1);
+  assert.strictEqual(rebuilds(), before + 1, 'the layer is redrawn once the drag ends');
   map.dispatch('wheel', { deltaY: -200, deltaMode: 0, clientX: 640, clientY: 400 });
   browser.frames(2);
+  assert.strictEqual(rebuilds(), before + 1, 'and is not redrawn while the wheel turns');
   // To the nearest charted system other than the one we're in.
   game(`{
     const [sx, sy] = sectorOf(ship.x, ship.y);
@@ -220,7 +244,7 @@ test('travels on the galaxy map', () => {
 // Somewhere a pirate flies, posed for now, and the ship placed 800 units from it (in attack
 // range, outside the range where pirates attack on their own).
 function meetPirate() {
-  game(`globalThis.__pirate = __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.destroyed.has(e.key), __systemSectors()) || __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.destroyed.has(e.key), __allSectors());`);
+  game(`globalThis.__pirate = __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key), __systemSectors()) || __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key), __allSectors());`);
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
   game(`cargo.hull = SHIP.hull; fight.grace = 1e9; { const a = Math.atan2(__pirate.y, __pirate.x); placeShip(__pirate.x + Math.cos(a) * (800 + __pirate.radius), __pirate.y + Math.sin(a) * (800 + __pirate.radius)); }`);
   browser.frames(1);
@@ -266,10 +290,27 @@ test('settings open, close and switch the start style', () => {
   assert.strictEqual(game('world.galaxy.start'), 'core');
 });
 
-test('cargo survives a save and reload', () => {
-  const items = game('cargo.items.length'), credits = game('cargo.credits'), mined = game('cargo.mined.size');
-  game('saveCargo(); loadCargo(world.galaxy);');
-  assert.deepStrictEqual(game('[cargo.items.length, cargo.credits, cargo.mined.size]'), [items, credits, mined]);
+test('cargo saves once after a burst of changes, and survives a reload', () => {
+  game('saveCargoNow()');
+  const key = game('cargo.key'), saved = () => browser.storage.get(key);
+  const before = saved();
+  game(`for (let i = 0; i < 5; i++) { cargo.credits += 1; saveCargo(); }`); // like Sell all
+  assert.strictEqual(saved(), before, 'nothing is written straight away');
+  const items = game('cargo.items.length'), credits = game('cargo.credits'), removed = game('cargo.removed.size');
+  assert.ok(removed > 0, 'something was taken out of the world earlier');
+  game('loadCargo(world.galaxy)'); // writes the pending save first
+  assert.deepStrictEqual(game('[cargo.items.length, cargo.credits, cargo.removed.size]'), [items, credits, removed]);
+  // A save from before the removed list: its three lists are merged.
+  const old = JSON.parse(saved());
+  const [a, b, ...rest] = old.removed;
+  delete old.removed;
+  Object.assign(old, { collected: [a], mined: [b], destroyed: rest });
+  browser.storage.set(key, JSON.stringify(old));
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(game('cargo.removed.size'), removed, 'an older save loads');
+  game('cargo.credits += 1; saveCargo()');
+  browser.emit('pagehide');
+  assert.strictEqual(JSON.parse(saved()).credits, credits + 1, 'leaving the page writes the pending save');
 });
 
 test('nothing was drawn at a non-finite position', () => {

@@ -214,22 +214,35 @@ const GalaxyMap = (() => {
   //
   // Everything that only changes with the view, the player's charts or the testing toggles is drawn
   // once into an offscreen layer; each frame copies it and adds the route, the ship and highlights.
+  // While a drag, pinch or wheel zoom is moving the view, the last layer is moved and scaled to
+  // follow instead of being redrawn; it is redrawn once the gesture ends (or the wheel has been
+  // still for WHEEL_SETTLE_MS). The layer reaches a margin past each screen edge, so a pan shows
+  // what was just off screen rather than empty space.
 
-  const layer = { canvas: null, key: null };
+  const WHEEL_SETTLE_MS = 150;
+  const layer = { canvas: null, key: null, view: null, pad: 0 };
   const stats = { drawMs: 0, staticMs: 0, rebuilds: 0, frames: 0 }; // for the performance overlay
-  // Signature of everything the static layer depends on.
-  const layerKey = () => [galaxy.seed, galaxy.systems.length, view.ox, view.oy, view.scale, view.w, view.h, view.dpr,
+  // Signature of everything the static layer depends on, other than where the view is.
+  const layerKey = () => [galaxy.seed, galaxy.systems.length, view.w, view.h, view.dpr,
     fog() ? fog().version : -1, knowledgeId, showHidden, showContacts].join('|');
+  const sameView = (v) => v.ox === view.ox && v.oy === view.oy && v.scale === view.scale;
+
+  let wheeling = false; // a wheel zoom is under way
+  let wheelTimer = null;
+  const moving = () => wheeling || !!(gesture && (gesture.type === 'pinch' || gesture.moved > 0));
 
   function staticLayer() {
     const key = layerKey();
-    if (layer.canvas && layer.key === key) return layer.canvas;
+    if (layer.canvas && layer.key === key && (moving() || sameView(layer.view))) return layer.canvas;
     const t0 = performance.now();
+    const pad = Math.round(Math.min(view.w, view.h) / 4 * view.dpr); // the margin in canvas px
     if (!layer.canvas) layer.canvas = document.createElement('canvas');
-    const cw = canvas.width, chh = canvas.height;
+    const cw = canvas.width + pad * 2, chh = canvas.height + pad * 2;
     if (layer.canvas.width !== cw || layer.canvas.height !== chh) { layer.canvas.width = cw; layer.canvas.height = chh; }
-    drawStatic(layer.canvas.getContext('2d'));
+    drawStatic(layer.canvas.getContext('2d'), pad / view.dpr);
     layer.key = key;
+    layer.view = { ox: view.ox, oy: view.oy, scale: view.scale };
+    layer.pad = pad;
     stats.rebuilds++;
     stats.staticMs = performance.now() - t0;
     return layer.canvas;
@@ -239,14 +252,31 @@ const GalaxyMap = (() => {
     if (layer.canvas) { layer.canvas.width = layer.canvas.height = 0; }
     layer.canvas = null;
     layer.key = null;
+    layer.view = null;
   }
 
-  function drawStatic(ctx) {
+  // Draws the layer for the current view onto the screen: moved and scaled by how far the view has
+  // gone since the layer was drawn (not at all, once it has been redrawn).
+  function drawLayer() {
+    const bg = staticLayer();
+    const { view: v, pad } = layer;
+    const k = view.scale / v.scale, d = view.dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    if (!sameView(v)) { ctx.fillStyle = Theme.color.bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
+    ctx.setTransform(k, 0, 0, k, d * (v.ox - view.ox) * view.scale - pad * k, d * (v.oy - view.oy) * view.scale - pad * k);
+    ctx.drawImage(bg, 0, 0);
+  }
+
+  // margin: how far past each screen edge to draw, in screen px.
+  function drawStatic(ctx, margin) {
     const { w, h, scale } = view;
     const { size, frontier: F, factions, systems } = galaxy;
-    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
+    // The area drawn, in screen px, and whether a point (with this much around it) is in it.
+    const x0 = -margin, y0 = -margin, x1 = w + margin, y1 = h + margin;
+    const inside = (sx, sy, padX, padY = padX) => sx > x0 - padX && sy > y0 - padY && sx < x1 + padX && sy < y1 + padY;
+    ctx.setTransform(view.dpr, 0, 0, view.dpr, margin * view.dpr, margin * view.dpr);
     ctx.fillStyle = Theme.color.bg;
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
 
     const [bx0, by0] = toScreen(0, 0);
     const [bx1, by1] = toScreen(size, size);
@@ -268,7 +298,7 @@ const GalaxyMap = (() => {
 
     // Explored sectors are lighter than the unknown.
     const px = Math.ceil(scale) + 1;
-    const onScreen = (sx, sy) => sx + px >= 0 && sy + px >= 0 && sx <= w && sy <= h;
+    const onScreen = (sx, sy) => sx + px >= x0 && sy + px >= y0 && sx <= x1 && sy <= y1;
     if (fog()) {
       for (const c of cells) {
         if (!fog().isExplored(c.x, c.y)) continue;
@@ -335,7 +365,7 @@ const GalaxyMap = (() => {
       if (pk.kind === 'system' ? !sysKnown(systems[pk.id]) : !outpostKnown(galaxy.outposts[pk.id])) continue;
       const [sx, sy] = toScreen(pk.x, pk.y);
       const pr = pk.r * scale;
-      if (sx + pr < 0 || sy + pr < 0 || sx - pr > w || sy - pr > h) continue;
+      if (sx + pr < x0 || sy + pr < y0 || sx - pr > x1 || sy - pr > y1) continue;
       const color = galaxy.factionColor(pk.faction);
       ctx.fillStyle = hexToRgba(color, 0.3);
       ctx.strokeStyle = hexToRgba(color, 0.8);
@@ -375,7 +405,7 @@ const GalaxyMap = (() => {
       for (const o of galaxy.outposts) {
         if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
-        if (sx < -5 || sy < -5 || sx > w + 5 || sy > h + 5) continue;
+        if (!inside(sx, sy, 5)) continue;
         ctx.fillStyle = o.faction === null ? '#7d869e' : factions[o.faction].color;
         ctx.fillRect(sx - op / 2, sy - op / 2, op, op);
       }
@@ -410,7 +440,7 @@ const GalaxyMap = (() => {
     for (const s of systems) {
       if (!sysKnown(s)) continue;
       const [sx, sy] = centreOf(s.id);
-      if (sx < -20 || sy < -20 || sx > w + 20 || sy > h + 20) continue;
+      if (!inside(sx, sy, 20)) continue;
       const color = galaxy.factionColor(s.faction);
       const sr = s.faction !== null && factions[s.faction].kind === 'minor' ? r * 0.75 : r;
       ctx.fillStyle = color;
@@ -452,7 +482,7 @@ const GalaxyMap = (() => {
       const z = labelZoom(s);
       if (scale < z) continue;
       const [sx, sy] = centreOf(s.id);
-      if (sx < -60 || sy < -20 || sx > w + 60 || sy > h + 20) continue;
+      if (!inside(sx, sy, 60, 20)) continue;
       ctx.fillStyle = labelColor[z];
       ctx.fillText(s.name, sx, sy - r - 7);
     }
@@ -462,7 +492,7 @@ const GalaxyMap = (() => {
       for (const o of galaxy.outposts) {
         if (!outpostKnown(o)) continue;
         const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
-        if (sx > -60 && sy > -20 && sx < w + 60 && sy < h + 20) ctx.fillText(o.name, sx, sy + 14);
+        if (inside(sx, sy, 60, 20)) ctx.fillText(o.name, sx, sy + 14);
       }
     }
     ctx.textAlign = 'left';
@@ -477,9 +507,7 @@ const GalaxyMap = (() => {
     const { systems } = galaxy;
     const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
     const r = clamp(scale * 0.28, 2.5, 8); // system dot radius, as in drawStatic
-    const bg = staticLayer();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(bg, 0, 0);
+    drawLayer();
     ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
 
     // Map travel: the plotted route and destination.
@@ -785,7 +813,9 @@ const GalaxyMap = (() => {
       requestDraw();
     }
     // Lifting one finger of a pinch continues as a pan with the other.
+    const wasMoving = moving();
     startGesture();
+    if (wasMoving && !moving()) requestDraw(); // redraw the layer where the view has come to rest
     if (!pointers.size) canvas.style.cursor = '';
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -799,6 +829,9 @@ const GalaxyMap = (() => {
     e.preventDefault();
     // Firefox often reports wheel deltas in lines or pages rather than pixels.
     const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? view.h : 1);
+    wheeling = true;
+    clearTimeout(wheelTimer);
+    wheelTimer = setTimeout(() => { wheeling = false; requestDraw(); }, WHEEL_SETTLE_MS);
     zoomAt(e.clientX, e.clientY, view.scale * Math.pow(1.0015, -dy));
   }, { passive: false });
 
@@ -819,6 +852,8 @@ const GalaxyMap = (() => {
     overlay.hidden = true;
     pointers.clear();
     gesture = null;
+    clearTimeout(wheelTimer);
+    wheeling = false;
     dropLayer();
   }
 

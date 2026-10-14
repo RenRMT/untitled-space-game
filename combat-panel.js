@@ -14,6 +14,7 @@
 //                      progress, bar?: 'lock' | 'escape' })
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
+//   CombatPanel.top   its top edge on screen, null while hidden (UI.topEdge)
 // Browser script (global `CombatPanel`).
 
 const CombatPanel = (() => {
@@ -22,6 +23,7 @@ const CombatPanel = (() => {
   const titleEl = q('.cb-title'), rowsEl = q('.cb-rows'), logEl = q('.cb-log'), btn = q('.cb-btn'), timer = q('.cb-timer');
   const { h } = UI; // ui.js
   const view = UI.keyed(); // what the DOM shows, to skip unchanged frames
+  const edge = UI.topEdge(root);
   let onFocus = null, onButton = null;
 
   // Focus on pointer down: the rows are rebuilt every round, which could swallow a click whose
@@ -77,6 +79,7 @@ const CombatPanel = (() => {
   return {
     show, hide,
     get isOpen() { return view.shown; },
+    get top() { return edge.top; },
     set onFocus(f) { onFocus = f; },
     set onButton(f) { onButton = f; },
   };

@@ -10,6 +10,11 @@
 //   UI.keyed() -> { changed(parts), reset(), shown }
 //     remembers what a panel last showed (parts, compared as JSON), so it is rebuilt only when
 //     something visible changes. changed() records the new parts and says whether they differ.
+//   UI.topEdge(el) -> { top }
+//     where an element's top edge is on screen (px), or null while it is hidden. Kept by a
+//     ResizeObserver and window resizes, so canvas drawing can read it every frame without
+//     forcing a layout straight after the panels were written (without ResizeObserver it is
+//     measured on each read).
 // Browser script (global `UI`).
 
 const UI = (() => {
@@ -40,5 +45,19 @@ const UI = (() => {
     };
   }
 
-  return { h, keyed };
+  function topEdge(el) {
+    const measure = () => {
+      if (el.hidden) return null;
+      const r = el.getBoundingClientRect();
+      return r.height > 0 ? r.top : null;
+    };
+    if (typeof ResizeObserver !== 'function') return { get top() { return measure(); } };
+    let top = null;
+    const update = () => { top = measure(); };
+    new ResizeObserver(update).observe(el);
+    window.addEventListener('resize', update);
+    return { get top() { return top; } };
+  }
+
+  return { h, keyed, topEdge };
 })();

@@ -42,11 +42,10 @@ const autopilot = { key: null, e: null, stop: 0, follow: false };
 // fleeing or respawning; wreckT counts down while the destroyed player ship is towed.
 // final and lastShips keep the ended fight's state and enemy poses for the panel and late effects;
 // wrecked hides the player ship between its explosion and the tow. returning: enemies that
-// survived a real-time fight, flying back to their usual paths (by key). saveT throttles saves of
-// hull damage in real time.
+// survived a real-time fight, flying back to their usual paths (by key).
 const fight = {
   s: null, mode: 'rounds', ships: new Map(), fx: [], log: [], result: null, resultT: 0, grace: 0, wreckT: 0,
-  final: null, lastShips: new Map(), wrecked: false, returning: new Map(), saveT: 0, dirty: false,
+  final: null, lastShips: new Map(), wrecked: false, returning: new Map(),
 };
 const inFight = () => !!fight.s || fight.wreckT > 0;
 const fightMode = () => COMBAT[fight.mode];
@@ -173,14 +172,12 @@ const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, tr
 // ---------- Cargo hold and credits: items collected or bought, saved per galaxy ----------
 
 // items: { kind (art/items.js id), label, category: 'loot' | 'trade' }, one hold unit each.
-// mined: keys of asteroids broken up by mining. drops: items left floating by mining, destroyed
-// ships or the player's own lost cargo, not yet collected (item entities; each keeps its saved
-// form in `drop`). destroyed: keys of NPC ships destroyed in combat. hull: the player ship's
-// hull points (repaired at stations). home: the last station docked at, where a lost ship is towed.
-const cargo = {
-  key: '', items: [], collected: new Set(), credits: 0, mined: new Set(), drops: [],
-  destroyed: new Set(), hull: 0, home: null,
-};
+// removed: keys of generated things gone from the world for good: items collected, asteroids
+// broken up by mining, ships destroyed in combat (keys are unique across kinds). drops: items
+// left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
+// (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
+// (repaired at stations). home: the last station docked at, where a lost ship is towed.
+const cargo = { key: '', items: [], removed: new Set(), credits: 0, drops: [], hull: 0, home: null };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
 const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
@@ -201,13 +198,12 @@ function upgradeItem(it) {
 }
 
 function loadCargo(galaxy) {
+  if (cargoSave.timer !== null) saveCargoNow(); // the old galaxy's cargo first
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
   cargo.items = [];
-  cargo.collected = new Set();
+  cargo.removed = new Set();
   cargo.credits = Economy.config.startingCredits;
-  cargo.mined = new Set();
   cargo.drops = [];
-  cargo.destroyed = new Set();
   cargo.hull = SHIP.hull;
   cargo.home = null;
   if (Params.has('fresh')) Store.remove(cargo.key);
@@ -215,24 +211,31 @@ function loadCargo(galaxy) {
   if (!d) return;
   try {
     cargo.items = d.items.map(upgradeItem).filter(Boolean);
-    cargo.collected = new Set(d.collected);
+    // Older saves kept collected items, mined asteroids and destroyed ships in three lists.
+    cargo.removed = new Set([d.removed, d.collected, d.mined, d.destroyed].filter(Array.isArray).flat());
     if (Number.isFinite(d.credits)) cargo.credits = d.credits;
-    if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
     if (Array.isArray(d.drops)) {
       cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
         .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
     }
-    if (Array.isArray(d.destroyed)) cargo.destroyed = new Set(d.destroyed);
     if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
     if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
   } catch (e) { /* a damaged save: keep what was read before the error */ }
 }
-// Storage unavailable: cargo lasts for this session only (store.js).
+// Cargo is saved CARGO_SAVE_MS after the first change, so a burst of changes (Sell all, hull
+// damage in a fight) is one write; and when the page is hidden or closed, or another galaxy
+// loads. Storage unavailable: cargo lasts for this session only (store.js).
+const CARGO_SAVE_MS = 1000;
+const cargoSave = { timer: null };
 function saveCargo() {
+  if (cargoSave.timer === null) cargoSave.timer = setTimeout(saveCargoNow, CARGO_SAVE_MS);
+}
+function saveCargoNow() {
+  clearTimeout(cargoSave.timer);
+  cargoSave.timer = null;
   Store.setJSON(cargo.key, {
-    items: cargo.items, collected: [...cargo.collected], credits: cargo.credits,
-    mined: [...cargo.mined], drops: cargo.drops.map((e) => e.drop),
-    destroyed: [...cargo.destroyed], hull: cargo.hull, home: cargo.home,
+    items: cargo.items, removed: [...cargo.removed], credits: cargo.credits,
+    drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   });
 }
 
@@ -279,14 +282,14 @@ const repairs = {
 
 function collectItems(list) {
   for (const e of list) {
-    if (e.kind !== 'item' || cargo.collected.has(e.key)) continue;
+    if (e.kind !== 'item' || cargo.removed.has(e.key)) continue;
     if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
     if (hold.free < 1) {
       notify('Cargo hold full', 2.5, { once: true }); // and leave it floating
       continue;
     }
     if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
-    else cargo.collected.add(e.key);
+    else cargo.removed.add(e.key);
     cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
     notify(`Recovered: ${e.label}${rarityNote(e)}`, 2.5);
     saveCargo();
@@ -353,9 +356,13 @@ function loadGalaxy(galaxy) {
 }
 loadGalaxy(GalaxyMap.galaxy);
 GalaxyMap.onLoad = loadGalaxy; // re-rolled on the map
-// Knowledge saves on a short debounce; write it out when the page is hidden or closed.
-window.addEventListener('pagehide', () => world.knowledge.save());
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') world.knowledge.save(); });
+// Knowledge and cargo save on a short debounce; write them out when the page is hidden or closed.
+function saveAll() {
+  world.knowledge.save();
+  if (cargoSave.timer !== null) saveCargoNow();
+}
+window.addEventListener('pagehide', saveAll);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveAll(); });
 GalaxyMap.onJump = (x, y) => moveShipTo(x, y);
 
 // ---------- Docking: stop near a station, dock, trade, launch ----------
@@ -479,7 +486,7 @@ function chips(a, n, speed) {
 function finishMining() {
   const a = mining.target;
   stopMining();
-  cargo.mined.add(a.key);
+  cargo.removed.add(a.key);
   chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
   const found = Mining.yieldOf(world.galaxy.seed, a);
   if (found) {
@@ -630,9 +637,7 @@ function nearbyEntities(t) {
       const sec = world.sectors.at(x, y);
       if (!sec) continue;
       for (const e of sec.entities) {
-        if (e.kind === 'item' && cargo.collected.has(e.key)) continue;
-        if (e.kind === 'asteroid' && cargo.mined.has(e.key)) continue;
-        if (e.kind === 'ship' && cargo.destroyed.has(e.key)) continue;
+        if (cargo.removed.has(e.key)) continue;
         const held = e.kind === 'ship' && (fight.ships.get(e.key) || fight.returning.get(e.key));
         if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: held.thrust || 0 }); // fighting, or flying back
         else Sectors.pose(e, t);
@@ -648,6 +653,29 @@ function nearbyEntities(t) {
     out.push(e);
   }
   return out;
+}
+
+// nearbyEntities() needs the 3×3 sectors around the camera, so crossing a sector edge would build
+// a whole new row of them in one frame (up to 21 ms each). Within PREFETCH_EDGE of an edge, build
+// the sectors beyond it ahead of time instead, one per frame.
+const PREFETCH_EDGE = 0.25; // of a sector
+function prefetchSectors() {
+  const [cx, cy] = sectorOf(cam.x, cam.y);
+  const fx = cam.x / SECTOR - cx, fy = cam.y / SECTOR - cy; // where in its sector the camera is, 0..1
+  const dx = fx < PREFETCH_EDGE ? -1 : fx > 1 - PREFETCH_EDGE ? 1 : 0;
+  const dy = fy < PREFETCH_EDGE ? -1 : fy > 1 - PREFETCH_EDGE ? 1 : 0;
+  if (!dx && !dy) return;
+  const size = world.galaxy.size;
+  for (const [nx, ny] of [[cx + dx, cy], [cx, cy + dy], [cx + dx, cy + dy]]) {
+    if (nx === cx && ny === cy) continue;
+    for (let y = ny - 1; y <= ny + 1; y++) {
+      for (let x = nx - 1; x <= nx + 1; x++) {
+        if (x < 0 || y < 0 || x >= size || y >= size || world.sectors.has(x, y)) continue;
+        world.sectors.at(x, y);
+        return;
+      }
+    }
+  }
 }
 
 // ---------- Gates: flying into the aperture jumps to the gate at the other end ----------
@@ -934,8 +962,6 @@ function engage(target, ambushed = false) {
   };
   fight.s = m.start(rng, player, group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed });
   if (!m.flying) ship.targetSpeed = 0;
-  fight.saveT = 1;
-  fight.dirty = false;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);
   fight.log = [ambushed ? 'Pirates attack!' : `You engage the ${names[0]}.`];
@@ -1031,7 +1057,7 @@ function explode(x, y, r) {
 // An enemy destroyed: gone for good, with its loot floating where it was.
 function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  cargo.destroyed.add(key);
+  cargo.removed.add(key);
   if (!p) { saveCargo(); return; }
   explode(p.x, p.y, p.radius);
   CombatCore.loot(world.galaxy.seed, key, p.role).forEach((d, i) => {
@@ -1159,11 +1185,9 @@ function tickFight(dt) {
     }
   }
   playEvents(s, events);
-  // Hull damage is saved at most once a second, so it survives closing the page mid-fight.
+  // Hull damage is saved as it happens (on saveCargo's debounce), so it survives closing the page.
   const hull = Math.max(0, s.player.hull);
-  if (hull !== cargo.hull) { cargo.hull = hull; fight.dirty = true; }
-  fight.saveT -= dt;
-  if (fight.dirty && fight.saveT <= 0) { saveCargo(); fight.dirty = false; fight.saveT = 1; }
+  if (hull !== cargo.hull) { cargo.hull = hull; saveCargo(); }
   if (s.over) {
     fight.s = null;
     fight.final = s; // shown on the panel until it closes
@@ -1354,8 +1378,8 @@ function drawFoeMarkers() {
   foeHits = [];
   const s = fight.s;
   if (!s) return;
-  const panel = document.getElementById('combat');
-  const inset = { l: 26, r: 26, t: 70, b: panel.hidden ? 64 : Math.max(64, view.h - panel.getBoundingClientRect().top + 18) };
+  const top = CombatPanel.top;
+  const inset = { l: 26, r: 26, t: 70, b: top === null ? 64 : Math.max(64, view.h - top + 18) };
   const cx = view.w / 2, cy = view.h / 2;
   ctx.save();
   ctx.font = Theme.font(11);
@@ -1520,8 +1544,8 @@ function update(dt) {
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
   const focus = fight.s && fight.ships.get(fight.s.focus);
   if (focus) {
-    const panel = document.getElementById('combat');
-    const covered = panel.hidden ? 0 : Math.max(0, view.h - panel.getBoundingClientRect().top);
+    const top = CombatPanel.top;
+    const covered = top === null ? 0 : Math.max(0, view.h - top);
     let dx = (focus.x - ship.x) / 2, dy = (focus.y - ship.y) / 2;
     if (fightMode().flying) {
       const max = (Math.min(view.w, view.h - covered) * 0.3) / view.zoom, len = Math.hypot(dx, dy);
@@ -1807,8 +1831,8 @@ let navHits = [];
 function drawNavMarkers(list) {
   // Margins keep markers clear of the HUD text (top left), the speed bar (bottom), the buttons
   // and the context card when it's open.
-  const card = ContextCard.isOpen ? document.getElementById('context').getBoundingClientRect() : null;
-  const inset = { l: 26, r: 26, t: 70, b: card ? Math.max(64, view.h - card.top + 16) : 64 };
+  const top = ContextCard.isOpen ? ContextCard.top : null;
+  const inset = { l: 26, r: 26, t: 70, b: top === null ? 64 : Math.max(64, view.h - top + 16) };
   const cx = view.w / 2, cy = view.h / 2;
   navHits = [];
   ctx.save();
@@ -2080,6 +2104,7 @@ function render() {
   drawMinimap(list);
   drawHud();
   if (GalaxyMap.perf) drawPerf();
+  prefetchSectors();
 }
 
 // ---------- Performance overlay (?perf or ?dev, toggled with P) ----------

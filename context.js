@@ -8,6 +8,7 @@
 //   ContextCard.hide()
 //   ContextCard.onAction = (id) => ...   a button was pressed
 //   ContextCard.onClose = () => ...      the close button was pressed
+//   ContextCard.top                      its top edge on screen, null while hidden (UI.topEdge)
 // Browser script (global `ContextCard`).
 
 const ContextCard = (() => {
@@ -15,6 +16,7 @@ const ContextCard = (() => {
   const el = (cls) => root.querySelector(cls);
   const titleEl = el('.cx-title'), tagEl = el('.cx-tag'), subEl = el('.cx-sub'), actionsEl = el('.cx-actions');
   const view = UI.keyed(); // what the DOM shows, to skip unchanged frames (ui.js)
+  const edge = UI.topEdge(root);
   let onAction = null, onClose = null;
 
   el('.cx-close').addEventListener('click', () => onClose && onClose());
@@ -71,6 +73,7 @@ const ContextCard = (() => {
   return {
     show, hide,
     get isOpen() { return view.shown; },
+    get top() { return edge.top; },
     set onAction(f) { onAction = f; },
     set onClose(f) { onClose = f; },
   };

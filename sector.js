@@ -332,7 +332,10 @@ const Sectors = (() => {
       return sec;
     }
 
-    return { at, units };
+    // Whether a sector is built and cached, without building it (for prefetching).
+    const has = (sx, sy) => cache.has(key(sx, sy));
+
+    return { at, has, units };
   }
 
   // Position, heading and thrust of an entity at time t.
