@@ -125,9 +125,14 @@ const Sectors = (() => {
         const art = ArtBlueprints.create(type, culture, nextSeed());
         return add({ kind: 'wreck', art, name, angle: r() * TAU, tumble: (r() - 0.5) * 0.04, radius: art.radius }, x, y);
       };
+      // Ships have a role ('fighter' | 'freighter') and a stable key, so the flight view can keep
+      // one selected and remember the ones destroyed.
+      let shipCount = 0;
       const ship = (role, fid, motion) => {
         const art = ArtBlueprints.create(role, cultures.of(fid), nextSeed());
-        sec.entities.push({ kind: 'ship', art, faction: fid, motion, radius: art.radius, x: ox, y: oy });
+        const e = { kind: 'ship', role, key: `${sx},${sy},s${shipCount++}`, art, faction: fid, motion, radius: art.radius, x: ox, y: oy };
+        sec.entities.push(e);
+        return e;
       };
       const orbit = (cx, cy, rad, speed) => ({ type: 'orbit', cx: ox + cx, cy: oy + cy, r: rad, w: (r() < 0.5 ? -1 : 1) * speed / rad, a0: r() * TAU });
       const route = (ax, ay, bx, by, speed) => ({ type: 'route', ax: ox + ax, ay: oy + ay, bx: ox + bx, by: oy + by, speed, phase: r() * 2 });
@@ -249,7 +254,10 @@ const Sectors = (() => {
         } else if (contact.type === 'distress') {
           const fid = majors[Math.floor(r() * majors.length)].id;
           const art = ArtBlueprints.create('freighter', cultures.of(fid), nextSeed());
-          const stranded = { kind: 'ship', art, faction: fid, name: CONTACT_LABELS.distress, motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y };
+          const stranded = {
+            kind: 'ship', role: 'freighter', key: `${sx},${sy},s${shipCount++}`, art, faction: fid, name: CONTACT_LABELS.distress,
+            motion: { type: 'still', angle: r() * TAU }, radius: art.radius, x: ox + x, y: oy + y,
+          };
           sec.entities.push(stranded);
           const [wx, wy] = spot(x, y, 200, 400, 40);
           spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));

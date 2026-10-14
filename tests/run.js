@@ -255,6 +255,21 @@ test('the mining target is the nearest unmined asteroid in range', () => {
   assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
 });
 
+test('ships have a role and unique keys that survive a rebuild', () => {
+  const g = galaxies.get(1);
+  const shipsOf = () => {
+    const sectors = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
+    const out = [];
+    for (let y = 0; y < g.size; y++) for (let x = 0; x < g.size; x++) out.push(...sectors.at(x, y).entities.filter((e) => e.kind === 'ship'));
+    return out;
+  };
+  const a = shipsOf(), b = shipsOf();
+  assert(a.length > 100, `only ${a.length} ships`);
+  assert.strictEqual(new Set(a.map((e) => e.key)).size, a.length, 'duplicate ship keys');
+  assert(a.every((e) => e.role === 'fighter' || e.role === 'freighter'), 'ship without a role');
+  assert.deepStrictEqual(a.map((e) => [e.key, e.role]), b.map((e) => [e.key, e.role]));
+});
+
 test('the starter Courier flies, senses and mines as before', () => {
   const s = Loadout.stats(Loadout.starter('courier'));
   assert.deepStrictEqual(
