@@ -6,9 +6,10 @@ const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const TAU = Math.PI * 2;
 
-// Each galaxy map sector is a square play area this many world units across. World coordinates
-// run across the whole galaxy; drawing happens relative to the camera's sector to keep precision.
-const SECTOR = 6000;
+// Each galaxy map sector is a square play area this many world units across (the galaxy's
+// sectorUnits, set in data/galaxy-config.js). World coordinates run across the whole galaxy;
+// drawing happens relative to the camera's sector to keep precision.
+let SECTOR = 6000;
 
 const COLORS = {
   bg: '#05060a',
@@ -120,6 +121,7 @@ function moveShipTo(sx, sy) {
 
 function loadGalaxy(galaxy) {
   world.galaxy = galaxy;
+  SECTOR = galaxy.sectorUnits;
   world.cultures = ArtCulture.forGalaxy(galaxy);
   world.sectors = Sectors.create(galaxy, world.cultures, SECTOR);
   world.w = world.h = galaxy.size * SECTOR;
@@ -449,6 +451,44 @@ function drawLabels(list) {
   ctx.textAlign = 'left';
 }
 
+// Off-screen gates within 1.5 sectors get a marker at the screen edge pointing their way, with name and distance.
+function drawNavMarkers(list) {
+  const inset = 26;
+  const cx = view.w / 2, cy = view.h / 2;
+  ctx.save();
+  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  for (const g of list) {
+    if (g.kind !== 'gate' || visible(g)) continue;
+    const d = Math.hypot(g.x - ship.x, g.y - ship.y);
+    if (d > SECTOR * 1.5) continue;
+    const [gx, gy] = worldToScreen(g.x, g.y);
+    const dx = gx - cx, dy = gy - cy;
+    // Where the line from the screen centre to the gate leaves the inset screen rectangle.
+    const k = Math.min((cx - inset) / Math.abs(dx || 1e-6), (cy - inset) / Math.abs(dy || 1e-6));
+    const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = g.color;
+    ctx.translate(x, y);
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(10, 0);
+    ctx.lineTo(-4, 7);
+    ctx.lineTo(-4, -7);
+    ctx.closePath();
+    ctx.fill();
+    ctx.rotate(-a);
+    ctx.translate(-x, -y);
+    const text = `${g.name.toUpperCase()} · ${(d / 1000).toFixed(1)}k`;
+    const tw = ctx.measureText(text).width;
+    ctx.textAlign = 'left';
+    // Text sits inward from the arrow, so it never covers it.
+    const tx = clamp(x - Math.cos(a) * (tw / 2 + 16) - tw / 2, 8, view.w - tw - 8);
+    const ty = clamp(y - Math.sin(a) * 18 + 4, 14, view.h - 8);
+    ctx.fillText(text, tx, ty);
+  }
+  ctx.restore();
+}
+
 function drawDragIndicator() {
   if (!drag.active) return;
   const md = maxDrag();
@@ -514,15 +554,24 @@ function drawMinimap(list) {
 
   for (const e of list) {
     if (e.x < ox || e.y < oy || e.x >= ox + SECTOR || e.y >= oy + SECTOR) continue;
+    const mx = x0 + (e.x - ox) * s, my = y0 + (e.y - oy) * s;
+    if (e.kind === 'gate') {
+      // Gates stand out as rings in their builder's colour.
+      ctx.strokeStyle = e.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(mx, my, 4, 0, TAU);
+      ctx.stroke();
+      continue;
+    }
     const [color, rad] = e.kind === 'star' ? [COLORS.star, 4]
       : e.kind === 'planet' ? [COLORS.planet, 3]
         : e.kind === 'station' ? [e.color, 2.5]
-          : e.kind === 'gate' ? ['#cfd8ff', 2.5]
           : e.kind === 'wreck' ? ['#6f7a99', 1.5]
             : [e.faction === null || e.faction === undefined ? '#9aa4b8' : world.galaxy.factions[e.faction].color, 1.2];
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(x0 + (e.x - ox) * s, y0 + (e.y - oy) * s, rad, 0, TAU);
+    ctx.arc(mx, my, rad, 0, TAU);
     ctx.fill();
   }
 
@@ -627,6 +676,7 @@ function render() {
     ctx.fillRect(0, 0, view.w, view.h);
   }
   drawLabels(list);
+  drawNavMarkers(list);
   drawDragIndicator();
   drawMinimap(list);
   drawHud();

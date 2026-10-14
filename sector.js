@@ -37,6 +37,9 @@ const Sectors = (() => {
   }
 
   function create(galaxy, cultures, units) {
+    // Layout distances were tuned for 6000-unit sectors; bigger sectors spread systems out
+    // proportionally, while object sizes and local groupings (wreck clusters, patrols) stay put.
+    const S = units / 6000;
     const base = seedInt(galaxy.seed);
     const key = (x, y) => `${x},${y}`;
     const systemAt = new Map(galaxy.systems.map((s) => [key(s.x, s.y), s]));
@@ -134,8 +137,8 @@ const Sectors = (() => {
         if (!system.freeport) {
           const cls = weighted(STAR_CLASSES, r);
           const [r0, r1] = STAR_RADIUS[cls];
-          cx = C + (r() - 0.5) * 600;
-          cy = C + (r() - 0.5) * 600;
+          cx = C + (r() - 0.5) * 600 * S;
+          cy = C + (r() - 0.5) * 600 * S;
           const body = { r: lerp(r0, r1, r()), cls, seed: nextSeed() % 997, rays: 8 };
           placed.push([cx, cy, body.r * 2.2]);
           sec.star = add({ kind: 'star', body, name: system.name, radius: body.r * 3.2 }, cx, cy);
@@ -146,7 +149,7 @@ const Sectors = (() => {
           const field = art.parts.find((q) => q.mat === 'field');
           const aperture = Math.min(...field.pts.map(([px, py]) => Math.hypot(px, py)));
           const a = Math.atan2(end.other.y - sy, end.other.x - sx);
-          const [x, y] = spotToward(cx, cy, a, 2300, art.bodyRadius);
+          const [x, y] = spotToward(cx, cy, a, 2300 * S, art.bodyRadius);
           add({
             kind: 'gate', art, link: end.link, hidden: end.hidden, dest: { x: end.other.x, y: end.other.y },
             name: end.hidden ? 'Uncharted gate' : `Gate to ${end.other.name}`,
@@ -157,7 +160,7 @@ const Sectors = (() => {
         system.locations.filter((l) => l.type === 'planet').forEach((l, i) => {
           const type = weighted(PLANET_TYPES, r);
           const body = { r: lerp(90, type === 'gas' ? 190 : 150, r()), type, ring: r() < (type === 'gas' ? 0.6 : 0.2), ringTilt: -0.35 + (r() - 0.5) * 0.5, seed: nextSeed() % 9973 };
-          const [x, y] = spot(cx, cy, 1200 + i * 500, 1600 + i * 550, body.r * (body.ring ? 2 : 1.1));
+          const [x, y] = spot(cx, cy, (1200 + i * 500) * S, (1600 + i * 550) * S, body.r * (body.ring ? 2 : 1.1));
           planets.push(add({ kind: 'planet', body, name: l.name, radius: body.r * 2 }, x, y));
         });
         system.locations.filter((l) => l.type !== 'planet').forEach((l, i) => {
@@ -166,11 +169,11 @@ const Sectors = (() => {
           // The main station sits near the star or the first planet; outposts further out.
           const near = l.type === 'station' && planets.length && r() < 0.5 ? planets[Math.floor(r() * planets.length)] : null;
           const [x, y] = near ? spot(near.x - ox, near.y - oy, near.body.r * 2.2 + rad, near.body.r * 2.6 + rad, rad)
-            : spot(cx, cy, l.type === 'outpost' ? 2100 : 900 + rad, l.type === 'outpost' ? 2600 : 1500, rad);
+            : spot(cx, cy, l.type === 'outpost' ? 2100 * S : 900 * S + rad, l.type === 'outpost' ? 2600 * S : 1500 * S + rad, rad);
           station(major ? 'station-major' : 'station-minor', fid, l.name, x, y);
         });
       } else if (outpost) {
-        const [x, y] = spot(C, C, 0, 500, 120);
+        const [x, y] = spot(C, C, 0, 500 * S, 120);
         station('station-minor', outpost.faction, outpost.name, x, y);
         if (outpost.type === 'salvage yard') {
           for (let i = 0; i < 4; i++) {
@@ -183,7 +186,7 @@ const Sectors = (() => {
       // ---------- Deep-space contacts ----------
 
       if (contact) {
-        const [x, y] = spot(C, C, 0, 1200, 200);
+        const [x, y] = spot(C, C, 0, 1200 * S, 200);
         if (contact.type === 'story') {
           wreck('wreck-station', randomCulture(), x, y, contact.name);
         } else if (contact.type === 'derelict') {
@@ -234,7 +237,7 @@ const Sectors = (() => {
       for (let i = 0; i < count; i++) {
         const fid = known ? pickOwner() : null;
         const anchor = anchors.length ? anchors[Math.floor(r() * anchors.length)] : null;
-        const [axl, ayl] = anchor ? [anchor.x - ox, anchor.y - oy] : [C + (r() - 0.5) * 2000, C + (r() - 0.5) * 2000];
+        const [axl, ayl] = anchor ? [anchor.x - ox, anchor.y - oy] : [C + (r() - 0.5) * 2000 * S, C + (r() - 0.5) * 2000 * S];
         if (r() < (anchor ? 0.45 : 0.6)) {
           const exit = exits.length ? exits[Math.floor(r() * exits.length)] : null;
           const a = exit ? exit.a : r() * TAU;
@@ -249,13 +252,13 @@ const Sectors = (() => {
       // Pirates prey on the territories they operate in, and haunt the frontier.
       const preyed = territory.owner !== null && pirates.operatesIn?.includes(territory.owner);
       if (!contact && ((preyed && r() < 0.25) || (territory.zone === 'frontier' && r() < 0.12))) {
-        const [x, y] = [C + (r() - 0.5) * 3000, C + (r() - 0.5) * 3000];
+        const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
         for (let i = 0; i < 2; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 200, 170));
       }
       // Border skirmish debris.
       if (territory.contestedBy !== null && r() < 0.5) {
         for (const fid of [territory.owner, territory.contestedBy]) {
-          const [x, y] = spot(C, C, 800, 2400, 50);
+          const [x, y] = spot(C, C, 800 * S, 2400 * S, 50);
           wreck('wreck-ship', cultures.of(fid), x, y);
         }
       }

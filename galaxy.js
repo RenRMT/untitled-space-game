@@ -9,19 +9,21 @@
 // - Freeports (neutral safe havens) on the outer edge of settled space,
 // - lanes inside territories, gates between them, and a few hidden routes,
 // - deep-space encounters recreated on demand from the seed and sector coordinates.
+// Every tuning value lives in Galaxy.params; pass `overrides.params` to generate() to change any of
+// them for one galaxy (nested objects merge, arrays and numbers replace).
 // Works as a classic browser script (global `Galaxy`) and as a Node module.
 
 const Galaxy = (() => {
   const { hashInt, mulberry32 } = typeof require === 'function' ? require('./rng.js') : globalThis;
 
-  const P = {
+  const DEFAULTS = {
     size: 80,
     sectorUnits: 16000, // world units per sector side
     frontier: 7, // width of the outer frontier ring, in sectors
     // Settlement density: two octaves of value noise plus a pull toward the centre.
     density: { cell1: 14, cell2: 6, noise1: 0.6, noise2: 0.25, radial: 0.55, cutoff: 0.5 },
     systems: { count: [120, 150], spacing: 2 },
-    outposts: { count: [150, 250] },
+    outposts: { count: [150, 250], spacing: 0 }, // spacing: minimum distance to any other settlement
     linkRange: 6, // systems this close are neighbours: territories grow and lanes run between them
     main: { size: [14, 20], strength: 1.4, sigma: 1.5, reach: 0.6, reachSigma: 13 },
     majors: { count: [7, 9], size: [4, 16], spacing: 14, minFromCentre: 14, sigma: 1.35, reach: 0.3, reachSigma: 8 },
@@ -78,7 +80,19 @@ const Galaxy = (() => {
     return `#${f(0)}${f(8)}${f(4)}`;
   }
 
+  // Defaults with overrides merged in: plain objects merge, everything else replaces.
+  function mergeParams(base, over) {
+    if (!over) return base;
+    const out = { ...base };
+    for (const [k, v] of Object.entries(over)) {
+      const b = base[k];
+      out[k] = v && typeof v === 'object' && !Array.isArray(v) && b && typeof b === 'object' && !Array.isArray(b) ? mergeParams(b, v) : v;
+    }
+    return out;
+  }
+
   function generate(seed, overrides = {}) {
+    const P = mergeParams(DEFAULTS, overrides.params);
     const seedInt = seedToInt(seed);
     const rnd = mulberry32(seedInt);
     const randInt = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
@@ -393,6 +407,7 @@ const Galaxy = (() => {
         if (occupied.has(idx(x, y))) continue;
         const p = (inner(x, y) ? 0.004 + 0.03 * settle[idx(x, y)] : 0.0015) * (1 + pass);
         if (rnd() >= p) continue;
+        if (P.outposts.spacing && (tooClose(x, y, P.outposts.spacing) || outposts.some((o) => dist(o, { x, y }) < P.outposts.spacing))) continue;
         const o = ownerAt(x, y);
         outposts.push({ id: outposts.length, x, y, type: OUTPOST_TYPES[Math.floor(rnd() * OUTPOST_TYPES.length)], faction: o >= 0 ? o : null });
         occupied.add(idx(x, y));
@@ -608,7 +623,7 @@ const Galaxy = (() => {
     };
   }
 
-  return { generate, params: P };
+  return { generate, params: DEFAULTS };
 })();
 
 if (typeof module !== 'undefined') module.exports = Galaxy;
