@@ -431,8 +431,14 @@ const STAR_LAYERS = [
   { p: 0.65, cell: 320, n: 2, size: [1.3, 2.2], alpha: [0.5, 0.95] },
 ];
 const STAR_TINTS = ['#ffffff', '#cfe0ff', '#fff1d0', '#ffd9d9'];
+// Stars are drawn in batches: one path per tint and brightness level per layer, instead of one
+// draw call (plus colour and alpha changes) per star. Brightness is rounded to this many levels.
+const STAR_ALPHA_LEVELS = 8;
+const starBuckets = Array.from({ length: STAR_TINTS.length * STAR_ALPHA_LEVELS }, () => []); // x, y, size triples
+let starCount = 0; // stars drawn last frame, for the performance overlay
 
 function drawStarfield() {
+  starCount = 0;
   for (let li = 0; li < STAR_LAYERS.length; li++) {
     const L = STAR_LAYERS[li];
     const ox = cam.x * L.p * view.zoom - view.w / 2;
@@ -440,32 +446,50 @@ function drawStarfield() {
     // Motion streaks scale with speed and layer depth.
     const sx = -ship.vx * L.p * view.zoom * 0.04;
     const sy = -ship.vy * L.p * view.zoom * 0.04;
-    const streak = Math.hypot(sx, sy) > 1.5;
+    const streakLen = Math.hypot(sx, sy);
+    const streak = streakLen > 1.5;
 
+    for (const b of starBuckets) b.length = 0;
     const c0x = Math.floor(ox / L.cell), c1x = Math.floor((ox + view.w) / L.cell);
     const c0y = Math.floor(oy / L.cell), c1y = Math.floor((oy + view.h) / L.cell);
     for (let cy = c0y; cy <= c1y; cy++) {
       for (let cx = c0x; cx <= c1x; cx++) {
         const rnd = mulberry32(hashInt(cx, cy, li));
         for (let i = 0; i < L.n; i++) {
+          // Same random draws, in the same order, as each star has always used.
           const x = cx * L.cell + rnd() * L.cell - ox;
           const y = cy * L.cell + rnd() * L.cell - oy;
           const s = lerp(L.size[0], L.size[1], rnd());
-          ctx.globalAlpha = lerp(L.alpha[0], L.alpha[1], rnd());
-          const tint = STAR_TINTS[(rnd() * STAR_TINTS.length) | 0];
-          if (streak) {
-            ctx.strokeStyle = tint;
-            ctx.lineWidth = s;
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + sx, y + sy);
-            ctx.stroke();
-          } else {
-            ctx.fillStyle = tint;
-            ctx.fillRect(x - s / 2, y - s / 2, s, s);
-          }
+          const level = Math.round(rnd() * (STAR_ALPHA_LEVELS - 1));
+          const tint = (rnd() * STAR_TINTS.length) | 0;
+          starBuckets[tint * STAR_ALPHA_LEVELS + level].push(x, y, s);
         }
       }
+    }
+
+    // A streak is a line of width s; as a filled quad it can share a path with the others.
+    const nx = streak ? -sy / streakLen / 2 : 0, ny = streak ? sx / streakLen / 2 : 0;
+    for (let bi = 0; bi < starBuckets.length; bi++) {
+      const b = starBuckets[bi];
+      if (!b.length) continue;
+      ctx.globalAlpha = lerp(L.alpha[0], L.alpha[1], (bi % STAR_ALPHA_LEVELS) / (STAR_ALPHA_LEVELS - 1));
+      ctx.fillStyle = STAR_TINTS[(bi / STAR_ALPHA_LEVELS) | 0];
+      ctx.beginPath();
+      for (let i = 0; i < b.length; i += 3) {
+        const x = b[i], y = b[i + 1], s = b[i + 2];
+        if (streak) {
+          const px = nx * s, py = ny * s;
+          ctx.moveTo(x + px, y + py);
+          ctx.lineTo(x + sx + px, y + sy + py);
+          ctx.lineTo(x + sx - px, y + sy - py);
+          ctx.lineTo(x - px, y - py);
+          ctx.closePath();
+        } else {
+          ctx.rect(x - s / 2, y - s / 2, s, s);
+        }
+      }
+      ctx.fill();
+      starCount += b.length / 3;
     }
   }
   ctx.globalAlpha = 1;
@@ -564,6 +588,8 @@ function visible(e) {
 function drawEntities(list, t) {
   const style = artStyle.value;
   const shown = list.filter(visible).sort((a, b) => DRAW_ORDER[a.kind] - DRAW_ORDER[b.kind]);
+  perfStats.posed = list.length;
+  perfStats.drawn = shown.length;
   for (const e of shown) {
     const x = rx(e.x), y = ry(e.y);
     if (e.kind === 'star') Art.drawStar(ctx, e.body, style, { x, y, t });
@@ -868,16 +894,62 @@ function render() {
   drawDragIndicator();
   drawMinimap(list);
   drawHud();
+  if (GalaxyMap.perf) drawPerf();
+}
+
+// ---------- Performance overlay (?perf or ?dev, toggled with P) ----------
+
+const PERF_FRAMES = 60;
+const perfStats = {
+  posed: 0, drawn: 0, // entities posed (nearby sectors) and drawn (on screen) last frame
+  work: new Float32Array(PERF_FRAMES), gap: new Float32Array(PERF_FRAMES), i: 0, // ms per frame
+  rates: { builds: 0, asteroidBuilds: 0 }, prev: null, prevT: 0, // sprite builds per second
+};
+function recordFrame(workMs, gapMs) {
+  perfStats.work[perfStats.i] = workMs;
+  perfStats.gap[perfStats.i] = gapMs;
+  perfStats.i = (perfStats.i + 1) % PERF_FRAMES;
+}
+function drawPerf() {
+  const now = performance.now();
+  const s = Art.stats();
+  if (!perfStats.prev || now - perfStats.prevT >= 1000) {
+    if (perfStats.prev) {
+      const secs = (now - perfStats.prevT) / 1000;
+      perfStats.rates = { builds: (s.builds - perfStats.prev.builds) / secs, asteroidBuilds: (s.asteroidBuilds - perfStats.prev.asteroidBuilds) / secs };
+    }
+    perfStats.prev = s;
+    perfStats.prevT = now;
+  }
+  let sum = 0, worst = 0, gaps = 0;
+  for (let i = 0; i < PERF_FRAMES; i++) { sum += perfStats.work[i]; worst = Math.max(worst, perfStats.work[i]); gaps += perfStats.gap[i]; }
+  const fps = gaps > 0 ? (1000 * PERF_FRAMES) / gaps : 0;
+  const lines = [
+    `frame ${(sum / PERF_FRAMES).toFixed(1)} ms avg · ${worst.toFixed(1)} worst · ${Math.round(fps)} fps`,
+    `entities ${perfStats.posed} posed · ${perfStats.drawn} drawn · ${starCount} stars`,
+    `sprites ${s.sprites} cached · ${Math.round(perfStats.rates.builds)} built/s`,
+    `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
+  ];
+  ctx.save();
+  ctx.font = '11px ui-monospace, Menlo, Consolas, monospace';
+  ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
+  ctx.fillRect(8, 92, 330, lines.length * 15 + 8);
+  ctx.fillStyle = COLORS.ship;
+  lines.forEach((l, i) => ctx.fillText(l, 14, 108 + i * 15));
+  ctx.restore();
 }
 
 let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
+  const gap = now - last;
   last = now;
+  const t0 = performance.now();
   tickTravel(dt);
   if (!GalaxyMap.isOpen) { // the map overlay pauses flight
     update(dt);
     render();
+    recordFrame(performance.now() - t0, gap);
   }
   requestAnimationFrame(frame);
 }

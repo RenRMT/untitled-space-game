@@ -164,7 +164,10 @@ const Knowledge = (() => {
 
     return {
       get version() { return version; },
-      sense, pass, revealSector, knowRoute, save,
+      sense, pass, save,
+      // Public versions record the change (version bump and save), like sense() and pass() do.
+      revealSector: (x, y) => { const any = revealSector(x, y); if (any) changed(); return any; },
+      knowRoute: (link) => { const any = knowRoute(link); if (any) changed(); return any; },
       isExplored: (x, y) => inside(x, y) && explored[idx(x, y)] === 1,
       knowsSystem: (id) => systems.has(id),
       knowsOutpost: (id) => outposts.has(id),

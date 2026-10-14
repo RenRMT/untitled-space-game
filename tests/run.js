@@ -25,7 +25,8 @@ load('art/blueprints.js', ['ArtBlueprints']);
 load('art/items.js', ['ArtItems']);
 load('sector.js', ['Sectors']);
 load('travel.js', ['Travel']);
-const { Galaxy, Sectors, ArtCulture, Travel, GALAXY_CONFIG } = ctx;
+load('knowledge.js', ['Knowledge']);
+const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -135,6 +136,21 @@ test('a hostile contact on the path interdicts at its sector', () => {
   assert.strictEqual(ev && ev.type, 'interdict');
   assert.deepStrictEqual(ev.cell, { x: 5, y: 2 });
   assert(Math.abs(ev.pos.x - 5) < 1e-9, 'interdicted at the sector edge');
+});
+
+test('learning a route through its gate bumps the knowledge version (map redraw)', () => {
+  const g = galaxies.get(1);
+  const k = Knowledge.create(g, { fresh: true });
+  const hidden = g.routes.find((r) => r.kind === 'hidden');
+  assert(hidden, 'seed 1 has a hidden route');
+  assert(!k.knowsRoute(hidden.link));
+  const v = k.version;
+  assert.strictEqual(k.knowRoute(hidden.link), true);
+  assert(k.version > v, 'version did not change');
+  const v2 = k.version;
+  k.knowRoute(hidden.link); // already known: no change
+  assert.strictEqual(k.version, v2);
+  k.save(); // also clears the pending save timer so the process can exit
 });
 
 if (failed) {
