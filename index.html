@@ -37,11 +37,10 @@
     position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 8px);
     width: clamp(90px, 28vw, 150px);
   }
-  #style-btn, #move-btn {
+  #settings-btn {
     position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 48px);
     width: clamp(90px, 28vw, 150px);
   }
-  #move-btn { top: calc(12px + clamp(90px, 28vw, 150px) + 88px); }
   .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
   #map-overlay { position: fixed; inset: 0; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
@@ -116,7 +115,7 @@
     border-color: var(--busy); color: var(--busy); cursor: default;
     background: linear-gradient(90deg, rgba(255, 157, 92, 0.22) var(--progress, 0%), var(--panel) var(--progress, 0%));
   }
-  body.docked #map-btn, body.docked #style-btn, body.docked #move-btn, body.docked #context { display: none; }
+  body.docked #map-btn, body.docked #settings-btn, body.docked #context { display: none; }
 
   /* Combat panel: replaces the context card during a fight. One row per ship with shield (top)
      and hull (bottom) bars; enemy rows are buttons that focus fire. */
@@ -164,7 +163,7 @@
   .cb-log { color: var(--dim); font-size: 11px; margin-top: 6px; min-height: 2.6em; line-height: 1.3; }
   .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
-  body.in-combat #context, body.in-combat #map-btn { display: none; }
+  body.in-combat #context, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
 
   /* Station screen */
   #station {
@@ -270,13 +269,46 @@
   #st-launch:hover, #st-launch:focus-visible { background: #b9fcff; }
   #station .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   #station .btn:disabled { opacity: 0.35; }
+
+  /* Settings: a dialog over the flight view (which keeps drawing behind it, so art style changes
+     show right away). One group per option: a row of choices and a line about the selected one. */
+  #settings {
+    position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+    padding: 16px; box-sizing: border-box; background: rgba(5, 6, 10, 0.55);
+    font: 12px/1.45 var(--mono); color: var(--hud);
+  }
+  #settings[hidden] { display: none; }
+  .set-panel {
+    width: min(400px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 12px 14px 14px;
+  }
+  .set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  #settings-title { color: #eef1ff; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .set-close {
+    font: 18px/1 var(--mono); color: var(--dim); background: none; border: 0; padding: 4px 6px; margin: -4px -6px 0 0;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .set-close:hover, .set-close:focus-visible { color: var(--cyan); outline: none; }
+  .set-group { padding: 12px 0 2px; border-top: 1px solid rgba(38, 48, 74, 0.6); margin-top: 8px; }
+  .set-group:first-child { border-top: 0; margin-top: 0; }
+  .set-label { display: flex; align-items: center; gap: 8px; color: #eef1ff; margin-bottom: 8px; }
+  .set-label kbd {
+    font: 10px var(--mono); color: var(--dim); border: 1px solid var(--line); border-radius: 2px; padding: 0 4px;
+  }
+  @media (hover: none) { .set-label kbd { display: none; } } /* keyboard shortcuts mean nothing on touch */
+  .seg { display: flex; gap: 6px; }
+  .seg .btn { flex: 1 1 0; min-width: 0; padding: 9px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg .btn[aria-checked="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
+  .seg .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .set-hint { margin: 8px 0 0; color: var(--hud); }
+  .set-note { margin: 4px 0 0; color: var(--dim); font-size: 11px; }
+  .set-note.locked { color: #ffb347; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 <button id="map-btn" class="btn" type="button">Map</button>
-<button id="style-btn" class="btn" type="button" title="Switch art style (V)">Line</button>
-<button id="move-btn" class="btn" type="button" title="Movement (C): Cruise keeps your speed after you let go; Direct moves only while you drag">Cruise</button>
+<button id="settings-btn" class="btn" type="button" aria-haspopup="dialog">Settings</button>
 <div id="context" role="region" aria-label="Selected object" aria-live="polite" hidden>
   <div class="cx-head">
     <span class="cx-title"></span>
@@ -313,6 +345,16 @@
   </footer>
 </div>
 
+<div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+  <div class="set-panel">
+    <header class="set-head">
+      <span id="settings-title">Settings</span>
+      <button class="set-close" type="button" aria-label="Close settings" title="Close (Esc)">×</button>
+    </header>
+    <div class="set-body"></div>
+  </div>
+</div>
+
 <div id="map-overlay" hidden>
   <canvas id="map-canvas"></canvas>
   <div class="bar top">
@@ -323,7 +365,6 @@
   <div id="map-info" hidden></div>
   <div class="bar bottom">
     <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
-    <button id="map-start" class="btn" type="button" title="Map style. Core start: begin at the central capital with its network charted. Frontier start: begin at a lone Waystation by the edge of the map with nothing else charted. Each style keeps its own progress.">Core start</button>
     <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Testing: show hidden routes" hidden>Hidden</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
@@ -361,6 +402,7 @@
 <script src="station.js"></script>
 <script src="context.js"></script>
 <script src="combat-panel.js"></script>
+<script src="settings.js"></script>
 <script src="travel.js"></script>
 <script src="game.js"></script>
 </body>
