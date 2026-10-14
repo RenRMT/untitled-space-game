@@ -156,6 +156,10 @@ test('trades and launches', () => {
   assert.strictEqual(game('cargo.credits'), before.credits - game('__good.buy'));
   assert.ok(game('hold.sell(__good.kind, __good.sell)'));
   assert.strictEqual(game('cargo.items.length'), before.items);
+  // Menu icons keep their own image, not sprites in the flight view's cache.
+  const built = game('Art.stats().builds');
+  assert.ok(game(`ItemIcons.url(__good.kind, 'lowpoly', 113).startsWith('data:')`));
+  assert.strictEqual(game('Art.stats().builds'), built, 'an icon leaves the sprite cache alone');
   game('launch()');
   assert.ok(game('!docked && !StationMenu.isOpen'), 'back in space');
   browser.frames(3);

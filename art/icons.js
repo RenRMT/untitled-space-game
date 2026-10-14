@@ -40,8 +40,9 @@ const ItemIcons = (() => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
     ctx.setTransform(k, 0, 0, k, ox, oy);
-    // t only matters for blinking lights; at 0.4 most are on.
-    Art.drawAsset(ctx, bp, style, { angle: config.angle, t: 0.4, texel: texel / k, force: true });
+    // t only matters for blinking lights; at 0.4 most are on. The icon keeps the image, so the
+    // sprites aren't kept in the flight view's cache.
+    Art.drawAsset(ctx, bp, style, { angle: config.angle, t: 0.4, texel: texel / k, keep: false });
   }
 
   function canvas(px, read) {
