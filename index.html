@@ -83,15 +83,19 @@
     #map-overlay .btn { padding: 8px 9px; font-size: 11px; }
   }
 
-  /* Context card: tap a station, gate, asteroid or ship and its card shows above the speed bar
-     with what you can do there. Docked, the flight controls go away. */
-  #context {
+  /* Panels above the speed bar: the context card and, in a fight, the combat panel. The coloured
+     left edge is each panel's own. */
+  .panel {
     position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-    width: min(360px, calc(100vw - 24px)); box-sizing: border-box; padding: 9px 10px 10px 12px;
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent, var(--cyan)); border-radius: 3px;
+    box-sizing: border-box; padding: 9px 10px 10px 12px;
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: 3px;
     font: 12px var(--mono); color: var(--hud);
   }
-  #context[hidden] { display: none; }
+  .panel[hidden] { display: none; }
+
+  /* Context card: tap a station, gate, asteroid or ship and its card shows above the speed bar
+     with what you can do there. Docked, the flight controls go away. */
+  #context { width: min(360px, calc(100vw - 24px)); border-left-color: var(--accent, var(--cyan)); }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .cx-title { flex: 1; min-width: 0; color: #eef1ff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cx-tag { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
@@ -121,12 +125,8 @@
      and hull (bottom) bars; enemy rows are buttons that focus fire. */
   #combat {
     --hostile: #ff5a6e; --shd: #7df9ff; --hul: #b6ff8a;
-    position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-    width: min(380px, calc(100vw - 24px)); box-sizing: border-box; padding: 9px 10px 10px 12px;
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--hostile); border-radius: 3px;
-    font: 12px var(--mono); color: var(--hud);
+    width: min(380px, calc(100vw - 24px)); border-left-color: var(--hostile);
   }
-  #combat[hidden] { display: none; }
   #combat.won { border-left-color: var(--hul); }
   #combat.fled { border-left-color: var(--cyan); }
   .cb-head { display: flex; align-items: center; gap: 8px; }
@@ -332,7 +332,7 @@
 <canvas id="game"></canvas>
 <button id="map-btn" class="btn" type="button">Map</button>
 <button id="settings-btn" class="btn" type="button" aria-haspopup="dialog">Settings</button>
-<div id="context" role="region" aria-label="Selected object" aria-live="polite" hidden>
+<div id="context" class="panel" role="region" aria-label="Selected object" aria-live="polite" hidden>
   <div class="cx-head">
     <span class="cx-title"></span>
     <span class="cx-tag" hidden></span>
@@ -341,7 +341,7 @@
   <div class="cx-sub"></div>
   <div class="cx-actions"></div>
 </div>
-<div id="combat" role="region" aria-label="Combat" aria-live="polite" hidden>
+<div id="combat" class="panel" role="region" aria-label="Combat" aria-live="polite" hidden>
   <div class="cb-head">
     <span class="cb-title"></span>
     <button class="btn cb-btn" type="button"></button>

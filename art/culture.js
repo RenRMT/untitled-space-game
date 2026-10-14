@@ -66,7 +66,7 @@ const ArtCulture = (() => {
   const DISCRETE = ['hull', 'wings', 'insignia', 'station', 'arrays', 'gate'];
   const PALETTE_KEYS = ['hull', 'hull2', 'trim', 'glass', 'light', 'flame', 'panel'];
 
-  // The original game palette, used by the player ship and Tarsis Station.
+  // The original game palette, used by the player ship.
   const LEGACY_PAL = {
     hull: '#d8dde3', hull2: '#7a8696', trim: '#eef1f4', glass: '#2fb8c8', light: '#b6ff8a', flame: '#ffb347',
     panel: '#2f5aa0', accent: '#7df9ff', line: '#7df9ff',

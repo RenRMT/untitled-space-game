@@ -27,7 +27,7 @@ const Sectors = (() => {
   const STAR_CLASSES = [['M', 4], ['K', 3], ['G', 3], ['A', 1], ['B', 1]];
   const STAR_RADIUS = { M: [160, 200], K: [190, 230], G: [210, 250], A: [240, 270], B: [250, 290] };
   const PLANET_TYPES = [['gas', 3], ['terran', 2], ['desert', 2], ['ice', 2], ['lava', 1], ['blue', 1]];
-  const CONTACT_LABELS = { derelict: 'Derelict', distress: 'Distress signal', anomaly: 'Anomaly' };
+  const CONTACT = Galaxy.CONTACT_TYPES;
   const MAX_CACHED = 40;
   const BELT_CHANCE = 0.45;
   const FIELD_CHANCE = { claimed: 0.04, deep: 0.06, frontier: 0.1 };
@@ -256,11 +256,11 @@ const Sectors = (() => {
           spoils(wreck('wreck-station', randomCulture(), x, y, contact.name));
         } else if (contact.type === 'derelict') {
           const c = randomCulture();
-          if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT_LABELS.derelict));
-          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT_LABELS.derelict)); }
+          if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT.derelict.label));
+          else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT.derelict.label)); }
         } else if (contact.type === 'distress') {
           const fid = majors[Math.floor(r() * majors.length)].id;
-          const stranded = ship('freighter', fid, () => ({ type: 'still', angle: r() * TAU }), { name: CONTACT_LABELS.distress, x: ox + x, y: oy + y });
+          const stranded = ship('freighter', fid, () => ({ type: 'still', angle: r() * TAU }), { name: CONTACT.distress.label, x: ox + x, y: oy + y });
           const [wx, wy] = spot(x, y, 200, 400, 40);
           spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
           scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
@@ -270,7 +270,7 @@ const Sectors = (() => {
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         } else if (contact.type === 'anomaly') {
           const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
-          add({ kind: 'planet', body, name: CONTACT_LABELS.anomaly, radius: body.r * 2 }, x, y);
+          add({ kind: 'planet', body, name: CONTACT.anomaly.label, radius: body.r * 2 }, x, y);
           field(x, y, 10 + Math.floor(ra() * 6), body.r * 4, body.type === 'ice' ? [['ice', 1]] : [['metal', 2], ['carbon', 1]]);
         }
       }

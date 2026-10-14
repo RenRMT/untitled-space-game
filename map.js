@@ -26,7 +26,7 @@ const GalaxyMap = (() => {
   const promptText = document.getElementById('map-prompt-text');
 
   const ZONE_LABEL = { pocket: 'Charted pocket', claimed: 'Claimed · uncharted', deep: 'Deep space', frontier: 'Frontier' };
-  const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: Theme.color.cyan };
+  const CONTACT = Galaxy.CONTACT_TYPES; // label, colour and prompt per contact type
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
   const MAX_SCALE = 90;
@@ -385,12 +385,12 @@ const GalaxyMap = (() => {
       const [sx, sy] = toScreen(c.x + 0.5, c.y + 0.5);
       const r = clamp(scale * 0.22, 2, 6);
       if (state !== 'known') {
-        ctx.fillStyle = c.type === 'story' ? CONTACT_COLORS.story : '#8a95b3';
+        ctx.fillStyle = c.type === 'story' ? CONTACT.story.color : '#8a95b3';
         ctx.font = Theme.font(Math.round(clamp(scale * 0.6, 9, 14)));
         ctx.fillText('?', sx, sy + r * 0.8);
         continue;
       }
-      ctx.strokeStyle = CONTACT_COLORS[c.type];
+      ctx.strokeStyle = CONTACT[c.type].color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.moveTo(sx - r, sy - r); ctx.lineTo(sx + r, sy + r);
@@ -665,7 +665,6 @@ const GalaxyMap = (() => {
     return { kind: 'sector', x: fx ?? x + 0.5, y: fy ?? y + 0.5, name: `sector ${x}, ${y}` };
   }
 
-  const PROMPT_LABEL = { derelict: 'a derelict', distress: 'a distress call', anomaly: 'an anomaly', story: 'an unidentified signal' };
   function updateTravelUI() {
     const travelling = !!(trip && trip.active);
     travelBtn.hidden = travelling;
@@ -677,7 +676,7 @@ const GalaxyMap = (() => {
     promptEl.hidden = !(travelling && trip.prompt);
     if (!travelling) return;
     travelStatus.textContent = `Travelling to ${trip.dest.name} · ${trip.remaining.toFixed(1)} sectors · ${Math.ceil(trip.eta)} s`;
-    if (trip.prompt) promptText.textContent = `Signal detected: ${PROMPT_LABEL[trip.prompt.contact.type] || 'a contact'} in sector ${trip.prompt.x}, ${trip.prompt.y}.`;
+    if (trip.prompt) promptText.textContent = `Signal detected: ${CONTACT[trip.prompt.contact.type]?.prompt || 'a contact'} in sector ${trip.prompt.x}, ${trip.prompt.y}.`;
   }
 
   function updateInfo() {
@@ -911,7 +910,6 @@ const GalaxyMap = (() => {
     // Start style ('core' | 'frontier'), for the settings menu. Setting it regenerates the galaxy.
     get startStyle() { return startStyle; },
     setStartStyle,
-    get travelling() { return !!(trip && trip.active); },
     // Flight view hooks: where the ship is (in sector units), and what to do on Jump.
     setPlayer(x, y) {
       const moved = !player || Math.floor(player.x * 4) !== Math.floor(x * 4) || Math.floor(player.y * 4) !== Math.floor(y * 4);
@@ -924,7 +922,6 @@ const GalaxyMap = (() => {
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,
-    refresh() { updateStats(); requestDraw(); },
     // Map travel: the trip to draw, the flight view's callbacks, and a cheap redraw during a trip.
     set trip(t) { trip = t; updateTravelUI(); },
     set hooks(h) { hooks = h; updateTravelUI(); },

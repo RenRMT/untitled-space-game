@@ -23,6 +23,7 @@ const CombatPanel = (() => {
   const titleEl = q('.cb-title'), rowsEl = q('.cb-rows'), logEl = q('.cb-log'), btn = q('.cb-btn'), timer = q('.cb-timer');
   const { h } = UI; // ui.js
   const view = UI.keyed(); // what the DOM shows, to skip unchanged frames
+  const baseClass = root.className; // 'panel' (index.html), plus the tone while one is shown
   const edge = UI.topEdge(root);
   let onFocus = null, onButton = null;
 
@@ -54,7 +55,7 @@ const CombatPanel = (() => {
   function show(d) {
     if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, Math.ceil(r.hull), Math.floor(r.shield), r.focus])])) {
       root.hidden = false;
-      root.className = d.tone || '';
+      root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;
       rowsEl.replaceChildren(...d.rows.map(row));
       logEl.replaceChildren(...d.log.map((line) => h('div', {}, line)));

@@ -202,6 +202,19 @@ test('builds the sectors past an edge ahead of time, one a frame', () => {
   game('fight.grace = __grace');
 });
 
+test('an off-screen gate gets an edge marker, and a tap on it selects the gate', () => {
+  game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
+  game('select(null); placeShip(__gate.x + 3000, __gate.y)');
+  browser.frames(2);
+  const m = game('navHits.find((h) => h.ref === __gate)');
+  assert.ok(m, 'the gate has a marker');
+  const canvas = browser.document.getElementById('game');
+  canvas.dispatch('pointerdown', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
+  canvas.dispatch('pointerup', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
+  assert.strictEqual(game('selected && selected.e'), game('__gate'), 'the tap selected the gate');
+  game('select(null)');
+});
+
 test('jumps through a gate', () => {
   game(`{ const st = __startStation(); globalThis.__gate = world.sectors.at(Math.floor(st.x / SECTOR), Math.floor(st.y / SECTOR)).entities.find((e) => e.kind === 'gate'); }`);
   assert.ok(game('!!__gate'), 'the start system has a gate');

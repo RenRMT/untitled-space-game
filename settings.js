@@ -6,7 +6,7 @@
 //
 //   Settings.add({ id, label, shortcut?, choices: [{ value, label, hint }], get(), set(value),
 //                  note?, locked?() -> reason string | null })
-//   Settings.open(), Settings.close(), Settings.refresh(), Settings.isOpen
+//   Settings.open(), Settings.close(), Settings.isOpen
 //   Settings.onToggle = (open) => ...   called when the panel opens or closes
 // Browser script (global `Settings`).
 
@@ -105,7 +105,6 @@ const Settings = (() => {
   return {
     add(o) { options.push(o); render(); },
     open, close,
-    refresh() { render(); },
     get isOpen() { return isOpen; },
     set onToggle(f) { onToggle = f; },
   };

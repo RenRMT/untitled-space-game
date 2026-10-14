@@ -104,6 +104,23 @@ test('save keys differ between galaxies and include the generator version', () =
   assert(Galaxy.saveKey(galaxies.get(1)).endsWith(`:v${Galaxy.VERSION}`));
 });
 
+test('every deep-space contact is a row of CONTACT_TYPES, and only hostile rows attack', () => {
+  const seen = new Set();
+  for (const g of galaxies.values()) {
+    for (let y = 0; y < g.size; y++) {
+      for (let x = 0; x < g.size; x++) {
+        const c = g.deepSector(x, y);
+        if (!c) continue;
+        const t = Galaxy.CONTACT_TYPES[c.type];
+        assert(t && t.label && t.name && t.prompt && t.color, `contact type ${c.type}`);
+        assert.strictEqual(c.hostile, !!t.hostile, c.type);
+        seen.add(c.type);
+      }
+    }
+  }
+  for (const type of ['derelict', 'distress', 'ambush', 'anomaly']) assert(seen.has(type), `no ${type} rolled`);
+});
+
 // Every sector a segment passes through, found by fine sampling (slow but obviously right).
 function sampledCells(a, b) {
   const out = new Set();
@@ -259,15 +276,17 @@ test('mined asteroids drop metals, minerals or gases, at the configured rates', 
   if (byType.stony?.drops) assert.strictEqual(byType.stony.gas, 0, 'only icy asteroids give gas');
 });
 
-test('the mining target is the nearest unmined asteroid in range', () => {
+test('the Mine shortcut picks the nearest asteroid within mining range of its edge', () => {
+  // As the flight view sets it up (game.js): a ship at the origin, gaps measured to the edge.
+  const A = Interactions.create({ gap: (e) => Math.hypot(e.x, e.y) - e.radius, speed: () => 0 });
+  const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => Mining.config.range, run() {} });
   const R = Mining.config.range;
   const rock = (key, x, r = 20) => ({ kind: 'asteroid', key, x, y: 0, radius: r, ast: { type: 'stony' } });
   const near = rock('near', 60), far = rock('far', 120), out = rock('out', R + 21 + 0.1);
-  const list = [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out];
-  assert.strictEqual(Mining.targetIn(list, 0, 0), near);
-  assert.strictEqual(Mining.targetIn(list, 0, 0, new Set(['near'])), far);
-  assert.strictEqual(Mining.targetIn([out], 0, 0), null);
-  assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
+  assert.strictEqual(A.target(mine, null, [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out]), near);
+  assert.strictEqual(A.target(mine, null, [far, out]), far);
+  assert.strictEqual(A.target(mine, null, [out]), null);
+  assert.strictEqual(A.target(mine, null, [rock('edge', R + 20)]).key, 'edge');
 });
 
 test('art ids name what an asset is built from, so a rebuilt sector finds its sprites again', () => {
@@ -292,7 +311,7 @@ test('art ids name what an asset is built from, so a rebuilt sector finds its sp
   assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('iron', 8).id);
   assert.notStrictEqual(ArtItems.create('iron', 7).id, ArtItems.create('copper', 7).id);
   const c = cultures.of(0);
-  assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.tarsisStation(c).id);
+  assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
 });
 
 const fakeSprite = (w, h = w) => ({ canvas: { width: w, height: h } });

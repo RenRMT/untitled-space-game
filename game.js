@@ -470,17 +470,24 @@ actions.add({
   busy: miningBusy, run: startMining,
 });
 
-// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up.
-function chips(a, n, speed) {
-  const pal = (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
+// A burst of debris: n bits flying out from (x, y), or from anywhere within `spread` of it, each
+// with a speed, life and size picked in its [min, max] and the colours taken in turn. Rock chips,
+// explosions and sparks off a hull.
+function burst(x, y, n, { spread = 0, speed, life, size, colors }) {
+  const pick = ([lo, hi]) => lo + Math.random() * (hi - lo);
   for (let i = 0; i < n; i++) {
-    const ang = Math.random() * TAU, d = a.radius * Math.random() * 0.6, sp = speed * (0.3 + Math.random() * 0.7);
-    const life = 0.5 + Math.random() * 0.9;
+    const ang = Math.random() * TAU, d = spread * Math.random(), sp = pick(speed), l = pick(life);
     debris.push({
-      x: a.x + Math.cos(ang) * d, y: a.y + Math.sin(ang) * d, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-      life, max: life, size: 1.5 + Math.random() * Math.min(5, a.radius / 8), color: pal[i % pal.length],
+      x: x + Math.cos(ang) * d, y: y + Math.sin(ang) * d, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
+      life: l, max: l, size: pick(size), color: colors[i % colors.length],
     });
   }
+}
+
+// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up.
+function chips(a, n, speed) {
+  const colors = (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
+  burst(a.x, a.y, n, { spread: a.radius * 0.6, speed: [speed * 0.3, speed], life: [0.5, 1.4], size: [1.5, 1.5 + Math.min(5, a.radius / 8)], colors });
 }
 
 function finishMining() {
@@ -580,8 +587,6 @@ function drawDebris() {
 
 // ---------- Map travel: plot a course on the map, cruise there, maybe get interrupted ----------
 
-const CONTACT_NAMES = { derelict: 'derelict', distress: 'distress call', anomaly: 'anomaly', ambush: 'ambush', story: 'signal' };
-
 // Where a finished trip leaves the ship, and what it says.
 function finishTrip(ev) {
   if (!ev) return;
@@ -596,7 +601,7 @@ function finishTrip(ev) {
     text = `Arrived at ${dest.name}`;
   } else if (ev.type === 'interdict' || ev.type === 'investigate') {
     dropNearContact(ev.cell, ev.dir);
-    text = ev.type === 'interdict' ? 'Interdicted! Hostile contact' : `Investigating the ${CONTACT_NAMES[ev.contact.type] || 'signal'}`;
+    text = ev.type === 'interdict' ? 'Interdicted! Hostile contact' : `Investigating the ${Galaxy.CONTACT_TYPES[ev.contact.type]?.name || 'signal'}`;
   } else {
     placeShip(ev.pos.x * SECTOR, ev.pos.y * SECTOR, ev.dir);
     text = ev.type === 'arrive' ? `Arrived at ${dest.name}` : 'Dropped out of cruise';
@@ -874,21 +879,25 @@ function drawSelection(t) {
   }
   const e = selected && selected.e;
   if (e) {
-    const R = hitRadius(e) + 12 / view.zoom;
-    const arm = Math.min(R * 0.45, 22 / view.zoom);
-    const x = rx(e.x), y = ry(e.y);
     ctx.strokeStyle = isHostile(e) ? HOSTILE_COLOR : SELECT_COLOR;
     ctx.globalAlpha = 0.7 + 0.25 * Math.sin(t * 4);
     ctx.lineWidth = 2 / view.zoom;
-    ctx.beginPath();
-    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      ctx.moveTo(x + sx * R, y + sy * (R - arm));
-      ctx.lineTo(x + sx * R, y + sy * R);
-      ctx.lineTo(x + sx * (R - arm), y + sy * R);
-    }
-    ctx.stroke();
+    brackets(rx(e.x), ry(e.y), hitRadius(e), { arm: 22 });
   }
   ctx.restore();
+}
+
+// Corner brackets around something `radius` across (selection, a ship in a fight), with arms up
+// to `arm` screen px; `open` (0..1) pushes them out (a lock coming on).
+function brackets(x, y, radius, { open = 0, arm = 18 } = {}) {
+  const R = (radius + 12 / view.zoom) * (1 + open * 0.9), len = Math.min(R * 0.45, arm / view.zoom);
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.moveTo(x + sx * R, y + sy * (R - len));
+    ctx.lineTo(x + sx * R, y + sy * R);
+    ctx.lineTo(x + sx * (R - len), y + sy * R);
+  }
+  ctx.stroke();
 }
 
 // ---------- Combat: against hostile ships, in rounds (combat.js) or real time (combat-realtime.js) ----------
@@ -1046,11 +1055,7 @@ function addDamage(id, amount, hull) {
 
 // Debris and a flash where a ship blew up.
 function explode(x, y, r) {
-  const colors = [COLORS.flame, COLORS.hostile, COLORS.hud, COLORS.star];
-  for (let i = 0; i < 26 + r; i++) {
-    const ang = Math.random() * TAU, sp = 60 + Math.random() * 260, life = 0.5 + Math.random() * 1.1;
-    debris.push({ x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 3.5, color: colors[i % colors.length] });
-  }
+  burst(x, y, 26 + r, { speed: [60, 320], life: [0.5, 1.6], size: [1.5, 5], colors: [COLORS.flame, COLORS.hostile, COLORS.hud, COLORS.star] });
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
@@ -1151,10 +1156,7 @@ function tickFight(dt) {
     if (f.type === 'sparks') {
       fight.fx.splice(i, 1);
       const at = fxPos(f.at);
-      for (let k = 0; at && k < f.n; k++) {
-        const ang = Math.random() * TAU, sp = 40 + Math.random() * 140, life = 0.3 + Math.random() * 0.5;
-        debris.push({ x: at.x, y: at.y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, life, max: life, size: 1.5 + Math.random() * 2, color: k % 2 ? COLORS.flame : COLORS.flash });
-      }
+      if (at) burst(at.x, at.y, f.n, { speed: [40, 180], life: [0.3, 0.8], size: [1.5, 3.5], colors: [COLORS.flash, COLORS.flame] });
       continue;
     }
     f.t -= dt;
@@ -1223,18 +1225,6 @@ CombatPanel.onButton = (id) => {
   if (id === 'close') { fight.result = null; CombatPanel.hide(); }
 };
 
-// Corner brackets around a ship in a fight, `open` (0..1) pushes them out.
-function brackets(x, y, radius, open) {
-  const R = (radius + 12 / view.zoom) * (1 + open * 0.9), arm = Math.min(R * 0.45, 18 / view.zoom);
-  ctx.beginPath();
-  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-    ctx.moveTo(x + sx * R, y + sy * (R - arm));
-    ctx.lineTo(x + sx * R, y + sy * R);
-    ctx.lineTo(x + sx * (R - arm), y + sy * R);
-  }
-  ctx.stroke();
-}
-
 // Real time: the guns' field of fire ahead of the ship, out to their range; brighter while the
 // locked target is inside it. And a faint red line from every enemy that has you in its sights.
 function drawFieldOfFire(s) {
@@ -1284,7 +1274,7 @@ function drawFight() {
       ctx.globalAlpha = 0.5 + 0.35 * lock;
       ctx.lineWidth = 2 / view.zoom;
       if (lock < 1) ctx.setLineDash([5 / view.zoom, 4 / view.zoom]);
-      brackets(rx(f.x), ry(f.y), f.radius, 1 - lock);
+      brackets(rx(f.x), ry(f.y), f.radius, { open: 1 - lock });
       ctx.setLineDash([]);
     }
   }
@@ -1371,59 +1361,26 @@ function drawFightOverlay() {
 }
 
 // In a fight, enemies off screen get a red marker at the screen edge pointing their way, with
-// their letter and distance; a tap on one targets it. Where each was drawn: { id, x, y }.
+// their letter and distance (edgeMarkers); a tap on one targets it.
 let foeHits = [];
 
 function drawFoeMarkers() {
   foeHits = [];
   const s = fight.s;
   if (!s) return;
-  const top = CombatPanel.top;
-  const inset = { l: 26, r: 26, t: 70, b: top === null ? 64 : Math.max(64, view.h - top + 18) };
-  const cx = view.w / 2, cy = view.h / 2;
-  ctx.save();
-  ctx.font = Theme.font(11);
-  ctx.textAlign = 'center';
+  const foes = [];
   for (const e of CombatCore.alive(s)) {
     const p = fight.ships.get(e.id);
     if (!p || visible(p)) continue;
-    const [px, py] = worldToScreen(p.x, p.y);
-    const dx = px - cx, dy = py - cy;
-    const k = Math.min((dx > 0 ? cx - inset.r : cx - inset.l) / Math.abs(dx || 1e-6), (dy > 0 ? cy - inset.b : cy - inset.t) / Math.abs(dy || 1e-6));
-    const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = HOSTILE_COLOR;
-    ctx.translate(x, y);
-    ctx.rotate(a);
-    ctx.beginPath();
-    ctx.moveTo(10, 0);
-    ctx.lineTo(-4, 7);
-    ctx.lineTo(-4, -7);
-    ctx.closePath();
-    ctx.fill();
-    if (e.id === s.focus) {
-      ctx.strokeStyle = HOSTILE_COLOR;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(2, 0, 14, 0, TAU);
-      ctx.stroke();
-    }
-    ctx.rotate(-a);
-    ctx.translate(-x, -y);
-    // The label sits inward from the arrow, so it never covers it.
     const label = `${s.enemies.length > 1 ? `${e.name.split(' ').pop()} · ` : ''}${fmtDist(Math.hypot(p.x - ship.x, p.y - ship.y) - p.radius)}`;
-    const tw = ctx.measureText(label).width;
-    ctx.fillText(label, clamp(x - Math.cos(a) * (tw / 2 + 20), tw / 2 + 6, view.w - tw / 2 - 6), clamp(y - Math.sin(a) * 22 + 4, 14, view.h - 8));
-    foeHits.push({ id: e.id, x, y });
+    foes.push({ ref: e.id, x: p.x, y: p.y, color: HOSTILE_COLOR, ring: e.id === s.focus ? HOSTILE_COLOR : null, label });
   }
-  ctx.restore();
+  const top = CombatPanel.top;
+  foeHits = edgeMarkers(foes, top === null ? 64 : Math.max(64, view.h - top + 18), 0.9);
 }
 
 // The enemy whose edge marker is under a tap, if any.
-function foeMarkerAt(sx, sy) {
-  const m = foeHits.find((h) => Math.hypot(sx - h.x, sy - h.y) < TAP_SLOP + 8);
-  return m ? m.id : null;
-}
+function foeMarkerAt(sx, sy) { return markerAt(foeHits, sx, sy); }
 
 // ---------- Input: drag sets heading, drag length sets speed ----------
 
@@ -1824,30 +1781,26 @@ function drawLabels(list) {
   ctx.textAlign = 'left';
 }
 
-// Off-screen gates within 1.5 sectors get a marker at the screen edge pointing their way, with name and distance.
-// Where each marker was drawn last frame, so tapping one selects its gate: { e, x, y, box: [x0, y0, x1, y1] }.
-let navHits = [];
-
-function drawNavMarkers(list) {
-  // Margins keep markers clear of the HUD text (top left), the speed bar (bottom), the buttons
-  // and the context card when it's open.
-  const top = ContextCard.isOpen ? ContextCard.top : null;
-  const inset = { l: 26, r: 26, t: 70, b: top === null ? 64 : Math.max(64, view.h - top + 16) };
+// Markers at the screen edge for things off screen, pointing their way: an arrow in the item's
+// colour, a ring round it when `ring` (a colour) is set, and its label set inward from the arrow
+// so it never covers it. items: [{ ref, x, y (world), color, ring, label }]. bottom: how far up
+// from the bottom edge to stay (the speed bar, or the panel when one is open); the other margins
+// keep clear of the HUD text and the buttons. Returns where each was drawn, for markerAt().
+function edgeMarkers(items, bottom, alpha) {
+  const inset = { l: 26, r: 26, t: 70, b: bottom };
   const cx = view.w / 2, cy = view.h / 2;
-  navHits = [];
+  const hits = [];
   ctx.save();
   ctx.font = Theme.font(11);
-  for (const g of list) {
-    if (g.kind !== 'gate' || visible(g)) continue;
-    const d = Math.hypot(g.x - ship.x, g.y - ship.y);
-    if (d > SECTOR * 1.5) continue;
-    const [gx, gy] = worldToScreen(g.x, g.y);
-    const dx = gx - cx, dy = gy - cy;
-    // Where the line from the screen centre to the gate leaves the inset screen rectangle.
+  ctx.textAlign = 'left';
+  ctx.globalAlpha = alpha;
+  for (const m of items) {
+    const [px, py] = worldToScreen(m.x, m.y);
+    const dx = px - cx, dy = py - cy;
+    // Where the line from the screen centre to it leaves the inset screen rectangle.
     const k = Math.min((dx > 0 ? cx - inset.r : cx - inset.l) / Math.abs(dx || 1e-6), (dy > 0 ? cy - inset.b : cy - inset.t) / Math.abs(dy || 1e-6));
     const x = cx + dx * k, y = cy + dy * k, a = Math.atan2(dy, dx);
-    ctx.globalAlpha = 0.85;
-    ctx.fillStyle = g.color;
+    ctx.fillStyle = m.color;
     ctx.translate(x, y);
     ctx.rotate(a);
     ctx.beginPath();
@@ -1856,8 +1809,8 @@ function drawNavMarkers(list) {
     ctx.lineTo(-4, -7);
     ctx.closePath();
     ctx.fill();
-    if (selected && selected.key === entityKey(g)) { // the selected gate's marker gets a ring
-      ctx.strokeStyle = SELECT_COLOR;
+    if (m.ring) {
+      ctx.strokeStyle = m.ring;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(2, 0, 14, 0, TAU);
@@ -1865,26 +1818,44 @@ function drawNavMarkers(list) {
     }
     ctx.rotate(-a);
     ctx.translate(-x, -y);
-    const text = `${g.name.toUpperCase()} · ${fmtDist(d - g.radius)}`; // to its edge, as the context card shows
-    const tw = ctx.measureText(text).width;
-    ctx.textAlign = 'left';
-    // Text sits inward from the arrow, so it never covers it.
+    const tw = ctx.measureText(m.label).width;
     const tx = clamp(x - Math.cos(a) * (tw / 2 + 16) - tw / 2, 8, view.w - tw - 8);
     const ty = clamp(y - Math.sin(a) * 18 + 4, 14, view.h - 8);
-    ctx.fillText(text, tx, ty);
-    navHits.push({ e: g, x, y, box: [tx - 6, ty - 15, tx + tw + 6, ty + 7] });
+    ctx.fillText(m.label, tx, ty);
+    hits.push({ ref: m.ref, x, y, box: [tx - 6, ty - 15, tx + tw + 6, ty + 7] });
   }
   ctx.restore();
+  return hits;
 }
 
-// The gate whose edge marker (arrow or label) is under a tap, if any.
-function navMarkerAt(sx, sy) {
-  for (const m of navHits) {
+// What an edge marker (its arrow or its label) under a tap stands for, if any.
+function markerAt(hits, sx, sy) {
+  for (const m of hits) {
     const [x0, y0, x1, y1] = m.box;
-    if (Math.hypot(sx - m.x, sy - m.y) < TAP_SLOP || (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1)) return m.e;
+    if (Math.hypot(sx - m.x, sy - m.y) < TAP_SLOP + 8 || (sx >= x0 && sx <= x1 && sy >= y0 && sy <= y1)) return m.ref;
   }
   return null;
 }
+
+// Off-screen gates within 1.5 sectors get an edge marker with their name and distance; a tap on
+// one selects its gate.
+let navHits = [];
+
+function drawNavMarkers(list) {
+  const gates = [];
+  for (const g of list) {
+    if (g.kind !== 'gate' || visible(g)) continue;
+    const d = Math.hypot(g.x - ship.x, g.y - ship.y);
+    if (d > SECTOR * 1.5) continue;
+    const ring = selected && selected.key === entityKey(g) ? SELECT_COLOR : null; // the selected gate's marker
+    gates.push({ ref: g, x: g.x, y: g.y, color: g.color, ring, label: `${g.name.toUpperCase()} · ${fmtDist(d - g.radius)}` }); // to its edge, as the card shows
+  }
+  const top = ContextCard.isOpen ? ContextCard.top : null;
+  navHits = edgeMarkers(gates, top === null ? 64 : Math.max(64, view.h - top + 16), 0.85);
+}
+
+// The gate whose edge marker is under a tap, if any.
+function navMarkerAt(sx, sy) { return markerAt(navHits, sx, sy); }
 
 function drawDragIndicator() {
   if (!drag.active) return;

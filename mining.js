@@ -27,17 +27,6 @@ const Mining = (() => {
     ice: { chance: 0.25, items: [['gas', 1]] },
   };
 
-  // The nearest unmined asteroid within mining range of (x, y), or null.
-  function targetIn(list, x, y, mined) {
-    let best = null, bestD = Infinity;
-    for (const e of list) {
-      if (e.kind !== 'asteroid' || (mined && mined.has(e.key))) continue;
-      const d = Math.hypot(x - e.x, y - e.y) - e.radius;
-      if (d <= config.range && d < bestD) { bestD = d; best = e; }
-    }
-    return best;
-  }
-
   // What a mined asteroid drops: { kind (a goods.js type), seed } or null.
   function yieldOf(galaxySeed, asteroid) {
     const y = YIELD[asteroid.ast.type];
@@ -48,7 +37,7 @@ const Mining = (() => {
     return { kind: G.pick(r, category), seed: Math.floor(r() * 4294967295) };
   }
 
-  return { config, YIELD, targetIn, yieldOf };
+  return { config, YIELD, yieldOf };
 })();
 
 if (typeof module !== 'undefined') module.exports = Mining;
