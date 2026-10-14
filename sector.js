@@ -13,7 +13,7 @@
 //   patrol. Pirates lurk in packs by the sector's security (security.js): lone ones in safe
 //   space, more, larger and better-armed packs the more lawless the sector, each pack far enough
 //   from the others to be fought on its own,
-// - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
+// - deep-space contacts: derelicts (wrecks with salvage) and ambushes (a pirate pack),
 // - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
 //   each has a stable key so a mined asteroid can stay destroyed,
@@ -258,28 +258,16 @@ const Sectors = (() => {
 
       if (contact) {
         const [x, y] = spot(C, C, 0, 1200 * S, 200);
-        if (contact.type === 'story') {
-          spoils(wreck('wreck-station', randomCulture(), x, y, contact.name));
-        } else if (contact.type === 'derelict') {
+        if (contact.type === 'derelict') {
           const c = randomCulture();
           if (r() < 0.4) spoils(wreck('wreck-station', c, x, y, CONTACT.derelict.label));
           else for (let i = 0; i < 2 + Math.floor(r() * 2); i++) { const [wx, wy] = spot(x, y, 0, 450, 60); spoils(wreck('wreck-ship', c, wx, wy, i ? undefined : CONTACT.derelict.label)); }
-        } else if (contact.type === 'distress') {
-          const fid = majors[Math.floor(r() * majors.length)].id;
-          const stranded = ship('freighter', fid, () => ({ type: 'still', angle: r() * TAU }), { name: CONTACT.distress.label, x: ox + x, y: oy + y });
-          const [wx, wy] = spot(x, y, 200, 400, 40);
-          spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
-          scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
         } else if (contact.type === 'ambush') {
           // One pack, as big as the sector's biggest or one larger (security.js).
           const P = Security.pirates(territory.security), tier = Security.pick(r, P.tier);
           const n = Math.max(...P.size.map(([s]) => s)) + Math.floor(r() * 2);
           for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier, pack: 0 });
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
-        } else if (contact.type === 'anomaly') {
-          const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
-          add({ kind: 'planet', body, name: CONTACT.anomaly.label, radius: body.r * 2 }, x, y);
-          field(x, y, 10 + Math.floor(ra() * 6), body.r * 4, body.type === 'ice' ? [['ice', 1]] : [['metal', 2], ['carbon', 1]]);
         }
       }
       // The odd asteroid field out in uncharted space.

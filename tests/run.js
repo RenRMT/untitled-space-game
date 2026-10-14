@@ -120,7 +120,7 @@ test('every deep-space contact is a row of CONTACT_TYPES, and only hostile rows 
       }
     }
   }
-  for (const type of ['derelict', 'distress', 'ambush', 'anomaly']) assert(seen.has(type), `no ${type} rolled`);
+  for (const type of ['derelict', 'ambush']) assert(seen.has(type), `no ${type} rolled`);
 });
 
 // Every sector a segment passes through, found by fine sampling (slow but obviously right).

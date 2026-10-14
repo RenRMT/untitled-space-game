@@ -62,13 +62,11 @@ const Galaxy = (() => {
   const OUTPOST_TYPES = ['mining camp', 'trading post', 'research outpost', 'refinery', 'hermitage', 'salvage yard'];
   // Deep-space contacts, one row per type: its label on things in space, its name in notices and
   // with an article in the map's prompt, its colour on the map, whether it attacks, and how often
-  // it turns up in each zone outside the pockets (weights; story signals are placed, not rolled).
+  // it turns up in each zone outside the pockets (weights). Derelicts hold salvage; ambushes are a
+  // pirate pack lying in wait.
   const CONTACT_TYPES = {
     derelict: { label: 'Derelict', name: 'derelict', prompt: 'a derelict', color: '#9aa4b8', weight: { claimed: 3, deep: 4, frontier: 2 } },
-    distress: { label: 'Distress signal', name: 'distress call', prompt: 'a distress call', color: '#ffd166', weight: { claimed: 3, deep: 3, frontier: 1 } },
     ambush: { label: 'Ambush', name: 'ambush', prompt: 'an ambush', color: '#ff4d4d', hostile: true, weight: { claimed: 1, deep: 2, frontier: 4 } },
-    anomaly: { label: 'Anomaly', name: 'anomaly', prompt: 'an anomaly', color: '#c77dff', weight: { claimed: 1, deep: 1, frontier: 3 } },
-    story: { label: 'Signal', name: 'signal', prompt: 'an unidentified signal', color: '#7df9ff' },
   };
   const ENCOUNTERS = {}; // zone -> [[type, weight]], for weightedPick
   for (const [type, t] of Object.entries(CONTACT_TYPES)) {
@@ -700,13 +698,10 @@ const Galaxy = (() => {
     const zoneOf = (x, y) => (pocketAt(x + 0.5, y + 0.5) ? 'pocket' : ownerAt(x, y) >= 0 ? 'claimed' : inner(x, y) ? 'deep' : 'frontier');
 
     // ---------- Deep space: contacts anywhere outside the pockets ----------
-    const story = (overrides.storyPois || []).map((p) => ({ ...p, type: 'story', hostile: false }));
     function deepSector(x, y) {
       if (x < 0 || y < 0 || x >= size || y >= size) return null;
       const zone = zoneOf(x, y);
       if (zone === 'pocket') return null;
-      const s = story.find((p) => p.x === x && p.y === y);
-      if (s) return s;
       if (occupied.has(idx(x, y))) return null;
       if (hashInt(x, y, seedInt) / 4294967296 >= P.encounterChance[zone]) return null;
       let table = ENCOUNTERS[zone];

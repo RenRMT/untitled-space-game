@@ -377,7 +377,6 @@ const GalaxyMap = (() => {
     }
 
     // Deep-space contacts: identified ones by type, pings as '?'. The Contacts toggle shows all.
-    // Story signals too only show once the ship's sensors have pinged them.
     ctx.textAlign = 'center';
     for (const c of contacts) {
       const state = showContacts || !fog() ? 'known' : fog().contactState(c.x, c.y);
@@ -385,7 +384,7 @@ const GalaxyMap = (() => {
       const [sx, sy] = toScreen(c.x + 0.5, c.y + 0.5);
       const r = clamp(scale * 0.22, 2, 6);
       if (state !== 'known') {
-        ctx.fillStyle = c.type === 'story' ? CONTACT.story.color : '#8a95b3';
+        ctx.fillStyle = '#8a95b3';
         ctx.font = Theme.font(Math.round(clamp(scale * 0.6, 9, 14)));
         ctx.fillText('?', sx, sy + r * 0.8);
         continue;
