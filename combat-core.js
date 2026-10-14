@@ -11,7 +11,7 @@
 //   CombatCore.applyDamage(target, amount) -> { shieldDamage, hullDamage }   shields first
 //   CombatCore.limitHit(p)             a hit chance kept within [minHit, maxHit]
 //   CombatCore.alive(s)                the enemies still flying
-//   CombatCore.loot(galaxySeed, key, role) -> [{ kind, seed }]   what a destroyed ship leaves
+//   CombatCore.loot(galaxySeed, key, role, tier) -> [{ kind, seed }]   what a destroyed ship leaves
 //
 // A mode (each module's `mode`):
 //   id, flying               ships keep flying (real time), or are held in place (rounds)
@@ -41,6 +41,7 @@ const CombatCore = (() => {
   const isNode = typeof require === 'function';
   const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('./rng.js') : globalThis;
   const G = isNode ? require('./goods.js') : Goods;
+  const Sec = isNode ? require('./security.js') : Security;
   const { clamp } = isNode ? require('./math.js') : MathUtil;
 
   const config = {
@@ -66,23 +67,40 @@ const CombatCore = (() => {
   const limitHit = (p) => clamp(p, config.minHit, config.maxHit);
   const alive = (s) => s.enemies.filter((e) => e.hull > 0);
 
-  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Fighters may drop a
-  // salvaged component; freighters spill trade goods. Types are picked by rarity, so complex
-  // components and rare goods turn up less often. Seeded by the galaxy and the ship.
-  const SALVAGE = [['hull', 3], ['weapon', 2], ['drive', 2], ['computer', 1]];
+  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Seeded by the galaxy
+  // and the ship.
+  // - Fighters (pirates) usually drop a salvaged component, sometimes two, at a tier set by their
+  //   own gear tier (security.js: better-armed pirates in more dangerous space carry better
+  //   components), and often some of the cargo they took: trade goods, rarer ones from tier 3 up.
+  // - Freighters spill trade goods, and now and then a component.
+  // Computer components research both computers and scanners (research.js), so they turn up as
+  // often as hull and weapon components.
+  const SALVAGE = [['hull', 3], ['weapon', 3], ['drive', 2], ['computer', 3]];
   const GOODS = G.categories('trade');
-  function loot(galaxySeed, key, role) {
+  const chance = { component: 0.85, second: 0.35, cargo: 0.45 };
+  function loot(galaxySeed, key, role, tier = 1) {
     const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(key), 0x1007));
     const seed = () => Math.floor(r() * 4294967295);
     const out = [];
-    const component = () => ({ kind: G.pick(r, weightedPick(SALVAGE, r())), seed: seed() });
+    const component = () => ({ kind: G.component(weightedPick(SALVAGE, r()), Sec.componentTier(r, tier)), seed: seed() });
+    // A trade good; well-armed pirates keep the better of two.
+    const good = () => {
+      const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)]);
+      let kind = pick();
+      if (tier >= 3) { const other = pick(); if (G.type(other).price > G.type(kind).price) kind = other; }
+      return { kind, seed: seed() };
+    };
     if (role === 'freighter') {
       const n = 1 + Math.floor(r() * 2);
-      for (let i = 0; i < n; i++) out.push({ kind: G.pick(r, GOODS[Math.floor(r() * GOODS.length)]), seed: seed() });
+      for (let i = 0; i < n; i++) out.push(good());
       if (r() < 0.3) out.push(component());
-    } else if (r() < 0.6) {
-      out.push(component());
+      return out;
     }
+    if (r() < chance.component) {
+      out.push(component());
+      if (r() < chance.second) out.push(component());
+    }
+    if (r() < chance.cargo) for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) out.push(good());
     return out;
   }
 

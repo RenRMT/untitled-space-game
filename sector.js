@@ -10,7 +10,8 @@
 // - outposts: a minor station; salvage yards collect wrecks,
 // - traffic, only inside charted pockets: fighters patrol and freighters run to the gates; owners
 //   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
-//   patrol, and pirates lurk in the territories they operate in,
+//   patrol. Pirate bands lurk by the sector's security (security.js): more, larger and better
+//   armed the more lawless the sector,
 // - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
 // - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
@@ -143,6 +144,7 @@ const Sectors = (() => {
       const orbit = (cx, cy, rad, speed) => ({ type: 'orbit', cx: ox + cx, cy: oy + cy, r: rad, w: (r() < 0.5 ? -1 : 1) * speed / rad, a0: r() * TAU });
       const route = (ax, ay, bx, by, speed) => ({ type: 'route', ax: ox + ax, ay: oy + ay, bx: ox + bx, by: oy + by, speed, phase: r() * 2 });
       const randomCulture = () => cultures.of(majors[Math.floor(r() * majors.length)].id);
+      const between = ([lo, hi]) => lo + Math.floor(r() * (hi - lo + 1)); // a whole number in [lo, hi]
 
       // Asteroids and items draw from their own random stream, so they don't reshuffle the rest.
       // Each asteroid has a stable key, so a mined one stays gone (mining.js, game.js).
@@ -170,11 +172,14 @@ const Sectors = (() => {
       }
       let itemCount = 0;
       const LOOT_KINDS = Goods.categories('salvage'), TRADE_KINDS = Goods.categories('trade');
-      // An item of one of these categories; its type (goods.js, rarer ones less likely) comes from
-      // the item's own seed, so the sector's random stream is used as before.
+      const lootTier = Security.lootTier(territory.security);
+      // An item of one of these categories; its type comes from the item's own seed, so the
+      // sector's random stream is used as before. Trade goods: rarer ones less likely (goods.js);
+      // components: a tier by the sector's security (security.js), better in dangerous space.
       const item = (categories, x, y) => {
         const category = categories[Math.floor(ra() * categories.length)], seed = Math.floor(ra() * 4294967295);
-        const kind = Goods.pick(mulberry32(seed ^ 0x6e7), category);
+        const rng = mulberry32(seed ^ 0x6e7);
+        const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category, Security.componentTier(rng, lootTier)) : Goods.pick(rng, category);
         const angle = ra() * TAU, tumble = (ra() - 0.5) * 0.3;
         return add(Entities.item({ key: `${sx},${sy},${itemCount++}`, kind, seed, angle, tumble }), x, y);
       };
@@ -265,8 +270,9 @@ const Sectors = (() => {
           spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
           scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
         } else if (contact.type === 'ambush') {
-          const n = 3 + Math.floor(r() * 2);
-          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60));
+          // A pirate band one ship larger than the sector's usual (security.js).
+          const band = Security.pirates(territory.security), n = between(band.size) + 1, tier = between(band.tier);
+          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier });
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         } else if (contact.type === 'anomaly') {
           const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
@@ -315,12 +321,14 @@ const Sectors = (() => {
         const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
         for (let i = 0; i < 2; i++) ship('fighter', territory.owner, orbit(x, y, 300 + r() * 200, 170));
       }
-      // Pirates prey on the territories they operate in, and haunt the frontier, though not right
-      // next to a Waystation (galaxy.nearWaystation), which hostile contacts avoid too.
-      const preyed = territory.owner !== null && pirates.operatesIn?.includes(territory.owner);
-      if (!contact && ((preyed && r() < 0.25) || (territory.zone === 'frontier' && r() < 0.12 && !galaxy.nearWaystation(sx, sy)))) {
+      // A pirate band, by the sector's security (security.js): rare, small and lightly armed in the
+      // charted pockets; common, large and well armed in lawless space. Never right next to a
+      // Waystation (galaxy.nearWaystation), which hostile contacts avoid too. tier: their gear.
+      const band = Security.pirates(territory.security);
+      if (!contact && r() < band.chance && !galaxy.nearWaystation(sx, sy)) {
         const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
-        for (let i = 0; i < 2; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 200, 170));
+        const n = between(band.size), tier = between(band.tier);
+        for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 250, 160 + r() * 30), { tier });
       }
       // Border skirmish debris.
       if (territory.contestedBy !== null && r() < 0.5) {

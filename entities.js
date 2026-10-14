@@ -113,8 +113,10 @@ const Entities = (() => {
       mark: (e, galaxy) => ({ color: galaxy.factionColor(e.faction), r: 1.2 }),
       card(e, galaxy) {
         const hostile = isHostile(e, galaxy);
+        // Pirates show their gear tier, so you can judge a fight before starting it.
+        const gear = hostile && e.tier ? ` · ${Loadout.MK[e.tier]} gear` : '';
         return {
-          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: galaxy.factionName(e.faction),
+          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: `${galaxy.factionName(e.faction)}${gear}`,
           color: hostile ? color().hostile : galaxy.factionColor(e.faction),
           tag: hostile ? 'Hostile' : '', tone: hostile ? 'hostile' : '',
         };

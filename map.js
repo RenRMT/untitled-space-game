@@ -679,6 +679,12 @@ const GalaxyMap = (() => {
     if (trip.prompt) promptText.textContent = `Signal detected: ${CONTACT[trip.prompt.contact.type]?.prompt || 'a contact'} in sector ${trip.prompt.x}, ${trip.prompt.y}.`;
   }
 
+  // A sector's security (security.js): how likely pirates are, and how well armed.
+  const securityRow = (x, y) => {
+    const s = Security.LEVELS[galaxy.securityOf(x, y)];
+    return `<div class="row"><span>security</span><span style="color:${s.color}">${esc(s.label)}</span></div>`;
+  };
+
   function updateInfo() {
     updateTravelUI();
     const sel = selected || hovered;
@@ -701,6 +707,7 @@ const GalaxyMap = (() => {
           : `${f.name}${s.capital ? ' capital' : s.exclave ? ' colony' : ''}`) +
         (f.kind === 'minor' ? row('tier', 'minor faction') : '') +
         row('sector', `${s.x}, ${s.y}`) +
+        securityRow(s.x, s.y) +
         (s.waystation ? row('faction', 'neutral')
           : f.kind === 'independent' ? presenceRows(s.presence)
           : row('dominance', pct(s.dominance)) + presenceRows(s.presence, s.faction)) +
@@ -717,7 +724,8 @@ const GalaxyMap = (() => {
         swatchHead(f ? f.color : '#7d869e', o.name) +
         row('type', o.type) +
         row('faction', f ? f.name : 'independent') +
-        row('sector', `${o.x}, ${o.y}`);
+        row('sector', `${o.x}, ${o.y}`) +
+        securityRow(o.x, o.y);
       return;
     }
 
@@ -733,6 +741,7 @@ const GalaxyMap = (() => {
     info.innerHTML =
       swatchHead(owner ? owner.color : '#2a3350', `Sector ${t.x}, ${t.y}`) +
       row('zone', ZONE_LABEL[t.zone]) +
+      securityRow(t.x, t.y) +
       (owner ? row('owner', `${owner.name} ${pct(t.dominance)}`) : '') +
       (t.contestedBy !== null ? row('contested by', factions[t.contestedBy].name) : '') +
       (owner ? presenceRows(t.presence, t.owner) : presenceRows(t.presence)) +

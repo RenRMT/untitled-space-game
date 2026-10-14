@@ -1,14 +1,14 @@
 'use strict';
 
 // Station markets, recreated on demand from the galaxy seed and the station (no saved state).
-// Prices start from each item type's base price (goods.js). Every station buys every trade good and
-// all salvage; what it sells, and at what price, depends on what kind of place it is:
+// Prices start from each item type's base price (goods.js). Every station buys every trade good;
+// what it sells, and at what price, depends on what kind of place it is:
 // - categories it produces are cheap, categories it consumes fetch a premium,
 // - outposts follow their type (mining camps sell ore, refineries want it, ...),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
-//   often where the category is produced); exotics are never sold, only found,
-// - salvage (components) is never sold, and pays best at salvage yards and Waystations.
+//   often where the category is produced); exotics are never sold, only found.
+// Salvaged components aren't traded at all: they're used for research (research.js).
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // Works as a classic browser script (global `Economy`) and as a Node module.
@@ -17,7 +17,6 @@ const Economy = (() => {
   const { hashInt, mulberry32, seedToInt } = typeof require === 'function' ? require('./rng.js') : globalThis;
   const G = typeof require === 'function' ? require('./goods.js') : Goods;
   const CATEGORIES = G.categories('trade');
-  const SALVAGE = G.categories('salvage');
 
   const config = {
     produced: 0.7, // price factor for categories a station produces
@@ -35,13 +34,13 @@ const Economy = (() => {
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
   const PROFILES = {
     capital: { produces: ['synthetic', 'fabrics', 'crates'], consumes: ['perishables', 'mineral', 'gas'], sellsAll: true },
-    waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true, salvage: 1.15 },
+    waystation: { produces: [], consumes: ['perishables', 'barrels'], sellsAll: true },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['perishables', 'tubes', 'gas'] },
     refinery: { produces: ['metal', 'gas', 'barrels'], consumes: ['mineral'] },
     'trading post': { produces: ['crates'], consumes: [], sellsAll: true },
-    'research outpost': { produces: ['synthetic'], consumes: ['tubes', 'perishables'], salvageBy: { computer: 1.4 } },
+    'research outpost': { produces: ['synthetic'], consumes: ['tubes', 'perishables'] },
     hermitage: { produces: ['fabrics', 'perishables'], consumes: ['tubes', 'barrels'] },
-    'salvage yard': { produces: ['metal', 'tubes'], consumes: [], salvage: 1.3 },
+    'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
   };
 
   // Seeded profile for a system station: a couple of categories made, a couple wanted.
@@ -62,10 +61,8 @@ const Economy = (() => {
   // Base price of an item type (goods.js), before any station's factors.
   const basePrice = (kind) => (G.type(kind) ? G.type(kind).price : 0);
 
-  // The market at a station:
-  //   goods:   every trade good: { kind, category, rarity, buy, sell, produced, consumed }; buy is
-  //            null where the station doesn't stock it,
-  //   salvage: every component: { kind, category, rarity, sell }.
+  // The market at a station: { goods }, every trade good as { kind, category, rarity, buy, sell,
+  // produced, consumed }; buy is null where the station doesn't stock it.
   function market(galaxySeed, station) {
     const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(station.key), 0xec0));
     const P = profileOf(station, r);
@@ -87,14 +84,7 @@ const Economy = (() => {
         });
       }
     }
-    const salvage = [];
-    for (const category of SALVAGE) {
-      const factor = (P.salvage || 1) * ((P.salvageBy || {})[category] || 1);
-      for (const t of G.ofCategory(category)) {
-        salvage.push({ kind: t.id, category, rarity: t.rarity, sell: Math.max(1, Math.round(t.price * factor * jitter() * (1 - config.spread))) });
-      }
-    }
-    return { goods, salvage };
+    return { goods };
   }
 
   return { config, basePrice, market };

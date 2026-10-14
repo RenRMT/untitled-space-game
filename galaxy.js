@@ -715,6 +715,25 @@ const Galaxy = (() => {
       return { type, hostile: isHostile(type) };
     }
 
+    // ---------- Security: how safe each sector is (security.js says what it means) ----------
+    // From the zone (charted pockets are safest, the frontier lawless), raised where the owner holds
+    // the sector firmly, lowered where it is contested or pirates prey on the owner. Next to a
+    // Waystation it is at least medium. 3 high, 2 medium, 1 low, 0 none.
+    const pirateFaction = factions.find((f) => f.key === 'pirates');
+    const ZONE_SECURITY = { pocket: 0.85, claimed: 0.5, deep: 0.3, frontier: 0.05 };
+    function securityOf(x, y) {
+      if (x < 0 || y < 0 || x >= size || y >= size) return 0;
+      const o = ownerAt(x, y);
+      let s = ZONE_SECURITY[zoneOf(x, y)];
+      if (o >= 0) {
+        s += (shares[idx(x, y) * T + o] - 0.5) * 0.3;
+        if (rival[idx(x, y)] >= 0) s -= 0.15;
+        if (pirateFaction?.operatesIn?.includes(o)) s -= 0.2;
+      }
+      if (nearWaystation(x, y)) s = Math.max(s, 0.45);
+      return s >= 0.7 ? 3 : s >= 0.45 ? 2 : s >= 0.2 ? 1 : 0;
+    }
+
     function territoryOf(x, y) {
       if (x < 0 || y < 0 || x >= size || y >= size) return null;
       const o = ownerAt(x, y);
@@ -723,6 +742,7 @@ const Galaxy = (() => {
       return {
         x, y,
         zone: zoneOf(x, y),
+        security: securityOf(x, y),
         pocket: pocketAt(x + 0.5, y + 0.5),
         owner: o >= 0 ? o : null,
         contestedBy: r >= 0 ? r : null,
@@ -740,7 +760,7 @@ const Galaxy = (() => {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
       factions, systems, outposts, lanes, gates, routes, pockets,
       start: startStyle, startSystem,
-      territoryOf, deepSector, pocketAt, nearWaystation, factionColor, factionName,
+      territoryOf, deepSector, securityOf, pocketAt, nearWaystation, factionColor, factionName,
       inFrontier: (x, y) => !inner(x, y),
     };
   }

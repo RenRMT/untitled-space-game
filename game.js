@@ -13,10 +13,10 @@ let SECTOR = 6000;
 
 const COLORS = Theme.color; // theme.js, shared with the map and the CSS
 
-// The ship's class and fitted equipment (loadout.js), and what they add up to: handling, hold,
-// sensor ranges, mining speed. Starter gear only for now, so the loadout isn't saved yet.
-const loadout = Loadout.starter('courier');
-const SHIP = Loadout.stats(loadout);
+// What the ship can do: its class and fitted equipment (loadout.js, saved with the cargo as
+// cargo.loadout) with the hull upgrades researched (research.js) added up: handling, hold, sensor
+// ranges, mining speed, combat stats. Kept up to date in place by applyShip().
+const SHIP = Loadout.stats(Loadout.starter('courier'));
 
 const ship = {
   x: 0, y: 0,
@@ -163,7 +163,15 @@ window.addEventListener('keydown', (e) => {
   if (target) a.run(target);
 });
 
-ship.art = ArtBlueprints.playerShip(ArtCulture.legacy);
+// How each hull the player can fly is drawn: the Courier is the original ship; the others are
+// fixed designs in the same original style.
+const HULL_ART = {
+  courier: () => ArtBlueprints.playerShip(ArtCulture.legacy),
+  hauler: () => ArtBlueprints.create('freighter', ArtCulture.legacy, 7),
+  corvette: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 11),
+  gunship: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 29),
+};
+ship.art = HULL_ART.courier();
 
 // ---------- World: sectors generated from the galaxy map ----------
 
@@ -171,13 +179,20 @@ const world = { galaxy: null, cultures: null, sectors: null, knowledge: null, tr
 
 // ---------- Cargo hold and credits: items collected or bought, saved per galaxy ----------
 
-// items: { kind (art/items.js id), label, category: 'loot' | 'trade' }, one hold unit each.
+// items: trade goods in the hold, { kind (a goods.js type), label, category: 'trade' }, one unit
+// each. components: salvaged components by type ({ [kind]: count }), kept apart from the hold:
+// they take no room, can't be sold, survive the ship's loss and are used up by research.
 // removed: keys of generated things gone from the world for good: items collected, asteroids
 // broken up by mining, ships destroyed in combat (keys are unique across kinds). drops: items
 // left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
 // (repaired at stations). home: the last station docked at, where a lost ship is towed.
-const cargo = { key: '', items: [], removed: new Set(), credits: 0, drops: [], hull: 0, home: null };
+// loadout: the ship's class and fitted equipment; gear: spare equipment bought or taken out
+// ({ [equipment id]: count }); research: the research nodes done (a Set of ids).
+const cargo = {
+  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
+  loadout: Loadout.starter('courier'), gear: {}, research: new Set(),
+};
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
 const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
@@ -193,34 +208,69 @@ function dropEntity(d) {
 function upgradeItem(it) {
   const kind = Goods.resolve(it.kind, it.label);
   if (!kind) return null;
-  const t = Goods.type(kind);
-  return { kind, label: t.name, category: Goods.isSalvage(kind) ? 'loot' : 'trade' };
+  return { kind, label: Goods.type(kind).name, category: 'trade' };
+}
+const addTo = (counts, kind, n = 1) => { counts[kind] = (counts[kind] || 0) + n; if (counts[kind] <= 0) delete counts[kind]; };
+// A saved loadout, if it is one this game knows: a hull for sale, and only known equipment.
+function validLoadout(l) {
+  if (!l || !Loadout.HULLS[l.hull]?.price || typeof l.fitted !== 'object') return null;
+  const fitted = {};
+  for (const [slot, id] of Object.entries(l.fitted)) fitted[slot] = id && Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc ? id : null;
+  return { hull: l.hull, fitted };
+}
+
+// SHIP from the loadout and the hull upgrades researched, and the ship drawn as its hull. When
+// more armour raises the maximum, the hull points rise with it (not when a save is loaded).
+function applyShip({ loading = false } = {}) {
+  const before = SHIP.hull, hullBefore = SHIP.name;
+  Object.assign(SHIP, Loadout.stats(cargo.loadout, Research.upgrades(cargo.research)));
+  ship.art = (HULL_ART[cargo.loadout.hull] || HULL_ART.courier)();
+  if (!loading && SHIP.name === hullBefore && SHIP.hull > before) cargo.hull += SHIP.hull - before;
+  cargo.hull = clamp(cargo.hull, 0, SHIP.hull);
 }
 
 function loadCargo(galaxy) {
   if (cargoSave.timer !== null) saveCargoNow(); // the old galaxy's cargo first
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
   cargo.items = [];
+  cargo.components = {};
   cargo.removed = new Set();
   cargo.credits = Economy.config.startingCredits;
   cargo.drops = [];
-  cargo.hull = SHIP.hull;
   cargo.home = null;
+  cargo.loadout = Loadout.starter('courier');
+  cargo.gear = {};
+  cargo.research = new Set();
+  cargo.hull = Infinity; // full, once applyShip knows the maximum
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
-  if (!d) return;
   try {
-    cargo.items = d.items.map(upgradeItem).filter(Boolean);
-    // Older saves kept collected items, mined asteroids and destroyed ships in three lists.
-    cargo.removed = new Set([d.removed, d.collected, d.mined, d.destroyed].filter(Array.isArray).flat());
-    if (Number.isFinite(d.credits)) cargo.credits = d.credits;
-    if (Array.isArray(d.drops)) {
-      cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
-        .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
-    }
-    if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
-    if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
+    if (d) readCargo(d);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
+  applyShip({ loading: true });
+}
+// The parts of a save, each checked. Saves from before components had their own store kept them
+// in the hold: they move across.
+function readCargo(d) {
+  if (Array.isArray(d.research)) cargo.research = new Set(d.research.filter((id) => Research.NODES[id]));
+  cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
+  if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
+  if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
+  if (Array.isArray(d.items)) {
+    for (const it of d.items.map(upgradeItem).filter(Boolean)) {
+      if (Goods.isSalvage(it.kind)) addTo(cargo.components, it.kind);
+      else cargo.items.push(it);
+    }
+  }
+  // Older saves kept collected items, mined asteroids and destroyed ships in three lists.
+  cargo.removed = new Set([d.removed, d.collected, d.mined, d.destroyed].filter(Array.isArray).flat());
+  if (Number.isFinite(d.credits)) cargo.credits = d.credits;
+  if (Array.isArray(d.drops)) {
+    cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
+      .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
+  }
+  if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
+  if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
 }
 // Cargo is saved CARGO_SAVE_MS after the first change, so a burst of changes (Sell all, hull
 // damage in a fight) is one write; and when the page is hidden or closed, or another galaxy
@@ -234,8 +284,9 @@ function saveCargoNow() {
   clearTimeout(cargoSave.timer);
   cargoSave.timer = null;
   Store.setJSON(cargo.key, {
-    items: cargo.items, removed: [...cargo.removed], credits: cargo.credits,
+    items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
     drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
+    loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research],
   });
 }
 
@@ -280,20 +331,107 @@ const repairs = {
   },
 };
 
+// Floating items within reach are picked up: trade goods into the hold while there's room,
+// components into their own store, which never fills.
 function collectItems(list) {
   for (const e of list) {
     if (e.kind !== 'item' || cargo.removed.has(e.key)) continue;
     if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
-    if (hold.free < 1) {
+    const component = Goods.isSalvage(e.itemKind);
+    if (!component && hold.free < 1) {
       notify('Cargo hold full', 2.5, { once: true }); // and leave it floating
       continue;
     }
     if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
     else cargo.removed.add(e.key);
-    cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
+    if (component) addTo(cargo.components, e.itemKind);
+    else cargo.items.push({ kind: e.itemKind, label: e.label, category: 'trade' });
     notify(`Recovered: ${e.label}${rarityNote(e)}`, 2.5);
     saveCargo();
   }
+}
+
+// ---------- Outfitting and research, as the station menu sees them ----------
+
+// Equipment: what's fitted, spare gear (bought or taken out), buying what research has unlocked,
+// selling spare gear for half its price, and the shipyard's hulls (the current one traded in for
+// half its price; the gear moves across, what doesn't fit goes to the spare gear).
+const SELL_BACK = 0.5;
+const outfitting = {
+  get loadout() { return cargo.loadout; },
+  get upgrades() { return Research.upgrades(cargo.research); },
+  get gear() { return cargo.gear; },
+  get known() { return Research.known(cargo.research); },
+  sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
+  tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
+  hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
+  // Fit spare gear (or, with buy, a new one) in a slot; what was there goes to the spare gear.
+  fit(slot, id, buy = false) {
+    const item = Loadout.EQUIPMENT[id];
+    const s = Loadout.slotsOf(cargo.loadout.hull, outfitting.upgrades).find((x) => x.id === slot);
+    if (!item || !s || item.slot !== s.type) return false;
+    if (buy ? !outfitting.known.has(id) || cargo.credits < item.price : !cargo.gear[id]) return false;
+    if (buy) cargo.credits -= item.price;
+    else addTo(cargo.gear, id, -1);
+    const old = cargo.loadout.fitted[slot];
+    if (old) addTo(cargo.gear, old);
+    cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: id } };
+    return changedShip();
+  },
+  unfit(slot) {
+    const old = cargo.loadout.fitted[slot];
+    if (!old) return false;
+    addTo(cargo.gear, old);
+    cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: null } };
+    return changedShip();
+  },
+  sell(id) {
+    if (!cargo.gear[id]) return false;
+    addTo(cargo.gear, id, -1);
+    cargo.credits += outfitting.sellPrice(id);
+    saveCargo();
+    return true;
+  },
+  // Why a hull can't be bought right now, or null: the price, or a hold too full for it.
+  hullBlocked(id) {
+    if (id === cargo.loadout.hull) return 'Flying it';
+    if (cargo.credits < outfitting.hullPrice(id)) return 'Not enough credits';
+    const room = Loadout.stats({ hull: id, fitted: {} }, outfitting.upgrades).cargo;
+    return cargo.items.length > room ? `Hold too full · ${room} units` : null;
+  },
+  buyHull(id) {
+    if (!Loadout.HULLS[id]?.price || outfitting.hullBlocked(id)) return false;
+    cargo.credits -= outfitting.hullPrice(id);
+    const { loadout: next, left } = Loadout.refit(cargo.loadout, id, outfitting.upgrades);
+    for (const item of left) addTo(cargo.gear, item);
+    cargo.loadout = next;
+    applyShip();
+    cargo.hull = SHIP.hull; // a new ship, undamaged
+    saveCargo();
+    return true;
+  },
+};
+// Research: components and trade goods in, unlocks out (research.js).
+const lab = {
+  get researched() { return cargo.research; },
+  get components() { return cargo.components; },
+  have: (kind) => (Goods.isSalvage(kind) ? cargo.components[kind] || 0 : hold.count(kind)),
+  status: (id) => Research.status(id, cargo.research, lab.have),
+  research(id) {
+    const st = lab.status(id);
+    if (!st.ok) return false;
+    for (const { kind, need } of st.cost) {
+      if (Goods.isSalvage(kind)) addTo(cargo.components, kind, -need);
+      else for (let i = 0; i < need; i++) cargo.items.splice(cargo.items.findIndex((it) => it.kind === kind), 1);
+    }
+    cargo.research = new Set([...cargo.research, id]);
+    return changedShip(); // a hull upgrade changes the ship at once
+  },
+};
+function changedShip() {
+  applyShip();
+  saveCargo();
+  return true;
 }
 
 function sectorOf(x, y) {
@@ -406,7 +544,9 @@ function dock(station) {
     market: Economy.market(world.galaxy.seed, station),
     hold,
     ship: SHIP,
-    loadout,
+    outfitting,
+    lab,
+    shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
@@ -945,14 +1085,14 @@ const fightLog = (line) => { fight.log = [...fight.log, line].slice(-2); };
 // and what's needed to draw it, loot it and send it home afterwards.
 function heldPose(e, name) {
   const a = fightMode().flying ? e.a : Math.atan2(ship.y - e.y, ship.x - e.x);
-  return { x: e.x, y: e.y, a, thrust: 0, role: e.role, radius: e.radius, name, motion: e.motion };
+  return { x: e.x, y: e.y, a, thrust: 0, role: e.role, tier: e.tier || 1, radius: e.radius, name, motion: e.motion };
 }
 
 // A ship as a combat mode takes it: its stats and how it is flying right now.
 function enemySpec(e, name) {
   const back = fight.returning.get(e.key); // still flying back from an earlier fight
   const [vx, vy] = back ? [back.vx, back.vy] : pathVelocity(e);
-  return { id: e.key, name, stats: Loadout.stats(Loadout.starter(e.role)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.radius } };
+  return { id: e.key, name, stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.radius } };
 }
 
 function engage(target, ambushed = false) {
@@ -1065,7 +1205,7 @@ function shipDestroyed(key) {
   cargo.removed.add(key);
   if (!p) { saveCargo(); return; }
   explode(p.x, p.y, p.radius);
-  CombatCore.loot(world.galaxy.seed, key, p.role).forEach((d, i) => {
+  CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
@@ -1745,9 +1885,16 @@ function drawEntities(list, t) {
   }
 }
 
+// The ship's design is drawn to fit its hull's size (the Courier's art is a quarter wider than its
+// collision radius, and every hull keeps that proportion).
 function drawShip(t) {
   if (fight.wrecked) return; // blown up, waiting for the tow
-  Art.drawAsset(ctx, ship.art, artStyle.value, { x: rx(ship.x), y: ry(ship.y), angle: ship.angle, t, thrust: ship.thrust });
+  const k = (SHIP.radius * 1.25) / ship.art.radius;
+  ctx.save();
+  ctx.translate(rx(ship.x), ry(ship.y));
+  if (k !== 1) ctx.scale(k, k);
+  Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
+  ctx.restore();
 }
 
 function drawParticles() {
@@ -1998,7 +2145,12 @@ function drawHud() {
   const pk = pocketAt(ship.x, ship.y);
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = COLORS.dim;
-  ctx.fillText(`SECTOR ${sx},${sy} · ${ZONE_LABEL[zone]}`, pad, pad + 12);
+  const head = `SECTOR ${sx},${sy} · ${ZONE_LABEL[zone]} · `;
+  ctx.fillText(head, pad, pad + 12);
+  const security = Security.LEVELS[t.security]; // how dangerous it is here (security.js)
+  ctx.fillStyle = security.color;
+  ctx.fillText(`SECURITY ${security.label.toUpperCase()}`, pad + ctx.measureText(head).width, pad + 12);
+  ctx.fillStyle = COLORS.dim;
   const owner = t.owner !== null ? `${f[t.owner].name} ${Math.round(t.dominance * 100)}%` : sec.system?.waystation ? 'safe haven' : null;
   const line2 = [
     pk ? pk.name : null,
