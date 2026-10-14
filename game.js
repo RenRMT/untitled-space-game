@@ -23,8 +23,10 @@ const COLORS = {
   dim: '#6f7a99',
 };
 
-// Handling stats; later these become per-ship-class values.
-const SHIP = { name: 'Courier', maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16, cargo: 20 };
+// The ship's class and fitted equipment (loadout.js), and what they add up to: handling, hold,
+// sensor ranges, mining speed. Starter gear only for now, so the loadout isn't saved yet.
+const loadout = Loadout.starter('courier');
+const SHIP = Loadout.stats(loadout);
 
 const ship = {
   x: 0, y: 0,
@@ -218,7 +220,7 @@ function placeShip(x, y, angle = -Math.PI / 2) {
   stopMining();
   gateLock = null;
   lastPocket = undefined; // no enter/leave notice for a teleport
-  world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR);
+  world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR, SHIP.sensorRange, SHIP.pingRange);
 }
 
 // Place the ship in a sector, beside its main station when there is one.
@@ -326,6 +328,7 @@ function dock(station) {
     market: Economy.market(world.galaxy.seed, station),
     hold,
     ship: SHIP,
+    loadout,
     onLaunch: launch,
   });
 }
@@ -357,6 +360,11 @@ const MINE_COLOR = '#ff9d5c';
 let mineTarget = null; // nearest minable asteroid in range this frame
 let mineShown = ''; // last button state, so the DOM is only touched on change
 
+// Seconds to mine an asteroid: the base time, sped up by the ship computer.
+function mineTime() {
+  return Mining.config.duration / (SHIP.miningRate || 1);
+}
+
 // Called on teleports, docking and when the ship drifts away. Must not touch anything declared
 // below: placeShip runs it while the galaxy first loads.
 function stopMining(notice) {
@@ -372,8 +380,8 @@ function updateMineButton(list) {
   let state = 'hidden', label = '';
   if (mining.target) {
     state = 'busy';
-    label = `Mining · ${Math.max(1, Math.ceil(Mining.config.duration - mining.t))} sec`;
-    mineBtn.style.setProperty('--progress', `${Math.min(100, (mining.t / Mining.config.duration) * 100).toFixed(1)}%`);
+    label = `Mining · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`;
+    mineBtn.style.setProperty('--progress', `${Math.min(100, (mining.t / mineTime()) * 100).toFixed(1)}%`);
   } else if (mineTarget) {
     const tooFast = Math.hypot(ship.vx, ship.vy) > Mining.config.maxSpeed;
     state = tooFast ? 'slow' : 'ready';
@@ -437,14 +445,14 @@ function tickMining(dt) {
   if (ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(a.y - ship.y, a.x - ship.x), SHIP.turnRate * dt);
   mining.t += dt;
   if (Math.random() < dt * 12) chips(a, 1, 60);
-  if (mining.t >= Mining.config.duration) finishMining();
+  if (mining.t >= mineTime()) finishMining();
 }
 
 // The mining beam from the ship to the rock, and a ring filling up around it.
 function drawMining(t) {
   const a = mining.target;
   if (!a) return;
-  const p = Math.min(1, mining.t / Mining.config.duration);
+  const p = Math.min(1, mining.t / mineTime());
   const ang = Math.atan2(a.y - ship.y, a.x - ship.x);
   const x0 = rx(ship.x) + Math.cos(ang) * SHIP.radius * 0.7, y0 = ry(ship.y) + Math.sin(ang) * SHIP.radius * 0.7;
   const wob = Math.sin(t * 37) * a.radius * 0.12;
@@ -491,7 +499,7 @@ function drawMiningCountdown() {
   ctx.textAlign = 'center';
   ctx.fillStyle = MINE_COLOR;
   ctx.globalAlpha = 0.95;
-  ctx.fillText(`${Math.max(0, Mining.config.duration - mining.t).toFixed(1)}s`, sx, sy - 10);
+  ctx.fillText(`${Math.max(0, mineTime() - mining.t).toFixed(1)}s`, sx, sy - 10);
   ctx.restore();
 }
 
@@ -728,7 +736,7 @@ function update(dt) {
   senseTimer -= dt;
   if (senseTimer <= 0) {
     senseTimer = 0.25;
-    world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR);
+    world.knowledge.sense(ship.x / SECTOR, ship.y / SECTOR, SHIP.sensorRange, SHIP.pingRange);
   }
 
   // Camera leads in the direction of travel.

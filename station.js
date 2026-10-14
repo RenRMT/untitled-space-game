@@ -1,8 +1,9 @@
 'use strict';
 
 // The docked screen: station header, Trade / Ship / Missions tabs and a Launch button.
-// StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship, onLaunch })
+// StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship, loadout, onLaunch })
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
+// ship: Loadout.stats(loadout); loadout: the ship's class and fitted equipment (loadout.js).
 // Browser script (global `StationMenu`).
 
 const StationMenu = (() => {
@@ -110,25 +111,37 @@ const StationMenu = (() => {
     ];
   }
 
+  // One equipment slot: what kind it is, what's fitted and what that does.
+  function slotRow(s) {
+    return h('li', { class: s.item ? 'slot' : 'slot empty' },
+      h('span', { class: 'type' }, s.label),
+      h('span', { class: 'item' },
+        h('span', { class: 'name' }, s.item ? s.item.name : 'Empty'),
+        h('span', { class: 'detail' }, s.item ? Loadout.summary(s.item) : s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted')));
+  }
+
   function renderShip() {
-    const { ship, hold } = ctx;
+    const { ship, hold, loadout } = ctx;
     const stat = (label, value) => h('div', { class: 'stat' }, h('dt', {}, label), h('dd', {}, value));
+    const slots = Loadout.slots(loadout);
+    const sectors = (n) => `${n} sector${n === 1 ? '' : 's'}`;
     const groups = new Map();
     for (const it of hold.items) groups.set(it.label, (groups.get(it.label) || 0) + 1);
     return [
-      h('section', { 'aria-label': 'Ship' },
-        h('h2', {}, ship.name),
+      h('section', { 'aria-label': 'Loadout' },
+        h('h2', {}, ship.name, h('span', { class: 'count' }, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`)),
+        h('ul', { class: 'slots' }, slots.map(slotRow))),
+      h('section', { 'aria-label': 'Performance' },
+        h('h2', {}, 'Performance'),
         h('dl', { class: 'stats' },
           stat('Top speed', `${ship.maxSpeed}`),
           stat('Acceleration', `${ship.accel}`),
           stat('Turn rate', `${Math.round((ship.turnRate * 180) / Math.PI)}° per second`),
+          stat('Sensors', `${sectors(ship.sensorRange)} · pings ${sectors(ship.pingRange)}`),
+          stat('Mining', ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s per asteroid` : 'No ship computer'),
+          stat('Shield', ship.shield ? `${ship.shield} · ${ship.shieldRecharge}/s recharge` : 'None'),
+          stat('Firepower', `${ship.firepower} damage/s · ${ship.weaponsFitted} of ${ship.weaponSlots} weapons`),
           stat('Cargo hold', `${ship.cargo} units`))),
-      h('section', { 'aria-label': 'Loadout' },
-        h('h2', {}, 'Loadout'),
-        h('dl', { class: 'stats' },
-          stat('Hull', 'Standard hull'),
-          stat('Drive', 'Standard drive'),
-          stat('Cargo bay', `${ship.cargo}-unit bay`))),
       h('section', { 'aria-label': 'Hold' },
         h('h2', {}, `Hold ${hold.items.length}/${hold.capacity}`),
         groups.size

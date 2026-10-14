@@ -11,6 +11,7 @@
 // Browser script (global `Knowledge`).
 
 const Knowledge = (() => {
+  // Defaults for sense(); the ship's scanner sets the real ranges.
   const SENSOR_RANGE = 1; // sectors around the ship that get explored and identified
   const PING_RANGE = 2; // contacts within this many sectors show up as unidentified signals
 
@@ -98,13 +99,15 @@ const Knowledge = (() => {
       return true;
     }
 
-    // Ship sensors at a position in fractional sector coordinates.
-    function sense(fx, fy) {
+    // Ship sensors at a position in fractional sector coordinates. The ranges come from the fitted
+    // scanner (loadout.js); pings never reach less far than the sensors.
+    function sense(fx, fy, sensorRange = SENSOR_RANGE, pingRange = PING_RANGE) {
       const sx = Math.floor(fx), sy = Math.floor(fy);
+      const reach = Math.max(sensorRange, pingRange);
       let any = false;
-      for (let y = sy - PING_RANGE; y <= sy + PING_RANGE; y++) {
-        for (let x = sx - PING_RANGE; x <= sx + PING_RANGE; x++) {
-          const near = Math.abs(x - sx) <= SENSOR_RANGE && Math.abs(y - sy) <= SENSOR_RANGE;
+      for (let y = sy - reach; y <= sy + reach; y++) {
+        for (let x = sx - reach; x <= sx + reach; x++) {
+          const near = Math.abs(x - sx) <= sensorRange && Math.abs(y - sy) <= sensorRange;
           any = (near ? revealSector(x, y) : ping(x, y)) || any;
         }
       }

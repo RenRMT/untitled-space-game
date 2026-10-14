@@ -165,6 +165,26 @@
   .gauge .mark.dear { background: var(--wanted); }
   section[aria-label="Salvage"] .gauge .mark { background: var(--salvage); }
 
+  #st-body h2 .count { font-size: 11px; font-weight: normal; color: var(--dim); white-space: nowrap; }
+
+  /* Loadout: one row per equipment slot, slot type on the left; a filled square marks fitted gear. */
+  .slots { list-style: none; margin: 0; padding: 0; }
+  .slots .slot {
+    display: grid; grid-template-columns: 112px minmax(0, 1fr); column-gap: 10px; align-items: baseline;
+    padding: 9px 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
+  }
+  .slots .slot:first-child { border-top: 0; }
+  .slot .type { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
+  .slot .item > * { display: block; }
+  .slot .name { color: #eef1ff; overflow-wrap: break-word; }
+  .slot .name::before {
+    content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px;
+    background: var(--cyan); border: 1px solid var(--cyan); box-sizing: border-box;
+  }
+  .slot .detail { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .slot.empty .name { color: var(--dim); }
+  .slot.empty .name::before { background: none; border: 1px dashed var(--dim); }
+
   .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
   .stats { margin: 0; }
   .stats .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
@@ -252,6 +272,7 @@
 <script src="knowledge.js"></script>
 <script src="economy.js"></script>
 <script src="mining.js"></script>
+<script src="loadout.js"></script>
 <script src="station.js"></script>
 <script src="travel.js"></script>
 <script src="game.js"></script>
