@@ -13,7 +13,7 @@ const GalaxyMap = (() => {
   const contactsBtn = document.getElementById('map-contacts');
   const jumpBtn = document.getElementById('map-jump');
 
-  const ZONE_LABEL = { known: 'Known space', deep: 'Deep space', frontier: 'Frontier' };
+  const ZONE_LABEL = { pocket: 'Charted pocket', claimed: 'Claimed · uncharted', deep: 'Deep space', frontier: 'Frontier' };
   const CONTACT_COLORS = { derelict: '#9aa4b8', distress: '#ffd166', ambush: '#ff4d4d', anomaly: '#c77dff', story: '#7df9ff' };
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
@@ -62,8 +62,9 @@ const GalaxyMap = (() => {
     const count = (kind) => galaxy.factions.filter((f) => f.kind === kind).length;
     const systems = galaxy.systems.filter((s) => !s.freeport).length;
     const freeports = galaxy.systems.length - systems;
+    const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
     statsEl.textContent = `seed ${galaxy.seed} · ${count('major')} major + ${count('minor')} minor factions · `
-      + `${systems} systems · ${galaxy.outposts.length} outposts · ${freeports} Freeports`;
+      + `${systems} systems · ${galaxy.outposts.length} outposts · ${freeports} Freeports · ${Math.round(charted * 100)}% charted`;
     updateInfo();
     requestDraw();
   }
@@ -439,7 +440,7 @@ const GalaxyMap = (() => {
       (owner ? row('owner', `${owner.name} ${pct(t.dominance)}`) : '') +
       (t.contestedBy !== null ? row('contested by', factions[t.contestedBy].name) : '') +
       (owner ? presenceRows(t.presence, t.owner) : presenceRows(t.presence)) +
-      (t.zone === 'known' ? '' : row('contact', contact && (showContacts || contact.type === 'story')
+      (t.zone === 'pocket' ? '' : row('contact', contact && (showContacts || contact.type === 'story')
         ? (contact.name || contact.type) + (contact.hostile ? ' · hostile' : '')
         : showContacts ? 'none' : 'unidentified'));
   }

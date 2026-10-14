@@ -21,5 +21,9 @@ const GALAXY_CONFIG = {
     sectorUnits: 12000, // world units per sector in the flight view
     systems: { spacing: 3 }, // minimum distance between systems, in sectors
     outposts: { spacing: 2.5 }, // minimum distance from an outpost to any other settlement
+    // Wider faction borders, so claimed (but uncharted) space stretches between the charted pockets.
+    main: { sigma: 2.2 },
+    majors: { sigma: 2.0 },
+    minors: { sigma: 1.5 },
   },
 };

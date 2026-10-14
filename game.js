@@ -595,7 +595,7 @@ function drawMinimap(list) {
   ctx.restore();
 }
 
-const ZONE_LABEL = { known: 'KNOWN SPACE', deep: 'DEEP SPACE', frontier: 'FRONTIER' };
+const ZONE_LABEL = { pocket: 'CHARTED', claimed: 'UNCHARTED · CLAIMED', deep: 'DEEP SPACE', frontier: 'FRONTIER' };
 
 function drawHud() {
   const speed = Math.hypot(ship.vx, ship.vy);

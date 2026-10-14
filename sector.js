@@ -212,7 +212,7 @@ const Sectors = (() => {
       // ---------- Traffic ----------
 
       const owners = territory.presence.filter((p) => p.share >= 0.04);
-      const known = territory.zone === 'known';
+      const known = territory.zone === 'pocket';
       const settled = 1 - (owners.find((p) => p.faction === null)?.share ?? 0);
       let count = known ? Math.round((system ? 4 : outpost ? 2 : 1) * (0.5 + settled) + r() * 2) : r() < 0.15 ? 1 : 0;
       if (system?.freeport) count = 3 + Math.floor(r() * 3);

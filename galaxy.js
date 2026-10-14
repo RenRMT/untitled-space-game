@@ -6,8 +6,11 @@
 // - major factions of uneven size and small minor factions, grown along chains of nearby systems,
 //   so territories are irregular, sometimes share contested borders, and may have colonies,
 // - independent systems and outposts scattered through settled and deep space,
+// - known space as small charted pockets around each system and outpost; everything between
+//   them, even inside a faction's border, is uncharted,
 // - Freeports (neutral safe havens) on the outer edge of settled space,
-// - lanes inside territories, gates between them, and a few hidden routes,
+// - lanes inside territories, gates between them, and a few hidden routes (together `routes`,
+//   the fast-travel network: every route has a gate at each end),
 // - deep-space encounters recreated on demand from the seed and sector coordinates.
 // Every tuning value lives in Galaxy.params; pass `overrides.params` to generate() to change any of
 // them for one galaxy (nested objects merge, arrays and numbers replace).
@@ -34,7 +37,9 @@ const Galaxy = (() => {
     unaligned: 0.1, // baseline presence of no faction, so every faction fades toward the edges
     gateRange: 14,
     freeports: { count: [6, 9], minDist: 3, maxDist: 6, spacing: 8 },
-    encounterChance: { deep: 0.07, frontier: 0.18 },
+    // Safe, charted pocket radius around each settlement, in sectors.
+    pockets: { mainCapital: 1.5, capital: 1, minorCapital: 0.7, major: 0.7, minor: 0.5, independent: 0.5, freeport: 0.7, outpost: 0.4 },
+    encounterChance: { claimed: 0.04, deep: 0.07, frontier: 0.18 },
   };
 
   const MAJOR_COLORS = ['#3d8bff', '#e0a030', '#3fbf6a', '#b065e0', '#2ec4c4', '#e06aa0', '#a0c040', '#e07a3a', '#7a8cff'];
@@ -47,6 +52,7 @@ const Galaxy = (() => {
   const MINOR_SUFFIXES = ['Compact', 'League', 'Union', 'Assembly', 'Free State', 'Collective', 'Directorate', 'Concord'];
   const OUTPOST_TYPES = ['mining camp', 'trading post', 'research outpost', 'refinery', 'hermitage', 'salvage yard'];
   const ENCOUNTERS = {
+    claimed: [['derelict', 3], ['distress', 3], ['ambush', 1], ['anomaly', 1]],
     deep: [['derelict', 4], ['distress', 3], ['ambush', 2], ['anomaly', 1]],
     frontier: [['derelict', 2], ['distress', 1], ['ambush', 4], ['anomaly', 3]],
   };
@@ -581,14 +587,64 @@ const Galaxy = (() => {
       f.operatesIn = shuffle([...majorIds, ...minorIds]).slice(0, randInt(3, 6));
     }
 
-    // ---------- Deep space ----------
+    // ---------- Routes: the fast-travel network (every route gets a gate at each end) ----------
+    const routes = [
+      ...lanes.map((l) => ({ a: l.a, b: l.b, kind: 'lane' })),
+      ...gates.map((g) => ({ a: g.a, b: g.b, kind: g.hidden ? 'hidden' : 'gate' })),
+    ].map((r, link) => ({ ...r, link }));
+
+    // ---------- Pockets: small charted, safe bubbles around settlements ----------
+    const PK = P.pockets;
+    const pockets = [];
+    for (const s of systems) {
+      const f = s.faction === null ? null : factions[s.faction];
+      const r = s.freeport ? PK.freeport
+        : !f ? PK.independent
+          : s.capital && f.main ? PK.mainCapital
+            : s.capital ? (f.kind === 'major' ? PK.capital : PK.minorCapital)
+              : f.kind === 'major' ? PK.major : PK.minor;
+      pockets.push({ kind: 'system', id: s.id, name: s.name, faction: s.faction, x: s.x + 0.5, y: s.y + 0.5, r });
+      s.pocket = r;
+    }
+    for (const o of outposts) {
+      pockets.push({ kind: 'outpost', id: o.id, name: o.name, faction: o.faction, x: o.x + 0.5, y: o.y + 0.5, r: PK.outpost });
+      o.pocket = PK.outpost;
+    }
+    // Pockets touching each sector, for quick lookups.
+    const pocketCells = new Map();
+    for (const pk of pockets) {
+      for (let y = Math.floor(pk.y - pk.r); y <= Math.floor(pk.y + pk.r); y++) {
+        for (let x = Math.floor(pk.x - pk.r); x <= Math.floor(pk.x + pk.r); x++) {
+          if (x < 0 || y < 0 || x >= size || y >= size) continue;
+          const k = idx(x, y);
+          if (!pocketCells.has(k)) pocketCells.set(k, []);
+          pocketCells.get(k).push(pk);
+        }
+      }
+    }
+    const clampInt = (v) => Math.max(0, Math.min(size - 1, v));
+    // The pocket containing a point in fractional sector coordinates (the most central one if
+    // pockets overlap), or null.
+    function pocketAt(fx, fy) {
+      const list = pocketCells.get(idx(clampInt(Math.floor(fx)), clampInt(Math.floor(fy))));
+      let best = null;
+      for (const pk of list || []) {
+        const d = Math.hypot(fx - pk.x, fy - pk.y);
+        if (d <= pk.r && (!best || d / pk.r < best.d / best.r)) best = { ...pk, d };
+      }
+      return best;
+    }
+    const zoneOf = (x, y) => (pocketAt(x + 0.5, y + 0.5) ? 'pocket' : ownerAt(x, y) >= 0 ? 'claimed' : inner(x, y) ? 'deep' : 'frontier');
+
+    // ---------- Deep space: contacts anywhere outside the pockets ----------
     const story = (overrides.storyPois || []).map((p) => ({ ...p, type: 'story', hostile: false }));
     function deepSector(x, y) {
-      if (x < 0 || y < 0 || x >= size || y >= size || ownerAt(x, y) >= 0) return null;
+      if (x < 0 || y < 0 || x >= size || y >= size) return null;
+      const zone = zoneOf(x, y);
+      if (zone === 'pocket') return null;
       const s = story.find((p) => p.x === x && p.y === y);
       if (s) return s;
       if (occupied.has(idx(x, y))) return null;
-      const zone = inner(x, y) ? 'deep' : 'frontier';
       if (hashInt(x, y, seedInt) / 4294967296 >= P.encounterChance[zone]) return null;
       let table = ENCOUNTERS[zone];
       // Freeports keep their neighbourhood safe.
@@ -606,7 +662,8 @@ const Galaxy = (() => {
       const r = rival[idx(x, y)];
       return {
         x, y,
-        zone: o >= 0 ? 'known' : inner(x, y) ? 'deep' : 'frontier',
+        zone: zoneOf(x, y),
+        pocket: pocketAt(x + 0.5, y + 0.5),
         owner: o >= 0 ? o : null,
         contestedBy: r >= 0 ? r : null,
         dominance: o >= 0 ? pres.find((p) => p.faction === o).share : 0,
@@ -616,9 +673,9 @@ const Galaxy = (() => {
 
     return {
       seed, size, sectorUnits: P.sectorUnits, frontier: F, centre,
-      factions, systems, outposts, lanes, gates,
+      factions, systems, outposts, lanes, gates, routes, pockets,
       startSystem: 0,
-      territoryOf, deepSector,
+      territoryOf, deepSector, pocketAt,
       inFrontier: (x, y) => !inner(x, y),
     };
   }
