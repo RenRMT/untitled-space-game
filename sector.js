@@ -10,8 +10,9 @@
 // - outposts: a minor station; salvage yards collect wrecks,
 // - traffic, only inside charted pockets: fighters patrol and freighters run to the gates; owners
 //   are picked by the sector's faction presence. Claimed space outside pockets sees the odd border
-//   patrol. Pirate bands lurk by the sector's security (security.js): more, larger and better
-//   armed the more lawless the sector,
+//   patrol. Pirates lurk in packs by the sector's security (security.js): lone ones in safe
+//   space, more, larger and better-armed packs the more lawless the sector, each pack far enough
+//   from the others to be fought on its own,
 // - deep-space contacts: derelicts, distress calls, ambushes, anomalies and story points,
 // - contested sectors: debris from border skirmishes,
 // - asteroids: belts in some systems, a field around each mining camp, the odd field in deep space;
@@ -270,9 +271,10 @@ const Sectors = (() => {
           spoils(wreck('wreck-ship', cultures.of(fid), wx, wy));
           scatter(stranded, 2 + Math.floor(ra() * 2), TRADE_KINDS); // jettisoned cargo
         } else if (contact.type === 'ambush') {
-          // A pirate band one ship larger than the sector's usual (security.js).
-          const band = Security.pirates(territory.security), n = between(band.size) + 1, tier = between(band.tier);
-          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier });
+          // One pack, as big as the sector's biggest or one larger (security.js).
+          const P = Security.pirates(territory.security), tier = Security.pick(r, P.tier);
+          const n = Math.max(...P.size.map(([s]) => s)) + Math.floor(r() * 2);
+          for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 250 + r() * 300, 160 + r() * 60), { tier, pack: 0 });
           scatter(wreck('wreck-ship', randomCulture(), x, y), 2 + Math.floor(ra() * 2), TRADE_KINDS); // the victim's cargo
         } else if (contact.type === 'anomaly') {
           const body = { r: 110 + r() * 60, type: r() < 0.5 ? 'lava' : 'ice', ring: r() < 0.5, ringTilt: (r() - 0.5) * 1.2, seed: nextSeed() % 9973 };
@@ -321,14 +323,32 @@ const Sectors = (() => {
         const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
         for (let i = 0; i < 2; i++) ship('fighter', territory.owner, orbit(x, y, 300 + r() * 200, 170));
       }
-      // A pirate band, by the sector's security (security.js): rare, small and lightly armed in the
-      // charted pockets; common, large and well armed in lawless space. Never right next to a
-      // Waystation (galaxy.nearWaystation), which hostile contacts avoid too. tier: their gear.
-      const band = Security.pirates(territory.security);
-      if (!contact && r() < band.chance && !galaxy.nearWaystation(sx, sy)) {
-        const [x, y] = [C + (r() - 0.5) * 3000 * S, C + (r() - 0.5) * 3000 * S];
-        const n = between(band.size), tier = between(band.tier);
-        for (let i = 0; i < n; i++) ship('fighter', pirates.id, orbit(x, y, 300 + r() * 250, 160 + r() * 30), { tier });
+      // Pirates, by the sector's security (security.js): a few packs spread over the sector, far
+      // enough apart that attacking one never draws in another, and clear of stations, gates and
+      // the star. Lone, lightly armed pirates in safe space; larger, better-armed packs in lawless
+      // space. Never right next to a Waystation (galaxy.nearWaystation), which hostile contacts
+      // avoid too. tier: their gear; pack: which pack a ship belongs to.
+      const P = Security.pirates(territory.security);
+      if (!contact && r() < P.chance && !galaxy.nearWaystation(sx, sy)) {
+        const { spacing, orbit: [o0, o1], clear, margin } = Security.PACK;
+        const keepClear = sec.entities.filter((e) => e.kind === 'station' || e.kind === 'gate' || e.kind === 'star');
+        const centres = [];
+        // A spot for a pack's centre (sector coordinates), or null when the sector is too crowded.
+        const packSpot = () => {
+          for (let tries = 0; tries < 40; tries++) {
+            const x = margin + o1 + r() * (units - 2 * (margin + o1)), y = margin + o1 + r() * (units - 2 * (margin + o1));
+            if (centres.every(([cx, cy]) => Math.hypot(cx - x, cy - y) >= spacing)
+              && keepClear.every((e) => Math.hypot(e.x - ox - x, e.y - oy - y) >= e.radius + clear + o1)) return [x, y];
+          }
+          return null;
+        };
+        for (let i = 0, n = between(P.packs); i < n; i++) {
+          const at = packSpot();
+          if (!at) break;
+          centres.push(at);
+          const size = Security.pick(r, P.size), tier = Security.pick(r, P.tier);
+          for (let k = 0; k < size; k++) ship('fighter', pirates.id, orbit(at[0], at[1], o0 + r() * (o1 - o0), 160 + r() * 30), { tier, pack: i });
+        }
       }
       // Border skirmish debris.
       if (territory.contestedBy !== null && r() < 0.5) {

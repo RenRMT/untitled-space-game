@@ -792,30 +792,60 @@ test('security falls from the charted pockets to the frontier, and sets how dang
   assert(by.frontier.filter((v) => v === 0).length / by.frontier.length > 0.9, 'the frontier is mostly lawless');
   for (let level = 0; level < 3; level++) {
     const lo = Security.pirates(level), hi = Security.pirates(level + 1);
-    assert(lo.chance > hi.chance && lo.size[1] >= hi.size[1] && lo.tier[0] >= hi.tier[0], `pirates at ${level} vs ${level + 1}`);
+    const max = (t) => Math.max(...t.map(([v]) => v)), min = (t) => Math.min(...t.map(([v]) => v));
+    assert(lo.chance > hi.chance && max(lo.size) >= max(hi.size) && min(lo.tier) >= min(hi.tier), `pirates at ${level} vs ${level + 1}`);
     assert(Security.lootTier(level) > Security.lootTier(level + 1));
   }
 });
 
-test('pirate bands in generated sectors follow the security level', () => {
+test('pirates come in packs that follow the security level and can be fought one at a time', () => {
   const g = galaxies.get(1);
   const S = Sectors.create(g, ArtCulture.forGalaxy(g), g.sectorUnits);
   const pirates = g.factions.find((f) => f.key === 'pirates').id;
-  const bands = [[], [], [], []]; // pirates per sector, by level, where there are any
+  const packs = [[], [], [], []]; // pack sizes, by security level
+  const perSector = [[], [], [], []]; // pirates per sector that has any, by level
+  const { orbit: [, o1] } = Security.PACK;
   for (let y = 0; y < g.size; y += 2) {
     for (let x = 0; x < g.size; x += 2) {
       const sec = S.at(x, y);
+      if (sec.contact) continue; // an ambush is one pack on purpose
       const ps = sec.entities.filter((e) => e.kind === 'ship' && e.faction === pirates);
       if (!ps.length) continue;
-      const level = sec.territory.security, band = Security.pirates(level);
-      assert(!g.nearWaystation(x, y) || sec.contact, `pirates next to a Waystation at ${x},${y}`);
-      for (const p of ps) assert(p.tier >= band.tier[0] && p.tier <= band.tier[1], `tier ${p.tier} at security ${level}`);
-      bands[level].push(ps.length);
+      const level = sec.territory.security, P = Security.pirates(level);
+      assert(!g.nearWaystation(x, y), `pirates next to a Waystation at ${x},${y}`);
+      const byPack = new Map();
+      for (const p of ps) {
+        assert(P.tier.some(([t]) => t === p.tier), `tier ${p.tier} at security ${level}`);
+        (byPack.get(p.pack) || byPack.set(p.pack, []).get(p.pack)).push(p);
+      }
+      for (const pack of byPack.values()) {
+        assert(new Set(pack.map((p) => p.tier)).size === 1, 'a pack shares its gear');
+        packs[level].push(pack.length);
+      }
+      perSector[level].push(ps.length);
+      // However they circle, members of different packs never come within groupRange of each other,
+      // and no pack comes near a station, gate or star.
+      const centre = (p) => [p.motion.cx, p.motion.cy];
+      for (const a of ps) {
+        for (const b of ps) {
+          if (a.pack === b.pack) continue;
+          const [ax, ay] = centre(a), [bx, by] = centre(b);
+          assert(Math.hypot(ax - bx, ay - by) - a.motion.r - b.motion.r > CombatCore.config.groupRange, `packs ${a.pack} and ${b.pack} at ${x},${y} too close`);
+        }
+        for (const e of sec.entities.filter((q) => q.kind === 'station' || q.kind === 'gate' || q.kind === 'star')) {
+          const [ax, ay] = centre(a);
+          assert(Math.hypot(ax - e.x, ay - e.y) - a.motion.r - e.radius >= Security.PACK.clear, `a pack by a ${e.kind} at ${x},${y}`);
+        }
+      }
     }
   }
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
-  assert(bands[0].length > 50 && bands[3].length < bands[0].length / 5, `bands per level: ${bands.map((b) => b.length)}`);
-  assert(mean(bands[0]) > mean(bands[2]), `band sizes: ${bands.map((b) => (b.length ? mean(b).toFixed(1) : '-'))}`);
+  const share = (a, n) => a.filter((v) => v === n).length / a.length;
+  assert(perSector[0].length > 50 && perSector[3].length < perSector[0].length / 3, `sectors with pirates per level: ${perSector.map((b) => b.length)}`);
+  assert(mean(packs[0]) > mean(packs[1]) && mean(packs[1]) > mean(packs[2]), `pack sizes: ${packs.map((b) => (b.length ? mean(b).toFixed(1) : '-'))}`);
+  assert(share(packs[2], 1) > 0.6 && share(packs[3], 1) === 1, 'safe space has mostly lone pirates');
+  assert(mean(perSector[2]) >= 2.5, `medium-security sectors with pirates hold ${mean(perSector[2]).toFixed(1)} on average`);
+  assert(Security.PACK.spacing > CombatCore.config.groupRange + 2 * o1, 'pack spacing keeps packs out of each other\'s fights');
 });
 
 test('equipment lines run Mk I–V and each Mk is better than the last', () => {

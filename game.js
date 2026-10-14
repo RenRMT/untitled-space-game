@@ -945,8 +945,11 @@ function describe(e) {
   const card = KINDS[e.kind].card(e, world.galaxy);
   const states = actions.of(e).map((a) => [a, actions.state(a, e)]);
   const inRange = states.length > 0 && states.every(([, s]) => s.inRange);
+  // A pirate's card says how many would fight with it, so a pack can be told from a lone ship.
+  const n = isHostile(e) ? packOf(e).length : 0;
+  const pack = n ? ` · ${n === 1 ? 'alone' : `pack of ${n}`}` : '';
   return {
-    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color, tag: card.tag || '', tone: card.tone || '',
+    title: card.title, subtitle: `${card.sub}${pack} · ${fmtDist(gapTo(e))}`, color: card.color, tag: card.tag || '', tone: card.tone || '',
     actions: [...states.map(([a, s]) => primary(a.id, s)), ...approachActions(e, inRange)],
   };
 }
@@ -1095,12 +1098,16 @@ function enemySpec(e, name) {
   return { id: e.key, name, stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.radius } };
 }
 
+// The pirates that fight together with this one: it and every pirate within groupRange of it.
+function packOf(target) {
+  return [target, ...frameList.filter((e) => isHostile(e) && e !== target && !cargo.removed.has(e.key)
+    && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange)];
+}
+
 function engage(target, ambushed = false) {
   if (inFight() || docked || !isHostile(target)) return;
   if (!ambushed && !actions.state('attack', target).ok) return;
-  const group = frameList.filter((e) => isHostile(e) && e !== target
-    && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange);
-  group.unshift(target);
+  const group = packOf(target);
   const names = group.map((e, i) => shipName(e, i, group.length));
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
   fight.mode = combatMode.value;

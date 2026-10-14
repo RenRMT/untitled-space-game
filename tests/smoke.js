@@ -345,8 +345,13 @@ function meetPirate() {
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
   game(`cargo.hull = SHIP.hull; fight.grace = 1e9; { const a = Math.atan2(__pirate.y, __pirate.x); placeShip(__pirate.x + Math.cos(a) * (800 + __pirate.radius), __pirate.y + Math.sin(a) * (800 + __pirate.radius)); }`);
   browser.frames(1);
+  // Its card says how many would fight with it, and that's who the fight takes on.
+  const sub = game('describe(frameList.find((x) => x.key === __pirate.key)).subtitle');
+  const m = sub.match(/· (alone|pack of (\d+)) ·/);
+  assert.ok(m, `the card shows the pack: ${sub}`);
   game(`fight.grace = 0; { const e = frameList.find((x) => x.key === __pirate.key); engage(e); }`);
   assert.ok(game('!!fight.s'), 'the fight starts');
+  assert.strictEqual(game('fight.s.enemies.length'), m[2] ? Number(m[2]) : 1, 'the whole pack, and only the pack, fights');
 }
 
 test('fights in rounds to the end', () => {
