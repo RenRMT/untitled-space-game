@@ -64,6 +64,15 @@
     pointer-events: none;
   }
   #map-info[hidden] { display: none; }
+  #map-overlay [hidden] { display: none !important; }
+  #map-travel-status { color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #map-prompt {
+    position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
+    width: min(320px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px;
+    background: var(--panel); border: 1px solid var(--cyan); border-radius: 3px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  #map-prompt .actions { display: flex; gap: 8px; justify-content: flex-end; }
   #map-info .head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
   #map-info .swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.2); }
   #map-info .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
@@ -92,11 +101,22 @@
   <div id="map-info" hidden></div>
   <div class="bar bottom">
     <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
-    <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Show hidden routes">Hidden</button>
-    <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Show deep-space contacts">Contacts</button>
+    <button id="map-hidden" class="btn" type="button" aria-pressed="false" title="Testing: show hidden routes" hidden>Hidden</button>
+    <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
+    <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>
-    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected sector">Jump</button>
+    <button id="map-fast" class="btn" type="button" aria-pressed="false" title="Fast-forward the trip" hidden>×4</button>
+    <button id="map-stop" class="btn" type="button" title="Drop out of cruise here" hidden>Stop</button>
+    <button id="map-travel" class="btn" type="button" disabled title="Plot a course to the selected place">Travel</button>
+    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected sector" hidden>Jump</button>
     <button id="map-reset" class="btn" type="button">Reset view</button>
+  </div>
+  <div id="map-prompt" hidden>
+    <span id="map-prompt-text"></span>
+    <div class="actions">
+      <button id="map-ignore" class="btn" type="button">Ignore</button>
+      <button id="map-investigate" class="btn" type="button">Investigate</button>
+    </div>
   </div>
 </div>
 
@@ -107,8 +127,11 @@
 <script src="art/util.js"></script>
 <script src="art/culture.js"></script>
 <script src="art/blueprints.js"></script>
+<script src="art/items.js"></script>
 <script src="art/render.js"></script>
 <script src="sector.js"></script>
+<script src="knowledge.js"></script>
+<script src="travel.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 'use strict';
 
-// Draws art/blueprints.js blueprints, planets and stars in four styles:
+// Draws art/blueprints.js blueprints, planets, stars and asteroids in four styles:
 //   line    – the game's original neon line art on the dark background,
 //   pixel   – rasterised on a coarse texel grid with Bayer-dithered bevel shading and outlines,
 //   flat    – solid fills with one flat rim shadow and highlight per part,
@@ -1139,9 +1139,297 @@ const Art = (() => {
     ctx.restore();
   }
 
+  // ---------- Asteroids ----------
+  // A seeded lumpy, cratered icosphere shared by all styles, so silhouettes match. Asteroids tumble
+  // about a per-seed axis; `spin` is quantised into rotation buckets and lighting stays world-fixed.
+  // Object: { type, r, seed, elong?, lump?, craters? }. r is the bounding radius in world units.
+
+  const ASTEROIDS = {
+    stony: { label: 'Stony', c: ['#8a7866', '#665648', '#b29d84'], line: '#e0b98a' },
+    carbon: { label: 'Carbonaceous', c: ['#4b4a52', '#38363d', '#6c6a74'], line: '#a9b0c2' },
+    metal: { label: 'Metallic', c: ['#8e959e', '#80634f', '#c3cad2'], line: '#cfe0f0', shine: true },
+    ice: { label: 'Icy', c: ['#9fc2da', '#7598b6', '#eef7fc'], line: '#bff0ff', shine: true },
+  };
+  const ASTEROID_BUCKETS = 48;
+  // Own LRU so a busy field doesn't evict ship sprites, plus a per-frame build budget: when it is
+  // spent, an asteroid reuses its last sprite until the next frame.
+  const astCache = new Map();
+  let astBudget = { t: -1, n: 0 };
+  config.maxAsteroidSprites = 3000;
+  config.asteroidBuildsPerFrame = 6;
+
+  function axisMat([x, y, z], a) {
+    const c = Math.cos(a), s = Math.sin(a), t = 1 - c;
+    return [t * x * x + c, t * x * y - s * z, t * x * z + s * y, t * x * y + s * z, t * y * y + c, t * y * z - s * x, t * x * z - s * y, t * y * z + s * x, t * z * z + c];
+  }
+  const mulMat = (A, B) => { const o = []; for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o.push(A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j]); return o; };
+  const apply = (M, v) => [M[0] * v[0] + M[1] * v[1] + M[2] * v[2], M[3] * v[0] + M[4] * v[1] + M[5] * v[2], M[6] * v[0] + M[7] * v[1] + M[8] * v[2]];
+
+  function asteroidShape(ast) {
+    if (ast._astS) return ast._astS;
+    const seed = (ast.seed || 1) >>> 0, rnd = mulberry(seed * 7 + 3), s = seed % 9973;
+    const el = ast.elong ?? 0.12 + rnd() * 0.4;
+    const sc = [1 + el, 1 - el * 0.25, 1 - el * 0.4];
+    const lump = ast.lump ?? 0.2 + rnd() * 0.16;
+    const nC = ast.craters ?? 2 + Math.floor(rnd() * 4);
+    const craters = Array.from({ length: nC }, () => ({ d: norm([rnd() - 0.5, rnd() - 0.5, rnd() - 0.5]), a: 0.26 + rnd() * 0.3, depth: 0.09 + rnd() * 0.09 }));
+    const off = [rnd() * 50, rnd() * 50, rnd() * 50];
+    const disp = (p) => {
+      let h = 1 + (fbm(p[0] * 1.5 + off[0], p[1] * 1.5 + off[1], p[2] * 1.5 + off[2], s) - 0.5) * lump * 2.4
+        + (noise3(p[0] * 5 + off[1], p[1] * 5 + off[2], p[2] * 5 + off[0], s + 3) - 0.5) * 0.08;
+      let cr = 0;
+      for (const c of craters) {
+        const t = Math.acos(clamp(dot(p, c.d), -1, 1)) / c.a;
+        if (t < 1) { h -= c.depth * (1 - t * t); cr = Math.max(cr, 1 - t); }
+        else if (t < 1.35) h += c.depth * 0.3 * (1 - (t - 1) / 0.35);
+      }
+      const pat = clamp((fbm(p[0] * 2.2 + off[2], p[1] * 2.2 + off[0], p[2] * 2.2 + off[1], s + 9) - 0.46) * 4 + 0.5, 0, 1);
+      return { q: [p[0] * h * sc[0], p[1] * h * sc[1], p[2] * h * sc[2]], cr: Math.min(1, cr * 1.8), pat };
+    };
+    // Normalise so the bounding radius is 1.
+    const { v } = icosphere(2);
+    const R = Math.max(...v.map((p) => Math.hypot(...disp(p).q)));
+    for (const c of craters) {
+      const q = disp(c.d).q.map((x) => x / R);
+      c.pos = q;
+      c.n = norm([c.d[0] / sc[0], c.d[1] / sc[1], c.d[2] / sc[2]]);
+      c.rad = Math.sin(c.a) * Math.hypot(...q) * 0.92;
+    }
+    const fr = mulberry(seed * 13 + 5);
+    const M0 = axisMat(norm([fr() - 0.5, fr() - 0.5, fr() - 0.5]), fr() * TAU);
+    const axis = norm([fr() - 0.5, fr() - 0.5, fr() - 0.5]);
+    ast._astS = { disp, R, craters, M0, axis };
+    return ast._astS;
+  }
+
+  function asteroidModel(ast, sub) {
+    ast._astM = ast._astM || {};
+    if (ast._astM[sub]) return ast._astM[sub];
+    const S = asteroidShape(ast);
+    const { v, f } = icosphere(sub);
+    const D = v.map(S.disp);
+    const V = D.map((d) => d.q.map((x) => x / S.R));
+    const N = V.map(() => [0, 0, 0]);
+    for (const [a, b, c] of f) {
+      const n = cross(sub3(V[b], V[a]), sub3(V[c], V[a]));
+      for (const i of [a, b, c]) for (let k = 0; k < 3; k++) N[i][k] += n[k];
+    }
+    N.forEach((n, i) => { const m = norm(n); N[i] = dot(m, v[i]) < 0 ? m.map((x) => -x) : m; });
+    ast._astM[sub] = { V, N, f, cr: D.map((d) => d.cr), pat: D.map((d) => d.pat) };
+    return ast._astM[sub];
+  }
+  const sub3 = sub;
+  const astMat = (ast, a) => { const S = asteroidShape(ast); return mulMat(axisMat(S.axis, a), S.M0); };
+  const astPal = (ast) => ASTEROIDS[ast.type] || ASTEROIDS.stony;
+  const astMatColor = (P, pat, cr) => (cr > 0.5 ? P.c[2] : pat > 0.5 ? P.c[1] : P.c[0]);
+
+  // Star-shaped outline of the projected mesh: furthest edge crossing along 72 rays from the centre.
+  function astSilhouette(P2, f, n = 72) {
+    const seen = new Set(), E = [];
+    for (const [a, b, c] of f) for (const [i, j] of [[a, b], [b, c], [c, a]]) {
+      const k = i < j ? i * 4096 + j : j * 4096 + i;
+      if (!seen.has(k)) { seen.add(k); E.push([P2[i], P2[j]]); }
+    }
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i / n) * TAU, dx = Math.cos(t), dy = Math.sin(t);
+      let best = 0;
+      for (const [A, B] of E) {
+        const ex = B[0] - A[0], ey = B[1] - A[1], den = dx * ey - dy * ex;
+        if (Math.abs(den) < 1e-12) continue;
+        const u = (A[0] * dy - A[1] * dx) / den;
+        if (u < 0 || u > 1) continue;
+        const d = (A[0] * ey - A[1] * ex) / den;
+        if (d > best) best = d;
+      }
+      out.push([dx * best, dy * best]);
+    }
+    return out;
+  }
+  const pathOf = (pts, dx = 0, dy = 0) => { const p = new Path2D(); pts.forEach(([x, y], i) => (i ? p.lineTo(x + dx, y + dy) : p.moveTo(x + dx, y + dy))); p.closePath(); return p; };
+
+  // Visible craters in screen space: centre, radii and major-axis angle of the projected rim.
+  function astCraters(ast, M) {
+    const out = [];
+    for (const c of asteroidShape(ast).craters) {
+      const n = apply(M, c.n), p = apply(M, c.pos);
+      if (n[2] < 0.18) continue;
+      out.push({ x: p[0] * ast.r, y: p[1] * ast.r, rx: c.rad * ast.r, ry: c.rad * ast.r * n[2], rot: Math.atan2(n[1], n[0]) + Math.PI / 2, nz: n[2] });
+    }
+    return out;
+  }
+
+  function asteroidLine(ctx, ast, M, k) {
+    const P = astPal(ast), md = asteroidModel(ast, 2), r = ast.r;
+    const sil = U.chaikin(astSilhouette(md.V.map((q) => { const w = apply(M, q); return [w[0] * r, w[1] * r]; }), md.f), 1);
+    const dpr = dprOf(), lw = Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k;
+    const path = pathOf(sil);
+    ctx.lineJoin = 'round';
+    ctx.fillStyle = config.bg;
+    ctx.fill(path);
+    ctx.strokeStyle = P.line;
+    ctx.lineWidth = lw;
+    ctx.stroke(path);
+    ctx.save();
+    ctx.clip(path);
+    ctx.lineWidth = lw * 0.7;
+    for (const c of astCraters(ast, M)) {
+      ctx.globalAlpha = 0.25 + 0.4 * c.nz;
+      ctx.beginPath(); ctx.ellipse(c.x, c.y, c.rx, c.ry, c.rot, 0, TAU); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function asteroidFlat(ctx, ast, M) {
+    const P = astPal(ast), md = asteroidModel(ast, 2), r = ast.r;
+    const W = md.V.map((q) => apply(M, q).map((x) => x * r));
+    const sil = U.chaikin(astSilhouette(W, md.f), 1);
+    const path = pathOf(sil);
+    const [lx, ly] = [LIGHT[0], LIGHT[1]].map((v) => v / Math.hypot(LIGHT[0], LIGHT[1]));
+    ctx.fillStyle = P.c[0];
+    ctx.fill(path);
+    ctx.save();
+    ctx.clip(path);
+    // Patches: front faces of the patch material, filled flat.
+    ctx.fillStyle = ctx.strokeStyle = P.c[1];
+    ctx.lineWidth = r * 0.02;
+    ctx.lineJoin = 'round';
+    for (const [a, b, c] of md.f) {
+      if ((md.pat[a] + md.pat[b] + md.pat[c]) / 3 < 0.5) continue;
+      const n = cross(sub(W[b], W[a]), sub(W[c], W[a]));
+      const ce = [0, 1, 2].map((i) => W[a][i] + W[b][i] + W[c][i]);
+      if (dot(n, ce) < 0 ? n[2] > 0 : n[2] < 0) continue;
+      ctx.beginPath(); ctx.moveTo(W[a][0], W[a][1]); ctx.lineTo(W[b][0], W[b][1]); ctx.lineTo(W[c][0], W[c][1]); ctx.closePath();
+      ctx.fill(); ctx.stroke();
+    }
+    // Craters: dark bowl with the far wall lit, leaving a shadow crescent toward the light.
+    for (const c of astCraters(ast, M)) {
+      const el = new Path2D(); el.ellipse(c.x, c.y, c.rx, c.ry, c.rot, 0, TAU);
+      ctx.fillStyle = U.shade(P.c[0], 0.62);
+      ctx.fill(el);
+      ctx.save();
+      ctx.clip(el);
+      ctx.beginPath(); ctx.ellipse(c.x - lx * c.rx * 0.32, c.y - ly * c.rx * 0.32, c.rx, c.ry, c.rot, 0, TAU);
+      ctx.fillStyle = U.mix(P.c[0], P.c[2], 0.55);
+      ctx.fill();
+      ctx.restore();
+    }
+    const big = new Path2D();
+    big.rect(-r * 2, -r * 2, r * 4, r * 4);
+    const shadow = new Path2D(big); shadow.addPath(pathOf(sil, lx * r * 0.3, ly * r * 0.3));
+    ctx.fillStyle = 'rgba(5, 8, 25, 0.48)';
+    ctx.fill(shadow, 'evenodd');
+    const hi = new Path2D(big); hi.addPath(pathOf(sil, -lx * r * 0.07, -ly * r * 0.07));
+    ctx.fillStyle = U.rgba('#ffffff', P.shine ? 0.26 : 0.14);
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fill(hi, 'evenodd');
+    ctx.restore();
+  }
+
+  function asteroidPixel(ast, M, texel) {
+    const P = astPal(ast), md = asteroidModel(ast, 2), r = ast.r;
+    const N = Math.ceil((r * 2) / texel) + 4, C = N / 2;
+    const buf = pxBuffer(N);
+    const zb = new Float32Array(N * N).fill(-Infinity), nb = new Float32Array(N * N * 3), wb = new Float32Array(N * N * 2);
+    const W = md.V.map((q) => apply(M, q)), Nn = md.N.map((q) => apply(M, q));
+    const S = W.map((q) => [(q[0] * r) / texel + C, (q[1] * r) / texel + C, q[2]]);
+    for (const [a, b, c] of md.f) {
+      const A = S[a], B = S[b], Cc = S[c];
+      const area = cross2(A, B, Cc);
+      if (Math.abs(area) < 1e-9) continue;
+      const x0 = Math.max(0, Math.floor(Math.min(A[0], B[0], Cc[0]))), x1 = Math.min(N - 1, Math.ceil(Math.max(A[0], B[0], Cc[0])));
+      const y0 = Math.max(0, Math.floor(Math.min(A[1], B[1], Cc[1]))), y1 = Math.min(N - 1, Math.ceil(Math.max(A[1], B[1], Cc[1])));
+      for (let py = y0; py <= y1; py++) for (let px = x0; px <= x1; px++) {
+        const q = [px + 0.5, py + 0.5];
+        const wa = cross2(q, B, Cc) / area, wbb = cross2(A, q, Cc) / area, wc = 1 - wa - wbb;
+        if (wa < -1e-6 || wbb < -1e-6 || wc < -1e-6) continue;
+        const z = wa * A[2] + wbb * B[2] + wc * Cc[2], i = py * N + px;
+        if (z <= zb[i]) continue;
+        zb[i] = z;
+        for (let k = 0; k < 3; k++) nb[i * 3 + k] = wa * Nn[a][k] + wbb * Nn[b][k] + wc * Nn[c][k];
+        wb[i * 2] = wa * md.pat[a] + wbb * md.pat[b] + wc * md.pat[c];
+        wb[i * 2 + 1] = wa * md.cr[a] + wbb * md.cr[b] + wc * md.cr[c];
+      }
+    }
+    const ramps = P.c.map(ramp);
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      const i = y * N + x;
+      if (zb[i] === -Infinity) continue;
+      const n = norm([nb[i * 3], nb[i * 3 + 1], nb[i * 3 + 2]]), bay = BAYER[y & 3][x & 3];
+      const lit = dot(n, LIGHT);
+      let lv = level(lit, bay);
+      if (lv === 3 && !P.shine && lit < 0.93) lv = 2;
+      const m = wb[i * 2 + 1] + (bay - 0.5) * 0.5 > 0.5 ? 2 : wb[i * 2] + (bay - 0.5) * 0.4 > 0.5 ? 1 : 0;
+      buf.set(x, y, ramps[m][lv]);
+    }
+    const out = U.hexToRgb(config.outline), rim = [];
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      if (!buf.has(x, y) && (buf.has(x + 1, y) || buf.has(x - 1, y) || buf.has(x, y + 1) || buf.has(x, y - 1))) rim.push([x, y]);
+    }
+    for (const [x, y] of rim) buf.set(x, y, out);
+    return { canvas: buf.done(), half: (N * texel) / 2, smooth: false };
+  }
+
+  function asteroidLow(ctx, ast, M) {
+    const P = astPal(ast), md = asteroidModel(ast, ast.r >= 28 ? 2 : 1), r = ast.r;
+    const W = md.V.map((q) => apply(M, q).map((x) => x * r));
+    const tris = md.f.map(([a, b, c], i) => {
+      const ce = [0, 1, 2].map((k) => (W[a][k] + W[b][k] + W[c][k]) / 3);
+      const col = astMatColor(P, (md.pat[a] + md.pat[b] + md.pat[c]) / 3, (md.cr[a] + md.cr[b] + md.cr[c]) / 3);
+      const jit = 0.93 + 0.14 * (((Math.sin(i * 12.9898 + (ast.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1);
+      return { p: [W[a], W[b], W[c]], hint: ce, col, jit };
+    });
+    drawTris(ctx, tris, 0, (q) => [q[0], q[1], q[2]], [0, 0, 1], 0.6 / Math.hypot(ctx.getTransform().a, ctx.getTransform().b));
+  }
+
+  // Draw an asteroid. ctx must already map world units; options: x, y, spin (tumble angle), texel.
+  function drawAsteroid(ctx, ast, style, o = {}) {
+    const { x = 0, y = 0, spin = 0 } = o;
+    const m = ctx.getTransform();
+    const ppu = quant(Math.hypot(m.a, m.b));
+    const texel = o.texel || config.texel;
+    const nb = ASTEROID_BUCKETS, bi = ((Math.round((spin / TAU) * nb) % nb) + nb) % nb;
+    const ext = ast.r * 1.06 + (style === 'line' ? 3 / Math.max(ppu, 0.1) : 0);
+    const key = `${idOf(ast)}|${style}|${bi}|${ppu}|${style === 'pixel' ? texel : 0}`;
+    let spr = astCache.get(key);
+    const now = Math.floor((typeof performance !== 'undefined' ? performance.now() : Date.now()) / 12);
+    if (astBudget.t !== now) astBudget = { t: now, n: 0 };
+    const last = ast._astLast && ast._astLast.style === style && ast._astLast.ppu === ppu ? ast._astLast.spr : null;
+    if (spr) { astCache.delete(key); astCache.set(key, spr); }
+    else if (last && !o.force && astBudget.n >= config.asteroidBuildsPerFrame) spr = last;
+    else {
+      astBudget.n++;
+      spr = buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext);
+      astCache.set(key, spr);
+      while (astCache.size > config.maxAsteroidSprites) astCache.delete(astCache.keys().next().value);
+    }
+    ast._astLast = { style, ppu, spr };
+    ctx.save();
+    ctx.imageSmoothingEnabled = spr.smooth;
+    ctx.drawImage(spr.canvas, x - spr.half, y - spr.half, spr.half * 2, spr.half * 2);
+    ctx.restore();
+  }
+
+  function buildAsteroidSprite(ast, style, bi, nb, ppu, texel, ext) {
+    {
+      const M = astMat(ast, (bi / nb) * TAU);
+      if (style === 'pixel') return asteroidPixel(ast, M, texel);
+      const S = Math.min(Math.ceil(ext * 2 * ppu), config.maxSprite);
+      const k = S / (ext * 2);
+      const cv = canvas(S, S);
+      const c = cv.getContext('2d');
+      c.setTransform(k, 0, 0, k, S / 2, S / 2);
+      if (style === 'line') asteroidLine(c, ast, M, k);
+      else if (style === 'flat') asteroidFlat(c, ast, M);
+      else asteroidLow(c, ast, M);
+      return { canvas: cv, half: ext, smooth: true };
+    }
+  }
+
   return {
     STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
-    drawAsset, drawPlanet, drawStar,
-    clearCache: () => cache.clear(),
+    ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
+    drawAsset, drawPlanet, drawStar, drawAsteroid,
+    clearCache: () => { cache.clear(); astCache.clear(); },
   };
 })();
