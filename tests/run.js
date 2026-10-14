@@ -28,7 +28,8 @@ load('travel.js', ['Travel']);
 load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
-const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, GALAXY_CONFIG } = ctx;
+load('loadout.js', ['Loadout']);
+const { Galaxy, Sectors, ArtCulture, Travel, Knowledge, Economy, Mining, Loadout, GALAXY_CONFIG } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -252,6 +253,72 @@ test('the mining target is the nearest unmined asteroid in range', () => {
   assert.strictEqual(Mining.targetIn(list, 0, 0, new Set(['near'])), far);
   assert.strictEqual(Mining.targetIn([out], 0, 0), null);
   assert.strictEqual(Mining.targetIn([rock('edge', R + 20)], 0, 0).key, 'edge');
+});
+
+test('the starter Courier flies, senses and mines as before', () => {
+  const s = Loadout.stats(Loadout.starter('courier'));
+  assert.deepStrictEqual(
+    { name: s.name, maxSpeed: s.maxSpeed, accel: s.accel, turnRate: s.turnRate, radius: s.radius, cargo: s.cargo },
+    { name: 'Courier', maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16, cargo: 20 });
+  assert.strictEqual(s.sensorRange, Knowledge.SENSOR_RANGE);
+  assert.strictEqual(s.pingRange, Knowledge.PING_RANGE);
+  assert.strictEqual(Mining.config.duration / s.miningRate, 5);
+  assert.strictEqual(s.weaponSlots, 2);
+  assert(s.shield > 0 && s.firepower > 0, 'starter gear includes a shield and a weapon');
+});
+
+test('every ship class has 1–4 weapon slots and one of each system, with starter gear that fits', () => {
+  for (const [id, hull] of Object.entries(Loadout.HULLS)) {
+    assert(hull.weapons >= 1 && hull.weapons <= Loadout.MAX_WEAPONS, `${id}: ${hull.weapons} weapon slots`);
+    const slots = Loadout.slotsOf(id);
+    for (const type of Object.keys(Loadout.SLOT_TYPES)) {
+      assert.strictEqual(slots.filter((s) => s.type === type).length, type === 'weapon' ? hull.weapons : 1, `${id}: ${type} slots`);
+    }
+    assert.strictEqual(new Set(slots.map((s) => s.id)).size, slots.length, `${id}: duplicate slot ids`);
+    for (const key of Object.keys(hull.starter)) assert(slots.some((s) => s.id === key), `${id}: starter names unknown slot ${key}`);
+    for (const s of Loadout.slots(Loadout.starter(id))) {
+      const want = hull.starter[s.id];
+      if (want) assert(s.item && s.item.id === want, `${id}: ${want} missing from the equipment list`);
+      if (s.item) assert.strictEqual(s.item.slot, s.type, `${id}: ${s.item.id} doesn't fit a ${s.type} slot`);
+    }
+  }
+  for (const [id, item] of Object.entries(Loadout.EQUIPMENT)) {
+    assert(Loadout.SLOT_TYPES[item.slot], `${id}: unknown slot type ${item.slot}`);
+    assert(Loadout.summary(item).length > 0, `${id}: no summary`);
+  }
+});
+
+test('empty slots contribute nothing', () => {
+  const full = Loadout.starter('courier');
+  const bare = { hull: 'courier', fitted: Object.fromEntries(Object.keys(full.fitted).map((k) => [k, null])) };
+  const s = Loadout.stats(bare);
+  assert.deepStrictEqual([s.maxSpeed, s.accel, s.sensorRange, s.miningRate, s.shield, s.firepower, s.weaponsFitted], [0, 0, 0, 0, 0, 0, 0]);
+  assert.strictEqual(s.cargo, 20, 'the hold belongs to the hull');
+  assert(Loadout.slots(bare).every((x) => x.item === null));
+});
+
+test('a longer-range scanner charts more sectors', () => {
+  const g = galaxies.get(1);
+  // A spot in deep space, away from the charted start, so only the sensors explore around it.
+  let spot = null;
+  const start = Knowledge.create(g, { fresh: true });
+  for (let y = 3; y < g.size - 3 && !spot; y++) for (let x = 3; x < g.size - 3 && !spot; x++) {
+    let clear = true;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) clear = clear && !start.isExplored(x + dx, y + dy);
+    if (clear) spot = { x, y };
+  }
+  start.save();
+  assert(spot, 'no uncharted spot found');
+  const explored = (range) => {
+    const k = Knowledge.create(g, { fresh: true });
+    k.sense(spot.x + 0.5, spot.y + 0.5, range, range + 1);
+    let n = 0;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) n += k.isExplored(spot.x + dx, spot.y + dy) ? 1 : 0;
+    k.save();
+    return n;
+  };
+  assert.strictEqual(explored(1), 9);
+  assert.strictEqual(explored(2), 25);
 });
 
 if (failed) {
