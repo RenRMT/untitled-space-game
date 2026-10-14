@@ -173,22 +173,27 @@ const cargo = {
   destroyed: new Set(), hull: 0, home: null,
 };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
+// " · rare" after an item's name in notices, for anything better than common.
+const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
 
-// A floating item from its saved form { key, kind, seed, x, y, label? }.
+// A floating item from its saved form { key, kind (a goods.js type), seed, x, y }.
 function dropEntity(d) {
   const art = ArtItems.create(d.kind, d.seed);
   const r = mulberry32(d.seed);
   return {
-    kind: 'item', art, key: d.key, label: d.label || art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
+    kind: 'item', art, key: d.key, label: art.label.split(' · ')[1], category: art.category, itemKind: art.kind,
     angle: r() * TAU, tumble: (r() - 0.5) * 0.3, radius: art.radius, x: d.x, y: d.y, drop: d,
   };
 }
 
-// Saves from before items recorded their kind: recover it from the label.
-const KIND_BY_LABEL = new Map([
-  ...ArtItems.LOOT.flatMap((k) => k.variants.map((v) => [v, k.id])),
-  ...ArtItems.TRADE.map((k) => [k.form, k.id]),
-]);
+// An item record from a save, brought up to date: saves from before item types stored a category
+// ('metal') or only a label, which become that category's commonest type (Goods.resolve).
+function upgradeItem(it) {
+  const kind = Goods.resolve(it.kind, it.label);
+  if (!kind) return null;
+  const t = Goods.type(kind);
+  return { kind, label: t.name, category: Goods.isSalvage(kind) ? 'loot' : 'trade' };
+}
 
 function loadCargo(galaxy) {
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
@@ -204,12 +209,13 @@ function loadCargo(galaxy) {
     if (params.has('fresh')) localStorage.removeItem(cargo.key);
     const d = JSON.parse(localStorage.getItem(cargo.key) || 'null');
     if (d) {
-      cargo.items = d.items.map((it) => ({ ...it, kind: it.kind || KIND_BY_LABEL.get(it.label) })).filter((it) => it.kind);
+      cargo.items = d.items.map(upgradeItem).filter(Boolean);
       cargo.collected = new Set(d.collected);
       if (Number.isFinite(d.credits)) cargo.credits = d.credits;
       if (Array.isArray(d.mined)) cargo.mined = new Set(d.mined);
       if (Array.isArray(d.drops)) {
-        cargo.drops = d.drops.filter((x) => x && (Economy.GOODS[x.kind] || Economy.SALVAGE[x.kind])).map(dropEntity);
+        cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
+          .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
       }
       if (Array.isArray(d.destroyed)) cargo.destroyed = new Set(d.destroyed);
       if (Number.isFinite(d.hull)) cargo.hull = clamp(d.hull, 1, SHIP.hull);
@@ -280,7 +286,7 @@ function collectItems(list) {
     if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
     else cargo.collected.add(e.key);
     cargo.items.push({ kind: e.itemKind, label: e.label, category: e.category });
-    toast.text = `Recovered: ${e.label}`;
+    toast.text = `Recovered: ${e.label}${rarityNote(e)}`;
     toast.t = 2.5;
     saveCargo();
   }
@@ -409,6 +415,7 @@ function dock(station) {
     ship: SHIP,
     loadout,
     repairs,
+    artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
 }
@@ -490,7 +497,7 @@ function finishMining() {
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
     cargo.drops.push(e);
-    toast.text = `Asteroid broken up · ${e.label} found`;
+    toast.text = `Asteroid broken up · ${e.label} found${rarityNote(e)}`;
   } else {
     toast.text = 'Asteroid broken up · nothing of value';
   }
@@ -1035,7 +1042,7 @@ function playerDestroyed() {
   cargo.items.forEach((it, i) => {
     const a = Math.random() * TAU, r = 30 + Math.random() * 90;
     cargo.drops.push(dropEntity({
-      key: `lost:${tag}:${i}`, kind: it.kind, label: it.label, seed: (Math.random() * 4294967296) >>> 0,
+      key: `lost:${tag}:${i}`, kind: it.kind, seed: (Math.random() * 4294967296) >>> 0,
       x: ship.x + Math.cos(a) * r, y: ship.y + Math.sin(a) * r,
     }));
   });
@@ -1561,7 +1568,8 @@ function drawSectorGrid() {
 const DRAW_ORDER = { star: 0, planet: 1, asteroid: 1.5, gate: 2, station: 2, wreck: 3, item: 3.5, ship: 4 };
 
 // Pickup highlight: a soft glow, a steady ring and a ring pulsing outward, in the amber the minimap
-// uses for items. Each item pulses on its own rhythm, and the effect brightens as the ship nears.
+// uses for items; rare and better finds ring in their rarity's colour instead (goods.js). Each item
+// pulses on its own rhythm, and the effect brightens as the ship nears.
 const ITEM_HALO = { color: '#ffcf5a', period: 1.8, near: 900 };
 function itemPhase(e) {
   if (e.haloPhase === undefined) {
@@ -1581,9 +1589,9 @@ function drawItemHalos(list, t) {
     haloGlow.addColorStop(1, 'rgba(255, 207, 90, 0)');
   }
   ctx.save();
-  ctx.strokeStyle = ITEM_HALO.color;
   for (const e of list) {
     if (e.kind !== 'item') continue;
+    ctx.strokeStyle = e.art.rarity >= 3 ? Goods.RARITY[e.art.rarity].color : ITEM_HALO.color;
     const x = rx(e.x), y = ry(e.y);
     const R = e.radius * 0.8 + 14;
     const near = clamp(1 - Math.hypot(ship.x - e.x, ship.y - e.y) / ITEM_HALO.near, 0, 1);

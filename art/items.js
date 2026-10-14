@@ -1,12 +1,13 @@
 'use strict';
 
 // Item blueprints (low-poly `h` is relative to whatever part lies under the centroid; rings are absolute):
-// enemy loot and trade goods, drawn by art/render.js in all four styles.
-// Items are culture-neutral. Loot uses one salvage palette; trade goods take an optional
-// `hue` (0–360) that recolours the goods themselves while containers stay neutral.
+// salvaged components and trade goods, drawn by art/render.js in all four styles.
+// Items are culture-neutral. Each item type (goods.js) has its own colour: components are
+// salvage tinted toward it, with their accents, lights and outline in it; trade goods are drawn
+// in it while their containers stay neutral. Every category has its own shapes; a component
+// type names the variant it uses.
 //
-//   ArtItems.create(kind, seed, { hue, variant }) -> blueprint (type 'item')
-//   ArtItems.LOOT / ArtItems.TRADE  – kind ids with labels, variants and default hues
+//   ArtItems.create(typeId, seed) -> blueprint (type 'item'; kind, category 'loot' | 'trade', rarity, label)
 //
 // Works as a classic browser script (global `ArtItems`) and as a Node module.
 
@@ -15,6 +16,7 @@ const ArtItems = (() => {
   const U = isNode ? require('./util.js') : ArtUtil;
   const B = isNode ? require('./blueprints.js') : ArtBlueprints;
   const { mulberry32, hashInt } = isNode ? require('../rng.js') : globalThis;
+  const G = isNode ? require('../goods.js') : Goods;
   const { TAU } = U;
 
   // Rounded rectangle; consecutive duplicate points are dropped so low-poly roofs stay star-shaped.
@@ -42,17 +44,42 @@ const ArtItems = (() => {
   };
   const CONTAINER = { hull: '#8c939d', hull2: '#4e545d', trim: '#c4c9d0', panel: '#2e343d', light: '#7df9ff', flame: '#ffb347', accent: '#c4c9d0', rock: '#5e5850' };
 
-  function goodsPal(spec, hue) {
-    const h = ((hue ?? spec.hue) % 360 + 360) % 360;
-    const good = U.fromHsl(h, spec.s, spec.l);
+  // The outline colour (line style) of an item in colour [h, s, l]: bright enough to read on the
+  // dark background. Greys stay grey rather than being pushed into a hue, and keep their relative
+  // lightness (lightness 0.3..0.95 maps onto 0.55..0.95), so light greys stay apart.
+  function lineOf([h, s, l]) {
+    if (s < 0.2) return U.fromHsl(h, s, 0.55 + (Math.min(0.95, Math.max(0.3, l)) - 0.3) * (0.4 / 0.65));
+    return U.tune(U.mix(U.fromHsl(h, s, l), '#ffffff', 0.2), { s: [0.45, 1], l: [0.62, 0.8] });
+  }
+
+  // Trade goods: the goods in the type's colour, containers neutral.
+  function goodsPal([h, s, l]) {
+    const good = U.fromHsl(h, s, l);
     return {
       ...CONTAINER,
       good,
       good2: U.shade(good, 0.68),
       goodHi: U.mix(good, '#ffffff', 0.3),
-      goodAlt: U.fromHsl((h + 38) % 360, spec.s, spec.l * 0.95),
-      glass: U.tune(good, { s: [0.6, 1], l: [0.55, 0.68] }),
-      line: U.tune(U.mix(good, '#ffffff', 0.2), { s: [0.45, 1], l: [0.62, 0.78] }),
+      goodAlt: U.fromHsl((h + 38) % 360, s, l * 0.95),
+      glass: s < 0.2 ? U.mix(good, '#dff6ff', 0.4) : U.tune(good, { s: [0.6, 1], l: [0.55, 0.68] }),
+      line: lineOf([h, s, l]),
+    };
+  }
+
+  // Components: salvage tinted toward the type's colour, with accents, glass, lights and the
+  // outline in it, so each type reads as its own colour in every style.
+  function lootPal([h, s, l]) {
+    const c = U.fromHsl(h, s, l);
+    return {
+      ...LOOT_PAL,
+      hull: U.mix(LOOT_PAL.hull, c, 0.4),
+      hull2: U.mix(LOOT_PAL.hull2, c, 0.35),
+      trim: U.mix(LOOT_PAL.trim, c, 0.25),
+      accent: c,
+      light: U.tune(c, { l: [0.62, 0.75] }),
+      glass: s < 0.2 ? U.mix(c, '#dff6ff', 0.35) : U.tune(c, { s: [0.55, 1], l: [0.55, 0.7] }),
+      panel: U.mix(c, '#1c2028', 0.72),
+      line: lineOf([h, s, l]),
     };
   }
 
@@ -92,7 +119,7 @@ const ArtItems = (() => {
         b.poly(U.rect(-5, 3.6, 2.4, 2.4), 'hull2', { lvl: 0.5, h: 1.6 });
         b.poly(rrect(-6, 0, 8, 5.6, 1), 'hull', { lvl: 1, h: 3, bevel: 1.2, roof: true });
         b.poly(U.rect(-7, 0, 3, 2.2), 'glass', { lvl: 2, h: 0.6, bevel: 0.3 });
-        b.light(10.6, 0, 0.7, LOOT_PAL.accent, { blink: 1 });
+        b.light(10.6, 0, 0.7, b.bp.culture.pal.accent, { blink: 1 });
       }],
       ['Missile rack', (b) => {
         for (const s of [1, -1]) b.poly(U.rect(0, s * 5.2, 11, 1), 'hull2', { lvl: 0.5, h: 1.5 });
@@ -129,7 +156,7 @@ const ArtItems = (() => {
         b.circle(0, 0, 7, 'hull', { lvl: 1, h: 3, bevel: 1 });
         b.ring(0, 0, 5.4, 1, 'panel', { lvl: 2, h: 3.2 });
         b.circle(0, 0, 3.4, 'glass', { lvl: 3, h: 0.8, dome: true });
-        for (let i = 0; i < 3; i++) { const [x, y] = polar(5.4, (i / 3) * TAU + 0.5); b.light(x, y, 0.5, LOOT_PAL.light, { blink: i * 2 }); }
+        for (let i = 0; i < 3; i++) { const [x, y] = polar(5.4, (i / 3) * TAU + 0.5); b.light(x, y, 0.5, b.bp.culture.pal.light, { blink: i * 2 }); }
       }],
       ['Memory rack', (b) => {
         for (const s of [1, -1]) b.poly(U.rect(0, s * 8, 4, 1.4), 'trim', { lvl: 0.5, h: 1.5 });
@@ -137,7 +164,7 @@ const ArtItems = (() => {
         for (let i = 0; i < 5; i++) {
           const y = -5.6 + i * 2.8;
           b.poly(U.rect(-0.6, y, 6.4, 1.8), 'panel', { lvl: 2, h: 0.4, lines: [[-3, y, 1.6, y]] });
-          b.light(3.2, y, 0.45, i % 2 ? '#6bff8a' : LOOT_PAL.light, { blink: i * 1.3 });
+          b.light(3.2, y, 0.45, i % 2 ? '#6bff8a' : b.bp.culture.pal.light, { blink: i * 1.3 });
         }
       }],
     ],
@@ -177,13 +204,13 @@ const ArtItems = (() => {
   };
 
   const TRADE_BUILD = {
-    metal: ['Ingots', { hue: 32, s: 0.42, l: 0.6 }, (b) => {
+    metal: ['Ingots', (b) => {
       const ingot = (x, y, lvl, mat = 'good') => b.poly(U.rect(x, y, 10, 4.4), mat, { lvl, h: 2, bevel: 0.9, lines: [[x - 4.2, y - 1.4, x + 4.2, y - 1.4], [x - 4.2, y + 1.4, x + 4.2, y + 1.4]] });
       for (const x of [-5.3, 5.3]) for (const y of [-2.5, 2.5]) ingot(x, y, 1, x < 0 && y < 0 ? 'good2' : 'good');
       ingot(0, 0, 2, 'goodHi');
       b.poly(U.rect(0, 0, 2.6, 1), 'good2', { lvl: 3, h: 0.2, line: false });
     }],
-    mineral: ['Ore crystals', { hue: 285, s: 0.6, l: 0.56 }, (b, r) => {
+    mineral: ['Ore crystals', (b, r) => {
       b.poly(U.blob(0, 1.5, 9, 6.4, r, 0.35, 9), 'rock', { lvl: 1, h: 2.5, bevel: 1.5, roof: true });
       // Stubby, wide crystals with broad flat tops and small corner chamfers.
       const shards = [[-3.6, 0.8, 4.8, 3.4, -2.1], [0.4, -0.2, 5.6, 3.8, -1.45], [3.6, 1.4, 4.4, 3.2, -0.7], [-1.2, 3.6, 3.6, 2.8, 2.6], [5, 3.6, 3.2, 2.6, 0.4]];
@@ -193,7 +220,7 @@ const ArtItems = (() => {
         b.poly(pts, i === 1 ? 'glass' : i % 2 ? 'goodHi' : 'good', { lvl: 2 + i * 0.1, h: 1.2 + L * 0.1, bevel: w * 0.3 });
       });
     }],
-    gas: ['Gas canister', { hue: 140, s: 0.7, l: 0.55 }, (b) => {
+    gas: ['Gas canister', (b) => {
       b.poly(U.rect(10.2, 0, 2.4, 3), 'hull2', { lvl: 0.5, h: 2.4 });
       b.circle(11.8, 0, 1.6, 'trim', { lvl: 1, h: 2.8 });
       // Hull split around the bands so the bands sit on the ground as collars in low-poly.
@@ -204,22 +231,22 @@ const ArtItems = (() => {
       b.poly(rrect(0, 0, 9, 4, 1.5), 'glass', { lvl: 2, h: 0.4, bevel: 0.3 });
       b.poly(U.rect(-8.2, 0, 1, 3.6), 'good', { lvl: 2, h: 0.2, line: false });
     }],
-    synthetic: ['Composite tiles', { hue: 195, s: 0.55, l: 0.58 }, (b) => {
+    synthetic: ['Composite tiles', (b) => {
       const cells = [[0, 0], ...Array.from({ length: 6 }, (_, i) => polar(Math.sqrt(3) * 3.4, TAU / 12 + (i / 6) * TAU))];
       cells.forEach(([x, y], i) => b.poly(U.circle(x, y, 3.1, 6), i === 0 ? 'goodHi' : i % 3 ? 'good' : 'good2', { lvl: 1, h: 1.6, bevel: 0.6, lines: [[x - 1.2, y - 1.2, x + 1.2, y + 1.2]] }));
     }],
-    crates: ['Cargo crates', { hue: 28, s: 0.45, l: 0.5 }, (b) => {
+    crates: ['Cargo crates', (b) => {
       crate(b, -2.6, 1.4, 11, 0.08, 1);
       crate(b, 5.6, -4.2, 7, -0.28, 2);
     }],
-    barrels: ['Barrels', { hue: 4, s: 0.6, l: 0.48 }, (b) => {
+    barrels: ['Barrels', (b) => {
       for (const [x, y] of [[-4.4, 2.6], [4.4, 2.6], [0, -4.8]]) {
         b.circle(x, y, 4.2, 'good', { lvl: 1, h: 7, lines: [[x - 2.6, y + 1, x + 2.6, y + 1]] });
         b.ring(x, y, 3.9, 0.7, 'trim', { lvl: 2, h: 7.2 });
         b.circle(x + 1.6, y - 1.6, 0.8, 'hull2', { lvl: 2, h: 0.3 });
       }
     }],
-    tubes: ['Tube bundle', { hue: 50, s: 0.62, l: 0.55 }, (b) => {
+    tubes: ['Tube bundle', (b) => {
       for (let i = 0; i < 5; i++) {
         const y = -5.6 + i * 2.8;
         b.poly(rrect(0, y, 18, 2.6, 1.3), i === 2 ? 'goodHi' : 'good', { lvl: 1, h: 2.6, bevel: 1.3, roof: true });
@@ -227,14 +254,14 @@ const ArtItems = (() => {
       }
       for (const x of [-4.5, 4.5]) b.poly(U.rect(x, 0, 1.4, 14.6), 'hull2', { lvl: 2, h: 0.4 });
     }],
-    fabrics: ['Fabric bolts', { hue: 330, s: 0.5, l: 0.55 }, (b) => {
+    fabrics: ['Fabric bolts', (b) => {
       [[-4.8, 0.8, 'good'], [0, -0.6, 'goodAlt'], [4.8, 0.4, 'goodHi']].forEach(([y, x, mat]) => {
         const lines = [-5, -2, 1, 4].map((dx) => [x + dx, y - 2.2, x + dx + 1.6, y + 2.2]);
         b.poly(rrect(x, y, 16, 4.4, 2.2), mat, { lvl: 1, h: 4, bevel: 2.2, roof: true, lines });
         b.poly(U.rect(x - 8.4, y, 1.2, 1.8), 'hull2', { lvl: 1.5, h: 3 });
       });
     }],
-    perishables: ['Produce crate', { hue: 100, s: 0.58, l: 0.5 }, (b, r) => {
+    perishables: ['Produce crate', (b, r) => {
       b.poly(U.rect(0, 0, 15, 11), 'hull2', { lvl: 1, h: 1 });
       for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) {
         b.circle(-5.1 + i * 3.4 + (r() - 0.5) * 0.4, -3.4 + j * 3.4 + (r() - 0.5) * 0.4, 1.6, r() < 0.25 ? 'goodAlt' : 'good', { lvl: 1.5, h: 2.6, dome: true });
@@ -247,32 +274,32 @@ const ArtItems = (() => {
     }],
   };
 
-  const LOOT = Object.entries(LOOT_BUILD).map(([id, vs]) => ({ id, label: { hull: 'Hull component', weapon: 'Weapon component', computer: 'Computer component', drive: 'Engine / drive component' }[id], variants: vs.map((v) => v[0]) }));
-  const TRADE = Object.entries(TRADE_BUILD).map(([id, [form, spec]]) => ({ id, label: id[0].toUpperCase() + id.slice(1), form, hue: spec.hue }));
+  // Shape names per category (the variant a component type uses is in goods.js).
+  const SHAPES = Object.fromEntries(Object.entries(LOOT_BUILD).map(([id, vs]) => [id, vs.map((v) => v[0])]));
 
-  function create(kind, seed = 1, o = {}) {
+  function create(kind, seed = 1) {
+    const type = G.type(kind);
+    if (!type) throw new Error(`Unknown item: ${kind}`);
     const s = seed >>> 0;
     const r = mulberry32(hashInt(s, 7, kind.length * 131 + kind.charCodeAt(0)));
-    if (LOOT_BUILD[kind]) {
-      const vs = LOOT_BUILD[kind];
-      const vi = o.variant ?? Math.floor(r() * vs.length);
-      const b = B.builder('item', { pal: LOOT_PAL, seed: 0 }, s);
-      vs[vi % vs.length][1](b, r);
-      b.bp.kind = kind; b.bp.category = 'loot'; b.bp.variant = vi % vs.length;
-      b.bp.label = `Loot · ${vs[vi % vs.length][0]}`;
-      return B.finish(b.bp);
+    const loot = LOOT_BUILD[type.category];
+    let b;
+    if (loot) {
+      const vi = (type.shape || 0) % loot.length;
+      b = B.builder('item', { pal: lootPal(type.color), seed: 0 }, s);
+      loot[vi][1](b, r);
+      Object.assign(b.bp, { category: 'loot', variant: vi });
+    } else {
+      const [, build] = TRADE_BUILD[type.category];
+      b = B.builder('item', { pal: goodsPal(type.color), seed: 0 }, s);
+      build(b, r);
+      b.bp.category = 'trade';
     }
-    const t = TRADE_BUILD[kind];
-    if (!t) throw new Error(`Unknown item: ${kind}`);
-    const [form, spec, build] = t;
-    const b = B.builder('item', { pal: goodsPal(spec, o.hue), seed: 0 }, s);
-    build(b, r);
-    b.bp.kind = kind; b.bp.category = 'trade'; b.bp.hue = o.hue ?? spec.hue;
-    b.bp.label = `Trade · ${form}`;
+    Object.assign(b.bp, { kind, rarity: type.rarity, label: `${loot ? 'Loot' : 'Trade'} · ${type.name}` });
     return B.finish(b.bp);
   }
 
-  return { LOOT, TRADE, create };
+  return { SHAPES, create };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtItems;
