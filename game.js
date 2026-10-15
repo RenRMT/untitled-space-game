@@ -554,8 +554,10 @@ const POD = { name: 'Escape pod', radius: 15, maxSpeed: 170, accel: 120, turnRat
 // zoom: the view is this much wider throughout, so the station and the pod are both on screen.
 const TRACTOR = { start: 560, range: 260, hold: 90, speed: 150, zoom: 0.65 };
 // The opening shot: the pod drifts in this far toward its starting spot over this many seconds,
-// slowing as it comes, before the station first speaks. A tap cuts it short.
-const ARRIVE = { dist: 700, time: 5 };
+// slowing as it comes, before the station first speaks. A tap cuts it short. The view starts close
+// on the pod (zoom: view.k), holds there for the first `hold` of the time, then pulls back to the
+// introduction's wide view, bringing the station in.
+const ARRIVE = { dist: 700, time: 5, zoom: 3, hold: 0.2 };
 const INTRO_FROM = Intro.STATION;
 const APPROACH_HINT = {
   cruise: 'Drag anywhere to set a heading: the further you drag, the faster you go. The pod keeps drifting when you let go; tap empty space to stop.',
@@ -594,10 +596,8 @@ function startIntro() {
   const to = { x: st.x + Math.cos(a) * d, y: st.y + Math.sin(a) * d };
   const from = { x: st.x + Math.cos(a) * (d + ARRIVE.dist), y: st.y + Math.sin(a) * (d + ARRIVE.dist) };
   intro.arrive = { t: 0, from, to, a0: a + Math.PI, a1: a + Math.PI + 0.9 };
-  placeShip(from.x, from.y, intro.arrive.a0);
-  cam.x = (from.x + st.x) / 2;
-  cam.y = (from.y + st.y) / 2;
-  view.k = TRACTOR.zoom;
+  placeShip(from.x, from.y, intro.arrive.a0); // the camera on the pod
+  view.k = ARRIVE.zoom;
   view.zoom = view.base * view.k;
   fight.grace = Infinity;
   document.body.classList.add('intro');
@@ -620,6 +620,16 @@ function tickArrive(dt) {
   ship.angle = ship.targetAngle = A.a0 + (A.a1 - A.a0) * (u * u * (3 - 2 * u));
   ship.thrust = 0;
   if (u >= 1) endArrive();
+}
+// The opening shot's camera: close on the pod, then (after the hold) pulling back and over to the
+// point between the pod and the station, zooming out to the introduction's view as it goes.
+function arriveView() {
+  const u = intro.arrive.t / ARRIVE.time, st = intro.station;
+  const v = clamp((u - ARRIVE.hold) / (1 - ARRIVE.hold), 0, 1), w = v * v * (3 - 2 * v);
+  view.k = Math.exp(lerp(Math.log(ARRIVE.zoom), Math.log(TRACTOR.zoom), w));
+  view.zoom = view.base * view.k;
+  cam.x = lerp(ship.x, (ship.x + st.x) / 2, w);
+  cam.y = lerp(ship.y, (ship.y + st.y) / 2, w);
 }
 function endArrive() {
   const A = intro.arrive;
@@ -2281,9 +2291,11 @@ function update(dt) {
   }
   cam.x = lerp(cam.x, tx, k);
   cam.y = lerp(cam.y, ty, k);
+  // The opening shot pulls back from the pod to frame it with the station (arriveView).
+  if (intro.arrive) arriveView();
   // Zoom eases out for the introduction and back after it.
   const zk = intro.on ? TRACTOR.zoom : 1;
-  if (view.k !== zk) {
+  if (intro.arrive) { /* set by arriveView */ } else if (view.k !== zk) {
     view.k = Math.abs(view.k - zk) < 0.002 ? zk : lerp(view.k, zk, 1 - Math.exp(-2.5 * dt));
     view.zoom = view.base * view.k;
   }
