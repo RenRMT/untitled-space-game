@@ -78,12 +78,11 @@ const Art = (() => {
   function palette(bp) {
     if (bp._pal) return bp._pal;
     const p = { ...bp.culture.pal };
-    p.wing = U.mix(p.hull, p.hull2, 0.3);
-    p.engine = '#3a414c';
-    p.strut = U.mix(p.hull2, '#555b66', 0.4);
+    p.wing = p.wing || U.mix(p.hull, p.hull2, 0.3);
+    p.engine = p.engine || '#3a414c';
+    p.strut = p.strut || U.mix(p.hull2, '#555b66', 0.4);
     p.dark = '#1c2028';
     p.scorch = '#120e0b';
-    p.field = U.mix(p.glass, '#0a0d14', 0.62); // a gate's aperture
     p.line = bp.line || p.line;
     if (bp.wrecked) {
       for (const k of Object.keys(p)) if (k !== 'scorch' && k !== 'line') p[k] = wreckColor(p[k]);
@@ -159,10 +158,6 @@ const Art = (() => {
       ctx.fill(path, rule);
       if (p.mat === 'accent') {
         ctx.fillStyle = U.rgba(pal.line, 0.3);
-        ctx.fill(path, rule);
-      }
-      if (p.mat === 'field') {
-        ctx.fillStyle = U.rgba(pal.glass, 0.14);
         ctx.fill(path, rule);
       }
       const glow = bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');

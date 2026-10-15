@@ -584,7 +584,7 @@ function jump(gate) {
   const system = world.galaxy.systems[there.gate.system];
   const a = there.angle + Math.PI; // a gate's angle points out from its star
   select(null);
-  placeShip(there.x + Math.cos(a) * (there.radius + 260), there.y + Math.sin(a) * (there.radius + 260), a);
+  placeShip(there.x + Math.cos(a) * (there.radius + 180), there.y + Math.sin(a) * (there.radius + 180), a);
   flash = 0.8;
   notify(`Jumped to the ${system.name} system`, 3);
   SystemMap.setPlayer(ship.x, ship.y);
