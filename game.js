@@ -208,15 +208,21 @@ const world = { galaxy: null, cultures: null, scene: null, knowledge: null, trav
 // loadout: the ship's class and fitted equipment; gear: spare equipment bought or taken out
 // ({ [equipment id]: count }); research: the research nodes done (a Set of ids); squad: the
 // squad members (squad.js), with their logic modules and hull. story: what has happened so far
-// (a Set of STORY flags).
+// (a Set of STORY flags). missions: the mission log (missions.js): what's been accepted, done
+// and handed in.
 const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
   loadout: Loadout.starter('courier'), gear: {}, research: new Set(), squad: [], story: new Set(),
+  missions: Missions.create(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online (nothing does that yet: until then the first system is all there is).
 const STORY = ['intro', 'gates'];
 const gatesOnline = () => cargo.story.has('gates');
+// The first mission (missions.js), which follows the introduction: until it's handed in, the
+// station screens offer only the Missions tab (see The first mission below).
+const OPENING = 'repayment';
+const opening = () => cargo.missions.status(OPENING) !== 'done';
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
 const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
@@ -265,8 +271,9 @@ function loadCargo(galaxy) {
   cargo.loadout = Loadout.starter('courier');
   cargo.gear = {};
   cargo.research = new Set();
-  cargo.squad = Squad.starting(hashInt(seedToInt(galaxy.seed), 1, 0x5a0d)); // a new game's wingman
+  cargo.squad = []; // the first member joins at the end of the first mission
   cargo.story = new Set();
+  cargo.missions = Missions.create();
   cargo.hull = Infinity; // full, once applyShip knows the maximum
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
@@ -277,11 +284,14 @@ function loadCargo(galaxy) {
   buildWings(); // the squad's ships, for the members just read
 }
 // The parts of a save, each checked. Saves from before components had their own store kept them
-// in the hold: they move across.
+// in the hold: they move across. Saves from before missions that had played the introduction
+// already have the wingman the first mission brings: for them it's done.
 function readCargo(d) {
   if (Array.isArray(d.research)) cargo.research = new Set(d.research.filter((id) => Research.NODES[id]));
-  cargo.squad = Squad.read(d.squad) || cargo.squad; // saves from before the squad get the starting one
+  cargo.squad = Squad.read(d.squad) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
+  if (d.missions) cargo.missions = Missions.create(d.missions);
+  else if (cargo.story.has('intro')) cargo.missions.finish(OPENING);
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
@@ -316,7 +326,7 @@ function saveCargoNow() {
     items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
     drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
     loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research], squad: cargo.squad,
-    story: [...cargo.story],
+    story: [...cargo.story], missions: cargo.missions.save(),
   });
 }
 
@@ -367,6 +377,12 @@ function collectItems(list) {
   for (const e of list) {
     if (e.kind !== 'item' || cargo.removed.has(e.key)) continue;
     if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
+    if (e.mission) { // a mission's cargo: kept apart from the hold, for the mission
+      cargo.removed.add(e.key);
+      notify(`Recovered: ${e.label}`, 2.5);
+      saveCargo();
+      continue;
+    }
     const component = Goods.isSalvage(e.itemKind);
     if (!component && hold.free < 1) {
       notify('Cargo hold full', 2.5, { once: true }); // and leave it floating
@@ -545,21 +561,25 @@ function introDue() {
   return !cargo.story.has('intro') && world.galaxy.waystation >= 0 && !Params.has('skipintro');
 }
 
-// The station android's portrait in an art style (the current one by default), filling a square.
-function introFace(style) {
+// A portrait (art/portraits.js) in an art style (the current one by default), filling a square:
+// a face(ctx, size) drawer for the comms box and the station screen.
+function faceOf(portrait, style) {
   return (c, size) => {
     c.fillStyle = COLORS.bg;
     c.fillRect(0, 0, size, size);
     c.translate(size / 2, size / 2);
     c.scale(size / 100, size / 100);
-    ArtPortraits.draw(c, intro.face, style || artStyle.value, { texel: 2 });
+    ArtPortraits.draw(c, portrait, style || artStyle.value, { texel: 2 });
   };
 }
+// The station android's portrait.
+const introFace = (style) => faceOf(intro.face, style);
+const waystation = () => world.scene.stations[world.galaxy.waystation] || null;
 
 function startIntro() {
-  const st = world.scene.stations[world.galaxy.waystation];
+  const st = waystation();
   Object.assign(intro, { on: true, station: st, flying: false, beam: null });
-  intro.face = ArtAndroids.create(st.station.seed, world.cultures.of(st.culture));
+  intro.face = world.wayFace;
   intro.run = Intro.create(introAnswer);
   Object.assign(SHIP, POD);
   ship.art = HULL_ART.pod();
@@ -696,6 +716,213 @@ function skipIntro() {
   dock(st);
 }
 
+// ---------- The first mission: payment in kind ----------
+//
+// After the introduction the player is docked at the waystation with an escape pod and a debt.
+// Until the first mission (missions.js) is handed in, every station screen offers only the
+// Missions tab, and Launch waits for the mission to be accepted. Accepting provides a Courier with
+// two salvaged pulse lasers. In a small asteroid field near the waystation (Missions.site) two
+// pirates circle a captured android ship, with the coolant regulator it was sent for drifting
+// beside it. Once the pirates are gone the android calls on the comms and follows the player home
+// like a wingman; docking with it at the waystation and handing the mission in there settles the
+// debt, and the android joins the squad. Progress is read every frame from what has happened
+// (destroyed pirates and the collected regulator are in cargo.removed), so a save can't fall out
+// of step with it. ?skipintro skips the mission as well: done, with the android in the squad.
+
+// site: Missions.site(); rocks, pirates, android, cargo: its things in space; face: the android's
+// portrait; vars: the names its lines use; hailT: seconds the android has waited to call; told:
+// the waystation has said where to go (this session).
+const mission = { site: null, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: false };
+// A conversation on the comms box: lines from someone, one after another, then `then`.
+const talk = { lines: null, i: 0, from: '', face: null, then: null };
+const MISSION_LOCKED = ['trade', 'ship', 'research', 'squad'];
+const HAIL = { range: 4000, wait: 1.2 }; // the android calls within this range, this long after the fight
+const FIELD_REACHED = 1500; // the field counts as reached this far beyond its spread
+
+function buildMission() {
+  const site = Missions.site(world.galaxy);
+  Object.assign(mission, { site, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: false });
+  if (!site) return;
+  mission.rocks = site.rocks.map((a) => ({ kind: 'asteroid', ast: { type: a.type, r: a.r, seed: a.seed }, key: a.key, spin0: a.spin0, tumble: a.tumble, radius: a.r, x: a.x, y: a.y }));
+  mission.pirates = site.pirates.map((p) => {
+    const art = ArtBlueprints.create('fighter', world.cultures.pirates, p.seed);
+    return {
+      kind: 'ship', role: 'fighter', pirate: true, key: p.key, art, radius: art.radius, x: site.x, y: site.y, tier: site.tier,
+      motion: { type: 'orbit', cx: site.x, cy: site.y, r: p.orbit, w: p.speed / p.orbit, a0: p.a0 },
+    };
+  });
+  const a = site.android, art = ArtBlueprints.create('fighter', world.android, a.seed), name = Squad.designation(a.seed);
+  mission.android = {
+    kind: 'ship', android: true, key: a.key, art, name, note: '', color: world.android.color, stats: Squad.stats(Squad.member(a.seed)),
+    radius: art.radius, x: site.x, y: site.y, vx: 0, vy: 0, angle: a.angle, a: a.angle, thrust: 0,
+  };
+  const c = site.cargo;
+  mission.cargo = { ...Entities.item({ key: c.key, kind: c.kind, seed: c.seed, angle: a.angle, tumble: 0.2, x: c.x, y: c.y }), label: 'Coolant regulator', mission: OPENING };
+  mission.face = ArtAndroids.create(a.seed, world.android);
+  mission.vars = { ship: name, station: world.galaxy.stations[world.galaxy.waystation].name };
+}
+
+const fillIn = (text) => Missions.fill(text, mission.vars);
+const missionActive = () => !!mission.site && cargo.missions.status(OPENING) === 'active';
+const objectiveDone = (o) => cargo.missions.done(OPENING, o);
+// The android follows the ship home once it has called, until it docks with it.
+const escorting = () => missionActive() && objectiveDone('hail') && !objectiveDone('escort');
+
+// What's in space for the mission now: the field always; the pirates, the regulator and the
+// android while it's under way (the android until it docks), when they're near the camera.
+function missionThings() {
+  const site = mission.site;
+  if (!site) return [];
+  const near = Math.hypot(site.x - cam.x, site.y - cam.y) < NEAR + site.spread;
+  const out = near ? [...mission.rocks] : [];
+  if (!missionActive()) return out;
+  if (near) out.push(...mission.pirates, mission.cargo);
+  if (!objectiveDone('escort') && (near || escorting())) out.push(mission.android);
+  return out;
+}
+
+// Lines on the comms box while flight goes on: each waits for a tap, then the next.
+function say(lines, { from, face = null, then = null }) {
+  Object.assign(talk, { lines, i: 0, from, face, then });
+  document.body.classList.add('talking');
+  showTalk();
+}
+function showTalk() {
+  if (!talk.lines) return;
+  if (talk.i >= talk.lines.length) { endTalk(); return; }
+  Comms.show({ from: talk.from, text: talk.lines[talk.i], face: talk.face, onNext: () => { talk.i++; showTalk(); } });
+}
+// The conversation over (or cut short by docking): its `then` still happens, unless it's
+// dropped (another galaxy loading).
+function endTalk(keep = true) {
+  if (!talk.lines) return;
+  const then = keep ? talk.then : null;
+  Object.assign(talk, { lines: null, i: 0, then: null });
+  document.body.classList.remove('talking');
+  Comms.hide();
+  if (then) then();
+}
+
+// The objectives, from what has happened; the android calls once the pirates are gone and the
+// fight is over.
+function tickMission(dt) {
+  if (!missionActive() || intro.on) return;
+  const log = cargo.missions, site = mission.site, w = mission.android;
+  let changed = false;
+  if (!objectiveDone('field') && Math.hypot(ship.x - site.x, ship.y - site.y) < site.spread + FIELD_REACHED) {
+    changed = log.set(OPENING, 'field', 1);
+    notify(`${mission.vars.ship} found · pirates guarding it`, 3);
+  }
+  changed = log.set(OPENING, 'pirates', site.pirates.filter((p) => cargo.removed.has(p.key)).length) || changed;
+  if (cargo.removed.has(site.cargo.key)) changed = log.set(OPENING, 'regulator', 1) || changed;
+  const calm = !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
+  if (objectiveDone('pirates') && !objectiveDone('hail') && calm && Math.hypot(ship.x - w.x, ship.y - w.y) < HAIL.range) {
+    mission.hailT += dt;
+    if (mission.hailT >= HAIL.wait) hail();
+  } else mission.hailT = 0;
+  w.note = escorting() ? 'Android · following you home' : objectiveDone('pirates') ? 'Android · free' : 'Android · held by pirates';
+  if (changed) saveCargo();
+}
+
+function hail() {
+  mission.hailT = 0;
+  const lines = Missions.lines(Missions.LIST[OPENING].hail, cargo.missions, OPENING).map(fillIn);
+  say(lines, {
+    from: mission.vars.ship, face: faceOf(mission.face),
+    then: () => { if (cargo.missions.set(OPENING, 'hail', 1)) { snapEscortIfFar(); saveCargo(); } },
+  });
+}
+// Starting to follow from wherever it is (only a teleport snaps it into place: snapWings).
+function snapEscortIfFar() {
+  const w = mission.android, st = Squad.formation(ship, activeSquad().length);
+  if (Math.hypot(st.x - w.x, st.y - w.y) > WING_SNAP) Object.assign(w, st, { vx: 0, vy: 0, angle: ship.angle, a: ship.angle });
+}
+
+// Docking with the android at the waystation brings it home.
+function missionDocked(station) {
+  if (talk.lines) endTalk();
+  if (escorting() && station.station.waystation && cargo.missions.set(OPENING, 'escort', 1)) saveCargo();
+}
+
+// On the first launch with the mission under way, the waystation says where to go.
+function missionLaunched() {
+  if (!missionActive() || objectiveDone('field') || mission.told) return;
+  mission.told = true;
+  say([
+    'Coordinates of the asteroid field have been sent to your navigation system and your map.',
+    'Please try not to damage the ship.',
+  ], { from: mission.vars.station, face: faceOf(world.wayFace) });
+}
+
+// The station screen's view of the missions (station.js): the first mission at the waystation
+// (offered, under way, ready or done), and anywhere else while it's under way.
+function missionViews(station) {
+  if (!mission.site) return [];
+  const def = Missions.LIST[OPENING], log = cargo.missions, status = log.status(OPENING), here = !!station.station.waystation;
+  if (!here && status !== 'active' && status !== 'ready') return [];
+  const said = !here ? [] : status === 'done' ? def.debrief : status === 'ready' ? def.report : def.briefing;
+  return [{
+    id: OPENING, title: def.title, from: mission.vars.station, face: here ? faceOf(world.wayFace) : null, status, here,
+    lines: Missions.lines(said, log, OPENING).map(fillIn),
+    objectives: log.objectives(OPENING).map((o) => ({ ...o, label: fillIn(o.label) })),
+    provided: status !== 'done' ? def.provided : null,
+    reward: fillIn(def.reward),
+    note: !here ? null : status === 'active' ? 'The asteroid field is marked on your map.' : status === 'done' ? fillIn(def.joined) : null,
+    accept: acceptMission, complete: completeMission,
+  }];
+}
+
+// Accepting: the waystation provides the ship.
+function acceptMission() {
+  if (!cargo.missions.accept(OPENING)) return;
+  cargo.loadout = validLoadout(Missions.LIST[OPENING].provides.loadout) || cargo.loadout;
+  applyShip();
+  cargo.hull = SHIP.hull;
+  saveCargo();
+}
+// Handing in: the debt settled, and the android joins the squad.
+function completeMission() {
+  if (!cargo.missions.complete(OPENING)) return;
+  joinAndroid();
+  saveCargo();
+}
+function joinAndroid() {
+  const seed = mission.site.android.seed;
+  if (!cargo.squad.some((m) => m.seed === seed)) cargo.squad.push(Squad.member(seed, { modules: ['assist-leader'] }));
+  buildWings();
+}
+// ?skipintro: the introduction and the first mission as if played.
+function skipOpening() {
+  cargo.story.add('intro');
+  cargo.missions.finish(OPENING);
+  if (mission.site) joinAndroid();
+  saveCargo();
+}
+
+// What the station screen can't do yet: during the first mission only Missions, and no Launch
+// until it's accepted.
+function stationLocks() {
+  if (!opening()) return { tabs: [], reason: '', launch: null };
+  return {
+    tabs: MISSION_LOCKED,
+    reason: fillIn('Station services are suspended until your account with {station} is settled.'),
+    launch: cargo.missions.status(OPENING) === 'offered' ? 'Accept the mission to launch' : null,
+  };
+}
+
+// Where the mission goes next, for the HUD, an edge marker and the map: { text, x, y, station }
+// (station: the scene's station when it's the waystation), or null.
+function objective() {
+  if (!mission.site || intro.on) return null;
+  const status = cargo.missions.status(OPENING), W = waystation();
+  if (status === 'ready') return { text: `Report to ${W.name}`, x: W.x, y: W.y, station: W };
+  if (status !== 'active') return null;
+  const o = cargo.missions.current(OPENING);
+  if (!o) return null;
+  const text = `${fillIn(o.label)}${o.need > 1 ? ` · ${o.count}/${o.need}` : ''}`;
+  return o.id === 'escort' ? { text, x: W.x, y: W.y, station: W } : { text, x: mission.site.x, y: mission.site.y, station: null };
+}
+
 // Jump gates offline (gatesOnline): they keep their destination to themselves, and the map
 // doesn't show the systems beyond them.
 function showGates() {
@@ -714,6 +941,10 @@ function loadGalaxy(galaxy) {
   // What the player knows (fog of war); ?fresh forgets saved charts.
   world.knowledge = Knowledge.create(galaxy, { fresh: Params.has('fresh') });
   world.android = ArtCulture.xeno(galaxy.seed).android; // what squad members are built in
+  const way = galaxy.stations[galaxy.waystation];
+  world.wayFace = way ? ArtAndroids.create(way.seed, world.cultures.of(way.culture)) : null; // its android
+  endTalk(false);
+  buildMission();
   loadCargo(galaxy);
   SystemMap.knowledge = world.knowledge;
   world.travel = Travel.create(galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: ambushCleared });
@@ -721,8 +952,11 @@ function loadGalaxy(galaxy) {
   Art.clearCache();
   ArtBodies.clearCache();
   if (intro.on) endIntro({ played: false }); // a new galaxy mid-introduction: start over
+  if (!mission.site) cargo.missions.finish(OPENING); // no waystation: no first mission
+  else if (Params.has('skipintro') && opening()) skipOpening();
   showGates();
   if (introDue()) startIntro();
+  else if (opening()) placeBeside(waystation()); // the first mission starts and ends there
   else placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);
 }
@@ -765,6 +999,7 @@ function dock(station) {
   docked = { station };
   // A lost ship is towed back to the last station it docked at.
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
+  missionDocked(station);
   repairSquad();
   saveCargo();
   ship.vx = ship.vy = 0;
@@ -784,6 +1019,9 @@ function dock(station) {
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
     squad: { members: cargo.squad },
+    missions: { list: () => missionViews(station) },
+    locks: stationLocks,
+    tab: opening() ? 'missions' : 'trade', // the first mission is all there is to do at first
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
@@ -802,6 +1040,7 @@ function launch() {
   const d = st.radius + 180;
   placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
   notify(`Launched from ${st.name}`, 2.5);
+  missionLaunched();
 }
 
 // ---------- Jump gates: stop by a gate and jump to the system at its other end ----------
@@ -851,17 +1090,22 @@ function buildWings() {
   snapWings();
 }
 
-// Every active wingman to its place in formation, at rest (after a teleport).
+// The ships flying in formation: the active wingmen, then the android being escorted home in
+// the first mission (it isn't in the squad yet, and stays out of fights).
+function formationShips() {
+  const list = activeSquad().map((m) => wings.get(m.id)).filter(Boolean);
+  if (escorting()) list.push(mission.android);
+  return list;
+}
+
+// Every ship in formation to its place, at rest (after a teleport).
 function snapWings() {
-  activeSquad().forEach((m, i) => {
-    const w = wings.get(m.id);
-    if (w) Object.assign(w, Squad.formation(ship, i), { vx: 0, vy: 0, angle: ship.angle, a: ship.angle, thrust: 0 });
-  });
+  formationShips().forEach((w, i) => Object.assign(w, Squad.formation(ship, i), { vx: 0, vy: 0, angle: ship.angle, a: ship.angle, thrust: 0 }));
 }
 
 // Out of a fight the wingmen fly to their places, arriving at the ship's speed. In a round-based
 // fight they're held where they are, turning to face their targets; in real time the fight flies
-// them.
+// them. An escorted ship waits out a fight where it is.
 function tickWings(dt) {
   if (fight.s) {
     if (fightMode().flying) return;
@@ -872,8 +1116,7 @@ function tickWings(dt) {
     return;
   }
   const lead = Math.hypot(ship.vx, ship.vy);
-  activeSquad().forEach((m, i) => {
-    const w = wings.get(m.id);
+  formationShips().forEach((w, i) => {
     const st = Squad.formation(ship, i), d = Math.hypot(st.x - w.x, st.y - w.y);
     if (d > WING_SNAP) { Object.assign(w, st, { vx: ship.vx, vy: ship.vy, angle: ship.angle, a: ship.angle }); return; }
     const there = d < 30;
@@ -1105,8 +1348,12 @@ function arriveAt(dest) {
   else if (dest.kind === 'contact') {
     const c = world.galaxy.contacts.find((x) => x.id === dest.id);
     dropNearContact(c, Math.atan2(c.y - ship.y, c.x - ship.x));
-  } else placeShip(dest.x, dest.y, ship.angle);
+  } else if (dest.kind === 'objective') dropNearContact({ x: dest.x, y: dest.y, r: OBJECTIVE_STOP }, Math.atan2(dest.y - ship.y, dest.x - ship.x));
+  else placeShip(dest.x, dest.y, ship.angle);
 }
+// Map travel to the mission's objective stops this far short of it (plus a contact's margin), out
+// of reach of the pirates there.
+const OBJECTIVE_STOP = 900;
 
 // Where a finished trip leaves the ship, and what it says.
 function finishTrip(ev) {
@@ -1115,6 +1362,7 @@ function finishTrip(ev) {
   let text;
   if (ev.type === 'arrive') {
     if (dest.kind === 'contact') dropNearContact(world.galaxy.contacts.find((c) => c.id === dest.id), ev.dir);
+    else if (dest.kind === 'objective') dropNearContact({ x: dest.x, y: dest.y, r: OBJECTIVE_STOP }, ev.dir);
     else if (dest.kind === 'point') placeShip(ev.pos.x, ev.pos.y, ev.dir);
     else arriveAt(dest);
     text = `Arrived at ${dest.name}`;
@@ -1152,14 +1400,25 @@ function tickTravel(dt) {
   else SystemMap.redraw();
 }
 
+// An entity posed for time t: a ship in a fight (or flying back from one) where the fight has it.
+function poseAt(e, t) {
+  const held = e.kind === 'ship' && (fight.ships.get(e.key) || fight.returning.get(e.key));
+  if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: held.thrust || 0 }); // fighting, or flying back
+  else Scene.pose(e, t);
+}
+
 // Everything within NEAR of the camera (scene.js), posed for time t.
 function nearbyEntities(t) {
   const out = [];
   for (const e of world.scene.near(cam.x, cam.y, NEAR)) {
     if (cargo.removed.has(e.key)) continue;
-    const held = e.kind === 'ship' && (fight.ships.get(e.key) || fight.returning.get(e.key));
-    if (held) Object.assign(e, { x: held.x, y: held.y, a: held.a, thrust: held.thrust || 0 }); // fighting, or flying back
-    else Scene.pose(e, t);
+    poseAt(e, t);
+    out.push(e);
+  }
+  // The first mission's field and what's in it (or the android following you home).
+  for (const e of missionThings()) {
+    if (cargo.removed.has(e.key)) continue;
+    poseAt(e, t);
     out.push(e);
   }
   // The squad's ships fly with yours.
@@ -1933,6 +2192,7 @@ function update(dt) {
   tickFight(dt);
   tickWings(dt);
   tickIntro(dt);
+  tickMission(dt);
 
   flash = Math.max(0, flash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
@@ -2260,14 +2520,23 @@ function markerAt(hits, sx, sy) {
 // one selects its station.
 let navHits = [];
 
+// The mission's objective gets one too, at any distance: the station's own marker ringed in amber
+// when it's a station, else an amber one of its own.
 function drawNavMarkers(list) {
   const stations = [];
+  const obj = objective();
   for (const st of list) {
     if ((st.kind !== 'station' && st.kind !== 'gate') || visible(st)) continue;
     const d = Math.hypot(st.x - ship.x, st.y - ship.y);
     if (d > NAV_RANGE) continue;
-    const ring = selected && selected.key === entityKey(st) ? SELECT_COLOR : null; // the selected station's marker
+    // The selected station's marker, or the objective's.
+    const ring = selected && selected.key === entityKey(st) ? SELECT_COLOR : obj && obj.station === st ? COLORS.amber : null;
     stations.push({ ref: st, x: st.x, y: st.y, color: st.color, ring, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
+  }
+  const R = obj && (obj.station ? obj.station.radius : mission.site.spread);
+  if (obj && !visible({ x: obj.x, y: obj.y, radius: R }) && !stations.some((m) => m.ref === obj.station)) {
+    const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(Math.hypot(obj.x - ship.x, obj.y - ship.y) - (obj.station ? R : 0))}`;
+    stations.push({ ref: obj.station, x: obj.x, y: obj.y, color: COLORS.amber, ring: COLORS.amber, label });
   }
   const top = ContextCard.isOpen ? ContextCard.top : null;
   navHits = edgeMarkers(stations, top === null ? 64 : Math.max(64, view.h - top + 16), 0.85);
@@ -2430,14 +2699,21 @@ function drawHud() {
     ctx.fillStyle = COLORS.neutral;
     ctx.fillText(`Near ${r.near.name}`, pad, pad + 28);
   }
+  // The mission's next step.
+  const obj = objective();
+  if (obj) {
+    ctx.fillStyle = COLORS.amber;
+    ctx.fillText(`◇ ${obj.text}`, pad, pad + 46);
+  }
 
   if (!interacted && !intro.on) { // the introduction has its own hint
+    const y0 = pad + (obj ? 74 : 56);
     ctx.fillStyle = COLORS.hud;
     ctx.globalAlpha = 0.6 + 0.3 * Math.sin(performance.now() / 400);
     const direct = moveMode.value === 'direct';
-    ctx.fillText(direct ? 'Hold and drag to fly; drag length sets speed' : 'Drag to fly; drag length sets speed', pad, pad + 56);
-    ctx.fillText(direct ? 'Let go to stop' : 'Tap empty space to stop', pad, pad + 72);
-    ctx.fillText('Tap a station, asteroid or ship for options', pad, pad + 88);
+    ctx.fillText(direct ? 'Hold and drag to fly; drag length sets speed' : 'Drag to fly; drag length sets speed', pad, y0);
+    ctx.fillText(direct ? 'Let go to stop' : 'Tap empty space to stop', pad, y0 + 16);
+    ctx.fillText('Tap a station, asteroid or ship for options', pad, y0 + 32);
   }
   ctx.restore();
 }
@@ -2491,6 +2767,8 @@ function render() {
     ctx.restore();
   }
   drawNavMarkers(list);
+  const obj = objective();
+  SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
   drawFoeMarkers();
   drawDragIndicator();
   drawMinimap(list);

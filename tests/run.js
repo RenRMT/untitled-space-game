@@ -45,7 +45,8 @@ load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
 load('intro.js', ['Intro']);
-const { Intro, Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
+load('missions.js', ['Missions']);
+const { Missions, Intro, Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -1325,9 +1326,8 @@ test('logic modules: the first whose condition holds decides; with none, keep fo
   assert.strictEqual(Logic.label('assist-leader'), 'Combat logic module · Assist leader');
 });
 
-test('squad: one android wingman to start, in formation behind the leader, saved and restored', () => {
-  const [m, ...rest] = Squad.starting(42);
-  assert.strictEqual(rest.length, 0);
+test('squad: an android wingman, in formation behind the leader, saved and restored', () => {
+  const m = Squad.member(42, { modules: ['assist-leader'] });
   assert.match(m.name, /^[A-Z][a-z]+-\d\d$/, 'an android designation');
   assert.strictEqual(m.name, Squad.member(42).name, 'named by its seed');
   assert.deepStrictEqual(m.modules, ['assist-leader', null, null, null]);
@@ -1356,6 +1356,110 @@ test('squad: one android wingman to start, in formation behind the leader, saved
   assert.deepStrictEqual([back[0].id, back[0].name, back[0].hullPoints, back[0].disabled, back[0].modules], [m.id, m.name, 12, true, m.modules]);
   assert.deepStrictEqual(back[1].modules, [null, 'assist-leader', null, null]);
   assert.strictEqual(Squad.read(undefined), null);
+});
+
+test('missions: offered, accepted, objectives in order, ready once all are met, then handed in', () => {
+  const ID = 'repayment';
+  const log = Missions.create();
+  assert.strictEqual(log.status(ID), 'offered');
+  assert(!log.set(ID, 'field', 1), 'no progress before it is accepted');
+  assert(!log.complete(ID));
+  assert(log.accept(ID) && !log.accept(ID));
+  assert.strictEqual(log.status(ID), 'active');
+  // Listed objectives (the android's call is tracked but not listed), each open once those before it are done.
+  assert.deepStrictEqual(log.objectives(ID).map((o) => o.id), ['field', 'pirates', 'regulator', 'escort']);
+  assert.strictEqual(log.current(ID).id, 'field');
+  assert(log.set(ID, 'field', 1) && !log.set(ID, 'field', 1), 'only a change counts');
+  assert(log.set(ID, 'pirates', 1));
+  assert.deepStrictEqual([log.count(ID, 'pirates'), log.done(ID, 'pirates'), log.current(ID).id], [1, false, 'pirates']);
+  assert(!log.open(ID, 'escort'), 'the escort waits for the call, which waits for the pirates');
+  log.set(ID, 'pirates', 5);
+  assert.strictEqual(log.count(ID, 'pirates'), 2, 'capped at what it needs');
+  assert(log.open(ID, 'hail') && !log.open(ID, 'escort'));
+  log.set(ID, 'hail', 1);
+  assert.strictEqual(log.current(ID).id, 'regulator', 'the first open one not done');
+  log.set(ID, 'escort', 1);
+  assert.strictEqual(log.status(ID), 'active', 'the regulator is still missing');
+  log.set(ID, 'regulator', 1);
+  assert.strictEqual(log.status(ID), 'ready');
+  assert.strictEqual(log.current(ID), null);
+  // A save round trip, at every stage; junk is dropped.
+  const back = Missions.create(JSON.parse(JSON.stringify({ ...log.save(), nope: { status: 'active' }, x: null })));
+  assert.deepStrictEqual(back.save(), log.save());
+  assert(back.complete(ID) && back.status(ID) === 'done' && !back.complete(ID));
+  assert(back.objectives(ID).every((o) => o.done));
+  const odd = Missions.create({ repayment: { status: 'active', progress: { pirates: 9, ghost: 1, field: -3 } } });
+  assert.deepStrictEqual(odd.save(), { repayment: { status: 'active', progress: { pirates: 2 } } });
+  assert.strictEqual(Missions.create({ repayment: { status: 'bogus' } }).status(ID), 'offered');
+  const skipped = Missions.create();
+  assert(skipped.finish(ID) && skipped.status(ID) === 'done' && skipped.done(ID, 'escort'));
+  // Lines: names filled in, conditional lines by what's done.
+  assert.strictEqual(Missions.fill('{ship} to {station}, {other}', { ship: 'Relay-42', station: 'HD' }), 'Relay-42 to HD, {other}');
+  const hail = Missions.LIST[ID].hail, fresh = Missions.create();
+  fresh.accept(ID);
+  assert(Missions.lines(hail, fresh, ID).some((l) => /drifting nearby/.test(l)));
+  fresh.set(ID, 'regulator', 1);
+  const after = Missions.lines(hail, fresh, ID);
+  assert(!after.some((l) => /drifting nearby/.test(l)) && after.some((l) => /recovered the coolant regulator/.test(l)));
+  // What it provides is a Courier the player can fly, with both hardpoints armed.
+  const provided = Missions.LIST[ID].provides.loadout;
+  assert.deepStrictEqual(Loadout.slotsOf(provided.hull).map((x) => x.id).sort(), Object.keys(provided.fitted).sort());
+  assert.strictEqual(Loadout.stats(provided).weaponsFitted, 2);
+});
+
+test('the first mission: a small asteroid field a short flight from the waystation, clear of everything else', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, site = Missions.site(g), W = g.stations[g.waystation], sys = g.systems[W.system];
+    assert.deepStrictEqual(Missions.site(g), site, `${where}: the same every time`);
+    const d = dist(site, W);
+    assert(d >= 4500 - 1 && d <= 9000 + 1, `${where}: ${d.toFixed(0)} from the waystation`);
+    assert(dist(site, sys.origin) < sys.radius - 1500, `${where}: inside the system`);
+    assert(!g.nebulaAt(site.x, site.y), `${where}: not in a nebula`);
+    for (const k of g.packs) assert(dist(k, site) > 4000, `${where}: another pack would join the fight`);
+    for (const st of g.stations) if (st !== W) assert(dist(st, site) > 6000, `${where}: ${st.name} too close`);
+    for (const p of g.planets) assert(dist(p, site) > p.extent + 2000, `${where}: ${p.name} too close`);
+    assert(site.rocks.length >= Missions.SITE.rocks[0] && site.rocks.every((a) => dist(a, site) <= site.spread + 1), `${where}: rocks in the field`);
+    assert.strictEqual(site.pirates.length, 2);
+    assert(site.pirates.every((p) => p.orbit >= 300 && p.orbit <= 600));
+    assert(dist(site.cargo, site) < 300, `${where}: the regulator beside the android`);
+    // Keys are its own: nothing in the galaxy has them.
+    const keys = [...site.rocks, ...site.pirates, site.android, site.cargo].map((x) => x.key);
+    assert.strictEqual(new Set(keys).size, keys.length);
+    const taken = new Set([...g.asteroids, ...g.wrecks, ...g.stations].map((x) => x.key).concat(g.packs.flatMap((k) => k.ships.map((x) => x.key))));
+    assert(keys.every((k) => !taken.has(k)), `${where}: keys collide`);
+  }
+  // The android is the wingman a new game used to start with: its name doesn't change.
+  const g = galaxies.get(1);
+  assert.strictEqual(Missions.site(g).android.seed, hashInt(seedToInt(g.seed), 1, 0x5a0d));
+  assert.strictEqual(Missions.site({ ...g, waystation: -1, stations: g.stations }), null, 'no waystation, no mission');
+});
+
+test('the first mission\'s fight: the provided Courier beats the two Mk I pirates in either combat mode', () => {
+  const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), fighter = Loadout.stats(Loadout.npc('fighter', Missions.SITE.tier));
+  const N = 300;
+  let wins = 0, hull = 0;
+  for (let i = 0; i < N; i++) {
+    const s = Combat.create(ctx.mulberry32(i * 104729 + 3), Combat.combatant('p', 'Me', me), [0, 1].map((k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
+    while (!s.over) Combat.round(s);
+    if (s.over === 'won') { wins++; hull += s.player.hull; }
+  }
+  assert(wins / N > 0.98, `rounds: won ${wins} of ${N}`);
+  assert(hull / wins > me.hull * 0.5, `rounds: ${(hull / wins).toFixed(0)} hull left on average`);
+  const face = (s, dt) => {
+    const p = s.player, t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+    if (t) p.angle = Flight.turnToward(p.angle, Math.atan2(t.y - p.y, t.x - p.x), me.turnRate * dt);
+  };
+  wins = 0;
+  for (let i = 0; i < 100; i++) {
+    const rng = ctx.mulberry32(i * 7919 + 77);
+    const enemies = [0, 1].map((k) => {
+      const a = rng() * Math.PI * 2, r = 650 + rng() * 250;
+      return RealtimeCombat.ship(`f${k}`, 'Fighter', fighter, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 });
+    });
+    const s = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', me, {}), enemies, face, { maxTime: 120 });
+    if (s.over === 'won') wins++;
+  }
+  assert(wins > 97, `real time: won ${wins} of 100`);
 });
 
 const wingman = () => Squad.stats(Squad.member(3));

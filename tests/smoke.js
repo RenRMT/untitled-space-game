@@ -4,8 +4,8 @@
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. It opens on the introduction, which the first test plays
-// through. Each step checks its effect; at the end nothing may have
+// settings and a start-style switch. It opens on the introduction and the first mission, which
+// the first two tests play through. Each step checks its effect; at the end nothing may have
 // been drawn at a non-finite position. The steps share one game, in order, as a player would
 // play them.
 
@@ -128,9 +128,113 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
   assert.strictEqual(game('SHIP.name'), 'Courier', 'the usual ship again');
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull'));
   assert.match(textOf(browser.document.getElementById('st-sub')), /Waystation/);
+});
+
+test('the first mission: accepted at the waystation, the pirates beaten, the android escorted home, and it joins the squad', () => {
+  const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
+  const tab = () => textOf(body);
+  const press = (label) => {
+    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
+    assert.ok(b, `a ${label} button`);
+    b.dispatch('click', {});
+  };
+  // Docked after the introduction: only the Missions tab, and no launching before accepting.
+  assert.strictEqual(game('StationMenu.tab'), 'missions', 'opens on the Missions tab');
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'squad']);
+  game(`StationMenu.showTab('trade')`);
+  assert.strictEqual(game('StationMenu.tab'), 'missions', 'the other tabs are locked');
+  assert.match(tab(), /Payment in kind/);
+  assert.match(tab(), /Station services are suspended/);
+  assert.match(tab(), /coolant regulator/);
+  assert.match(tab(), new RegExp(`${game('mission.vars.ship')} has not returned`));
+  assert.ok(allOf(body).some((el) => el.tagName === 'CANVAS'), 'the waystation\'s portrait');
+  assert.strictEqual(game('cargo.squad.length'), 0, 'no squad yet');
+  const launchBtn = browser.document.getElementById('st-launch');
+  assert.ok(launchBtn.disabled, 'Launch waits for the mission');
+  launchBtn.dispatch('click', {});
+  assert.ok(game('!!docked'), 'still docked');
+  // Accepting provides the ship: a Courier with both hardpoints armed.
+  press('Accept');
+  assert.strictEqual(game('cargo.missions.status(OPENING)'), 'active');
+  assert.ok(game('SHIP.name === "Courier" && SHIP.weaponsFitted === 2'), 'two salvaged lasers');
+  assert.ok(!launchBtn.disabled, 'Launch is open');
+  assert.match(tab(), /Fly to the asteroid field/);
+  assert.strictEqual(game('StationMenu.tab'), 'missions', 'still only Missions');
+  launchBtn.dispatch('click', {});
+  assert.ok(game('!docked'), 'launched');
+  // The waystation says where to go; the HUD, an edge marker and the map show it.
+  assert.match(textOf(comms), /asteroid field have been sent to your navigation system/);
+  for (let i = 0; i < 5 && game('!!talk.lines'); i++) game('Comms.next()');
+  assert.ok(game('!talk.lines && !Comms.isOpen'));
+  browser.frames(2);
+  assert.match(game('objective().text'), /^Fly to the asteroid field/);
+  assert.deepStrictEqual(game('[SystemMap.objective.x, SystemMap.objective.y]'), game('[mission.site.x, mission.site.y]'));
+  assert.ok(game('navHits.some((m) => m.ref === null)'), 'the objective has an edge marker');
+  const fromWay = game('Math.hypot(mission.site.x - waystation().x, mission.site.y - waystation().y)');
+  assert.ok(fromWay > 4000 && fromWay < 9500, `the field is near the waystation (${fromWay.toFixed(0)})`);
+  // Map travel to the objective stops short of the pirates; the field counts as found.
+  game('combatMode.set("rounds"); arriveAt({ kind: "objective", x: mission.site.x, y: mission.site.y })');
+  browser.frames(2);
+  assert.ok(game('cargo.missions.done(OPENING, "field") && !inFight()'), 'found, and not yet fighting');
+  assert.ok(game('frameList.filter((e) => isHostile(e) && e.key.startsWith("m.")).length') === 2, 'two pirates');
+  assert.ok(game('frameList.some((e) => e === mission.android) && frameList.some((e) => e === mission.cargo)'), 'the android and the regulator');
+  game('select(mission.android)');
+  browser.frames(1);
+  assert.match(game('describe(selected.e).subtitle'), /^Android · held by pirates/);
+  game('select(null)');
+  assert.match(game('objective().text'), /Defeat the pirates · 0\/2/);
+  // Fly in: the pirates attack, both together; and both go down.
+  const toSite = 'ship.targetAngle = Math.atan2(mission.site.y - ship.y, mission.site.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5;';
+  assert.ok(until('!!fight.s', 60 * 20, toSite), 'the pirates attack');
+  assert.strictEqual(game('fight.s.enemies.length'), 2, 'the pair fights together');
+  assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
+  assert.strictEqual(game('fight.result'), 'won');
+  assert.strictEqual(game('cargo.missions.count(OPENING, "pirates")'), 2);
+  // Once the fight is over, the android calls.
+  assert.ok(until('!!talk.lines', 60 * 10), 'the android calls');
+  assert.match(textOf(comms), new RegExp(`${game('mission.vars.ship')}.*Your hull registry matches`));
+  game('Comms.next(); Comms.next()');
+  assert.match(textOf(comms), /coolant regulator from my hold\. It is drifting nearby/);
+  for (let i = 0; i < 6 && game('!!talk.lines'); i++) game('Comms.next()');
+  assert.ok(game('escorting()'), 'it follows the ship now');
+  // The regulator, then home: the android keeps up in formation.
+  game('placeShip(mission.cargo.x + 10, mission.cargo.y)');
+  browser.frames(2);
+  assert.ok(game('cargo.missions.done(OPENING, "regulator") && cargo.items.length === 0'), 'recovered, outside the hold');
+  assert.match(game('objective().text'), /^Escort .+ back to Waystation HD-1863/);
+  game('ship.targetAngle = Math.atan2(waystation().y - ship.y, waystation().x - ship.x); ship.targetSpeed = SHIP.maxSpeed');
+  browser.frames(240);
+  game('ship.targetSpeed = 0');
+  browser.frames(200);
+  const gap = game('{ const st = Squad.formation(ship, 0); Math.hypot(mission.android.x - st.x, mission.android.y - st.y) }');
+  assert.ok(gap < 120, `in formation behind the ship (${gap.toFixed(0)} off)`);
+  game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
+  assert.ok(game('!!docked'), 'docked at the waystation');
+  assert.strictEqual(game('cargo.missions.status(OPENING)'), 'ready');
+  assert.match(tab(), /Please confirm the delivery/);
+  // Handed in: the debt settled, the android in the squad, every tab open.
+  press('Complete mission');
+  assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done');
+  assert.match(tab(), /surplus to requirements/);
+  assert.match(tab(), /has joined your squad/);
+  assert.deepStrictEqual(game('stationLocks().tabs'), []);
+  assert.strictEqual(game('cargo.squad.length'), 1);
+  assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
+  game(`StationMenu.showTab('squad')`);
+  assert.strictEqual(game('StationMenu.tab'), 'squad');
+  assert.match(tab(), new RegExp(game('mission.vars.ship')));
   game('launch()');
   browser.frames(3);
-  assert.ok(game('frameList.some((e) => e.kind === "wingman")'), 'the wingman joins');
+  assert.ok(game('frameList.some((e) => e.kind === "wingman") && !frameList.includes(mission.android)'), 'it flies as a wingman now');
+  assert.strictEqual(game('objective()'), null, 'nothing more to do');
+  // A save from before missions that played the introduction has it done already.
+  game('saveCargoNow()');
+  const key = game('cargo.key'), saved = JSON.parse(browser.storage.get(key));
+  assert.deepStrictEqual(saved.missions.repayment.status, 'done');
+  delete saved.missions;
+  browser.storage.set(key, JSON.stringify(saved));
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done', 'an older save');
   // On to the usual start, with the usual settings.
   game('artStyle.set("line"); combatMode.set("rounds"); placeBeside(startStation())');
 });
@@ -281,6 +385,9 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.ok(game(`cargo.research.has('pulse-laser-2') && !cargo.components['weapon-simple']`), 'researched, components used up');
   assert.strictEqual(game('cargo.items.length'), held - game(`Research.NODES['pulse-laser-2'].cost.titanium`), 'the trade goods were used up');
   game(`StationMenu.showTab('research')`);
+  // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
+  assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
+  assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
   // Buy and fit it in the empty hardpoint, then swap out the old laser and sell it.
   game('cargo.credits = 5000');
   const fp = game('SHIP.firepower');

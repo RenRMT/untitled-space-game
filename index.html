@@ -43,7 +43,7 @@
   }
   .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
-  #map-overlay { position: fixed; inset: 0; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
+  #map-overlay { position: fixed; inset: 0; z-index: 2; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
   #map-overlay[hidden] { display: none; }
   #map-overlay .bar {
     position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
@@ -191,7 +191,8 @@
   #st-credits { font-size: 15px; color: var(--cyan); white-space: nowrap; }
 
   .st-tabs { display: flex; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-  .st-tabs .btn { flex: 1; }
+  .st-tabs .btn { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; overflow: hidden; text-overflow: ellipsis; }
+  @media (max-width: 480px) { .st-tabs { gap: 4px; } .st-tabs .btn { font-size: 10px; letter-spacing: 0.02em; } }
   .st-tabs .btn[aria-selected="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
   #st-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-top: 6px; padding-bottom: 16px; }
@@ -323,6 +324,34 @@
   .stats dt { color: var(--dim); }
   .stats dd { margin: 0; text-align: right; }
 
+  /* Missions: what the giver says (portrait and lines), the objectives ticked off as they're met,
+     what it provides and pays, and Accept or Complete. */
+  .mission + .mission { margin-top: 22px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .ms-comms {
+    display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; margin-top: 8px;
+    background: rgba(12, 15, 24, 0.92); border: 1px solid var(--line); border-left: 3px solid var(--culture); border-radius: 3px;
+  }
+  .ms-face { flex: none; border: 1px solid var(--line); border-radius: 2px; }
+  .ms-lines { flex: 1; min-width: 0; }
+  .ms-from { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--culture); }
+  .ms-lines p { margin: 6px 0 0; color: #eef1ff; overflow-wrap: anywhere; }
+  .ms-lines strong { color: var(--culture); font-weight: 600; }
+  .ms-goals { list-style: none; margin: 6px 0 0; padding: 0; }
+  .ms-goals li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
+  .ms-goals li:first-child { border-top: 0; }
+  .ms-goals .name::before {
+    content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 10px; vertical-align: 1px;
+    border: 1px solid var(--cyan); box-sizing: border-box;
+  }
+  .ms-goals .done .name { color: var(--dim); }
+  .ms-goals .done .name::before { background: var(--good); border-color: var(--good); }
+  .ms-goals .open .name { color: #eef1ff; }
+  .ms-goals .later .name { color: var(--dim); }
+  .ms-goals .later .name::before { border-style: dashed; border-color: var(--dim); }
+  .ms-goals .held { color: var(--dim); white-space: nowrap; }
+  .ms-detail { margin: 6px 0 0; color: var(--hud); }
+  .ms-note { margin: 12px 0 0; color: var(--good); }
+  .ms-act { display: block; width: 100%; margin-top: 16px; padding: 11px 16px; border-color: var(--cyan); color: var(--cyan); }
   .st-foot {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     padding-top: 12px; padding-bottom: 14px; border-top: 1px solid var(--line);
@@ -406,6 +435,8 @@
   .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
   .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 2px; }
   body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
+  /* Someone talking on the comms during flight: the box takes the context card's place. */
+  body.talking #context { display: none; }
 </style>
 </head>
 <body>
@@ -443,6 +474,7 @@
     <button class="btn" type="button" role="tab" data-tab="ship">Ship</button>
     <button class="btn" type="button" role="tab" data-tab="research">Research</button>
     <button class="btn" type="button" role="tab" data-tab="squad">Squad</button>
+    <button class="btn" type="button" role="tab" data-tab="missions">Missions</button>
   </nav>
   <main id="st-body" role="tabpanel"></main>
   <footer class="st-foot">
@@ -523,6 +555,7 @@
 <script src="loadout.js"></script>
 <script src="logic.js"></script>
 <script src="squad.js"></script>
+<script src="missions.js"></script>
 <script src="research.js"></script>
 <script src="flight.js"></script>
 <script src="combat-core.js"></script>
