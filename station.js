@@ -1,8 +1,9 @@
 'use strict';
 
-// The docked screen: station header, Trade / Ship / Research / Squad tabs and a Launch button.
+// The docked screen: station header, Trade / Ship / Research / Squad / Missions tabs and a Launch
+// button.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
-//                    outfitting, lab, shipyard, repairs, artStyle, onLaunch })
+//                    outfitting, lab, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
@@ -13,6 +14,12 @@
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // squad: { members }: the squad (squad.js), each member with its logic modules (logic.js).
+// missions: { list() -> [mission view] }: the missions to show here (missions.js, game.js), each
+//   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (its
+//   giver is this station), lines: [what the giver says now], objectives: [{ label, count, need,
+//   done, open }], provided?, reward, note?, accept?(), complete?() }.
+// locks() -> { tabs: [tab names], reason, launch }: tabs that can't be opened yet and why, and why
+//   Launch can't be pressed yet (null when it can). Asked again after every change.
 // Browser script (global `StationMenu`).
 
 const StationMenu = (() => {
@@ -283,6 +290,51 @@ const StationMenu = (() => {
     ];
   }
 
+  // A portrait (a face(ctx, size) drawer) in a canvas, sharp at the screen's pixel density.
+  function portrait(face, size) {
+    const c = h('canvas', { class: 'ms-face', 'aria-hidden': 'true', style: { width: `${size}px`, height: `${size}px` } });
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    c.width = Math.round(size * dpr);
+    c.height = Math.round(size * dpr);
+    const g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    face(g, size);
+    return c;
+  }
+  // A line with its **bold** runs (Intro.runs).
+  const said = (text) => h('p', {}, Intro.runs(text).map((r) => (r.bold ? h('strong', {}, r.text) : r.text)));
+
+  // Missions: each one shown here, with what its giver says (briefing, or the debrief once it's
+  // done), its objectives ticked off as they're met, what it pays, and Accept or Complete.
+  const MISSION_STATE = { offered: 'Offered', active: 'In progress', ready: 'Ready to hand in', done: 'Completed' };
+  function missionCard(m) {
+    const goals = m.status === 'done' ? [] : m.objectives.map((o) => h('li', { class: o.done ? 'done' : o.open ? 'open' : 'later' },
+      h('span', { class: 'name' }, o.label),
+      o.need > 1 ? h('span', { class: 'held' }, `${o.count}/${o.need}`) : null));
+    let action = null;
+    if (m.status === 'offered' && m.here && m.accept) action = h('button', { class: 'btn ms-act', type: 'button', onclick: () => { m.accept(); refresh(); } }, 'Accept');
+    else if (m.status === 'ready' && m.here && m.complete) action = h('button', { class: 'btn ms-act', type: 'button', onclick: () => { m.complete(); refresh(); } }, 'Complete mission');
+    else if (m.status === 'ready') action = h('p', { class: 'note' }, `Hand it in at ${m.from}.`);
+    return h('section', { class: `mission ${m.status}`, 'aria-label': m.title },
+      h('h2', {}, m.title, h('span', { class: 'count' }, MISSION_STATE[m.status])),
+      m.lines.length ? h('div', { class: 'ms-comms' },
+        m.face ? portrait(m.face, 56) : null,
+        h('div', { class: 'ms-lines' }, h('span', { class: 'ms-from' }, m.from), m.lines.map(said))) : null,
+      goals.length ? [h('h3', { class: 'cat' }, 'Objectives'), h('ul', { class: 'ms-goals' }, goals)] : null,
+      m.provided && m.status !== 'done' ? [h('h3', { class: 'cat' }, 'Provided'), h('p', { class: 'ms-detail' }, m.provided)] : null,
+      h('h3', { class: 'cat' }, m.status === 'done' ? 'Paid' : 'Reward'), h('p', { class: 'ms-detail' }, m.reward),
+      m.note ? h('p', { class: 'ms-note' }, m.note) : null,
+      action);
+  }
+  function renderMissions() {
+    const list = ctx.missions ? ctx.missions.list() : [];
+    const { reason } = locks();
+    return [
+      reason ? h('p', { class: 'lead' }, reason) : null,
+      ...(list.length ? list.map(missionCard) : [h('p', { class: 'empty' }, 'No missions posted here.')]),
+    ];
+  }
+
   // The squad: each member, its state, and its logic modules in the order they're checked.
   function renderSquad() {
     const members = ctx.squad ? ctx.squad.members : [];
@@ -305,42 +357,61 @@ const StationMenu = (() => {
     ];
   }
 
+  // What can't be used yet (see open()); nothing is locked unless the flight view says so.
+  const locks = () => (ctx && ctx.locks ? ctx.locks() : { tabs: [], reason: '', launch: null });
+  const isLocked = (name) => locks().tabs.includes(name);
+  const tabNames = () => (tabs.length ? tabs.map((t) => t.dataset.tab) : Object.keys(RENDER));
+  const firstOpen = () => tabNames().find((name) => !isLocked(name)) || 'trade';
+
+  const RENDER = { trade: () => renderTrade(), ship: () => renderShip(), research: () => renderResearch(), squad: () => renderSquad(), missions: () => renderMissions() };
   function refresh() {
     if (!ctx) return;
+    const lock = locks();
+    if (lock.tabs.includes(tab)) tab = firstOpen();
     renderHeader();
     for (const t of tabs) {
-      const on = t.dataset.tab === tab;
+      const on = t.dataset.tab === tab, locked = lock.tabs.includes(t.dataset.tab);
       t.setAttribute('aria-selected', String(on));
       t.tabIndex = on ? 0 : -1;
+      t.disabled = locked;
+      t.title = locked ? lock.reason : '';
     }
+    const launch = el('st-launch');
+    launch.disabled = !!lock.launch;
+    launch.title = lock.launch || '';
+    if (lock.launch) el('st-hold').textContent = lock.launch;
     const scroll = body.scrollTop;
-    const parts = tab === 'trade' ? renderTrade() : tab === 'ship' ? renderShip() : tab === 'squad' ? renderSquad() : renderResearch();
-    body.replaceChildren(...parts.filter(Boolean)); // optional parts are null when absent
+    body.replaceChildren(...RENDER[tab]().flat().filter(Boolean)); // optional parts are null when absent
     body.scrollTop = scroll;
   }
 
   for (const t of tabs) {
-    t.addEventListener('click', () => { tab = t.dataset.tab; body.scrollTop = 0; refresh(); });
-    // Arrow keys move between tabs.
+    t.addEventListener('click', () => { if (isLocked(t.dataset.tab)) return; tab = t.dataset.tab; body.scrollTop = 0; refresh(); });
+    // Arrow keys move between the tabs that can be opened.
     t.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-      const i = (tabs.indexOf(t) + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+      let i = tabs.indexOf(t);
+      for (let k = 0; k < tabs.length; k++) {
+        i = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
+        if (!isLocked(tabs[i].dataset.tab)) break;
+      }
       tab = tabs[i].dataset.tab;
       refresh();
       tabs[i].focus();
     });
   }
-  el('st-launch').addEventListener('click', () => ctx && ctx.onLaunch());
+  el('st-launch').addEventListener('click', () => ctx && !locks().launch && ctx.onLaunch());
 
   return {
+    // options.tab: the tab to open on (Trade if not given, or the first that isn't locked).
     open(options) {
       ctx = options;
-      tab = 'trade';
+      tab = options.tab || 'trade';
       openSlot = null;
       root.hidden = false;
       body.scrollTop = 0;
       refresh();
-      el('st-launch').focus({ preventScroll: true });
+      ((locks().launch && tabs.find((t) => t.dataset.tab === tab)) || el('st-launch')).focus({ preventScroll: true });
     },
     close() {
       ctx = null;
@@ -348,8 +419,11 @@ const StationMenu = (() => {
       body.replaceChildren();
     },
     get isOpen() { return !!ctx; },
-    // Switch to a tab ('trade' | 'ship' | 'research' | 'squad') while open.
-    showTab(name) { tab = name; openSlot = null; body.scrollTop = 0; refresh(); },
+    // Switch to a tab ('trade' | 'ship' | 'research' | 'squad' | 'missions') while open, unless
+    // it's locked.
+    showTab(name) { if (isLocked(name)) return; tab = name; openSlot = null; body.scrollTop = 0; refresh(); },
+    get tab() { return tab; },
+    refresh,
     // Show or hide the choices for a loadout slot on the Ship tab.
     toggleSlot(id) { openSlot = openSlot === id ? null : id; refresh(); },
   };

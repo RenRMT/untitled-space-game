@@ -24,6 +24,12 @@ pirate pack in sector x, y" (the packs are already generated per sector with a s
 index and keys), paid in credits on docking, with the contract saved in the cargo save. Then the
 tab lists the contracts on offer and the one you hold.
 
+**Since brought back, in part.** The Missions tab is back (`station.js`), with a mission system
+(`missions.js`: mission data, a saved log of what's accepted, done and handed in, objectives
+that unlock in order) and one handcrafted mission, "Payment in kind", which follows the
+introduction and brings the first squad member. Bounty contracts are still to come; a new
+mission is a new `Missions.LIST` entry plus whatever it needs in flight (`game.js`).
+
 ## Distress signals, anomalies and the story signal
 
 **What they were.** Three of the five deep-space contact types (`galaxy.deepSector()`):

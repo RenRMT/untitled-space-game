@@ -9,8 +9,10 @@
 // - Galaxy: every system charted (entered at least once) and the jump gates between them; a gate
 //   to a system not yet charted leads to a '?'.
 // ?dev shows every system and contact, plus the testing buttons (Jump, Contacts).
+// A mission's objective (SystemMap.objective, set by the flight view) shows as an amber ring; it
+// can be picked and travelled to like anything else.
 // Map travel (local view, from inside the system): select a place (a station, gate, planet, known
-// contact or any point) and press Travel; the flight view runs the trip (travel.js) and the map
+// contact, the objective or any point) and press Travel; the flight view runs the trip (travel.js) and the map
 // shows the route, progress, signal prompts, Stop and fast-forward.
 
 const SystemMap = (() => {
@@ -53,6 +55,8 @@ const SystemMap = (() => {
   let onJump = null;
   let onLoad = null; // called with each newly generated galaxy (after the first one)
   let knowledge = null; // fog of war; null shows everything
+  let objective = null; // the mission's next step: { x, y, label, station (id) | null }, or null
+  const OBJECTIVE_COLOR = Theme.color.amber;
   const dev = Params.has('dev');
   // Performance readouts on the map and in flight: ?perf or ?dev, toggled with P.
   let perf = dev || Params.has('perf');
@@ -366,6 +370,20 @@ const SystemMap = (() => {
       ctx.stroke();
     }
 
+    // The mission's objective: an amber ring with its step beside it.
+    if (objective && system === galaxy.nearestSystem(objective.x, objective.y)) {
+      const [ox, oy] = toScreen(objective.x, objective.y);
+      ctx.strokeStyle = OBJECTIVE_COLOR;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(ox, oy, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 0.35;
+      ctx.beginPath(); ctx.arc(ox, oy, 14, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = OBJECTIVE_COLOR;
+      ctx.font = Theme.font(11);
+      ctx.fillText(objective.label, ox, oy + 27);
+    }
+
     // Names by zoom: the star always, then planets, gates and stations, then moons and the rest.
     ctx.font = Theme.font(11);
     const label = (text, x, y, color) => { ctx.fillStyle = color; ctx.fillText(text, x, y); };
@@ -491,6 +509,7 @@ const SystemMap = (() => {
       row((cx, cy) => gateIcon(cx, cy, '#aab3cc'), 'jump gate');
       row((cx, cy) => { ctx.fillStyle = PLANET_COLOR.terran; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); }, 'planet');
       row((cx, cy) => { ctx.fillStyle = 'rgba(178, 157, 132, 0.6)'; for (let i = -1; i <= 1; i++) ctx.fillRect(cx + i * 4 - 1, cy + (i % 2) * 2 - 1, 2, 2); }, 'asteroids');
+      if (objective) row((cx, cy) => { ctx.strokeStyle = OBJECTIVE_COLOR; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.stroke(); }, 'mission objective');
       row(cross(CONTACT.derelict.color), 'derelict found');
       row(question, 'unidentified signal');
       row((cx, cy) => { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 7); g.addColorStop(0, 'rgba(138, 92, 255, 0.6)'); g.addColorStop(1, 'rgba(138, 92, 255, 0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill(); }, 'nebula');
@@ -510,7 +529,7 @@ const SystemMap = (() => {
   // ---------- Selection & info panel ----------
 
   // Where a pick is, in world units.
-  const placeOf = (p) => p.station || p.planet || p.gate || p.contact || (p.system && p.system.origin) || p.point;
+  const placeOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || (p.system && p.system.origin) || p.point;
 
   function pick(sx, sy, tolerancePx) {
     const [wx, wy] = toWorld(sx, sy);
@@ -528,12 +547,13 @@ const SystemMap = (() => {
     for (const g of system.gates) consider(g, { gate: g }, 3);
     for (const p of [...system.planets, ...system.moons]) consider(p, { planet: p }, dot(p.r, 2));
     for (const c of system.contacts) if (contactState(c)) consider(c, { contact: c });
+    if (objective && !objective.station) consider(objective, { objective }, 6); // a station objective is picked as the station
     if (best) return best;
     if (Math.hypot(wx - system.origin.x, wy - system.origin.y) > system.radius) return null;
     return { point: { x: wx, y: wy } };
   }
 
-  const pickedOf = (p) => p.station || p.planet || p.gate || p.contact || p.system;
+  const pickedOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || p.system;
   const samePick = (a, b) => !!a && !!b && (a.point && b.point ? a.point.x === b.point.x && a.point.y === b.point.y
     : !a.point && !b.point && pickedOf(a) === pickedOf(b));
 
@@ -557,6 +577,7 @@ const SystemMap = (() => {
       const known = contactState(p.contact) === 'known';
       return { kind: 'contact', id: p.contact.id, x: p.contact.x, y: p.contact.y, name: known ? `the ${CONTACT[p.contact.type].name}` : 'the signal' };
     }
+    if (p.objective) return { kind: 'objective', x: p.objective.x, y: p.objective.y, name: 'the objective' };
     return { kind: 'point', x: p.point.x, y: p.point.y, name: 'the marked point' };
   }
 
@@ -641,6 +662,11 @@ const SystemMap = (() => {
         swatchHead(known ? CONTACT[c.type].color : '#2a3350', known ? CONTACT[c.type].label : 'Unidentified signal') +
         (known && c.hostile ? row('threat', 'pirates lying in wait') : '') +
         securityRow(c.x, c.y) + awayRow(c);
+      return;
+    }
+    if (sel.objective) {
+      const o = sel.objective;
+      info.innerHTML = swatchHead(OBJECTIVE_COLOR, 'Mission objective') + row('next', o.label) + securityRow(o.x, o.y) + awayRow(o);
       return;
     }
     const { x, y } = sel.point;
@@ -828,6 +854,15 @@ const SystemMap = (() => {
     set onLoad(fn) { onLoad = fn; },
     set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
     set access(a) { access = a; updateStats(); updateInfo(); requestDraw(); },
+    // The mission's objective to mark ({ x, y, label, station }), or null; redrawn only when it changes.
+    set objective(o) {
+      const same = o === objective || (o && objective && o.x === objective.x && o.y === objective.y && o.label === objective.label);
+      if (same) return;
+      if (selected && selected.objective) selected = null;
+      objective = o;
+      if (isOpen) { updateInfo(); requestDraw(); }
+    },
+    get objective() { return objective; },
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,

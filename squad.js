@@ -11,8 +11,8 @@
 //   the next time the player docks.
 //
 //   Squad.SLOTS                             logic slots per member
-//   Squad.member(seed, { modules, hull, tier }) -> a new member
-//   Squad.starting(seed) -> [members]       a new game's squad: one wingman, assisting the leader
+//   Squad.member(seed, { modules, hull, tier }) -> a new member (the first joins at the end of the
+//                                           first mission, missions.js)
 //   Squad.stats(m) -> Loadout.stats()       what it flies with
 //   Squad.formation(leader, i) -> { x, y }  its place behind the leader ({ x, y, angle })
 //   Squad.install(m, id, slot), Squad.remove(m, slot), Squad.move(m, from, to)
@@ -44,7 +44,6 @@ const Squad = (() => {
     return m;
   }
 
-  const starting = (seed) => [member(seed, { modules: ['assist-leader'] })];
   const stats = (m) => Load.stats(Load.npc(m.hull, m.tier));
   const modulesOf = (m) => m.modules.filter(Boolean);
 
@@ -83,7 +82,7 @@ const Squad = (() => {
     });
   }
 
-  return { SLOTS, member, starting, stats, modulesOf, formation, install, remove, move, read, designation };
+  return { SLOTS, member, stats, modulesOf, formation, install, remove, move, read, designation };
 })();
 
 if (typeof module !== 'undefined') module.exports = Squad;
