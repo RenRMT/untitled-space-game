@@ -1,6 +1,6 @@
 'use strict';
 
-// Station markets, recreated on demand from the galaxy seed and the station (no saved state).
+// Station markets, recreated on demand from the system seed and the station (no saved state).
 // Prices start from each item type's base price (goods.js). Every station buys every trade good;
 // what it sells, and at what price, depends on what kind of place it is:
 // - categories it produces are cheap, categories it consumes fetch a premium,
@@ -48,7 +48,7 @@ const Economy = (() => {
     return { produces: pool.slice(0, nProd), consumes: pool.slice(nProd, nProd + 2), sellsAll: major };
   }
 
-  // A station as Sectors builds it: { key, market: { kind: 'system' | 'outpost', type } }.
+  // A station as the scene (scene.js) builds it: { key, market: { kind: 'system' | 'outpost', type } }.
   // type is the outpost type, or for system stations 'capital' | 'major' | 'minor'.
   function profileOf(station, r) {
     const type = station.market.type;

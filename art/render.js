@@ -33,6 +33,8 @@ const Art = (() => {
     maxAsteroidPixels: 16e6,
     maxAsteroidSprites: 3000,
     buildBudgetMs: 4, // sprite building per frame before objects make do with their last sprite
+    maxBodyPixels: 6e6, // moon sprites and nebula chunks (art/bodies.js), about 24 MB
+    maxBodySprites: 1500,
     bg: '#05060a',
     outline: '#0e1016',
   };
@@ -934,9 +936,9 @@ const Art = (() => {
     return { canvas: buf.done(), half: (N * texel) / 2, smooth: false };
   }
 
-  let icoCache = null;
+  const icoCache = {}; // by subdivision level
   function icosphere(n) {
-    if (icoCache && icoCache.n === n) return icoCache;
+    if (icoCache[n]) return icoCache[n];
     const t = (1 + Math.sqrt(5)) / 2;
     let v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(norm);
     let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
@@ -950,8 +952,8 @@ const Art = (() => {
       for (const [a, b, c] of f) { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); nf.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); }
       f = nf;
     }
-    icoCache = { n, v, f };
-    return icoCache;
+    icoCache[n] = { n, v, f };
+    return icoCache[n];
   }
   // Orthographic tilt for round bodies: rotate about x so the ring plane leans toward the viewer.
   function orbit(v, ax) {
@@ -1471,7 +1473,11 @@ const Art = (() => {
   }
 
   return {
+    // Shared with art/bodies.js and art/portraits.js: the world light, dithering, noise, meshes and
+    // sprite helpers, and the per-frame build budget (sprite-cache.js) every cache spends from.
+    kit: { LIGHT, BAYER, norm, dot, sub, cross, hash3, noise3, fbm, icosphere, ramp, level, quant, dprOf, canvas, idOf, budget },
     STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
+
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
     // Start a frame: a fresh sprite build budget (see the caches above).

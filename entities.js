@@ -3,24 +3,25 @@
 // What each kind of thing in space is, in one place: draw order and how it is drawn, how close a
 // tap must land to pick it, its name label and minimap mark, and how its context card describes
 // it. A new kind of object is a new entry here (plus its art and, if it does something, an action
-// in game.js). Also the one factory for floating items, which both the sector generator
-// (sector.js) and the flight view (loot, mining drops, lost cargo) make.
+// in game.js). Also the one factory for floating items, which both the scene (scene.js) and the
+// flight view (loot, mining drops, lost cargo) make.
 //
 //   Entities.KINDS[kind] = {
 //     order                                  draw order, lowest first
 //     selectable, hit                        a tap selects it, within hit × its radius
 //     follow                                 an approach keeps station with it at this distance
-//     draw(ctx, e, style, x, y, scene)       scene: { t, list, sector } (list: everything nearby)
+//     draw(ctx, e, style, x, y, scene)       scene: { t, list, view } (list: everything nearby,
+//                                            view: the visible world rect [x0, y0, x1, y1])
 //     label(e) -> [colour, offset]           its name in space, that far below its centre
 //                                            (only things with a name show one)
-//     mark(e, galaxy) -> { color, r, ring? } | null    on the minimap
-//     card(e, galaxy) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
+//     mark(e, system) -> { color, r, ring? } | null    on the minimap
+//     card(e, system) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a goods.js type
-//   Entities.isHostile(e, galaxy)          pirate ships
-//   Entities.stationSubtitle(station, galaxy)
+//   Entities.isHostile(e)                  pirate ships
+//   Entities.stationSubtitle(station)
 // Works as a classic browser script (global `Entities`) and as a Node module. Drawing and the
-// colours need art/render.js and theme.js, so only the factories work in Node.
+// colours need art/render.js, art/bodies.js and theme.js, so only the factories work in Node.
 
 const Entities = (() => {
   const isNode = typeof require === 'function' && typeof module !== 'undefined';
@@ -29,7 +30,7 @@ const Entities = (() => {
   const color = () => Theme.color; // looked up when drawing, so Node never needs theme.js
 
   // A floating item: its art, its type (goods.js) and how it turns. Position and turning come
-  // from the caller's own random stream, so generated sectors stay as they were.
+  // from the caller's own random stream, so generated scenes stay as they were.
   function item({ key, kind, seed, angle, tumble, x = 0, y = 0 }) {
     const art = ArtItemsRef.create(kind, seed);
     return {
@@ -55,6 +56,18 @@ const Entities = (() => {
   const named = (e) => [color().neutral, e.radius + 20]; // anything else with a name
 
   const KINDS = {
+    nebula: {
+      order: -1,
+      // Drawn in world coordinates (art/bodies.js anchors its cloud there), culled to the view.
+      draw(ctx, e, style, x, y, { view }) {
+        ctx.save();
+        ctx.translate(x - e.x, y - e.y);
+        ArtBodies.drawNebula(ctx, e.cloud, style, { view });
+        ctx.restore();
+      },
+      label: () => null, // too big for a name in space: the HUD names the one you're in
+      mark: () => null,
+    },
     star: {
       order: 0,
       draw: (ctx, e, style, x, y, { t }) => Art.drawStar(ctx, e.body, style, { x, y, t }),
@@ -63,13 +76,17 @@ const Entities = (() => {
     },
     planet: {
       order: 1,
-      // Lit from the nearest star around it.
-      draw(ctx, e, style, x, y, { list, sector }) {
-        const star = list.find((s) => s.kind === 'star' && Math.abs(s.x - e.x) < sector && Math.abs(s.y - e.y) < sector);
-        Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
-      },
+      // Lit from the star (e.lightAngle, scene.js).
+      draw: (ctx, e, style, x, y) => Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: e.lightAngle ?? -2.2 }),
+
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 3 }),
+    },
+    moon: {
+      order: 1,
+      draw: (ctx, e, style, x, y) => ArtBodies.drawMoon(ctx, e.body, style, { x, y }),
+      label: (e) => [color().planet, e.body.r * 1.3],
+      mark: () => ({ color: color().planet, r: 2 }),
     },
     asteroid: {
       order: 1.5, selectable: true, hit: 1,
@@ -86,7 +103,7 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
       label: (e) => [e.color, e.radius * 1.05],
       mark: (e) => ({ color: e.color, r: 2.5 }),
-      card: (e, galaxy) => ({ title: e.name, sub: stationSubtitle(e, galaxy), color: e.color }),
+      card: (e) => ({ title: e.name, sub: stationSubtitle(e), color: e.color }),
     },
     wreck: {
       order: 3,

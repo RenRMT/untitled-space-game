@@ -3,7 +3,7 @@
 // Asteroid mining: which asteroid the ship can mine, how long it takes and what it leaves behind.
 // The flight view (game.js) offers Mine for an asteroid; mining runs for `duration` seconds, then
 // the asteroid breaks up and may drop one trade good to collect: a metal, mineral or gas, its
-// type picked by rarity (goods.js). Drops are seeded by the galaxy and the asteroid, so an
+// type picked by rarity (goods.js). Drops are seeded by the system and the asteroid, so an
 // asteroid always yields the same.
 // Works as a classic browser script (global `Mining`) and as a Node module.
 
@@ -18,7 +18,7 @@ const Mining = (() => {
     maxSpeed: 150, // the ship must be this slow to start (it then stops), as for docking
   };
 
-  // Drop chance and the categories that drop, by asteroid type (sector.js). Metallic rock gives
+  // Drop chance and the categories that drop, by asteroid type (solar-system.js). Metallic rock gives
   // metals, stony and carbonaceous rock mostly minerals, icy rock the odd pocket of gas.
   const YIELD = {
     metal: { chance: 0.7, items: [['metal', 4], ['mineral', 1]] },

@@ -2,10 +2,11 @@
 
 // Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
-// every art style and both movement modes, docking and trading, mining, map travel,
-// a fight in each combat mode, the settings and a start-style switch. Each step checks its
-// effect; at the end nothing may have been drawn at a non-finite position. The steps share one
-// game, in order, as a player would play them.
+// every art style and both movement modes, docking and trading, mining, finding a derelict,
+// flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
+// settings and a start-style switch. Each step checks its effect; at the end nothing may have
+// been drawn at a non-finite position. The steps share one game, in order, as a player would
+// play them.
 
 const fs = require('fs');
 const vm = require('vm');
@@ -33,23 +34,15 @@ function test(name, fn) {
   }
 }
 
-// Helpers in the game's scope: find an entity in a list of sectors, and run frames until a
-// condition holds (returns whether it did).
+// Helpers in the game's scope: find an entity in the scene (nearest the ship first), and run
+// frames until a condition holds (returns whether it did).
 game(`
-  globalThis.__systemSectors = () => world.galaxy.systems.map((s) => [s.x, s.y]);
-  globalThis.__allSectors = () => { const out = []; for (let y = 0; y < world.galaxy.size; y++) for (let x = 0; x < world.galaxy.size; x++) out.push([x, y]); return out; };
-  globalThis.__find = (pred, sectors) => {
-    for (const [x, y] of sectors) {
-      const s = world.sectors.at(x, y);
-      const e = s && s.entities.find(pred);
-      if (e) { Sectors.pose(e, simTime); return e; }
-    }
-    return null;
+  globalThis.__find = (pred) => {
+    const e = world.scene.entities.filter(pred).sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0] || null;
+    if (e) Scene.pose(e, simTime);
+    return e;
   };
-  globalThis.__startStation = () => {
-    const g = world.galaxy, s = g.systems[g.startSystem];
-    return world.sectors.at(s.x, s.y).entities.filter((e) => e.kind === 'station').sort((a, b) => b.radius - a.radius)[0];
-  };
+  globalThis.__startStation = startStation;
 `);
 // A click on one of the context card's buttons, as the card's click handler sees it.
 function clickCard(id) {
@@ -67,9 +60,11 @@ function until(cond, maxFrames, each = '') {
 
 test('boots at the start station', () => {
   browser.frames(3);
-  assert.ok(game('world.galaxy && world.sectors && world.knowledge'), 'world loaded');
+  assert.ok(game('world.system && world.scene && world.knowledge'), 'world loaded');
   assert.ok(game('Number.isFinite(ship.x) && Number.isFinite(ship.y)'));
+  assert.ok(game(`actions.state('dock', __startStation()).inRange`), 'beside the capital, in docking range');
   assert.ok(game('perfStats.posed > 0'), 'entities around the ship');
+  assert.ok(game('perfStats.posed < world.scene.entities.length / 2'), 'only what is near is posed');
   assert.ok(browser.draws > 0, 'something was drawn');
 });
 
@@ -92,17 +87,40 @@ test('flies in every art style and both movement modes', () => {
   browser.frames(5);
 });
 
-test('a rebuilt sector finds its sprites again', () => {
-  // Beside a station, a star, a planet and an asteroid in turn: the same frame drawn from freshly
-  // built sectors (new objects from the same seeds) builds no sprite.
+test('moons and nebulae come from art/bodies.js, in every style', () => {
+  // Every type the system rolls is one the art draws.
+  for (let seed = 1; seed <= 20; seed++) {
+    const s = SolarSystem.generate(seed, SYSTEM_CONFIG);
+    for (const m of s.moons) assert.ok(ArtBodies.MOON_TYPES.includes(m.type), `moon type ${m.type}`);
+    for (const n of s.nebulae) assert.ok(ArtBodies.NEBULA_TYPES.includes(n.type), `nebula type ${n.type}`);
+  }
+  // Beside a moon, then inside a nebula: drawn in each style, the nebula built over a few frames.
+  game(`fight.grace = 1e9; globalThis.__moon = __find((e) => e.kind === 'moon'); placeShip(__moon.x + __moon.radius + 150, __moon.y);`);
+  for (const style of game('ART_STYLES')) {
+    game(`artStyle.set('${style}')`);
+    browser.frames(2);
+    assert.ok(game(`frameList.some((e) => e.kind === 'moon' && visible(e))`), `a moon on screen in ${style}`);
+  }
+  const before = game('ArtBodies.stats().builds');
+  game(`{ const n = world.system.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
+  for (const style of game('ART_STYLES')) { game(`artStyle.set('${style}')`); browser.frames(4); }
+  assert.ok(game('ArtBodies.stats().builds') > before + 20, 'nebula chunks were built');
+  game(`artStyle.set('flat'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
+  browser.frames(2);
+});
+
+test('a rebuilt scene finds its sprites again', () => {
+
+  // Beside a station, the star, a planet and an asteroid in turn: the same frame drawn from a
+  // freshly built scene (new objects from the same seeds) builds no sprite.
   game('fight.grace = 1e9');
   for (const kind of ['station', 'star', 'planet', 'asteroid']) {
-    assert.ok(game(`!!(globalThis.__near = __find((e) => e.kind === '${kind}', __systemSectors()))`), kind);
+    assert.ok(game(`!!(globalThis.__near = __find((e) => e.kind === '${kind}'))`), kind);
     game('placeShip(__near.x, __near.y + __near.radius + 100)');
     browser.frames(2);
     game('render()');
     const before = game('Art.stats()');
-    game('world.sectors = Sectors.create(world.galaxy, world.cultures, SECTOR); render();');
+    game('world.scene = Scene.create(world.system, world.cultures); render();');
     const after = game('Art.stats()');
     assert.ok(game(`frameList.some((e) => e.kind === '${kind}' && visible(e))`), `a ${kind} on screen`);
     assert.deepStrictEqual([after.builds, after.asteroidBuilds], [before.builds, before.asteroidBuilds], `near a ${kind}`);
@@ -147,7 +165,7 @@ test('selects, approaches and docks at a station', () => {
 test('trades and launches', () => {
   const before = game('({ credits: cargo.credits, items: cargo.items.length })');
   game(`{
-    const m = Economy.market(world.galaxy.seed, __st);
+    const m = Economy.market(world.system.seed, __st);
     const g = m.goods.filter((x) => x.buy !== null && x.buy <= cargo.credits).sort((a, b) => a.buy - b.buy)[0];
     globalThis.__good = g;
     hold.buy(g.kind, g.buy, Goods.type(g.kind).name);
@@ -166,7 +184,7 @@ test('trades and launches', () => {
 });
 
 test('researches with components and goods, then buys, fits and sells gear, and buys a hull', () => {
-  game(`fight.grace = 1e9; globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital', __systemSectors());
+  game(`fight.grace = 1e9; globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
     placeShip(__cap.x, __cap.y + __cap.radius + 150);`);
   browser.frames(1);
   game('dock(__cap)');
@@ -220,7 +238,7 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
   const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])');
-  game('saveCargoNow(); loadCargo(world.galaxy)');
+  game('saveCargoNow(); loadCargo(world.system)');
   assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); launch()`);
@@ -246,7 +264,7 @@ test('components go to their own store, even with a full hold, and stay when the
 });
 
 test('mines an asteroid and collects what it leaves', () => {
-  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.galaxy.seed, e), __systemSectors())) && __rock.key`);
+  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.system.seed, e))) && __rock.key`);
   assert.ok(found, 'an asteroid with a yield');
   game('placeShip(__rock.x, __rock.y + __rock.radius + 60)');
   browser.frames(1);
@@ -264,22 +282,37 @@ test('mines an asteroid and collects what it leaves', () => {
   assert.strictEqual(game('cargo.items.length'), held + 1, 'the drop was collected');
 });
 
-test('builds the sectors past an edge ahead of time, one a frame', () => {
-  // Near the east edge of a sector in the middle of the galaxy: the column two sectors east comes
-  // into the 3×3 around the camera once the ship crosses, so it is built beforehand.
-  game(`globalThis.__grace = fight.grace; fight.grace = 1e9; globalThis.__c = Math.floor(world.galaxy.size / 2);
-    globalThis.__ahead = () => [-1, 0, 1].filter((d) => !world.sectors.has(__c + 2, __c + d)).length;`);
-  game('placeShip((__c + 0.9) * SECTOR, (__c + 0.5) * SECTOR)');
-  browser.frames(1);
-  let left = game('__ahead()');
-  for (let i = 0; i < 3; i++) {
-    browser.frames(1);
-    const now = game('__ahead()');
-    assert.ok(left - now <= 1, 'at most one sector is built ahead per frame');
-    left = now;
-  }
-  assert.strictEqual(left, 0, 'the sectors past the edge are built');
-  game('fight.grace = __grace');
+test('sensors find a hidden derelict, and the radar shows it once found', () => {
+  game(`fight.grace = 1e9; globalThis.__der = world.system.contacts.find((c) => c.type === 'derelict' && !world.knowledge.contactState(c.id));`);
+  assert.ok(game('!!__der'), 'an unfound derelict');
+  // From afar it is only a signal; closer in, the sensors identify it and say so.
+  game('placeShip(__der.x + __der.r + SHIP.sensorRange + 1500, __der.y)');
+  browser.frames(2);
+  assert.strictEqual(game('world.knowledge.contactState(__der.id)'), 'ping');
+  game(`toast.text = ""; placeShip(__der.x + __der.r + SHIP.sensorRange - 500, __der.y)`);
+  browser.frames(20);
+  assert.strictEqual(game('world.knowledge.contactState(__der.id)'), 'known');
+  assert.match(game('toast.text'), /derelict identified/);
+  assert.ok(game('frameList.some((e) => e.kind === "wreck" && e.contact === __der.id)'), 'its wrecks are around');
+  game('placeShip(__der.x, __der.y + 900)');
+  browser.frames(2);
+});
+
+test('a nebula dampens the sensors and lowers security; the edge holds the ship in', () => {
+  game(`fight.grace = 1e9; globalThis.__neb = world.system.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
+  browser.frames(2);
+  // Fly in, toward the nebula's core.
+  game('placeShip(__neb.x + __neb.blobs[0].dx, __neb.y + __neb.blobs[0].dy)');
+  game('lastRegion = { level: 3, nebula: null }');
+  browser.frames(2);
+  assert.match(game('toast.text'), /Entering the .* Nebula/);
+  assert.ok(game('frameList.some((e) => e.kind === "nebula")'), 'the nebula is drawn');
+  // To the edge of the system, flying outward: the ship stops there.
+  game(`{ const a = Math.atan2(ship.y, ship.x), R = world.system.radius; placeShip(Math.cos(a) * (R - 300), Math.sin(a) * (R - 300), a); ship.vx = Math.cos(a) * SHIP.maxSpeed; ship.vy = Math.sin(a) * SHIP.maxSpeed; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`);
+  browser.frames(90);
+  assert.ok(game('Math.hypot(ship.x, ship.y) <= world.system.radius'), 'still inside the edge');
+  game('ship.targetSpeed = 0; ship.vx = ship.vy = 0; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
+  browser.frames(2);
 });
 
 test('an off-screen station gets an edge marker, and a tap on it selects the station', () => {
@@ -294,42 +327,48 @@ test('an off-screen station gets an edge marker, and a tap on it selects the sta
   game('select(null)');
 });
 
-test('travels on the galaxy map', () => {
-  game('GalaxyMap.open()');
+test('travels on the system map', () => {
+  game('SystemMap.open()');
   browser.frames(2);
-  assert.ok(game('GalaxyMap.isOpen'));
-  // Drag and zoom the map.
+  assert.ok(game('SystemMap.isOpen'));
+  // Drag and zoom the map, and tap a station on it.
   const map = browser.document.getElementById('map-canvas');
-  const rebuilds = () => game('GalaxyMap.stats.rebuilds');
-  const before = rebuilds();
+  const frames = game('SystemMap.stats.frames');
   map.dispatch('pointerdown', { pointerId: 7, pointerType: 'mouse', clientX: 600, clientY: 400 });
   for (let i = 1; i <= 10; i++) { map.dispatch('pointermove', { pointerId: 7, pointerType: 'mouse', clientX: 600 + i * 8, clientY: 400 + i * 4 }); browser.frames(1); }
-  assert.strictEqual(rebuilds(), before, 'a drag moves the map\'s layer rather than redrawing it');
   map.dispatch('pointerup', { pointerId: 7, pointerType: 'mouse', clientX: 680, clientY: 440 });
-  browser.frames(1);
-  assert.strictEqual(rebuilds(), before + 1, 'the layer is redrawn once the drag ends');
   map.dispatch('wheel', { deltaY: -200, deltaMode: 0, clientX: 640, clientY: 400 });
   browser.frames(2);
-  assert.strictEqual(rebuilds(), before + 1, 'and is not redrawn while the wheel turns');
-  // To the nearest charted system other than the one we're in.
+  assert.ok(game('SystemMap.stats.frames') > frames, 'the map redraws as it moves');
+  browser.document.getElementById('map-reset').dispatch('click', {});
+  browser.frames(1);
+  // To the station furthest from the one we're at: the trip ends there, or at a contact on the way.
   game(`{
-    const [sx, sy] = sectorOf(ship.x, ship.y);
-    const s = world.galaxy.systems.filter((q) => world.knowledge.knowsSystem(q.id) && (q.x !== sx || q.y !== sy))
-      .sort((a, b) => Math.hypot(a.x - sx, a.y - sy) - Math.hypot(b.x - sx, b.y - sy))[0];
+    const s = world.system.stations.slice().sort((a, b) => Math.hypot(b.x - ship.x, b.y - ship.y) - Math.hypot(a.x - ship.x, a.y - ship.y))[0];
     globalThis.__dest = s;
-    GalaxyMap.hooks.travel({ kind: 'system', id: s.id, x: s.x + 0.5, y: s.y + 0.5, name: s.name });
-    GalaxyMap.hooks.fast();
+    SystemMap.hooks.travel({ kind: 'station', id: s.id, x: s.x, y: s.y, name: s.name });
+    SystemMap.hooks.fast();
   }`);
   assert.ok(game('world.travel.active'));
-  assert.ok(until('!world.travel.active', 3000, 'if (world.travel.prompt) GalaxyMap.hooks.ignore();'), 'the trip ends');
-  assert.ok(!game('GalaxyMap.isOpen'), 'the map closes on arrival');
+  assert.ok(until('!world.travel.active', 3000, 'if (world.travel.prompt) SystemMap.hooks.ignore();'), 'the trip ends');
+  assert.ok(!game('SystemMap.isOpen'), 'the map closes on arrival');
+  assert.match(game('toast.text'), /^(Arrived at|Interdicted)/);
+  if (/^Arrived/.test(game('toast.text'))) assert.ok(game('Math.hypot(ship.x - __dest.x, ship.y - __dest.y) < 800'), 'beside the station');
+  browser.frames(5);
+  // A trip to a point, stopped halfway: the ship drops out of cruise where the trip had got to.
+  game(`fight.grace = 1e9; SystemMap.open(); SystemMap.hooks.travel({ kind: 'point', x: 0, y: -world.system.radius * 0.8, name: 'the marked point' });`);
+  browser.frames(3);
+  const at = game('({ ...world.travel.pos })');
+  game('SystemMap.hooks.stop()');
+  assert.ok(game(`!world.travel.active && Math.hypot(ship.x - ${at.x}, ship.y - ${at.y}) < 1`), 'dropped out where the trip was');
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(5);
 });
 
 // Somewhere a pirate flies, posed for now, and the ship placed 800 units from it (in attack
 // range, outside the range where pirates attack on their own).
 function meetPirate() {
-  game(`globalThis.__pirate = __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key), __systemSectors()) || __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key), __allSectors());`);
+  game(`globalThis.__pirate = __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key));`);
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
   game(`cargo.hull = SHIP.hull; fight.grace = 1e9; { const a = Math.atan2(__pirate.y, __pirate.x); placeShip(__pirate.x + Math.cos(a) * (800 + __pirate.radius), __pirate.y + Math.sin(a) * (800 + __pirate.radius)); }`);
   browser.frames(1);
@@ -381,7 +420,7 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   assert.strictEqual(saved(), before, 'nothing is written straight away');
   const items = game('cargo.items.length'), credits = game('cargo.credits'), removed = game('cargo.removed.size');
   assert.ok(removed > 0, 'something was taken out of the world earlier');
-  game('loadCargo(world.galaxy)'); // writes the pending save first
+  game('loadCargo(world.system)'); // writes the pending save first
   assert.deepStrictEqual(game('[cargo.items.length, cargo.credits, cargo.removed.size]'), [items, credits, removed]);
   // A save from before the removed list: its three lists are merged. And from before components
   // had their own store: those in the hold move to it.
@@ -392,7 +431,8 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   const comps = game(`cargo.components['weapon-standard'] || 0`);
   old.items.push({ kind: 'weapon-standard', label: 'Standard weapon components', category: 'loot' });
   browser.storage.set(key, JSON.stringify(old));
-  game('loadCargo(world.galaxy)');
+  game('loadCargo(world.system)');
+
   assert.strictEqual(game('cargo.removed.size'), removed, 'an older save loads');
   assert.strictEqual(game(`cargo.components['weapon-standard']`), comps + 1, 'components in an old hold move to their store');
   assert.strictEqual(game('cargo.items.length'), items);

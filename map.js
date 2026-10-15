@@ -1,18 +1,21 @@
 'use strict';
 
-// Full-screen galaxy map overlay. Generates the galaxy from GALAXY_CONFIG (data/galaxy-config.js)
-// with Galaxy.generate (galaxy.js); a ?seed= URL parameter overrides the configured seed.
-// With fog of war (GalaxyMap.knowledge, see knowledge.js) it shows only what the player knows:
-// explored sectors, charted pockets, known systems and outposts, and contacts as signals.
-// ?dev shows everything, plus the testing buttons (Jump, Contacts).
-// Map travel: select a known place or any sector and press Travel; the flight view runs the trip
-// (travel.js) and the map shows the route, progress, signal prompts, Stop and fast-forward.
+// Full-screen system map overlay. Generates the solar system from SYSTEM_CONFIG
+// (data/system-config.js) with SolarSystem.generate (solar-system.js); a ?seed= URL parameter
+// overrides the configured seed. It shows the star, orbits, planets and moons, belts and fields,
+// nebulae, every station, how safe each part of the system is, and the contacts the player knows
+// of (SystemMap.knowledge, see knowledge.js): identified ones by type, pinged ones as signals.
+// ?dev shows every contact, plus the testing buttons (Jump, Contacts).
+// Map travel: select a place (a station, planet, known contact or any point) and press Travel;
+// the flight view runs the trip (travel.js) and the map shows the route, progress, signal
+// prompts, Stop and fast-forward.
 
-const GalaxyMap = (() => {
+const SystemMap = (() => {
   const overlay = document.getElementById('map-overlay');
   const canvas = document.getElementById('map-canvas');
   const ctx = canvas.getContext('2d');
   const info = document.getElementById('map-info');
+  const titleEl = document.getElementById('map-title');
   const statsEl = document.getElementById('map-stats');
   const contactsBtn = document.getElementById('map-contacts');
   const jumpBtn = document.getElementById('map-jump');
@@ -24,21 +27,26 @@ const GalaxyMap = (() => {
   const promptEl = document.getElementById('map-prompt');
   const promptText = document.getElementById('map-prompt-text');
 
-  const ZONE_LABEL = { pocket: 'Charted pocket', deep: 'Deep space', frontier: 'Frontier' };
-  const CONTACT = Galaxy.CONTACT_TYPES; // label, colour and prompt per contact type
+  const CONTACT = SolarSystem.CONTACT_TYPES; // label, colour and prompt per contact type
+  const PLANET_COLOR = { gas: '#e0a868', blue: '#6f97d8', terran: '#58b07a', desert: '#d9a066', ice: '#cfe6f5', lava: '#ff7a3a' };
+  const PLANET_LABEL = { gas: 'gas giant', blue: 'ice giant', terran: 'terran world', desert: 'desert world', ice: 'ice world', lava: 'lava world' };
+  // Moons by their art/bodies.js type.
+  const MOON_COLOR = { grey: '#8e8a84', ice: '#bcd3e2', sulfur: '#d6bf55', rust: '#a35a3b', dark: '#86838e' };
+  const MOON_LABEL = { grey: 'grey regolith', ice: 'icy', sulfur: 'volcanic', rust: 'rust', dark: 'carbon' };
+  const bodyColor = (p) => (p.parent !== undefined ? MOON_COLOR[p.type] : PLANET_COLOR[p.type]);
+  const MARKET_LABEL = { capital: 'capital station · shipyard', major: 'station · shipyard', minor: 'station' };
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
-  const MAX_SCALE = 90;
+  const TINT_CELLS = 80; // the security tint is drawn from a grid this many cells across
+  const { clamp } = MathUtil;
 
-  let galaxy = null;
-  let cells = []; // territoryOf() per sector, cached for drawing
-  let contacts = []; // deep-space encounters, for the dev layer
+  let system = null;
+  let tint = null; // the security tint: a small canvas over the system's square
   let showContacts = false;
-  let player = null; // the ship's position in sector units, set by the flight view
+  let player = null; // the ship's position in world units, set by the flight view
   let onJump = null;
-  let onLoad = null; // called with each newly generated galaxy (after the first one)
+  let onLoad = null; // called with each newly generated system (after the first one)
   let knowledge = null; // fog of war; null shows everything
-  let knowledgeId = 0; // bumps when the knowledge object is replaced (new galaxy), for the layer cache
   const dev = Params.has('dev');
   // Performance readouts on the map and in flight: ?perf or ?dev, toggled with P.
   let perf = dev || Params.has('perf');
@@ -46,60 +54,55 @@ const GalaxyMap = (() => {
   let trip = null; // the flight view's Travel instance, for drawing the route
   let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
   for (const id of ['map-jump', 'map-contacts']) document.getElementById(id).hidden = !dev;
-  const sysKnown = (s) => !fog() || fog().knowsSystem(s.id);
-  const outpostKnown = (o) => !fog() || fog().knowsOutpost(o.id);
+  // How much of a contact the map shows: 'known', 'ping' or null.
+  const contactState = (c) => (showContacts || !fog() ? 'known' : fog().contactState(c.id));
 
-  // scale = screen px per sector; (ox, oy) = sector coordinate at the screen's top-left.
-  const view = { w: 0, h: 0, dpr: 1, scale: 1, minScale: 0.3, ox: 0, oy: 0 };
+  // scale = screen px per world unit; (ox, oy) = the world point at the screen's top-left.
+  const view = { w: 0, h: 0, dpr: 1, scale: 0.01, minScale: 0.001, maxScale: 0.5, ox: 0, oy: 0 };
   let isOpen = false;
   let fitted = false;
-  let selected = null; // { system } or { sector: { x, y } }
+  let selected = null; // { station } | { planet } | { contact } | { point: { x, y } }
   let hovered = null;
   let drawQueued = false;
+  const stats = { drawMs: 0, frames: 0 }; // for the performance overlay
 
-  const { clamp } = MathUtil;
   const toScreen = (x, y) => [(x - view.ox) * view.scale, (y - view.oy) * view.scale];
-  const toGrid = (sx, sy) => [sx / view.scale + view.ox, sy / view.scale + view.oy];
+  const toWorld = (sx, sy) => [sx / view.scale + view.ox, sy / view.scale + view.oy];
 
   function hexToRgba(hex, a) {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
   }
 
-  // ---------- Galaxy ----------
+  // ---------- System ----------
 
   function load(seed) {
-    galaxy = Galaxy.generate(seed, GALAXY_CONFIG);
-    cells = [];
-    contacts = [];
-    for (let y = 0; y < galaxy.size; y++) {
-      for (let x = 0; x < galaxy.size; x++) {
-        cells.push(galaxy.territoryOf(x, y));
-        const c = galaxy.deepSector(x, y);
-        if (c) contacts.push({ x, y, ...c });
-      }
-    }
+    system = SolarSystem.generate(seed, SYSTEM_CONFIG);
+    tint = null;
     selected = null;
     hovered = null;
-    // Let the flight view swap its world (fog of war, travel, sectors) right away, even while the
-    // map stays open; otherwise the map would draw the new galaxy with the old galaxy's charts.
-    if (onLoad) onLoad(galaxy);
+    titleEl.textContent = `${system.name.toUpperCase()} SYSTEM`;
+    // Let the flight view swap its world (fog of war, travel, scene) right away, even while the
+    // map stays open; otherwise the map would draw the new system with the old one's charts.
+    if (onLoad) onLoad(system);
     updateStats();
     updateInfo();
     requestDraw();
   }
 
+  let statsVersion = -1; // the chart version the stats line was written for
   function updateStats() {
     statsVersion = fog() ? fog().version : -1;
-    const charted = cells.filter((c) => c.zone === 'pocket').length / cells.length;
-    const known = fog() ? ` · ${fog().counts().systems}/${galaxy.systems.length} systems on your charts` : '';
-    statsEl.textContent = `seed ${galaxy.seed} · ${galaxy.systems.length} systems · ${galaxy.outposts.length} outposts · `
-      + `${Math.round(charted * 100)}% charted space${known}`;
+    const c = fog() ? fog().counts() : null;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const found = c ? ` · ${plural(c.known, 'contact')} identified${c.pinged ? `, ${plural(c.pinged, 'signal')}` : ''}` : '';
+    statsEl.textContent = `seed ${system.seed} · ${system.star.cls}-class star · ${system.planets.length} planets · `
+      + `${system.stations.length} stations${found}`;
   }
 
   function initialSeed() {
     const param = Params.get('seed');
-    if (param === null || param === '') return GALAXY_CONFIG.seed;
+    if (param === null || param === '') return SYSTEM_CONFIG.seed;
     return /^\d+$/.test(param) ? Number(param) : param;
   }
 
@@ -108,7 +111,6 @@ const GalaxyMap = (() => {
     Params.set('seed', seed);
     load(seed);
   }
-
 
   // ---------- View ----------
 
@@ -121,33 +123,25 @@ const GalaxyMap = (() => {
     requestDraw();
   }
 
-  // The area to frame: the whole galaxy.
-  const frameArea = () => ({ x0: 0, y0: 0, x1: galaxy.size, y1: galaxy.size });
-
+  // Frame the whole system.
   function fit() {
     const pad = 12;
-    const availW = view.w - pad * 2;
-    // The bottom bar wraps to two rows on narrow screens; leave room for what it really covers.
     const bar = overlay.querySelector('.bar.bottom');
     const bottom = Math.max(BOTTOM_BAR, bar && !overlay.hidden ? bar.getBoundingClientRect().height : 0);
-    const availH = view.h - TOP_BAR - bottom;
-    const a = frameArea();
-    view.scale = Math.min(availW / (a.x1 - a.x0), availH / (a.y1 - a.y0));
-    view.minScale = Math.min(view.scale, availW / galaxy.size, availH / galaxy.size) * 0.5;
-    // Centre on the area, but when the screen shows less than the whole galaxy, don't look past its edge.
-    const keepIn = (c, span) => (span < galaxy.size ? clamp(c, span / 2, galaxy.size - span / 2) : c);
-    const cx = keepIn((a.x0 + a.x1) / 2, availW / view.scale);
-    const cy = keepIn((a.y0 + a.y1) / 2, availH / view.scale);
-    view.ox = cx - view.w / 2 / view.scale;
-    view.oy = cy - (TOP_BAR + availH / 2) / view.scale;
+    const availW = view.w - pad * 2, availH = view.h - TOP_BAR - bottom;
+    const span = system.radius * 2.1;
+    view.scale = Math.min(availW, availH) / span;
+    view.minScale = view.scale * 0.5;
+    view.ox = -view.w / 2 / view.scale;
+    view.oy = -(TOP_BAR + availH / 2) / view.scale;
     requestDraw();
   }
 
   function zoomAt(sx, sy, newScale) {
-    const [gx, gy] = toGrid(sx, sy);
-    view.scale = clamp(newScale, view.minScale, MAX_SCALE);
-    view.ox = gx - sx / view.scale;
-    view.oy = gy - sy / view.scale;
+    const [wx, wy] = toWorld(sx, sy);
+    view.scale = clamp(newScale, view.minScale, view.maxScale);
+    view.ox = wx - sx / view.scale;
+    view.oy = wy - sy / view.scale;
     requestDraw();
   }
 
@@ -158,160 +152,128 @@ const GalaxyMap = (() => {
   }
 
   // ---------- Drawing ----------
-  //
-  // Everything that only changes with the view, the player's charts or the testing toggles is drawn
-  // once into an offscreen layer; each frame copies it and adds the route, the ship and highlights.
-  // While a drag, pinch or wheel zoom is moving the view, the last layer is moved and scaled to
-  // follow instead of being redrawn; it is redrawn once the gesture ends (or the wheel has been
-  // still for WHEEL_SETTLE_MS). The layer reaches a margin past each screen edge, so a pan shows
-  // what was just off screen rather than empty space.
 
-  const WHEEL_SETTLE_MS = 150;
-  const layer = { canvas: null, key: null, view: null, pad: 0 };
-  const stats = { drawMs: 0, staticMs: 0, rebuilds: 0, frames: 0 }; // for the performance overlay
-  // Signature of everything the static layer depends on, other than where the view is.
-  const layerKey = () => [galaxy.seed, galaxy.systems.length, view.w, view.h, view.dpr,
-    fog() ? fog().version : -1, knowledgeId, showContacts].join('|');
-  const sameView = (v) => v.ox === view.ox && v.oy === view.oy && v.scale === view.scale;
+  // Security over the system as a small image, drawn stretched (and so smoothed) over it: safe
+  // blue-green near the stations through lawless red at the edge and in the nebulae.
+  function securityTint() {
+    if (tint) return tint;
+    tint = document.createElement('canvas');
+    tint.width = tint.height = TINT_CELLS;
+    const c = tint.getContext('2d'), R = system.radius, step = (R * 2) / TINT_CELLS;
+    for (let j = 0; j < TINT_CELLS; j++) {
+      for (let i = 0; i < TINT_CELLS; i++) {
+        const x = -R + (i + 0.5) * step, y = -R + (j + 0.5) * step;
+        if (Math.hypot(x, y) > R) continue;
+        c.fillStyle = Security.LEVELS[system.securityAt(x, y)].color;
+        c.fillRect(i, j, 1, 1);
+      }
+    }
+    return tint;
+  }
 
-  let wheeling = false; // a wheel zoom is under way
-  let wheelTimer = null;
-  const moving = () => wheeling || !!(gesture && (gesture.type === 'pinch' || gesture.moved > 0));
+  // A dot's radius on the map: its true size, but never smaller than `min` px.
+  const dot = (r, min) => Math.max(min, r * view.scale);
 
-  function staticLayer() {
-    const key = layerKey();
-    if (layer.canvas && layer.key === key && (moving() || sameView(layer.view))) return layer.canvas;
+  function draw() {
     const t0 = performance.now();
-    const pad = Math.round(Math.min(view.w, view.h) / 4 * view.dpr); // the margin in canvas px
-    if (!layer.canvas) layer.canvas = document.createElement('canvas');
-    const cw = canvas.width + pad * 2, chh = canvas.height + pad * 2;
-    if (layer.canvas.width !== cw || layer.canvas.height !== chh) { layer.canvas.width = cw; layer.canvas.height = chh; }
-    drawStatic(layer.canvas.getContext('2d'), pad / view.dpr);
-    layer.key = key;
-    layer.view = { ox: view.ox, oy: view.oy, scale: view.scale };
-    layer.pad = pad;
-    stats.rebuilds++;
-    stats.staticMs = performance.now() - t0;
-    return layer.canvas;
-  }
-  // Free the layer's memory while the map is closed.
-  function dropLayer() {
-    if (layer.canvas) { layer.canvas.width = layer.canvas.height = 0; }
-    layer.canvas = null;
-    layer.key = null;
-    layer.view = null;
-  }
-
-  // Draws the layer for the current view onto the screen: moved and scaled by how far the view has
-  // gone since the layer was drawn (not at all, once it has been redrawn).
-  function drawLayer() {
-    const bg = staticLayer();
-    const { view: v, pad } = layer;
-    const k = view.scale / v.scale, d = view.dpr;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    if (!sameView(v)) { ctx.fillStyle = Theme.color.bg; ctx.fillRect(0, 0, canvas.width, canvas.height); }
-    ctx.setTransform(k, 0, 0, k, d * (v.ox - view.ox) * view.scale - pad * k, d * (v.oy - view.oy) * view.scale - pad * k);
-    ctx.drawImage(bg, 0, 0);
-  }
-
-  // margin: how far past each screen edge to draw, in screen px.
-  function drawStatic(ctx, margin) {
+    if (fog() && fog().version !== statsVersion) updateStats();
     const { w, h, scale } = view;
-    const { size, frontier: F, systems } = galaxy;
-    // The area drawn, in screen px, and whether a point (with this much around it) is in it.
-    const x0 = -margin, y0 = -margin, x1 = w + margin, y1 = h + margin;
-    const inside = (sx, sy, padX, padY = padX) => sx > x0 - padX && sy > y0 - padY && sx < x1 + padX && sy < y1 + padY;
-    ctx.setTransform(view.dpr, 0, 0, view.dpr, margin * view.dpr, margin * view.dpr);
+    const R = system.radius;
+    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
     ctx.fillStyle = Theme.color.bg;
-    ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+    ctx.fillRect(0, 0, w, h);
+    const [cx, cy] = toScreen(0, 0);
+    const Rpx = R * scale;
 
-    const [bx0, by0] = toScreen(0, 0);
-    const [bx1, by1] = toScreen(size, size);
-    const [ix0, iy0] = toScreen(F, F);
-    const [ix1, iy1] = toScreen(size - F, size - F);
+    // The system, tinted by security.
     ctx.fillStyle = '#090c14';
-    ctx.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
-
-    // Frontier ring.
-    ctx.beginPath();
-    ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
-    ctx.rect(ix0, iy0, ix1 - ix0, iy1 - iy0);
-    ctx.fillStyle = 'rgba(255, 90, 110, 0.07)';
-    ctx.fill('evenodd');
-
-    // Explored sectors are lighter than the unknown.
-    const px = Math.ceil(scale) + 1;
-    const onScreen = (sx, sy) => sx + px >= x0 && sy + px >= y0 && sx <= x1 && sy <= y1;
-    if (fog()) {
-      for (const c of cells) {
-        if (!fog().isExplored(c.x, c.y)) continue;
-        const [sx, sy] = toScreen(c.x, c.y);
-        if (!onScreen(sx, sy)) continue;
-        ctx.fillStyle = '#101727';
-        ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
-      }
-    }
-
-    // Security: a faint tint over explored sectors, safe space blue through lawless red.
-    if (fog()) {
-      for (const c of cells) {
-        if (!fog().isExplored(c.x, c.y)) continue;
-        const [sx, sy] = toScreen(c.x, c.y);
-        if (!onScreen(sx, sy)) continue;
-        ctx.fillStyle = hexToRgba(Security.LEVELS[c.security].color, 0.06);
-        ctx.fillRect(Math.floor(sx), Math.floor(sy), px, px);
-      }
-    }
-
-    // Sector grid: every sector when zoomed in, else every 5.
-    const step = scale >= 10 ? 1 : 5;
-    ctx.strokeStyle = scale >= 10 ? '#141a2c' : '#18203a';
+    ctx.beginPath(); ctx.arc(cx, cy, Rpx, 0, Math.PI * 2); ctx.fill();
+    ctx.save();
+    ctx.globalAlpha = 0.09;
+    ctx.imageSmoothingEnabled = true;
+    ctx.beginPath(); ctx.arc(cx, cy, Rpx, 0, Math.PI * 2); ctx.clip();
+    ctx.drawImage(securityTint(), cx - Rpx, cy - Rpx, Rpx * 2, Rpx * 2);
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(255, 90, 110, 0.55)';
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let i = 0; i <= size; i += step) {
-      const [sx, sy] = toScreen(i, i);
-      ctx.moveTo(Math.round(sx) + 0.5, by0);
-      ctx.lineTo(Math.round(sx) + 0.5, by1);
-      ctx.moveTo(bx0, Math.round(sy) + 0.5);
-      ctx.lineTo(bx1, Math.round(sy) + 0.5);
-    }
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255, 90, 110, 0.35)';
     ctx.setLineDash([4, 4]);
-    ctx.strokeRect(Math.round(ix0) + 0.5, Math.round(iy0) + 0.5, Math.round(ix1 - ix0), Math.round(iy1 - iy0));
+    ctx.beginPath(); ctx.arc(cx, cy, Rpx, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(255, 90, 110, 0.6)';
-    ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(bx1 - bx0), Math.round(by1 - by0));
 
-    // Charted pockets: soft discs in the culture's colour around known settlements.
-    for (const pk of galaxy.pockets) {
-      if (pk.kind === 'system' ? !sysKnown(systems[pk.id]) : !outpostKnown(galaxy.outposts[pk.id])) continue;
-      const [sx, sy] = toScreen(pk.x, pk.y);
-      const pr = pk.r * scale;
-      if (sx + pr < x0 || sy + pr < y0 || sx - pr > x1 || sy - pr > y1) continue;
-      const color = galaxy.cultureColor(pk.culture);
-      ctx.fillStyle = hexToRgba(color, 0.3);
-      ctx.strokeStyle = hexToRgba(color, 0.8);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(pr, 2), 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
+    // Nebulae: their blobs as soft clouds.
+    for (const n of system.nebulae) {
+      for (const b of n.blobs) {
+        const [bx, by] = toScreen(n.x + b.dx, n.y + b.dy), br = b.r * scale;
+        const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+        g.addColorStop(0, hexToRgba(n.color, 0.3));
+        g.addColorStop(1, hexToRgba(n.color, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+      }
     }
 
-    // Deep-space contacts: identified ones by type, pings as '?'. The Contacts toggle shows all.
+    // Orbits, then belts as bands and fields as clouds of specks.
+    ctx.strokeStyle = 'rgba(138, 180, 255, 0.13)';
+    ctx.lineWidth = 1;
+    for (const p of system.planets) { ctx.beginPath(); ctx.arc(cx, cy, p.orbit * scale, 0, Math.PI * 2); ctx.stroke(); }
+    for (const b of system.belts) {
+      ctx.strokeStyle = 'rgba(178, 157, 132, 0.07)';
+
+      ctx.lineWidth = Math.max(2, b.width * scale);
+      ctx.beginPath(); ctx.arc(cx, cy, b.r * scale, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(178, 157, 132, 0.4)';
+    const speck = Math.max(1, Math.min(2.5, 30 * scale));
+    for (const a of system.asteroids) {
+      const [ax, ay] = toScreen(a.x, a.y);
+      if (ax < -4 || ay < -4 || ax > w + 4 || ay > h + 4) continue;
+      ctx.fillRect(ax - speck / 2, ay - speck / 2, speck, speck);
+    }
+
+    // The star, planets and moons.
+    ctx.fillStyle = Theme.color.star;
+    ctx.beginPath(); ctx.arc(cx, cy, dot(system.star.r, 5), 0, Math.PI * 2); ctx.fill();
+    for (const p of system.planets) {
+      const [px, py] = toScreen(p.x, p.y);
+      ctx.fillStyle = PLANET_COLOR[p.type];
+      ctx.beginPath(); ctx.arc(px, py, dot(p.r, 3.5), 0, Math.PI * 2); ctx.fill();
+      if (p.ring) {
+        ctx.strokeStyle = hexToRgba(PLANET_COLOR[p.type], 0.7);
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.ellipse(px, py, dot(p.r, 3.5) * 1.9, dot(p.r, 3.5) * 0.6, p.ringTilt, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+    for (const m of system.moons) {
+      const [mx, my] = toScreen(m.x, m.y);
+      ctx.fillStyle = MOON_COLOR[m.type];
+      ctx.beginPath(); ctx.arc(mx, my, dot(m.r, 1.5), 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Stations: diamonds in their culture's colour, the capital ringed.
+    for (const s of system.stations) {
+      const [sx, sy] = toScreen(s.x, s.y), r = s.size === 'major' ? 5 : 3.5;
+      ctx.fillStyle = system.cultureColor(s.culture);
+      ctx.beginPath(); ctx.moveTo(sx, sy - r); ctx.lineTo(sx + r, sy); ctx.lineTo(sx, sy + r); ctx.lineTo(sx - r, sy); ctx.closePath(); ctx.fill();
+      if (s.market.type === 'capital') {
+        ctx.strokeStyle = ctx.fillStyle;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(sx, sy, r + 4, 0, Math.PI * 2); ctx.stroke();
+      }
+    }
+
+    // Contacts: identified ones by type, pings as '?'.
     ctx.textAlign = 'center';
-    for (const c of contacts) {
-      const state = showContacts || !fog() ? 'known' : fog().contactState(c.x, c.y);
+    for (const c of system.contacts) {
+      const state = contactState(c);
       if (!state) continue;
-      const [sx, sy] = toScreen(c.x + 0.5, c.y + 0.5);
-      const r = clamp(scale * 0.22, 2, 6);
+      const [sx, sy] = toScreen(c.x, c.y);
       if (state !== 'known') {
         ctx.fillStyle = '#8a95b3';
-        ctx.font = Theme.font(Math.round(clamp(scale * 0.6, 9, 14)));
-        ctx.fillText('?', sx, sy + r * 0.8);
+        ctx.font = Theme.font(13);
+        ctx.fillText('?', sx, sy + 4);
         continue;
       }
+      const r = 4;
       ctx.strokeStyle = CONTACT[c.type].color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -319,84 +281,23 @@ const GalaxyMap = (() => {
       ctx.moveTo(sx + r, sy - r); ctx.lineTo(sx - r, sy + r);
       ctx.stroke();
     }
-    ctx.textAlign = 'left';
 
-    // Outposts.
-    if (scale >= 4) {
-      const op = clamp(scale * 0.25, 2, 5);
-      for (const o of galaxy.outposts) {
-        if (!outpostKnown(o)) continue;
-        const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
-        if (!inside(sx, sy, 5)) continue;
-        ctx.fillStyle = galaxy.cultureColor(o.culture);
-        ctx.fillRect(sx - op / 2, sy - op / 2, op, op);
-      }
-    }
-
-    const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
-
-    // Systems: major ones larger, the capital ringed.
-    const r = clamp(scale * 0.28, 2.5, 8);
-    for (const s of systems) {
-      if (!sysKnown(s)) continue;
-      const [sx, sy] = centreOf(s.id);
-      if (!inside(sx, sy, 20)) continue;
-      const color = galaxy.cultureColor(s.culture);
-      const sr = s.capital || s.major ? r : r * 0.75;
-      ctx.fillStyle = color;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(sx, sy, sr, 0, Math.PI * 2);
-      ctx.fill();
-      if (s.capital) {
-        ctx.beginPath();
-        ctx.arc(sx, sy, sr + 3.5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    }
-
-    // Names by zoom: the capital first, then major systems, then everything.
+    // Names by zoom: the star always, then planets and stations, then moons and the rest.
     ctx.font = Theme.font(11);
-    ctx.textAlign = 'center';
-    const labelZoom = (s) => {
-      if (s.capital) return 6;
-      if (s.major) return 14;
-      return 24;
-    };
-    const labelColor = { 6: '#e6ebff', 14: '#c3cae0', 24: '#8a95b3' };
-    for (const s of systems) {
-      if (!sysKnown(s)) continue;
-      const z = labelZoom(s);
-      if (scale < z) continue;
-      const [sx, sy] = centreOf(s.id);
-      if (!inside(sx, sy, 60, 20)) continue;
-      ctx.fillStyle = labelColor[z];
-      ctx.fillText(s.name, sx, sy - r - 7);
+    const label = (text, x, y, color) => { ctx.fillStyle = color; ctx.fillText(text, x, y); };
+    label(system.star.name, cx, cy - dot(system.star.r, 5) - 7, '#e6ebff');
+    if (scale >= 0.009) {
+      for (const p of system.planets) { const [px, py] = toScreen(p.x, p.y); label(p.name, px, py + dot(p.r, 3.5) + 13, '#8a95b3'); }
     }
-    if (scale >= 36) {
-      ctx.fillStyle = Theme.color.dim;
-      ctx.font = Theme.font(10);
-      for (const o of galaxy.outposts) {
-        if (!outpostKnown(o)) continue;
-        const [sx, sy] = toScreen(o.x + 0.5, o.y + 0.5);
-        if (inside(sx, sy, 60, 20)) ctx.fillText(o.name, sx, sy + 14);
-      }
+    if (scale >= 0.012) {
+      for (const s of system.stations) { const [sx, sy] = toScreen(s.x, s.y); label(s.name, sx, sy - 9, '#c3cae0'); }
+      for (const n of system.nebulae) { const [nx, ny] = toScreen(n.x, n.y); label(n.name, nx, ny, hexToRgba(n.color, 0.9)); }
+    }
+    if (scale >= 0.04) {
+      for (const m of system.moons) { const [mx, my] = toScreen(m.x, m.y); label(m.name, mx, my + dot(m.r, 1.5) + 12, Theme.color.dim); }
+      for (const b of system.belts) { const [bx, by] = toScreen(0, -b.r); label(b.name, bx, by + 4, '#b29d84'); }
     }
     ctx.textAlign = 'left';
-  }
-
-  let statsVersion = -1; // the chart version the stats line was written for
-
-  function draw() {
-    const t0 = performance.now();
-    if (fog() && fog().version !== statsVersion) updateStats();
-    const { w, h, scale } = view;
-    const { systems } = galaxy;
-    const centreOf = (id) => toScreen(systems[id].x + 0.5, systems[id].y + 0.5);
-    const r = clamp(scale * 0.28, 2.5, 8); // system dot radius, as in drawStatic
-    drawLayer();
-    ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
 
     // Map travel: the plotted route and destination.
     if (trip && trip.active) {
@@ -410,42 +311,39 @@ const GalaxyMap = (() => {
       ctx.setLineDash([6, 5]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.beginPath(); ctx.arc(bx, by, r + 5, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(bx, by, 9, 0, Math.PI * 2); ctx.stroke();
       ctx.globalAlpha = 1;
       if (trip.prompt) {
-        const [qx, qy] = toScreen(trip.prompt.x + 0.5, trip.prompt.y + 0.5);
+        const [qx, qy] = toScreen(trip.prompt.contact.x, trip.prompt.contact.y);
         ctx.strokeStyle = '#ffd166';
         ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(qx, qy, r + 9, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(qx, qy, 13, 0, Math.PI * 2); ctx.stroke();
       }
     }
 
     // You are here.
-    const [hx, hy] = player ? toScreen(player.x, player.y) : centreOf(galaxy.startSystem);
+    const home = system.stations[system.startStation];
+    const [hx, hy] = player ? toScreen(player.x, player.y) : toScreen(home.x, home.y);
     ctx.strokeStyle = Theme.color.cyan;
     ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(hx, hy, r + 8, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(hx, hy, 8, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = Theme.color.cyan;
     ctx.font = Theme.font(10);
-    ctx.fillText('YOU', hx + r + 10, hy + r + 12);
+    ctx.fillText('YOU', hx + 11, hy + 14);
 
     // Hover / selection highlights.
     for (const [sel, color] of [[hovered, Theme.color.hud], [selected, Theme.color.cyan]]) {
       if (!sel) continue;
-      if (sel.system || sel.outpost) {
-        const [sx, sy] = sel.system ? centreOf(sel.system.id) : toScreen(sel.outpost.x + 0.5, sel.outpost.y + 0.5);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
+      const p = placeOf(sel);
+      const [sx, sy] = toScreen(p.x, p.y);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      if (sel.point) {
         ctx.beginPath();
-        ctx.arc(sx, sy, sel.system ? r + 6 : clamp(scale * 0.25, 2, 5) + 5, 0, Math.PI * 2);
+        ctx.moveTo(sx - 7, sy); ctx.lineTo(sx + 7, sy); ctx.moveTo(sx, sy - 7); ctx.lineTo(sx, sy + 7);
         ctx.stroke();
       } else {
-        const [sx, sy] = toScreen(sel.sector.x, sel.sector.y);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
-        ctx.strokeRect(sx, sy, Math.max(scale, 3), Math.max(scale, 3));
+        ctx.beginPath(); ctx.arc(sx, sy, sel.planet ? dot(sel.planet.r, 3.5) + 6 : 10, 0, Math.PI * 2); ctx.stroke();
       }
     }
 
@@ -457,16 +355,12 @@ const GalaxyMap = (() => {
 
   // Performance readout (?perf or ?dev, or the P key), under the top bar.
   function drawPerf() {
-    const lines = [
-      `map draw ${stats.drawMs.toFixed(1)} ms · static layer ${stats.staticMs.toFixed(1)} ms`,
-      `static rebuilds ${stats.rebuilds} in ${stats.frames} frames`,
-    ];
     ctx.save();
     ctx.font = Theme.font(11);
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
-    ctx.fillRect(8, TOP_BAR, 330, lines.length * 15 + 8);
+    ctx.fillRect(8, TOP_BAR, 260, 23);
     ctx.fillStyle = Theme.color.cyan;
-    lines.forEach((l, i) => ctx.fillText(l, 14, TOP_BAR + 16 + i * 15));
+    ctx.fillText(`map draw ${stats.drawMs.toFixed(1)} ms · ${stats.frames} frames`, 14, TOP_BAR + 16);
     ctx.restore();
   }
 
@@ -474,71 +368,69 @@ const GalaxyMap = (() => {
     const x = 14;
     let y = view.h - BOTTOM_BAR - 150;
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
-    ctx.fillRect(x - 6, y - 14, 160, 200);
+    ctx.fillRect(x - 6, y - 14, 170, 182);
     ctx.font = Theme.font(11);
-    const row = (drawIcon, label) => {
+    const row = (drawIcon, text) => {
       drawIcon(x + 8, y - 4);
       ctx.fillStyle = '#aab3cc';
-      ctx.fillText(label, x + 24, y);
+      ctx.fillText(text, x + 24, y);
       y += 18;
     };
-    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.stroke(); }, 'capital / major system');
-    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 2.6, 0, 7); ctx.fill(); }, 'minor system');
-    row((cx, cy) => { ctx.fillStyle = '#7d869e'; ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); }, 'outpost');
-    // Security, high to none: the tint over explored sectors.
+    const diamond = (cx, cy, r) => { ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.fill(); };
+    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; diamond(cx, cy, 5); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 7); ctx.stroke(); }, 'capital station');
+    row((cx, cy) => { ctx.fillStyle = '#aab3cc'; diamond(cx, cy, 3.5); }, 'station / base');
+    row((cx, cy) => { ctx.fillStyle = PLANET_COLOR.terran; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); }, 'planet');
+    row((cx, cy) => { ctx.fillStyle = 'rgba(178, 157, 132, 0.6)'; for (let i = -1; i <= 1; i++) ctx.fillRect(cx + i * 4 - 1, cy + (i % 2) * 2 - 1, 2, 2); }, 'asteroids');
     row((cx, cy) => { [3, 2, 1, 0].forEach((l, i) => { ctx.fillStyle = Security.LEVELS[l].color; ctx.fillRect(cx - 8 + i * 4, cy - 4, 4, 8); }); }, 'security high → none');
-    row((cx, cy) => { ctx.fillStyle = 'rgba(255, 90, 110, 0.25)'; ctx.fillRect(cx - 7, cy - 5, 14, 10); }, 'frontier');
-    row((cx, cy) => { ctx.fillStyle = 'rgba(170, 179, 204, 0.2)'; ctx.strokeStyle = 'rgba(170, 179, 204, 0.55)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, 6, 0, 7); ctx.fill(); ctx.stroke(); }, 'charted pocket');
+    row((cx, cy) => { ctx.strokeStyle = CONTACT.derelict.color; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 4, cy - 4); ctx.lineTo(cx + 4, cy + 4); ctx.moveTo(cx + 4, cy - 4); ctx.lineTo(cx - 4, cy + 4); ctx.stroke(); }, 'derelict found');
     row((cx, cy) => { ctx.fillStyle = '#8a95b3'; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy + 4); ctx.textAlign = 'left'; }, 'unidentified signal');
+    row((cx, cy) => { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 7); g.addColorStop(0, 'rgba(138, 92, 255, 0.6)'); g.addColorStop(1, 'rgba(138, 92, 255, 0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill(); }, 'nebula');
   }
 
   // ---------- Selection & info panel ----------
 
+  // Where a pick is, in world units.
+  const placeOf = (p) => p.station || p.planet || p.contact || p.point;
+
   function pick(sx, sy, tolerancePx) {
-    const [gx, gy] = toGrid(sx, sy);
-    let best = null;
-    let bestDist = Math.max(tolerancePx / view.scale, 0.6);
-    for (const s of galaxy.systems) {
-      if (!sysKnown(s)) continue;
-      const d = Math.hypot(s.x + 0.5 - gx, s.y + 0.5 - gy);
-      if (d < bestDist) { bestDist = d; best = s; }
-    }
-    if (best) return { system: best };
-    if (view.scale >= 4) {
-      let bestO = null;
-      let bestOD = Math.max(tolerancePx * 0.6 / view.scale, 0.35);
-      for (const o of galaxy.outposts) {
-        if (!outpostKnown(o)) continue;
-        const d = Math.hypot(o.x + 0.5 - gx, o.y + 0.5 - gy);
-        if (d < bestOD) { bestOD = d; bestO = o; }
-      }
-      if (bestO) return { outpost: bestO };
-    }
-    const x = Math.floor(gx);
-    const y = Math.floor(gy);
-    if (x < 0 || y < 0 || x >= galaxy.size || y >= galaxy.size) return null;
-    return { sector: { x, y, fx: gx, fy: gy } };
+    const [wx, wy] = toWorld(sx, sy);
+    const at = { x: wx, y: wy };
+    let best = null, bestD = Infinity;
+    const consider = (o, sel, extra = 0) => {
+      const d = Math.hypot(o.x - at.x, o.y - at.y) * view.scale - extra;
+      if (d < tolerancePx && d < bestD) { bestD = d; best = sel; }
+    };
+    for (const s of system.stations) consider(s, { station: s }, 2);
+    for (const p of [...system.planets, ...system.moons]) consider(p, { planet: p }, dot(p.r, 2));
+    for (const c of system.contacts) if (contactState(c)) consider(c, { contact: c });
+    if (best) return best;
+    if (Math.hypot(wx, wy) > system.radius) return null;
+    return { point: { x: wx, y: wy } };
   }
 
-  const samePick = (a, b) => a && b && (a.system || a.outpost
-    ? a.system === b.system && a.outpost === b.outpost
-    : !!b.sector && a.sector.x === b.sector.x && a.sector.y === b.sector.y);
+  const samePick = (a, b) => !!a && !!b && (a.point && b.point ? a.point.x === b.point.x && a.point.y === b.point.y
+    : a.station === b.station && a.planet === b.planet && a.contact === b.contact && !a.point && !b.point);
 
-  // Names come from config and the generator today, but escape them in case they ever come from
-  // saves or players.
+  // Names come from the generator today, but escape them in case they ever come from saves.
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const row = (label, value) => `<div class="row"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
   const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${esc(color)}"></span>${esc(title)}</div>`;
+  const km = (d) => `${(d / 1000).toFixed(1)}k`;
+  const securityRow = (x, y) => {
+    const s = Security.LEVELS[system.securityAt(x, y)];
+    return `<div class="row"><span>security</span><span style="color:${s.color}">${esc(s.label)}</span></div>`;
+  };
+  const awayRow = (o) => (player ? row('distance', km(Math.hypot(o.x - player.x, o.y - player.y))) : '');
 
-  // Sector of a pick, for jumping there.
-  const sectorOfPick = (p) => (p.system ? { x: p.system.x, y: p.system.y } : p.outpost ? { x: p.outpost.x, y: p.outpost.y } : p.sector);
-
-  // Travel destination for a pick: known systems and outposts by name, any sector by coordinates.
+  // Travel destination for a pick.
   function destOf(p) {
-    if (p.system) return { kind: 'system', id: p.system.id, x: p.system.x + 0.5, y: p.system.y + 0.5, name: p.system.name };
-    if (p.outpost) return { kind: 'outpost', id: p.outpost.id, x: p.outpost.x + 0.5, y: p.outpost.y + 0.5, name: p.outpost.name };
-    const { x, y, fx, fy } = p.sector;
-    return { kind: 'sector', x: fx ?? x + 0.5, y: fy ?? y + 0.5, name: `sector ${x}, ${y}` };
+    if (p.station) return { kind: 'station', id: p.station.id, x: p.station.x, y: p.station.y, name: p.station.name };
+    if (p.planet) return { kind: 'planet', id: p.planet.name, x: p.planet.x, y: p.planet.y, name: p.planet.name };
+    if (p.contact) {
+      const known = contactState(p.contact) === 'known';
+      return { kind: 'contact', id: p.contact.id, x: p.contact.x, y: p.contact.y, name: known ? `the ${CONTACT[p.contact.type].name}` : 'the signal' };
+    }
+    return { kind: 'point', x: p.point.x, y: p.point.y, name: 'the marked point' };
   }
 
   function updateTravelUI() {
@@ -551,64 +443,54 @@ const GalaxyMap = (() => {
     fastBtn.setAttribute('aria-pressed', String(travelling && trip.fast));
     promptEl.hidden = !(travelling && trip.prompt);
     if (!travelling) return;
-    travelStatus.textContent = `Travelling to ${trip.dest.name} · ${trip.remaining.toFixed(1)} sectors · ${Math.ceil(trip.eta)} s`;
-    if (trip.prompt) promptText.textContent = `Signal detected: ${CONTACT[trip.prompt.contact.type]?.prompt || 'a contact'} in sector ${trip.prompt.x}, ${trip.prompt.y}.`;
+    travelStatus.textContent = `Travelling to ${trip.dest.name} · ${km(trip.remaining)} · ${Math.ceil(trip.eta)} s`;
+    if (trip.prompt) promptText.textContent = `Signal detected: ${CONTACT[trip.prompt.contact.type]?.prompt || 'a contact'} nearby.`;
   }
-
-  // A sector's security (security.js): how likely pirates are, and how well armed.
-  const securityRow = (x, y) => {
-    const s = Security.LEVELS[galaxy.securityOf(x, y)];
-    return `<div class="row"><span>security</span><span style="color:${s.color}">${esc(s.label)}</span></div>`;
-  };
 
   function updateInfo() {
     updateTravelUI();
     const sel = selected || hovered;
     info.hidden = !sel;
     if (!sel) return;
-    const culture = (id) => galaxy.cultures[id];
 
-    if (sel.system) {
-      const s = sel.system;
-      const counts = {};
-      for (const loc of s.locations) counts[loc.type] = (counts[loc.type] || 0) + 1;
+    if (sel.station) {
+      const s = sel.station;
+      const where = s.planet !== undefined ? system.planets[s.planet].name : null;
       info.innerHTML =
-        swatchHead(galaxy.cultureColor(s.culture), s.name) +
-        row('type', s.capital ? 'capital' : s.major ? 'major system' : 'minor system') +
-        row('culture', culture(s.culture).name) +
-        row('sector', `${s.x}, ${s.y}`) +
-        securityRow(s.x, s.y) +
-        row('locations', Object.entries(counts).map(([t, n]) => `${n} ${t}${n > 1 ? 's' : ''}`).join(', '));
+        swatchHead(system.cultureColor(s.culture), s.name) +
+        row('type', s.market.kind === 'outpost' ? s.market.type : MARKET_LABEL[s.market.type]) +
+        row('culture', system.cultures[s.culture].name) +
+        (where ? row('orbits', where) : '') +
+        securityRow(s.x, s.y) + awayRow(s);
       return;
     }
-
-    if (sel.outpost) {
-      const o = sel.outpost;
+    if (sel.planet) {
+      const p = sel.planet;
+      const moons = p.moons ? p.moons.length : 0;
       info.innerHTML =
-        swatchHead(galaxy.cultureColor(o.culture), o.name) +
-        row('type', o.type) +
-        row('culture', culture(o.culture).name) +
-        row('sector', `${o.x}, ${o.y}`) +
-        securityRow(o.x, o.y);
-      return;
-    }
+        swatchHead(bodyColor(p), p.name) +
+        row('type', p.parent !== undefined ? `moon · ${MOON_LABEL[p.type]}` : PLANET_LABEL[p.type] + (p.ring ? ' · rings' : '')) +
 
-    const t = galaxy.territoryOf(sel.sector.x, sel.sector.y);
-    if (fog() && !fog().isExplored(t.x, t.y)) {
-      const signal = fog().contactState(t.x, t.y) === 'ping';
-      info.innerHTML = swatchHead('#2a3350', `Sector ${t.x}, ${t.y}`) + row('status', 'uncharted') + (signal ? row('contact', 'unidentified signal') : '');
+        (p.parent === undefined ? row('orbit', km(p.orbit)) : '') +
+        (moons ? row('moons', String(moons)) : '') +
+        securityRow(p.x, p.y) + awayRow(p);
       return;
     }
-    const contact = galaxy.deepSector(t.x, t.y);
-    const contactShown = contact && (showContacts || !fog() || fog().contactState(t.x, t.y) === 'known');
+    if (sel.contact) {
+      const c = sel.contact, known = contactState(c) === 'known';
+      info.innerHTML =
+        swatchHead(known ? CONTACT[c.type].color : '#2a3350', known ? CONTACT[c.type].label : 'Unidentified signal') +
+        (known && c.hostile ? row('threat', 'pirates lying in wait') : '') +
+        securityRow(c.x, c.y) + awayRow(c);
+      return;
+    }
+    const { x, y } = sel.point;
+    const r = system.regionAt(x, y);
     info.innerHTML =
-      swatchHead(t.pocket ? galaxy.cultureColor(t.pocket.culture) : '#2a3350', `Sector ${t.x}, ${t.y}`) +
-      row('zone', ZONE_LABEL[t.zone]) +
-      securityRow(t.x, t.y) +
-      (t.pocket ? row('near', t.pocket.name) : '') +
-      (t.zone === 'pocket' ? '' : row('contact', contactShown
-        ? (contact.name || contact.type) + (contact.hostile ? ' · hostile' : '')
-        : contact && fog()?.contactState(t.x, t.y) === 'ping' ? 'unidentified signal' : 'none detected'));
+      swatchHead(r.nebula ? r.nebula.color : '#2a3350', r.nebula ? r.nebula.name : 'Open space') +
+      (r.near ? row('near', r.near.name) : '') +
+      row('from the star', km(r.fromStar)) +
+      securityRow(x, y) + awayRow(sel.point);
   }
 
   // ---------- Input: drag to pan, wheel/pinch to zoom, tap to select ----------
@@ -643,8 +525,10 @@ const GalaxyMap = (() => {
   canvas.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) {
       if (e.pointerType === 'mouse') {
-        const p = pick(e.clientX, e.clientY, 8);
-        if (!samePick(p, hovered)) { hovered = p; updateInfo(); requestDraw(); }
+        const p = pick(e.clientX, e.clientY, 10);
+        // Hovering empty space shows nothing; only things get a hover card.
+        const h = p && !p.point ? p : null;
+        if (!samePick(h, hovered) && (h || hovered)) { hovered = h; updateInfo(); requestDraw(); }
       }
       return;
     }
@@ -663,7 +547,7 @@ const GalaxyMap = (() => {
       const my = (a.y + b.y) / 2;
       const gx = gesture.ox + gesture.mx / gesture.scale;
       const gy = gesture.oy + gesture.my / gesture.scale;
-      view.scale = clamp(gesture.scale * Math.hypot(a.x - b.x, a.y - b.y) / gesture.dist, view.minScale, MAX_SCALE);
+      view.scale = clamp(gesture.scale * Math.hypot(a.x - b.x, a.y - b.y) / gesture.dist, view.minScale, view.maxScale);
       view.ox = gx - mx / view.scale;
       view.oy = gy - my / view.scale;
     }
@@ -675,16 +559,14 @@ const GalaxyMap = (() => {
     const wasTap = e.type === 'pointerup' && gesture && gesture.type === 'pan' && gesture.moved < 6;
     pointers.delete(e.pointerId);
     if (wasTap) {
-      const p = pick(e.clientX, e.clientY, e.pointerType === 'mouse' ? 8 : 16);
+      const p = pick(e.clientX, e.clientY, e.pointerType === 'mouse' ? 10 : 18);
       selected = p && !samePick(p, selected) ? p : null;
       if (e.pointerType !== 'mouse') hovered = null;
       updateInfo();
       requestDraw();
     }
     // Lifting one finger of a pinch continues as a pan with the other.
-    const wasMoving = moving();
     startGesture();
-    if (wasMoving && !moving()) requestDraw(); // redraw the layer where the view has come to rest
     if (!pointers.size) canvas.style.cursor = '';
   }
   canvas.addEventListener('pointerup', endPointer);
@@ -698,21 +580,19 @@ const GalaxyMap = (() => {
     e.preventDefault();
     // Firefox often reports wheel deltas in lines or pages rather than pixels.
     const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? view.h : 1);
-    wheeling = true;
-    clearTimeout(wheelTimer);
-    wheelTimer = setTimeout(() => { wheeling = false; requestDraw(); }, WHEEL_SETTLE_MS);
     zoomAt(e.clientX, e.clientY, view.scale * Math.pow(1.0015, -dy));
   }, { passive: false });
 
   // ---------- Open / close & controls ----------
 
-  let blocked = false; // set by the flight view while docked
+  let blocked = false; // set by the flight view while docked or fighting
   function open() {
     if (isOpen || blocked) return;
     isOpen = true;
     overlay.hidden = false;
     resize();
     if (!fitted) { fit(); fitted = true; }
+    updateInfo();
   }
 
   function close() {
@@ -721,16 +601,6 @@ const GalaxyMap = (() => {
     overlay.hidden = true;
     pointers.clear();
     gesture = null;
-    clearTimeout(wheelTimer);
-    wheeling = false;
-    dropLayer();
-  }
-
-  function setToggle(btn, on) {
-    btn.setAttribute('aria-pressed', String(on));
-    updateInfo();
-    requestDraw();
-    return on;
   }
 
   document.getElementById('map-btn').addEventListener('click', open);
@@ -749,13 +619,17 @@ const GalaxyMap = (() => {
   document.getElementById('map-ignore').addEventListener('click', () => hooks.ignore && hooks.ignore());
   jumpBtn.addEventListener('click', () => {
     if (!selected || !onJump) return;
-    const { x, y } = sectorOfPick(selected);
-    onJump(x, y);
+    onJump(destOf(selected));
     selected = null;
     updateInfo();
     close();
   });
-  contactsBtn.addEventListener('click', () => { showContacts = setToggle(contactsBtn, !showContacts); });
+  contactsBtn.addEventListener('click', () => {
+    showContacts = !showContacts;
+    contactsBtn.setAttribute('aria-pressed', String(showContacts));
+    updateInfo();
+    requestDraw();
+  });
   document.getElementById('map-reset').addEventListener('click', () => {
     selected = null;
     hovered = null;
@@ -775,16 +649,16 @@ const GalaxyMap = (() => {
     open,
     close,
     get isOpen() { return isOpen; },
-    get galaxy() { return galaxy; },
-    // Flight view hooks: where the ship is (in sector units), and what to do on Jump.
+    get system() { return system; },
+    // Flight view hooks: where the ship is (world units), and what to do on Jump (a destination).
     setPlayer(x, y) {
-      const moved = !player || Math.floor(player.x * 4) !== Math.floor(x * 4) || Math.floor(player.y * 4) !== Math.floor(y * 4);
+      const moved = !player || Math.abs(player.x - x) * view.scale > 1 || Math.abs(player.y - y) * view.scale > 1;
       player = { x, y };
       if (moved) requestDraw();
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
     set onLoad(fn) { onLoad = fn; },
-    set knowledge(k) { knowledge = k; knowledgeId++; updateStats(); updateInfo(); requestDraw(); },
+    set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,
