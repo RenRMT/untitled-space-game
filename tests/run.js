@@ -23,6 +23,7 @@ load('goods.js', ['Goods']);
 load('security.js', ['Security']);
 load('data/system-config.js', ['SYSTEM_CONFIG']);
 load('solar-system.js', ['SolarSystem']);
+load('galaxy.js', ['Galaxy']);
 load('art/util.js', ['ArtUtil']);
 load('art/culture.js', ['ArtCulture']);
 load('art/blueprints.js', ['ArtBlueprints']);
@@ -41,7 +42,7 @@ load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { SolarSystem, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
+const { SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -56,11 +57,15 @@ function test(name, fn) {
 }
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1).concat(['abc', 'Untitled']);
-const systems = new Map(SEEDS.map((s) => [s, SolarSystem.generate(s, SYSTEM_CONFIG)]));
-// The flight view's scene of a system, built once per seed.
+const galaxies = new Map(SEEDS.map((s) => [s, Galaxy.generate(s, SYSTEM_CONFIG)]));
+// Each galaxy's first system (around the origin, as the seed alone would make it, plus its gate),
+// and its second, smaller one far off.
+const systems = new Map([...galaxies].map(([seed, g]) => [seed, g.systems[0]]));
+const outer = new Map([...galaxies].map(([seed, g]) => [seed, g.systems[1]]));
+// The flight view's scene of a galaxy, built once per seed.
 const scenes = new Map();
 const sceneOf = (seed) => {
-  if (!scenes.has(seed)) { const s = systems.get(seed); scenes.set(seed, Scene.create(s, ArtCulture.forGalaxy(s))); }
+  if (!scenes.has(seed)) { const g = galaxies.get(seed); scenes.set(seed, Scene.create(g, ArtCulture.forGalaxy(g))); }
   return scenes.get(seed);
 };
 const thingsOf = (seed, kind) => sceneOf(seed).entities.filter((e) => e.kind === kind);
@@ -75,7 +80,54 @@ const layout = (s) => JSON.stringify(s, (k, v) => (typeof v === 'function' ? und
 
 test('generation is deterministic', () => {
   for (const seed of [1, 'abc']) assert.strictEqual(layout(SolarSystem.generate(seed, SYSTEM_CONFIG)), layout(SolarSystem.generate(seed, SYSTEM_CONFIG)));
+  for (const seed of [1, 'abc']) assert.strictEqual(layout(Galaxy.generate(seed, SYSTEM_CONFIG).systems), layout(Galaxy.generate(seed, SYSTEM_CONFIG).systems));
   assert.notStrictEqual(layout(systems.get(1)), layout(systems.get(2)));
+});
+
+// ---------- The galaxy ----------
+
+test('two systems far apart, the second half the size, joined by a pair of gates', () => {
+  const gap = Galaxy.params.gap;
+  // About five minutes' flight between the edges at the starter Courier's top speed.
+  assert(Math.abs(gap / Loadout.stats(Loadout.starter('courier')).maxSpeed - 300) < 1, `gap ${gap}`);
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`;
+    const [a, b] = g.systems;
+    assert.strictEqual(g.systems.length, 2, where);
+    assert.deepStrictEqual([a.origin.x, a.origin.y, a.star.x, a.star.y], [0, 0, 0, 0], `${where}: the first system is at the origin`);
+    assert.strictEqual(b.radius, a.radius / 2, `${where}: the second is half the size`);
+    assert(Math.abs(dist(a.origin, b.origin) - a.radius - b.radius - gap) < 1e-6, `${where}: systems ${dist(a.origin, b.origin)} apart`);
+    assert.strictEqual(g.systemAt(b.star.x, b.star.y), b);
+    const mid = { x: (a.origin.x + b.origin.x) / 2, y: (a.origin.y + b.origin.y) / 2 };
+    assert.strictEqual(g.systemAt(mid.x, mid.y), null, `${where}: deep space between them`);
+    assert.strictEqual(g.securityAt(mid.x, mid.y), 0);
+    // One gate each, linked to the other, in the outer system toward the other system.
+    assert.strictEqual(g.gates.length, 2, `${where}: gates`);
+    for (const gate of g.gates) {
+      const home = g.systems[gate.system], there = g.gates[gate.link];
+      assert(there.link === gate.id && there.system === gate.to && gate.system === there.to, `${where}: gate link`);
+      const d = dist(gate, home.origin) / home.radius;
+      assert(d > 0.6 && d < 0.9, `${where}: ${gate.name} at ${d.toFixed(2)} of the radius`);
+      const toward = Math.atan2(g.systems[gate.to].origin.y - home.origin.y, g.systems[gate.to].origin.x - home.origin.x);
+      const at = Math.atan2(gate.y - home.origin.y, gate.x - home.origin.x);
+      assert(Math.cos(at - toward) > 0.5, `${where}: ${gate.name} is not on the side it leads to`);
+      assert.strictEqual(gate.name, `${g.systems[gate.to].name} Gate`);
+      for (const st of home.stations) assert(dist(st, gate) > 2000, `${where}: ${gate.name} by ${st.name}`);
+      for (const k of home.packs) assert(dist(k, gate) > Security.PACK.clear, `${where}: pirates at ${gate.name}`);
+    }
+    // The second system: everything inside its edge, a capital and some stations to dock at.
+    for (const o of [...b.planets, ...b.stations, ...b.asteroids, ...b.wrecks]) assert(dist(o, b.origin) < b.radius, `${where}: ${o.name || o.key} outside the second system`);
+    for (const p of b.planets) assert(Math.abs(dist(p, b.origin) - p.orbit) < 1e-6, `${where}: ${p.name} is off its orbit`);
+    assert(b.planets.length >= 2 && b.stations.length >= 3, `${where}: ${b.planets.length} planets, ${b.stations.length} stations`);
+    assert.strictEqual(b.stations.filter((x) => x.market.type === 'capital').length, 1, `${where}: one capital`);
+    for (const st of b.stations) assert.strictEqual(g.securityAt(st.x, st.y), 3, `${where}: ${st.name} is not high security`);
+    // Lists together, every id an index into them, every reference to the right system.
+    for (const k of ['planets', 'moons', 'stations', 'packs', 'gates']) g[k].forEach((o, i) => assert.strictEqual(o.id, i, `${where}: ${k} ${i}`));
+    for (const m of b.moons) assert(g.planets[m.parent].moons.includes(m.id) && g.planets[m.parent].system === 1, `${where}: moon ${m.name}'s planet`);
+    for (const st of b.stations) if (st.planet !== undefined) assert.strictEqual(g.planets[st.planet].system, 1, `${where}: ${st.name}'s planet`);
+    for (const c of b.contacts) if (c.pack !== undefined) assert.strictEqual(g.packs[c.pack].system, 1, `${where}: ${c.id}'s pack`);
+    assert.strictEqual(g.stations.length, a.stations.length + b.stations.length);
+  }
 });
 
 test('a star, planets on widening orbits, belts, fields and nebulae, all inside the edge', () => {
@@ -137,18 +189,20 @@ test('stations orbit planets in all three cultures, with bases out in space; the
 
 test('the scene builds every system, filing everything where near() finds it', () => {
   for (const seed of [1, 2, 3, 'abc']) {
-    const sc = sceneOf(seed), s = systems.get(seed);
+    const sc = sceneOf(seed), s = galaxies.get(seed);
     assert.strictEqual(thingsOf(seed, 'station').length, s.stations.length);
     assert.strictEqual(thingsOf(seed, 'asteroid').length, s.asteroids.length);
     assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length);
     assert.strictEqual(thingsOf(seed, 'moon').length, s.moons.length);
-
+    assert.strictEqual(thingsOf(seed, 'star').length, 2);
+    assert.strictEqual(thingsOf(seed, 'gate').length, s.gates.length);
     assert.strictEqual(thingsOf(seed, 'nebula').length, s.nebulae.length);
     assert.strictEqual(thingsOf(seed, 'ship').length, s.packs.reduce((n, k) => n + k.ships.length, 0));
     // Whatever is within range of a point (by where it is or circles) is among what near() returns.
     const r = mulberry32(5);
     for (let i = 0; i < 30; i++) {
-      const at = { x: (r() - 0.5) * s.radius * 1.6, y: (r() - 0.5) * s.radius * 1.6 }, range = 3000 + r() * 9000;
+      const home = s.systems[i % 2];
+      const at = { x: home.origin.x + (r() - 0.5) * home.radius * 1.6, y: home.origin.y + (r() - 0.5) * home.radius * 1.6 }, range = 3000 + r() * 9000;
       const found = new Set(sc.near(at.x, at.y, range));
       for (const e of sc.entities) {
         const c = e.motion ? { x: e.motion.cx, y: e.motion.cy } : e;
@@ -159,10 +213,13 @@ test('the scene builds every system, filing everything where near() finds it', (
   }
 });
 
-test('save keys differ between systems and include the generator version', () => {
+test('save keys differ between systems and galaxies and include the generator versions', () => {
   const keys = new Set([...systems.values()].map((s) => SolarSystem.saveKey(s)));
   assert.strictEqual(keys.size, systems.size);
   assert(SolarSystem.saveKey(systems.get(1)).endsWith(`:v${SolarSystem.VERSION}`));
+  const gkeys = new Set([...galaxies.values()].map((g) => Galaxy.saveKey(g)));
+  assert.strictEqual(gkeys.size, galaxies.size);
+  assert(Galaxy.saveKey(galaxies.get(1)).endsWith(`:g${Galaxy.VERSION}`));
 });
 
 test('contacts: derelicts are hidden wrecks away from the stations; ambushes are packs lying in wait', () => {
@@ -253,7 +310,7 @@ test('map travel: a known derelict is passed by, and a trip from a contact leave
 });
 
 test('sensors identify contacts in range, ping those further out, and charts redraw the map', () => {
-  const s = systems.get(1);
+  const s = galaxies.get(1);
   const k = Knowledge.create(s, { fresh: true });
   const c = s.contacts.find((x) => x.type === 'derelict');
   assert.strictEqual(k.contactState(c.id), null);
@@ -279,8 +336,18 @@ test('sensors identify contacts in range, ping those further out, and charts red
   k.save(); // also clears the pending save timer so the process can exit
 });
 
+test('systems are charted by entering them; the start system from the start', () => {
+  const k = Knowledge.create(galaxies.get(1), { fresh: true });
+  assert(k.visited(0) && !k.visited(1));
+  const v = k.version;
+  assert.strictEqual(k.visit(1), true);
+  assert.strictEqual(k.visit(1), false);
+  assert(k.visited(1) && k.version > v);
+  k.save();
+});
+
 test('a longer-range scanner finds contacts from further away', () => {
-  const s = systems.get(1);
+  const s = galaxies.get(1);
   const c = s.contacts.find((x) => x.type === 'derelict');
   const range = (mk) => Loadout.EQUIPMENT[`survey-scanner-${mk}`].stats;
   for (let mk = 1; mk < 5; mk++) {
@@ -345,7 +412,7 @@ test('every system has a profitable trade run between its stations', () => {
 });
 
 test('asteroids have unique keys that survive a rebuild', () => {
-  const s = systems.get(1);
+  const s = galaxies.get(1);
   const a = thingsOf(1, 'asteroid'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'asteroid');
   assert(a.length > 300, `only ${a.length} asteroids`);
   assert.strictEqual(new Set(a.map((e) => e.key)).size, a.length, 'duplicate asteroid keys');
@@ -394,7 +461,7 @@ test('the Mine shortcut picks the nearest asteroid within mining range of its ed
 });
 
 test('art ids name what an asset is built from, so a rebuilt scene finds its sprites again', () => {
-  const s = systems.get(1);
+  const s = galaxies.get(1);
   const cultures = ArtCulture.forGalaxy(s);
   const x = Scene.create(s, cultures).entities.filter((e) => e.art), y = Scene.create(s, cultures).entities.filter((e) => e.art);
   assert.deepStrictEqual(x.map((e) => e.art.id), y.map((e) => e.art.id), 'rebuilt with other ids');
@@ -516,7 +583,7 @@ test('keys are unique across everything that can leave the world, and survive a 
     const keyed = sceneOf(seed).entities.filter((e) => e.key);
     assert.strictEqual(new Set(keyed.map((e) => e.key)).size, keyed.length, `seed ${seed}: duplicate keys`);
   }
-  const s = systems.get(1);
+  const s = galaxies.get(1);
   const a = thingsOf(1, 'ship'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship');
   assert(a.length > 40, `only ${a.length} ships`);
   assert(a.every((e) => e.role === 'fighter' || e.role === 'freighter'), 'ship without a role');
@@ -822,8 +889,9 @@ test('security falls from the stations to the outer system, and sets how dangero
 test('pirates come in packs that follow the security level and can be fought one at a time', () => {
   const packs = [[], [], [], []]; // pack sizes, by security level
   const { orbit: [, o1] } = Security.PACK;
-  for (const [seed, s] of systems) {
+  for (const [seed, s] of [...systems, ...outer]) {
     const ships = new Map(thingsOf(seed, 'ship').map((e) => [e.key, e]));
+    const O = s.origin;
     for (const k of s.packs) {
       assert.strictEqual(k.level, s.securityAt(k.x, k.y));
       const P = Security.pirates(k.level);
@@ -843,9 +911,9 @@ test('pirates come in packs that follow the security level and can be fought one
       // other, and no pack comes near a station, the star or a planet.
       for (const j of s.packs) if (j !== k) assert(dist(j, k) - 2 * o1 > CombatCore.config.groupRange, `seed ${seed}: packs ${j.id} and ${k.id} too close`);
       for (const st of s.stations) assert(dist(st, k) - o1 - st.reach >= Security.PACK.clear, `seed ${seed}: a pack by ${st.name}`);
-      assert(Math.hypot(k.x, k.y) - o1 - s.star.reach >= Security.PACK.clear, `seed ${seed}: a pack by the star`);
+      assert(dist(k, O) - o1 - s.star.reach >= Security.PACK.clear, `seed ${seed}: a pack by the star`);
       for (const p of s.planets) assert(dist(p, k) - o1 > p.extent, `seed ${seed}: a pack in ${p.name}`);
-      assert(Math.hypot(k.x, k.y) + o1 < s.radius, `seed ${seed}: a pack past the edge`);
+      assert(dist(k, O) + o1 < s.radius, `seed ${seed}: a pack past the edge`);
     }
   }
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;

@@ -16,9 +16,11 @@
 // - security by distance to the nearest station, a level lower inside a nebula away from the
 //   stations (security.js says what each level means),
 // - pirates in packs by security, and ambushes lying in wait in nebulae and lawless space,
-// - hidden shipwrecks (derelicts) away from the stations, found with the ship's sensors.
+// - hidden shipwrecks (derelicts) away from the stations, found with the ship's sensors,
+// - jump gates (overrides.gates: [{ angle, to }]) out toward the systems they lead to (galaxy.js).
 // Derelicts and ambushes are the system's contacts: what sensors ping and map travel runs into.
-// Positions are world units from the star. Every tuning value lives in SolarSystem.params; pass
+// Positions are world units: from the star, or from overrides.origin when given (where the star
+// sits in a galaxy of several systems; the query functions take those positions). Every tuning value lives in SolarSystem.params; pass
 // `overrides.params` to generate() to change any of them (nested objects merge, arrays and
 // numbers replace).
 // Works as a classic browser script (global `SolarSystem`) and as a Node module.
@@ -31,7 +33,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 2;
+  const VERSION = 3;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -95,6 +97,7 @@ const SolarSystem = (() => {
   };
   // Nominal station sizes for keeping things clear of them (the art decides the real size).
   const STATION_SIZE = { major: 260, minor: 140 };
+  const GATE_SIZE = 320;
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
@@ -251,13 +254,28 @@ const SolarSystem = (() => {
       addStation({ name: `${makeName()} ${rs() < 0.5 ? 'Port' : 'Station'}`, size: 'minor', planet: take(p).id, ...besidePlanet(p, 'minor'), market: { kind: 'system', type: 'minor' } });
     }
 
-    // What things must keep clear of: the star's glow, each planet with its moons, each station.
+    // What things must keep clear of: the star's glow, each planet with its moons, each station
+    // and gate.
+    let gates = [];
     const blockers = () => [
       { x: 0, y: 0, r: star.reach },
       ...planets.map((p) => ({ x: p.x, y: p.y, r: p.extent })),
       ...stations.map((s) => ({ x: s.x, y: s.y, r: s.reach })),
+      ...gates.map((g) => ({ x: g.x, y: g.y, r: g.reach })),
     ];
     const clear = (at, pad, list = blockers()) => list.every((b) => dist(b, at) >= b.r + pad);
+
+    // ---------- Jump gates: in the outer system, toward the system each leads to ----------
+    const rg = stream(0x6a7e);
+    gates = (overrides.gates || []).map((g, i) => {
+      let at = null;
+      for (let tries = 0; tries < 80 && !at; tries++) {
+        const c = polar(g.angle + (tries ? (rg() - 0.5) * Math.min(1.6, tries * 0.06) : 0), R * between(rg, [0.74, 0.84]));
+        if (clear(c, 2500) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1200)) at = c;
+      }
+      at = at || polar(g.angle, R * 0.8);
+      return { id: i, key: `g${i}`, name: `${name} Gate`, to: g.to, ...at, seed: nextSeed(rg), culture: Math.floor(rg() * CULTURES.length), reach: GATE_SIZE };
+    });
 
     // ---------- Asteroid fields ----------
     const rf = stream(0xf1e1);
@@ -457,19 +475,29 @@ const SolarSystem = (() => {
       cluster(stream(0xca4b, s.id), s.x, s.y, 25 + Math.floor(rs() * 16), 1500, b ? ASTEROIDS[b.kind] : ASTEROIDS.field);
     }
 
+    // ---------- Into place: everything moves with the star to the origin ----------
+    // Generation above is around (0, 0); the query functions below and the ones above
+    // (securityAt, nebulaAt, stationDist) take positions from here on.
+    const O = { x: 0, y: 0, ...overrides.origin };
+    for (const o of [star, ...planets, ...moons, ...fields, ...nebulae, ...stations, ...wrecks, ...contacts, ...packs, ...asteroids, ...gates]) {
+      o.x += O.x;
+      o.y += O.y;
+    }
+    for (const b of belts) Object.assign(b, { cx: O.x, cy: O.y }); // belts circle the star
+
     // Where a point is: its security, the nebula it's in, and what it's near (a body, belt or
     // field), for the HUD and the map.
     function regionAt(x, y) {
       const at = { x, y };
       const body = [...planets, ...moons].map((p) => ({ p, d: dist(p, at) - (p.extent || p.r) })).sort((a, b) => a.d - b.d)[0];
       const near = body && body.d < 3000 ? body.p
-        : beltAt(x, y, 500) || fields.find((f) => dist(f, at) < f.spread + 500) || null;
-      return { security: securityAt(x, y), nebula: nebulaAt(x, y), near, fromStar: Math.hypot(x, y) };
+        : beltAt(x - O.x, y - O.y, 500) || fields.find((f) => dist(f, at) < f.spread + 500) || null;
+      return { security: securityAt(x, y), nebula: nebulaAt(x, y), near, fromStar: Math.hypot(x - O.x, y - O.y) };
     }
 
     return {
-      seed, name, radius: R, cultures: CULTURES, star, planets, moons, belts, fields, nebulae,
-      stations, wrecks, contacts, packs, asteroids, startStation: 0,
+      seed, name, radius: R, origin: O, cultures: CULTURES, star, planets, moons, belts, fields, nebulae,
+      stations, wrecks, contacts, packs, asteroids, gates, startStation: 0,
       securityAt, nebulaAt, regionAt, stationDist,
       cultureColor: (id) => (CULTURES[id] || CULTURES[0]).color,
     };

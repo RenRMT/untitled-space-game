@@ -17,7 +17,7 @@ const Theme = (() => {
     bright: '#eef1ff', // titles and names
     cyan: '#7df9ff', // --cyan: the player's ship, selection, shields
     neutral: '#9aa4b8', // independents and unaligned things
-    hostile: '#ff5a6e', // --hostile: pirates, the system edge, critical hull
+    hostile: '#ff5a6e', // --hostile: pirates, critical hull
     flame: '#ffb347', // engine flames, hull damage (--wanted)
     good: '#b6ff8a', // --good: stations, a healthy hull
     amber: '#ffcf5a', // --salvage: floating items

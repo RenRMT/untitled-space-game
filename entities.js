@@ -105,6 +105,13 @@ const Entities = (() => {
       mark: (e) => ({ color: e.color, r: 2.5 }),
       card: (e) => ({ title: e.name, sub: stationSubtitle(e), color: e.color }),
     },
+    gate: {
+      order: 2, selectable: true, hit: 0.75, // the rings are wide: only the core counts
+      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
+      label: (e) => [e.color, e.radius * 1.05],
+      mark: (e) => ({ color: e.color, r: 4, ring: true }),
+      card: (e, galaxy) => ({ title: e.name, sub: `Jump gate to the ${galaxy.systems[e.gate.to].name} system`, color: e.color }),
+    },
     wreck: {
       order: 3,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t }),

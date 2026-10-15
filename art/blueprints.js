@@ -401,6 +401,121 @@ const ArtBlueprints = (() => {
     b.light(0, 0, 3, c.pal.light, { blink: 0.5 });
   }
 
+  // ---------- Gate stations ----------
+  // Jump gates link solar systems (galaxy.js). The culture's lineage decides the form
+  // (art/culture.js): wedge rings, block frames, shard pylons. Every gate has a clear aperture at
+  // the origin (the 'field' material) that ships fly into.
+
+  function aperture(b, c, pts, R, n) {
+    const lines = [];
+    for (let i = 0; i < 12; i += 2) {
+      const a0 = (i / 12) * TAU, a1 = ((i + 1) / 12) * TAU;
+      lines.push([Math.cos(a0) * R * 0.55, Math.sin(a0) * R * 0.55, Math.cos(a1) * R * 0.55, Math.sin(a1) * R * 0.55]);
+    }
+    b.poly(pts, 'field', { lvl: -2, h: 0.3, lines, lineWidth: 0.5 });
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      b.light(Math.cos(a) * R * 0.97, Math.sin(a) * R * 0.97, 1.8, c.pal.glass, { blink: -a * 2 });
+    }
+  }
+
+  function gateRing(b, c, r, R) {
+    b.bp.layers = ['spin', 'fixed'];
+    b.bp.spinRate = 0.25;
+    b.ring(0, 0, R * 0.86, R * 0.05, 'hull2', { layer: 'spin', lvl: 0, h: R * 0.06 });
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU;
+      b.light(Math.cos(a) * R * 0.86, Math.sin(a) * R * 0.86, 2, c.pal.light, { layer: 'spin' });
+    }
+    b.ring(0, 0, R, R * 0.16, 'hull', { lvl: 1, h: R * 0.14 });
+    const k = 8 + 2 * Math.floor(r() * 3);
+    for (let i = 0; i < k; i++) {
+      const a = (i / k) * TAU;
+      b.poly(U.rect(Math.cos(a) * R, Math.sin(a) * R, R * 0.1, R * 0.26, a), 'trim', { lvl: 2, h: R * 0.18, bevel: R * 0.03 });
+      if (i % 2 === 0) b.poly(U.rect(Math.cos(a) * R * 1.1, Math.sin(a) * R * 1.1, R * 0.1, R * 0.05, a), 'accent', { lvl: 3, h: R * 0.19 });
+    }
+    const anchors = r() < 0.5 ? 3 : 4;
+    const a0 = anchors === 4 ? TAU / 8 : -Math.PI / 2;
+    for (let i = 0; i < anchors; i++) {
+      const a = a0 + (i / anchors) * TAU;
+      const P = (d) => [Math.cos(a) * d, Math.sin(a) * d];
+      b.strut(...P(R * 1.08), ...P(R * 1.5), R * 0.05, 'strut', { lvl: 0, h: R * 0.04, thin: true });
+      b.poly(U.rect(...P(R * 1.56), R * 0.2, R * 0.16, a), 'hull2', { lvl: 2, h: R * 0.1, bevel: R * 0.03 });
+      if (c.arrays !== 'radiator') b.poly(U.rect(...P(R * 1.56), R * 0.18, R * 0.9, a), 'panel', { lvl: 1, h: R * 0.02, grid: [1, 5] });
+      b.light(...P(R * 1.66), 2.6, c.pal.light, { blink: i });
+    }
+    aperture(b, c, U.circle(0, 0, R * 0.8, 32), R * 0.8, 16);
+    return k + ' clamps, ' + anchors + ' anchors';
+  }
+
+  function gateFrame(b, c, r, R) {
+    const sides = r() < 0.55 ? 4 : 6;
+    const m = 2 + Math.floor(r() * 2);
+    const a0 = sides === 4 ? TAU / 8 : 0;
+    const V = Array.from({ length: sides }, (_, i) => { const a = a0 + (i / sides) * TAU; return [Math.cos(a) * R * 1.05, Math.sin(a) * R * 1.05, a]; });
+    const mats = ['hull', 'hull', 'hull2', 'trim'];
+    const matOf = Array.from({ length: m }, () => mats[Math.floor(r() * mats.length)]);
+    for (let i = 0; i < sides; i++) {
+      const [x0, y0] = V[i], [x1, y1] = V[(i + 1) % sides];
+      const ae = Math.atan2(y1 - y0, x1 - x0), E = Math.hypot(x1 - x0, y1 - y0);
+      b.strut(x0, y0, x1, y1, R * 0.06, 'strut', { lvl: 0, h: R * 0.04, thin: true });
+      for (let j = 0; j < m; j++) {
+        const t = (j + 0.5) / m, x = lerp(x0, x1, t), y = lerp(y0, y1, t);
+        const len = (E / m) * 0.62;
+        const k = Math.min(j, m - 1 - j);
+        b.poly(U.rect(x, y, len, R * 0.2, ae), matOf[k], { lvl: 2, h: R * 0.12, bevel: R * 0.03, lines: [[...U.add([x, y], U.rot([0, -R * 0.08], ae)), ...U.add([x, y], U.rot([0, R * 0.08], ae))]] });
+        if ((i + j) % 2 === 0) b.poly(U.rect(...U.add([x, y], U.rot([0, -R * 0.065], ae)), len * 0.8, R * 0.05, ae), 'accent', { lvl: 3, h: R * 0.13 });
+      }
+    }
+    for (const [x, y, a] of V) {
+      if (c.arrays === 'radiator') {
+        for (const f of [-1, 1]) {
+          const fa = a + f * 0.35;
+          b.poly(U.rect(x + Math.cos(fa) * R * 0.42, y + Math.sin(fa) * R * 0.42, R * 0.5, R * 0.1, fa), 'panel', { lvl: 1, h: R * 0.02, grid: [4, 1] });
+        }
+      }
+      b.poly(U.rect(x, y, R * 0.3, R * 0.3, a), 'hull2', { lvl: 3, h: R * 0.16, bevel: R * 0.05 });
+      b.light(x + Math.cos(a) * R * 0.17, y + Math.sin(a) * R * 0.17, 2.4, c.pal.light, { blink: a * 2 });
+    }
+    aperture(b, c, V.map(([x, y]) => [x * 0.8, y * 0.8]), R * 0.8 * Math.cos(Math.PI / sides), sides * 3);
+    return sides + '-sided, ' + m + ' modules per side';
+  }
+
+  function gatePylons(b, c, r, R) {
+    b.bp.layers = ['spin', 'fixed'];
+    b.bp.spinRate = 0.05;
+    const p = r() < 0.55 ? 2 : 3;
+    const a0 = p === 2 ? Math.PI / 2 : -Math.PI / 2;
+    for (let i = 0; i < p * 3; i++) {
+      const a = (i / (p * 3)) * TAU + r() * 0.3, d = R * (1.42 + r() * 0.12), s = R * (0.06 + r() * 0.05);
+      const P = (u, v) => [Math.cos(a) * (d + u) - Math.sin(a) * v, Math.sin(a) * (d + u) + Math.cos(a) * v];
+      b.poly([P(s, 0), P(0, s * 1.8), P(-s, 0), P(0, -s * 1.8)], 'hull2', { layer: 'spin', lvl: 0, h: R * 0.03, bevel: R * 0.04, roof: true });
+    }
+    for (let i = 0; i < p; i++) {
+      const a = a0 + (i / p) * TAU;
+      const L = R * (p === 2 ? 1.7 : 1.25) * (0.92 + r() * 0.14), w = R * 0.34, d = R * 1.02;
+      // u runs along the spire (tangent), v points outward from the aperture.
+      const P = (u, v) => [Math.cos(a) * (d + v) - Math.sin(a) * u, Math.sin(a) * (d + v) + Math.cos(a) * u];
+      b.poly([P(L / 2, 0), P(L * 0.18, w * 0.6), P(-L * 0.3, w * 0.45), P(-L / 2, 0), P(-L * 0.12, -w * 0.28), P(L * 0.22, -w * 0.28)], 'hull2', { lvl: 1, h: R * 0.1, bevel: R * 0.14, roof: true });
+      b.poly([P(L * 0.4, w * 0.05), P(-L * 0.38, w * 0.12), P(-L * 0.36, w * 0.02)], 'accent', { lvl: 1.5, h: R * 0.12 });
+      b.poly([P(L * 0.12, -w * 0.28), P(0, -w * 0.62), P(-L * 0.12, -w * 0.28), P(0, -w * 0.1)], 'glass', { lvl: 2, h: R * 0.08, bevel: R * 0.06 });
+      b.light(...P(L / 2, 0), 2.6, c.pal.light, { blink: i * 1.7 });
+      b.light(...P(-L / 2, 0), 2.6, c.pal.light, { blink: i * 1.7 + 1 });
+    }
+    aperture(b, c, U.circle(0, 0, R * 0.62, 28), R * 0.62, p * 4);
+    return p + ' pylons';
+  }
+
+  function gate(culture, seed) {
+    const r = mulberry32(hashInt(seed, 6, culture.seed));
+    const b = builder('gate', culture, seed);
+    const R = 120 * (0.92 + r() * 0.16);
+    const form = culture.gate || 'ring';
+    const fn = { ring: gateRing, frame: gateFrame, pylons: gatePylons }[form] || gateRing;
+    const info = fn(b, culture, r, R);
+    b.bp.label = 'Gate · ' + form + ', ' + info;
+    return finish(b.bp);
+  }
   // ---------- Wrecks ----------
 
   // Break a blueprint apart: split along cut lines, drift the pieces, tear the cut edges,
@@ -538,7 +653,7 @@ const ArtBlueprints = (() => {
 
   // ---------- Entry points ----------
 
-  const TYPES = ['fighter', 'freighter', 'station-minor', 'station-major', 'wreck-ship', 'wreck-station'];
+  const TYPES = ['fighter', 'freighter', 'station-minor', 'station-major', 'gate', 'wreck-ship', 'wreck-station'];
 
   function create(type, culture, seed = 1) {
     const s = seed >>> 0;
@@ -547,13 +662,14 @@ const ArtBlueprints = (() => {
       case 'freighter': return ship(culture, s, 'freighter');
       case 'station-minor': return station(culture, s, 'minor');
       case 'station-major': return station(culture, s, 'major');
+      case 'gate': return gate(culture, s);
       case 'wreck-ship': return wreck(ship(culture, s, mulberry32(s)() < 0.5 ? 'fighter' : 'freighter'), s);
       case 'wreck-station': return wreck(station(culture, s, mulberry32(s + 1)() < 0.6 ? 'minor' : 'major'), s);
       default: throw new Error(`Unknown asset type: ${type}`);
     }
   }
 
-  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish };
+  return { TYPES, create, gate, wreck, playerShip, SHIP_HULL, builder, finish };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtBlueprints;

@@ -1,23 +1,26 @@
 'use strict';
 
-// What the player knows about the system (fog of war for the map and the minimap). The star,
-// planets, belts, nebulae and every station are charted from the start: where to trade and
-// research is known. The contacts (solar-system.js: hidden derelicts and ambushes) are not:
-// each is unknown, pinged (something is there, an unidentified signal) or identified.
+// What the player knows about the galaxy (fog of war for the map and the minimap).
+// - Systems (galaxy.js) are discovered by entering them; the start system is known from the
+//   start. The galaxy map shows the discovered ones.
+// - In a system, the star, planets, belts, nebulae, gates and every station are charted: where to
+//   trade and research is known. The contacts (solar-system.js: hidden derelicts and ambushes)
+//   are not: each is unknown, pinged (something is there, an unidentified signal) or identified.
 // - sense(): the ship's sensors, a few times a second: contacts within sensor range of their
 //   edge are identified, those within ping range pinged,
 // - pass(): a coarse long-range pass, as during map travel: contacts in reach are only pinged.
-// Saved per system (store.js). Browser script (global `Knowledge`).
+// Saved per galaxy (store.js). Browser script (global `Knowledge`).
 
 const Knowledge = (() => {
   // Defaults for sense(), in world units; the ship's scanner sets the real ranges (loadout.js).
   const SENSOR_RANGE = 3000;
   const PING_RANGE = 7000;
 
-  function create(system, { fresh = false } = {}) {
+  function create(galaxy, { fresh = false } = {}) {
     const states = new Map(); // contact id -> 'ping' | 'known'
-    const byId = new Map(system.contacts.map((c) => [c.id, c]));
-    const storeKey = `knowledge:${SolarSystem.saveKey(system)}`;
+    const visited = new Set([galaxy.stations[galaxy.startStation].system]); // system indices
+    const byId = new Map(galaxy.contacts.map((c) => [c.id, c]));
+    const storeKey = `knowledge:${Galaxy.saveKey(galaxy)}`;
     let version = 0; // bumps on every change, so the map knows when to redraw
     let saveTimer = null;
 
@@ -44,7 +47,7 @@ const Knowledge = (() => {
     function sense(x, y, sensorRange = SENSOR_RANGE, pingRange = PING_RANGE) {
       const found = [];
       let any = false;
-      for (const c of system.contacts) {
+      for (const c of galaxy.contacts) {
         const d = gap(c, x, y);
         if (d <= sensorRange) { if (identify(c)) found.push(c); } else if (d <= Math.max(sensorRange, pingRange)) any = ping(c) || any;
       }
@@ -55,19 +58,20 @@ const Knowledge = (() => {
     // A coarse pass: contacts within `range` of (x, y) are pinged, nothing identified.
     function pass(x, y, range = PING_RANGE) {
       let any = false;
-      for (const c of system.contacts) if (gap(c, x, y) <= range) any = ping(c) || any;
+      for (const c of galaxy.contacts) if (gap(c, x, y) <= range) any = ping(c) || any;
       if (any) changed();
     }
 
     // Storage unavailable: knowledge lasts for this session only (store.js).
     function save() {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      Store.setJSON(storeKey, { contacts: [...states] });
+      Store.setJSON(storeKey, { contacts: [...states], systems: [...visited] });
     }
     function load() {
       const d = Store.getJSON(storeKey);
       try {
         for (const [id, v] of d.contacts) if (byId.has(id) && (v === 'ping' || v === 'known')) states.set(id, v);
+        for (const i of d.systems || []) if (galaxy.systems[i]) visited.add(i);
         return true;
       } catch (e) {
         return false;
@@ -83,10 +87,13 @@ const Knowledge = (() => {
       // Public versions record the change (version bump and save), like sense() and pass() do.
       reveal: (id) => { const c = byId.get(id); const any = !!c && identify(c); if (any) changed(); return any; },
       contactState: (id) => states.get(id) || null,
+      // A system entered: true the first time.
+      visit: (i) => { if (visited.has(i)) return false; visited.add(i); changed(); return true; },
+      visited: (i) => visited.has(i),
       counts: () => {
         let known = 0;
         for (const v of states.values()) if (v === 'known') known++;
-        return { known, pinged: states.size - known, total: system.contacts.length };
+        return { known, pinged: states.size - known, total: galaxy.contacts.length };
       },
     };
   }

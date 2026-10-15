@@ -25,7 +25,7 @@ const Art = (() => {
     bigBuckets: 16, // ... for sprites larger than bigSprite device px
     bigSprite: 256,
     maxSprite: 768, // device px cap for vector sprites
-    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, planets and
+    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, gates, planets and
     // stars; asteroids have their own cache, so a busy field doesn't push the rest out.
     maxPixels: 12e6, // about 48 MB
     maxSprites: 2000,
@@ -83,6 +83,7 @@ const Art = (() => {
     p.strut = U.mix(p.hull2, '#555b66', 0.4);
     p.dark = '#1c2028';
     p.scorch = '#120e0b';
+    p.field = U.mix(p.glass, '#0a0d14', 0.62); // a gate's aperture
     p.line = bp.line || p.line;
     if (bp.wrecked) {
       for (const k of Object.keys(p)) if (k !== 'scorch' && k !== 'line') p[k] = wreckColor(p[k]);
@@ -158,6 +159,10 @@ const Art = (() => {
       ctx.fill(path, rule);
       if (p.mat === 'accent') {
         ctx.fillStyle = U.rgba(pal.line, 0.3);
+        ctx.fill(path, rule);
+      }
+      if (p.mat === 'field') {
+        ctx.fillStyle = U.rgba(pal.glass, 0.14);
         ctx.fill(path, rule);
       }
       const glow = bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');

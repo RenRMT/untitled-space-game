@@ -19,21 +19,21 @@ const ArtCulture = (() => {
   // Numeric fields are [min, max] ranges; arrays of strings are options picked per culture.
   const LINEAGES = {
     wedge: {
-      label: 'Wedge', note: 'Angular deltas with blunt sterns; spoked wheel stations on a solar spine.',
+      label: 'Wedge', note: 'Angular deltas with blunt sterns; spoked wheel stations on a solar spine.', gate: 'ring', gateNote: 'Gates are clamped rings on solar-panelled anchor arms.',
       hull: 'wedge', round: [0, 0.05], length: [0.95, 1.15], width: [0.95, 1.1], span: [0.9, 1.15], sweep: [0.45, 0.75],
       wings: ['delta', 'swept'], engines: [1, 2], greeble: [0.35, 0.6], asym: [0, 0], stripes: [1, 2],
       insignia: ['chevron', 'bar'], station: 'wheel', arrays: 'solar',
       colors: { hull: '#c3cbd5', hull2: '#7a8696', trim: '#e6ecf2', glass: '#7df9ff', light: '#b6ff8a', flame: '#ffb347', panel: '#2f5aa0' },
     },
     block: {
-      label: 'Block', note: 'Modular slabs and side pods; lattice stations of stacked modules and radiator fins.',
+      label: 'Block', note: 'Modular slabs and side pods; lattice stations of stacked modules and radiator fins.', gate: 'frame', gateNote: 'Gates are square or hex frames of modules with radiator fins at each corner.',
       hull: 'block', round: [0, 0.08], length: [1.0, 1.2], width: [1.1, 1.3], span: [0.6, 0.85], sweep: [0, 0.2],
       wings: ['pods', 'fins'], engines: [2, 4], greeble: [0.65, 0.95], asym: [0, 0.1], stripes: [1, 3],
       insignia: ['bar', 'diamond'], station: 'lattice', arrays: 'radiator',
       colors: { hull: '#b9b59b', hull2: '#6e6a52', trim: '#d9d4b6', glass: '#ffd66b', light: '#ff9a3c', flame: '#fff2b3', panel: '#8a8f96' },
     },
     shard: {
-      label: 'Shard', note: 'Needle prows and blade wings; radial crystal stations.',
+      label: 'Shard', note: 'Needle prows and blade wings; radial crystal stations.', gate: 'pylons', gateNote: 'Gates are two or three crystal pylons with orbiting shards.',
       hull: 'shard', round: [0, 0], length: [1.15, 1.4], width: [0.8, 0.95], span: [0.85, 1.2], sweep: [0.65, 0.95],
       wings: ['blade', 'delta'], engines: [1, 1], greeble: [0.05, 0.2], asym: [0, 0.15], stripes: [0, 1],
       insignia: ['diamond', 'chevron'], station: 'star', arrays: 'none',
@@ -76,6 +76,7 @@ const ArtCulture = (() => {
     c.insignia = pickFrom(L.insignia, r);
     c.station = L.station;
     c.arrays = L.arrays;
+    c.gate = L.gate; // the form of its jump gates (art/blueprints.js)
     c.pal = palette(L.colors, accent, r);
     return Object.assign(c, extra);
   }

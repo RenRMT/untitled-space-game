@@ -150,6 +150,11 @@ clear "field" aperture.
 **What replaced them.** Flying and map travel (`travel.js`). Every settled system is charted
 from the start. Off-screen *stations* within 1.5 sectors now get the edge markers gates had.
 
+**Since brought back, in part.** One gate pair joins the two solar systems of the galaxy
+(`galaxy.js`), with Jump on its card and edge markers again. Of the art, the ring, frame and
+pylons forms are back (for the wedge, block and shard lineages still in the game). Halo, spar and
+maw, the lanes, hidden routes and the gate lock are still out.
+
 **Where it lived.** `galaxy.js` (the "Lanes", "Gates" and "Routes" sections, `isolated` on
 factions), `sector.js` (`gatesAt`, gate entities with `dest`, `link`, `aperture`), `entities.js`
 (the `gate` kind), `game.js` (`partnerGate`, `checkGates`, `jumpVia`, the `jump` action,

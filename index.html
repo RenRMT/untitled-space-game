@@ -53,7 +53,11 @@
   #map-overlay .top { top: 0; background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
   #map-overlay .bottom { bottom: 0; flex-wrap: wrap; gap: 8px; background: linear-gradient(rgba(5, 6, 10, 0), var(--bg)); }
   #map-overlay .bottom .spacer { flex: 1; pointer-events: none; }
-  #map-title { letter-spacing: 0.12em; color: var(--cyan); }
+  #map-title { letter-spacing: 0.12em; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #map-view { flex: none; gap: 0; }
+  #map-view .btn { flex: none; padding: 6px 10px; }
+  #map-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+  #map-view .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; }
   #map-stats { color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   #map-info {
@@ -417,12 +421,16 @@
   <canvas id="map-canvas"></canvas>
   <div class="bar top">
     <span id="map-title">SYSTEM</span>
+    <div id="map-view" class="seg" role="radiogroup" aria-label="Map view">
+      <button id="map-view-local" class="btn" type="button" role="radio" aria-checked="true" title="This system (L)">Local</button>
+      <button id="map-view-galaxy" class="btn" type="button" role="radio" aria-checked="false" title="Every system charted, and the gates between them (G)">Galaxy</button>
+    </div>
     <span id="map-stats"></span>
     <button id="map-close" class="btn" type="button">Close</button>
   </div>
   <div id="map-info" hidden></div>
   <div class="bar bottom">
-    <button id="map-reroll" class="btn" type="button" title="Generate a new system from a random seed">Re-roll</button>
+    <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>
@@ -450,6 +458,7 @@
 <script src="security.js"></script>
 <script src="data/system-config.js"></script>
 <script src="solar-system.js"></script>
+<script src="galaxy.js"></script>
 <script src="map.js"></script>
 <script src="art/util.js"></script>
 <script src="art/sprite-cache.js"></script>
