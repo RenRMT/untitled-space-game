@@ -49,6 +49,8 @@ const Galaxy = (() => {
       },
     ],
     links: [[0, 1]], // jump gate pairs, by system index
+    // The android-run waystation the game starts at, on the first system's outer edge.
+    waystation: { system: 0, name: 'Waystation HD-1863' },
   };
 
   // A copy of `base` with `over` merged in: plain objects merge, everything else replaces.
@@ -80,7 +82,8 @@ const Galaxy = (() => {
     const gatesOf = (i) => G.links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : []))
       .map((to) => ({ to, angle: Math.atan2(origins[to].y - origins[i].y, origins[to].x - origins[i].x) }));
     const systems = params.map((p, i) => {
-      const s = SS.generate(i === 0 ? seed : hashInt(base, i, 0x5e57), { params: p, origin: origins[i], gates: gatesOf(i) });
+      const waystation = G.waystation && G.waystation.system === i ? { name: G.waystation.name } : null;
+      const s = SS.generate(i === 0 ? seed : hashInt(base, i, 0x5e57), { params: p, origin: origins[i], gates: gatesOf(i), waystation });
       s.index = i;
       return s;
     });
@@ -121,6 +124,7 @@ const Galaxy = (() => {
     return {
       seed, name: systems[0].name, cultures: SS.CULTURES, systems, links: G.links, ...all,
       startStation: 0, // the first system's capital
+      waystation: all.stations.findIndex((st) => st.waystation), // its id, or -1 without one
       systemAt, nearestSystem,
       securityAt: (x, y) => { const s = systemAt(x, y); return s ? s.securityAt(x, y) : 0; },
       nebulaAt: (x, y) => { const s = systemAt(x, y); return s ? s.nebulaAt(x, y) : null; },

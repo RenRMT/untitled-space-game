@@ -366,6 +366,46 @@
   .set-hint { margin: 8px 0 0; color: var(--hud); }
   .set-note { margin: 4px 0 0; color: var(--dim); font-size: 11px; }
   .set-note.locked { color: #ffb347; }
+
+  /* Comms box: a message from someone in space, with their portrait; tap to go on, or answer.
+     A hint (.hint) doesn't wait: taps pass through it to space. */
+  #comms {
+    --from: #4fd8ff;
+    position: fixed; left: 50%; transform: translateX(-50%); z-index: 1;
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px)); width: min(560px, calc(100vw - 24px));
+    font: 13px/1.5 var(--mono); color: var(--hud); animation: cm-in 0.2s ease-out;
+  }
+  #comms[hidden] { display: none; }
+  @keyframes cm-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+  @media (prefers-reduced-motion: reduce) { #comms { animation: none; } }
+  .cm-box {
+    display: flex; gap: 12px; align-items: flex-start; padding: 12px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--from); border-radius: 3px;
+  }
+  #comms.ask .cm-box { cursor: default; }
+  #comms.hint { bottom: calc(46px + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+  #comms.hint .cm-box { cursor: default; border-left-color: var(--cyan); }
+  #comms.hint .cm-from { color: var(--cyan); }
+  .cm-face { flex: none; width: 72px; height: 72px; border: 1px solid var(--line); border-radius: 2px; }
+  .cm-face[hidden] { display: none; }
+  .cm-main { flex: 1; min-width: 0; }
+  .cm-head { display: flex; align-items: center; gap: 8px; }
+  .cm-from { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--from); }
+  .cm-skip {
+    font: 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
+    background: none; border: 0; padding: 2px 4px; margin: -4px -4px -4px 0; cursor: pointer; pointer-events: auto;
+  }
+  .cm-skip:hover, .cm-skip:focus-visible { color: var(--cyan); outline: none; }
+  .cm-skip[hidden] { display: none; }
+  .cm-text { margin: 4px 0 0; color: #eef1ff; overflow-wrap: anywhere; }
+  .cm-text strong { color: var(--from); font-weight: 600; }
+  .cm-more { margin-top: 6px; text-align: right; font-size: 11px; color: var(--dim); }
+  .cm-more[hidden], .cm-choices[hidden] { display: none; }
+  .cm-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; margin-top: 10px; }
+  .cm-choice { border-color: var(--cyan); color: var(--cyan); padding: 9px 6px; white-space: normal; }
+  .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
+  .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 2px; }
+  body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
 </style>
 </head>
 <body>
@@ -390,6 +430,8 @@
   <div class="cb-rows"></div>
   <div class="cb-log"></div>
 </div>
+
+<div id="comms" role="region" aria-label="Comms" aria-live="polite" hidden></div>
 
 <div id="station" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
   <header class="st-head">
@@ -470,6 +512,8 @@
 <script src="art/render.js"></script>
 <script src="art/bodies.js"></script>
 <script src="art/icons.js"></script>
+<script src="art/portraits.js"></script>
+<script src="art/androids.js"></script>
 <script src="entities.js"></script>
 <script src="scene.js"></script>
 <script src="interactions.js"></script>
@@ -489,6 +533,8 @@
 <script src="combat-panel.js"></script>
 <script src="settings.js"></script>
 <script src="travel.js"></script>
+<script src="intro.js"></script>
+<script src="comms.js"></script>
 <script src="game.js"></script>
 </body>
 </html>

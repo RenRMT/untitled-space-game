@@ -110,7 +110,7 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
       label: (e) => [e.color, e.radius * 1.05],
       mark: (e) => ({ color: e.color, r: 4, ring: true }),
-      card: (e, galaxy) => ({ title: e.name, sub: `Jump gate to the ${galaxy.systems[e.gate.to].name} system`, color: e.color }),
+      card: (e, galaxy) => ({ title: e.name, sub: e.offline ? 'Offline · leads nowhere yet' : `Jump gate to the ${galaxy.systems[e.gate.to].name} system`, color: e.color }),
     },
     wreck: {
       order: 3,

@@ -13,6 +13,7 @@
 // - stations orbiting planets (a capital and a major station, both with shipyards, and minor
 //   ones) and bases out in space (mining camps in a belt or field, a salvage yard among wrecks),
 //   each built in one of three cultures (art only: how it looks and its colour, art/culture.js),
+//   and, with overrides.waystation ({ name }), an android-run waystation on the outer edge,
 // - security by distance to the nearest station, a level lower inside a nebula away from the
 //   stations (security.js says what each level means),
 // - pirates in packs by security, and ambushes lying in wait in nebulae and lawless space,
@@ -33,7 +34,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 3;
+  const VERSION = 4;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -63,13 +64,17 @@ const SolarSystem = (() => {
     derelicts: { count: [6, 9], spacing: 6000 },
   };
 
-  // The three cultures stations are built in (art/culture.js lineages), each with its colour on
-  // the map and in space. The capital's is the first.
+  // The cultures stations are built in (art/culture.js lineages), each with its colour on the map
+  // and in space: the three settled (human) ones, the capital's first, and the androids, who run
+  // only the waystation. Gates and wrecks are the settled cultures' (SETTLED).
   const CULTURES = [
     { id: 0, lineage: 'wedge', name: 'Wedge', color: '#5fa8ff' },
     { id: 1, lineage: 'block', name: 'Block', color: '#e0a030' },
     { id: 2, lineage: 'shard', name: 'Shard', color: '#3fbf6a' },
+    { id: 3, lineage: 'android', name: 'Android', color: '#4fd8ff' },
   ];
+  const SETTLED = 3;
+  const ANDROID = 3;
   // Contacts, one row per type: its label on things in space, its name in notices and with an
   // article in the map's prompt, its colour on the map, and whether it attacks. Derelicts are
   // hidden wrecks with salvage; ambushes are a pirate pack lying in wait.
@@ -98,6 +103,7 @@ const SolarSystem = (() => {
   // Nominal station sizes for keeping things clear of them (the art decides the real size).
   const STATION_SIZE = { major: 260, minor: 140 };
   const GATE_SIZE = 320;
+  const WAYSTATION_CLEAR = 6000; // no pirate packs this close to the waystation
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
@@ -274,7 +280,7 @@ const SolarSystem = (() => {
         if (clear(c, 2500) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1200)) at = c;
       }
       at = at || polar(g.angle, R * 0.8);
-      return { id: i, key: `g${i}`, name: `${name} Gate`, to: g.to, ...at, seed: nextSeed(rg), culture: Math.floor(rg() * CULTURES.length), reach: GATE_SIZE };
+      return { id: i, key: `g${i}`, name: `${name} Gate`, to: g.to, ...at, seed: nextSeed(rg), culture: Math.floor(rg() * SETTLED), reach: GATE_SIZE };
     });
 
     // ---------- Asteroid fields ----------
@@ -312,6 +318,21 @@ const SolarSystem = (() => {
     if (stations.length > 2 && !stations.some((s) => s.culture === 1)) stations[1].culture = 1;
     if (stations.length > 2 && !stations.some((s) => s.culture === 2)) stations[2].culture = 2;
 
+    // ---------- The waystation: android-run, alone on the outer edge ----------
+    // From its own stream, so the rest of the system stays as it was. Clear of everything else,
+    // well away from the nebulae (and the ambushes in them), the belts, the gates and the other
+    // stations.
+    if (overrides.waystation) {
+      const rw = stream(0x3a75);
+      let at = null;
+      for (let tries = 0; tries < 300 && !at; tries++) {
+        const c = polar(rw() * TAU, R * between(rw, [0.88, 0.93]));
+        if (clear(c, 3000) && nebulae.every((n) => dist(n, c) > n.r + 6000) && !beltAt(c.x, c.y, 2000) && stations.every((o) => dist(o, c) > 7000) && gates.every((g) => dist(g, c) > 7000)) at = c;
+      }
+      at = at || polar(rw() * TAU, R * 0.9);
+      addStation({ name: overrides.waystation.name, size: 'minor', ...at, culture: ANDROID, waystation: true, market: { kind: 'outpost', type: 'waystation' } });
+    }
+
     // ---------- Security: distance to the nearest station, lower in a nebula ----------
 
     const SEC = P.security;
@@ -328,7 +349,7 @@ const SolarSystem = (() => {
     const wrecks = [];
     const contacts = [];
     const packs = [];
-    const randomCulture = (r) => Math.floor(r() * CULTURES.length);
+    const randomCulture = (r) => Math.floor(r() * SETTLED);
     // spoils: floating things around it (scene.js picks them); cargo: 'trade' for a freighter's
     // goods, else by what the wreck was.
     const addWreck = (type, culture, x, y, extra = {}) => {
@@ -356,7 +377,8 @@ const SolarSystem = (() => {
     const packFits = (at) => Math.hypot(at.x, at.y) <= R - margin - o1
       && clear(at, packClear + o1, packBlock.filter((b, i) => i === 0 || i > planets.length))
       && planets.every((p) => dist(p, at) >= p.extent + 400 + o1)
-      && packs.every((k) => dist(k, at) >= spacing);
+      && packs.every((k) => dist(k, at) >= spacing)
+      && stations.every((st) => !st.waystation || dist(st, at) >= WAYSTATION_CLEAR + o1); // its safe zone
     let shipCount = 0;
     const addPack = (at, size, tier, ambush) => {
       const k = { id: packs.length, x: at.x, y: at.y, tier, ambush, level: securityAt(at.x, at.y), ships: [] };
@@ -507,7 +529,7 @@ const SolarSystem = (() => {
   // settings or another generator version is another system.
   const saveKey = (s) => `${s.seed}:${s.radius}:${s.planets.length}:${s.stations.length}:${s.asteroids.length}:v${VERSION}`;
 
-  return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES, CULTURES };
+  return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES, CULTURES, SETTLED, ANDROID };
 })();
 
 if (typeof module !== 'undefined') module.exports = SolarSystem;
