@@ -55,8 +55,9 @@ const fight = {
 };
 // The introduction (see Introduction below): on while the escape pod is being talked in to the
 // waystation. run: the script (intro.js); station: the waystation's entity; face: its android's
-// portrait; flying: the pod is the player's to fly; beam: the tractor beam has it ({ t, in }).
-const intro = { on: false, run: null, station: null, face: null, flying: false, beam: null };
+// portrait; flying: the pod is the player's to fly; beam: the tractor beam has it ({ t, in });
+// arrive: the pod drifting in at the start, before anyone speaks ({ t, from, to, a0, a1 }).
+const intro = { on: false, run: null, station: null, face: null, flying: false, beam: null, arrive: null };
 const inFight = () => !!fight.s || fight.wreckT > 0;
 const fightMode = () => COMBAT[fight.mode];
 const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
@@ -543,7 +544,8 @@ function ambushCleared(c) {
 // movement mode (the combat mode comes with the first mission's launch). Mid-way the pod is the player's to fly, until it's in reach of the station's
 // tractor beam, which brings it in to dock as the station finishes talking. Then the player has
 // the usual ship again. ?skipintro (or the Skip button) goes straight to the docked station.
-// While it runs there is no map, no settings, no selecting things, no squad and no pirates.
+// It opens on the pod drifting in toward the station (a tap skips that), before anyone speaks.
+// While it runs there is no map, no settings, no HUD, no selecting things, no squad and no pirates.
 
 // The pod: slow and gentle, so the first flight is short and easy to steer.
 const POD = { name: 'Escape pod', radius: 15, maxSpeed: 170, accel: 120, turnRate: 2.4, cargo: 0 };
@@ -551,6 +553,9 @@ const POD = { name: 'Escape pod', radius: 15, maxSpeed: 170, accel: 120, turnRat
 // (from the station's edge); hold: where the beam holds it, docked; speed: how fast it pulls.
 // zoom: the view is this much wider throughout, so the station and the pod are both on screen.
 const TRACTOR = { start: 560, range: 260, hold: 90, speed: 150, zoom: 0.65 };
+// The opening shot: the pod drifts in this far toward its starting spot over this many seconds,
+// slowing as it comes, before the station first speaks. A tap cuts it short.
+const ARRIVE = { dist: 700, time: 5 };
 const INTRO_FROM = Intro.STATION;
 const APPROACH_HINT = {
   cruise: 'Drag anywhere to set a heading: the further you drag, the faster you go. The pod keeps drifting when you let go; tap empty space to stop.',
@@ -583,15 +588,43 @@ function startIntro() {
   intro.run = Intro.create(introAnswer);
   Object.assign(SHIP, POD);
   ship.art = HULL_ART.pod();
-  // Adrift below the station (on screen: above the comms box), turned a little away from it.
+  // It ends up adrift below the station (on screen: above the comms box), turned a little away
+  // from it; first it drifts in from further out, nose first, coming to rest there.
   const a = Math.PI / 2 - 0.25, d = st.radius + TRACTOR.start;
-  placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a + Math.PI + 0.9);
+  const to = { x: st.x + Math.cos(a) * d, y: st.y + Math.sin(a) * d };
+  const from = { x: st.x + Math.cos(a) * (d + ARRIVE.dist), y: st.y + Math.sin(a) * (d + ARRIVE.dist) };
+  intro.arrive = { t: 0, from, to, a0: a + Math.PI, a1: a + Math.PI + 0.9 };
+  placeShip(from.x, from.y, intro.arrive.a0);
+  cam.x = (from.x + st.x) / 2;
+  cam.y = (from.y + st.y) / 2;
   view.k = TRACTOR.zoom;
   view.zoom = view.base * view.k;
   fight.grace = Infinity;
   document.body.classList.add('intro');
   SystemMap.blocked = true;
   Comms.onSkip = skipIntro;
+  Comms.hide(); // nothing is said until the pod has drifted in
+}
+
+// The opening drift: in along a straight line, slowing to a stop (ease-out), and turning a little
+// away from the station as it settles. Then the station speaks.
+function tickArrive(dt) {
+  const A = intro.arrive;
+  A.t = Math.min(ARRIVE.time, A.t + dt);
+  const u = A.t / ARRIVE.time, k = 1 - (1 - u) ** 2, speed = (2 * (1 - u) * ARRIVE.dist) / ARRIVE.time;
+  const dir = Math.atan2(A.to.y - A.from.y, A.to.x - A.from.x);
+  ship.x = lerp(A.from.x, A.to.x, k);
+  ship.y = lerp(A.from.y, A.to.y, k);
+  ship.vx = Math.cos(dir) * speed;
+  ship.vy = Math.sin(dir) * speed;
+  ship.angle = ship.targetAngle = A.a0 + (A.a1 - A.a0) * (u * u * (3 - 2 * u));
+  ship.thrust = 0;
+  if (u >= 1) endArrive();
+}
+function endArrive() {
+  const A = intro.arrive;
+  intro.arrive = null;
+  placeShip(A.to.x, A.to.y, A.a1);
   showIntroStep();
 }
 
@@ -693,7 +726,7 @@ function drawTractorBeam(t) {
 // Out of the introduction: the usual ship (and squad, and pirates) back. played: it ran to the
 // end (or was skipped), so it won't run again in this galaxy.
 function endIntro({ played }) {
-  Object.assign(intro, { on: false, run: null, flying: false, beam: null });
+  Object.assign(intro, { on: false, run: null, flying: false, beam: null, arrive: null });
   Comms.onSkip = null;
   Comms.hide();
   document.body.classList.remove('intro');
@@ -2151,6 +2184,7 @@ function endDrag(e) {
   drag.active = false;
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (intro.on) { // nothing to select yet: only flying
+    if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
     if (intro.flying && (moveMode.value === 'direct' || tap)) ship.targetSpeed = 0;
     return;
   }
@@ -2179,7 +2213,8 @@ function update(dt) {
   // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight.js);
   // in the introduction's tractor beam, the beam's pull.
   if (intro.on && !intro.flying) ship.targetSpeed = 0; // the pod waits while the station talks
-  if (intro.beam) tickBeam(dt);
+  if (intro.arrive) tickArrive(dt);
+  else if (intro.beam) tickBeam(dt);
   else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
@@ -2671,6 +2706,10 @@ function drawMinimap(list) {
 }
 
 
+// No HUD (minimap, speed, location, edge markers) in the introduction: it appears once the player
+// first launches.
+const hudShown = () => !intro.on;
+
 function drawHud() {
   const speed = Math.hypot(ship.vx, ship.vy);
   const pad = 12;
@@ -2781,13 +2820,16 @@ function render() {
     ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
     ctx.restore();
   }
-  drawNavMarkers(list);
   const obj = objective();
   SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
+  if (hudShown()) drawNavMarkers(list);
+  else navHits = [];
   drawFoeMarkers();
   drawDragIndicator();
-  drawMinimap(list);
-  drawHud();
+  if (hudShown()) {
+    drawMinimap(list);
+    drawHud();
+  }
   if (SystemMap.perf) drawPerf();
 }
 
