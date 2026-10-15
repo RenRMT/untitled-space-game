@@ -44,7 +44,8 @@ load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
+load('intro.js', ['Intro']);
+const { Intro, Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -171,7 +172,7 @@ test('stations orbit planets in all three cultures, with bases out in space; the
     assert.strictEqual(s.stations[s.startStation].market.type, 'capital');
     assert(types.includes('major') && types.includes('mining camp'), `${where}: stations ${types}`);
     assert(s.stations.length >= 5, `${where}: only ${s.stations.length} stations`);
-    assert.deepStrictEqual(s.cultures.map((c) => c.lineage), ['wedge', 'block', 'shard']);
+    assert.deepStrictEqual(s.cultures.map((c) => c.lineage), ['wedge', 'block', 'shard', 'android']);
     for (const c of s.cultures) assert(s.stations.some((x) => x.culture === c.id), `${where}: no ${c.name} stations`);
     assert.strictEqual(new Set(s.stations.map((x) => x.key)).size, s.stations.length, `${where}: station keys`);
     for (const st of s.stations) {
@@ -1220,6 +1221,76 @@ test('real-time combat: the starter Courier against pirate fighters, and getting
   assert(four.win < 0.1, `vs 4: ${JSON.stringify(four)}`);
   const away = fight(4, run);
   assert(away.escape > 0.8 && away.left > 100, `running from 4: ${JSON.stringify(away)}`);
+});
+
+// ---------- The waystation and the introduction ----------
+
+test('the first system has an android waystation alone on its outer edge, in a safe zone', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, s = g.systems[0];
+    const ways = g.stations.filter((st) => st.waystation);
+    assert.strictEqual(ways.length, 1, `${where}: one waystation`);
+    const w = ways[0];
+    assert.strictEqual(g.stations[g.waystation], w);
+    assert.strictEqual(w.system, 0, `${where}: in the first system`);
+    assert.strictEqual(w.name, 'Waystation HD-1863');
+    assert.strictEqual(w.culture, SolarSystem.ANDROID);
+    assert.deepStrictEqual(w.market, { kind: 'outpost', type: 'waystation' });
+    const out = Math.hypot(w.x - s.origin.x, w.y - s.origin.y) / s.radius;
+    assert(out > 0.85 && out < 0.95, `${where}: ${out.toFixed(2)} of the radius out`);
+    assert.strictEqual(g.securityAt(w.x, w.y), 3, `${where}: high security`);
+    for (const o of g.stations) if (o !== w) assert(dist(o, w) > 7000, `${where}: ${o.name} too close`);
+    for (const o of g.gates) assert(dist(o, w) > 7000, `${where}: ${o.name} too close`);
+    for (const n of s.nebulae) assert(dist(n, w) > n.r + 6000, `${where}: ${n.name} too close`);
+    for (const k of g.packs) assert(dist(k, w) > 6000, `${where}: pirates by the waystation`);
+    assert.ok(Economy.market(g.seed, w).goods.some((x) => x.buy !== null), `${where}: something for sale`);
+    // Every other station is built by humans; gates and wrecks too.
+    for (const o of [...g.stations.filter((x) => x !== w), ...g.gates, ...g.wrecks]) assert(o.culture < SolarSystem.SETTLED, `${where}: ${o.key}`);
+  }
+  // Built in the androids' culture, the same one squad members are; pirates borrow only from humans.
+  const g = galaxies.get(1), c = ArtCulture.forGalaxy(g);
+  assert.strictEqual(c.of(SolarSystem.ANDROID).lineage, 'android');
+  assert.strictEqual(c.of(SolarSystem.ANDROID).seed, ArtCulture.xeno(g.seed).android.seed);
+  assert(c.pirates.donors.every((d) => d.lineage !== 'android'));
+  assert.strictEqual(thingsOf(1, 'station').find((e) => e.station.waystation).art.culture.lineage, 'android');
+});
+
+test('the introduction: lines, questions that set the art style, movement and combat, and two waits', () => {
+  const picked = [];
+  const run = Intro.create((k, v) => picked.push([k, v]));
+  const says = [];
+  // Answer each question with its last option; go past every line; signal each wait.
+  for (let n = 0; run.step && n < 100; n++) {
+    const st = run.step;
+    if (st.wait) { says.push(`<${st.wait}>`); run.signal('wrong'); assert.strictEqual(run.step, st, 'a wait waits for its own signal'); run.signal(st.wait); continue; }
+    says.push(st.say);
+    if (st.ask) {
+      run.next();
+      assert.strictEqual(run.step, st, 'a question needs an answer');
+      run.choose(st.options.length - 1);
+    } else run.next();
+  }
+  assert.strictEqual(run.step, null, 'the script ends');
+  assert.deepStrictEqual(picked, [['style', 'lowpoly'], ['move', 'direct'], ['combat', 'rounds']]);
+  assert.deepStrictEqual(run.answers, { style: 'lowpoly', move: 'direct', combat: 'rounds' });
+  assert.strictEqual(says[0], 'This is Waystation HD-1863 to approaching escape pod. You are entering a safe zone.');
+  // An answer's reply comes straight after its question.
+  const reply = says.indexOf('Inertial dampeners. Responsive. Expensive. We will add that to your file.');
+  assert(reply > 0 && says[reply - 1].startsWith('Diagnostic two'));
+  assert.strictEqual(says[says.indexOf('Please confirm your targeting protocol.') + 1], 'Turn-based engagement registered. Taking turns. Very civilized.');
+  // The flight comes before the security scan, docking at the very end.
+  assert(says.indexOf('<approach>') < says.indexOf('Security scan in progress.'));
+  assert.strictEqual(says[says.length - 1], '<docked>');
+  assert.strictEqual(says[says.length - 2], 'Registration complete. Welcome to Waystation HD-1863.');
+  // Every answer is a value its setting takes.
+  const VALUES = { style: ['line', 'pixel', 'flat', 'lowpoly'], move: ['cruise', 'direct'], combat: ['rounds', 'realtime'] };
+  for (const st of Intro.SCRIPT.filter((x) => x.ask)) assert.deepStrictEqual(st.options.map((o) => o.value).sort(), [...VALUES[st.ask]].sort(), st.ask);
+  // Portraits show once the art style is picked; bold runs.
+  const r2 = Intro.create();
+  assert(!r2.portrait);
+  r2.next(); r2.next(); r2.choose(0);
+  assert(r2.portrait);
+  assert.deepStrictEqual(Intro.runs('It has been **793** solar cycles'), [{ text: 'It has been ', bold: false }, { text: '793', bold: true }, { text: ' solar cycles', bold: false }]);
 });
 
 // ---------- Squad and AI logic modules ----------

@@ -59,6 +59,10 @@ const SystemMap = (() => {
   const fog = () => (dev ? null : knowledge);
   let trip = null; // the flight view's Travel instance, for drawing the route
   let hooks = {}; // flight view callbacks: travel(dest), stop(), fast(), investigate(), ignore()
+  // What the player may know of yet: system(s), whether a system shows at all; gate(g), whether a
+  // gate is online and says where it leads. Everything, until the flight view says otherwise.
+  let access = { system: () => true, gate: () => true };
+  const gateName = (g) => (access.gate(g) ? g.name : 'Jump gate');
   for (const id of ['map-jump', 'map-contacts']) document.getElementById(id).hidden = !dev;
   // How much of a contact the map shows: 'known', 'ping' or null.
   const contactState = (c) => (showContacts || !fog() ? 'known' : fog().contactState(c.id));
@@ -124,7 +128,8 @@ const SystemMap = (() => {
     const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
     if (mode === 'galaxy') {
       const known = galaxy.systems.filter(charted);
-      const links = galaxy.links.filter(([a, b]) => charted(galaxy.systems[a]) || charted(galaxy.systems[b])).length;
+      const shown = new Set(shownSystems());
+      const links = galaxy.links.filter(([a, b]) => shown.has(galaxy.systems[a]) && shown.has(galaxy.systems[b])).length;
       statsEl.textContent = `seed ${galaxy.seed} · ${plural(known.length, 'system')} charted · ${plural(links, 'gate link')}`;
       return;
     }
@@ -157,8 +162,9 @@ const SystemMap = (() => {
     requestDraw();
   }
 
-  // What the galaxy view frames: the charted systems and those their gates lead to.
-  const shownSystems = () => galaxy.systems.filter((s) => charted(s) || linked(s).some(charted));
+  // What the galaxy view frames: the charted systems and those their gates lead to, if the player
+  // may know of them yet.
+  const shownSystems = () => galaxy.systems.filter((s) => access.system(s) && (charted(s) || linked(s).some(charted)));
   const linked = (s) => galaxy.links.flatMap(([a, b]) => (a === s.index ? [galaxy.systems[b]] : b === s.index ? [galaxy.systems[a]] : []));
 
   // Frame the local system, or every system the galaxy view shows.
@@ -367,7 +373,7 @@ const SystemMap = (() => {
     if (scale >= 0.009 * (48000 / system.radius)) {
       for (const p of system.planets) { const [px, py] = toScreen(p.x, p.y); label(p.name, px, py + dot(p.r, 3.5) + 13, '#8a95b3'); }
     }
-    for (const g of system.gates) { const [gx, gy] = toScreen(g.x, g.y); label(g.name, gx, gy - 10, hexToRgba(galaxy.cultureColor(g.culture), 0.95)); }
+    for (const g of system.gates) { const [gx, gy] = toScreen(g.x, g.y); label(gateName(g), gx, gy - 10, hexToRgba(galaxy.cultureColor(g.culture), 0.95)); }
     if (scale >= 0.012 * (48000 / system.radius)) {
       for (const s of system.stations) { const [sx, sy] = toScreen(s.x, s.y); label(s.name, sx, sy - 9, '#c3cae0'); }
       for (const n of system.nebulae) { const [nx, ny] = toScreen(n.x, n.y); label(n.name, nx, ny, hexToRgba(n.color, 0.9)); }
@@ -410,7 +416,7 @@ const SystemMap = (() => {
     ctx.lineWidth = 1.5;
     for (const [a, b] of galaxy.links) {
       const A = galaxy.systems[a], B = galaxy.systems[b];
-      if (!charted(A) && !charted(B)) continue;
+      if (!list.includes(A) || !list.includes(B)) continue;
       const both = charted(A) && charted(B);
       const gate = A.gates.find((g) => g.to === b), there = galaxy.gates[gate.link];
       const [ax, ay] = toScreen(gate.x, gate.y), [bx, by] = toScreen(there.x, there.y);
@@ -593,7 +599,7 @@ const SystemMap = (() => {
         row('star', `${s.star.cls}-class`) +
         row('planets', String(s.planets.length)) +
         row('stations', String(s.stations.length)) +
-        row('gates to', s.gates.map((g) => (charted(galaxy.systems[g.to]) ? galaxy.systems[g.to].name : 'uncharted')).join(', ') || 'none') +
+        row('gates to', s.gates.map((g) => (!access.gate(g) ? 'offline' : charted(galaxy.systems[g.to]) ? galaxy.systems[g.to].name : 'uncharted')).join(', ') || 'none') +
         awayRow(s.origin);
       return;
     }
@@ -611,9 +617,9 @@ const SystemMap = (() => {
     if (sel.gate) {
       const g = sel.gate, to = galaxy.systems[g.to];
       info.innerHTML =
-        swatchHead(galaxy.cultureColor(g.culture), g.name) +
+        swatchHead(galaxy.cultureColor(g.culture), gateName(g)) +
         row('type', 'jump gate') +
-        row('leads to', charted(to) ? `${to.name} system` : 'an uncharted system') +
+        (access.gate(g) ? row('leads to', charted(to) ? `${to.name} system` : 'an uncharted system') : row('status', 'offline')) +
         row('built by', galaxy.cultures[g.culture].name) +
         securityRow(g.x, g.y) + awayRow(g);
       return;
@@ -821,6 +827,7 @@ const SystemMap = (() => {
     set onJump(fn) { onJump = fn; updateInfo(); },
     set onLoad(fn) { onLoad = fn; },
     set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
+    set access(a) { access = a; updateStats(); updateInfo(); requestDraw(); },
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,

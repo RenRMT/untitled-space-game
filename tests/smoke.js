@@ -4,7 +4,8 @@
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. Each step checks its effect; at the end nothing may have
+// settings and a start-style switch. It opens on the introduction, which the first test plays
+// through. Each step checks its effect; at the end nothing may have
 // been drawn at a non-finite position. The steps share one game, in order, as a player would
 // play them.
 
@@ -49,6 +50,10 @@ function clickCard(id) {
   const button = { disabled: false, dataset: { id } };
   browser.document.getElementById('context').querySelector('.cx-actions').dispatch('click', { target: { closest: () => button } });
 }
+// All the text under an element of the DOM stub.
+const textOf = (el) => (el === null || el === undefined ? '' : typeof el !== 'object' ? String(el) : (el.textContent || '') + (el.children || []).map(textOf).join(''));
+// Every element under one (itself included), depth first.
+const allOf = (el) => (el && typeof el === 'object' ? [el, ...(el.children || []).flatMap(allOf)] : []);
 function until(cond, maxFrames, each = '') {
   for (let i = 0; i < maxFrames; i++) {
     if (game(cond)) return true;
@@ -57,6 +62,78 @@ function until(cond, maxFrames, each = '') {
   }
   return game(cond);
 }
+
+test('a new game opens on the introduction: the pod is talked in, flown to the waystation and docked', () => {
+  browser.frames(3);
+  const comms = browser.document.getElementById('comms');
+  const text = () => textOf(comms);
+  const faces = () => allOf(comms).filter((el) => el.tagName === 'CANVAS' && !el.hidden);
+  assert.ok(game('intro.on && SHIP.name === "Escape pod"'), 'in the escape pod');
+  const way = game('intro.station');
+  assert.strictEqual(way.name, 'Waystation HD-1863');
+  assert.strictEqual(way.art.culture.lineage, 'android');
+  const gap = game('gapTo(intro.station)');
+  assert.ok(gap > 400 && gap < 1200, `adrift ${gap.toFixed(0)} from the station`);
+  assert.ok(game('!frameList.some((e) => e.kind === "wingman")'), 'no squad yet');
+  game('SystemMap.open(); settingsBtn.dispatch("click", {})');
+  assert.ok(game('!SystemMap.isOpen && !Settings.isOpen'), 'no map or settings');
+  // Lines go on with a tap; the first two have no portrait.
+  assert.match(text(), /This is Waystation HD-1863 to approaching escape pod/);
+  assert.strictEqual(faces().length, 0);
+  comms.dispatch('click', { target: { closest: () => null } });
+  assert.match(text(), /It has been 793 solar cycles/);
+  assert.ok(allOf(comms).some((el) => el.tagName === 'STRONG' && textOf(el) === '793'), '793 in bold');
+  game('ship.targetSpeed = SHIP.maxSpeed');
+  browser.frames(30);
+  assert.ok(game('Math.hypot(ship.vx, ship.vy) < 1'), 'the pod waits while the station talks');
+  game('Comms.next()');
+  // Diagnostic one: four answers, each with the portrait in its style; it sets the art style.
+  assert.match(text(), /Diagnostic one: please confirm visual functions/);
+  assert.match(text(), /Looks bright.*Looks blocky.*Looks flat.*Looks sharp/);
+  assert.strictEqual(faces().length, 4, 'a portrait per answer');
+  game('Comms.next()');
+  assert.match(text(), /Diagnostic one/, 'a question waits for its answer');
+  game('Comms.choose(1)');
+  assert.strictEqual(game('artStyle.value'), 'pixel');
+  assert.match(text(), /Must be a pre-existing condition/);
+  assert.strictEqual(faces().length, 1, 'the station\'s portrait from now on');
+  game('Comms.next()');
+  // Diagnostic two: movement.
+  assert.match(text(), /Diagnostic two/);
+  game('Comms.choose(0)');
+  assert.strictEqual(game('moveMode.value'), 'cruise');
+  assert.match(text(), /Inertial navigation\. A classic/);
+  for (let i = 0; i < 20 && game('!intro.flying'); i++) game('Comms.next()');
+  // Flying: a hint that doesn't wait; the pod is the player's to fly, into the beam's reach.
+  assert.ok(game('intro.flying && !Comms.isOpen'), 'flying');
+  assert.match(text(), /Drag anywhere to set a heading/);
+  const steer = 'ship.targetAngle = Math.atan2(intro.station.y - ship.y, intro.station.x - ship.x); ship.targetSpeed = SHIP.maxSpeed;';
+  assert.ok(until('!!intro.beam', 60 * 30, steer), 'reached the tractor beam');
+  assert.ok(game('SHIP.maxSpeed') < 200, 'at the pod\'s gentle speed');
+  // The beam has it; the security scan and targeting protocol.
+  assert.match(text(), /Security scan in progress/);
+  game('Comms.next()');
+  assert.match(text(), /A weapon system has been detected/);
+  game('Comms.next()');
+  assert.match(text(), /Manual targeting.*Tactical computer/);
+  game('Comms.choose(0)');
+  assert.strictEqual(game('combatMode.value'), 'realtime');
+  assert.match(text(), /Real-time engagement registered/);
+  game('Comms.next()');
+  assert.match(text(), /Registration complete\. Welcome to Waystation HD-1863/);
+  game('Comms.next()');
+  assert.ok(until('!!docked', 60 * 30), 'docked');
+  assert.strictEqual(game('docked.station'), way, 'at the waystation');
+  assert.ok(game('!intro.on && cargo.story.has("intro")'));
+  assert.strictEqual(game('SHIP.name'), 'Courier', 'the usual ship again');
+  assert.strictEqual(game('cargo.hull'), game('SHIP.hull'));
+  assert.match(textOf(browser.document.getElementById('st-sub')), /Waystation/);
+  game('launch()');
+  browser.frames(3);
+  assert.ok(game('frameList.some((e) => e.kind === "wingman")'), 'the wingman joins');
+  // On to the usual start, with the usual settings.
+  game('artStyle.set("line"); combatMode.set("rounds"); placeBeside(startStation())');
+});
 
 test('boots at the start station', () => {
   browser.frames(3);
@@ -120,7 +197,7 @@ test('a rebuilt scene finds its sprites again', () => {
     browser.frames(2);
     game('render()');
     const before = game('Art.stats()');
-    game('world.scene = Scene.create(world.galaxy, world.cultures); render();');
+    game('world.scene = Scene.create(world.galaxy, world.cultures); showGates(); render();');
     const after = game('Art.stats()');
     assert.ok(game(`frameList.some((e) => e.kind === '${kind}' && visible(e))`), `a ${kind} on screen`);
     assert.deepStrictEqual([after.builds, after.asteroidBuilds], [before.builds, before.asteroidBuilds], `near a ${kind}`);
@@ -326,13 +403,24 @@ test('no edge: the ship flies on out of the system into deep space', () => {
   browser.frames(2);
 });
 
-test('a jump gate takes the ship to the other system, which the galaxy map then charts', () => {
+test('a jump gate is offline until the gates come online, then takes the ship to the other system', () => {
   game('globalThis.__gate = world.scene.gates.find((g) => g.gate.system === 0)');
   assert.ok(game('__gate'), 'the first system has a gate');
   assert.ok(!game('world.knowledge.visited(1)'), 'the second system is not charted yet');
   game('fight.grace = 1e9; select(null); placeShip(__gate.x, __gate.y + __gate.radius + 120)');
   browser.frames(2);
   assert.ok(game('frameList.some((e) => e.kind === "gate" && visible(e))'), 'the gate is drawn');
+  // Offline: no jump, no name for where it leads, and the galaxy map shows only this system.
+  assert.deepStrictEqual(game(`[actions.state('jump', __gate).ok, actions.state('jump', __gate).label]`), [false, 'Gate offline']);
+  assert.strictEqual(game('__gate.name'), 'Jump gate');
+  assert.match(game('describe(__gate).subtitle'), /^Offline/);
+  game('SystemMap.open(); SystemMap.setMode("galaxy")');
+  browser.frames(2);
+  assert.match(textOf(browser.document.getElementById('map-stats')), /1 system charted · 0 gate links/);
+  game('SystemMap.setMode("local"); SystemMap.close()');
+  game('cargo.story.add("gates"); showGates()');
+  assert.match(game('__gate.name'), /Gate$/);
+  assert.notStrictEqual(game('__gate.name'), 'Jump gate');
   assert.ok(game(`actions.state('jump', __gate).ok`), 'in range to jump');
   game('select(__gate)');
   browser.key('j');
@@ -448,9 +536,6 @@ test('fights in real time, then gets away', () => {
   game('ship.targetSpeed = 0');
   browser.frames(300);
 });
-
-// All the text under an element of the DOM stub.
-const textOf = (el) => (el === null || el === undefined ? '' : typeof el !== 'object' ? String(el) : (el.textContent || '') + (el.children || []).map(textOf).join(''));
 
 test('the wingman flies in formation, assists the leader in both combat modes, and is repaired at a dock', () => {
   assert.strictEqual(game('cargo.squad.length'), 1, 'a new game has one wingman');
