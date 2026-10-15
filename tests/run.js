@@ -1256,7 +1256,7 @@ test('the first system has an android waystation alone on its outer edge, in a s
   assert.strictEqual(thingsOf(1, 'station').find((e) => e.station.waystation).art.culture.lineage, 'android');
 });
 
-test('the introduction: lines, questions that set the art style, movement and combat, and two waits', () => {
+test('the introduction: lines, questions that set the art style and movement, and two waits', () => {
   const picked = [];
   const run = Intro.create((k, v) => picked.push([k, v]));
   const says = [];
@@ -1272,13 +1272,12 @@ test('the introduction: lines, questions that set the art style, movement and co
     } else run.next();
   }
   assert.strictEqual(run.step, null, 'the script ends');
-  assert.deepStrictEqual(picked, [['style', 'lowpoly'], ['move', 'direct'], ['combat', 'rounds']]);
-  assert.deepStrictEqual(run.answers, { style: 'lowpoly', move: 'direct', combat: 'rounds' });
+  assert.deepStrictEqual(picked, [['style', 'lowpoly'], ['move', 'direct']]);
+  assert.deepStrictEqual(run.answers, { style: 'lowpoly', move: 'direct' });
   assert.strictEqual(says[0], 'This is Waystation HD-1863 to approaching escape pod. You are entering a safe zone.');
   // An answer's reply comes straight after its question.
   const reply = says.indexOf('Inertial dampeners. Responsive. Expensive. We will add that to your file.');
   assert(reply > 0 && says[reply - 1].startsWith('Diagnostic two'));
-  assert.strictEqual(says[says.indexOf('Please confirm your targeting protocol.') + 1], 'Turn-based engagement registered. Taking turns. Very civilized.');
   // The flight comes before the security scan, docking at the very end.
   assert(says.indexOf('<approach>') < says.indexOf('Security scan in progress.'));
   assert.strictEqual(says[says.length - 1], '<docked>');
@@ -1286,6 +1285,11 @@ test('the introduction: lines, questions that set the art style, movement and co
   // Every answer is a value its setting takes.
   const VALUES = { style: ['line', 'pixel', 'flat', 'lowpoly'], move: ['cruise', 'direct'], combat: ['rounds', 'realtime'] };
   for (const st of Intro.SCRIPT.filter((x) => x.ask)) assert.deepStrictEqual(st.options.map((o) => o.value).sort(), [...VALUES[st.ask]].sort(), st.ask);
+  // The combat mode is asked on the first mission's launch instead, with the same choices.
+  const ask = Missions.LIST.repayment.launch.filter((l) => l.ask);
+  assert.deepStrictEqual(ask.map((l) => l.ask), ['combat']);
+  assert.deepStrictEqual(ask[0].options.map((o) => o.value).sort(), [...VALUES.combat].sort());
+  assert(ask[0].options.every((o) => o.reply));
   // Portraits show once the art style is picked; bold runs.
   const r2 = Intro.create();
   assert(!r2.portrait);
