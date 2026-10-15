@@ -2,13 +2,14 @@
 
 // The introduction: an escape pod drifting near Waystation HD-1863 (the android-run station on
 // the first system's outer edge) is talked in by the station. Its diagnostic questions set the
-// art style, the movement mode and the combat mode; between them the pod flies itself to the
-// station (a first lesson in flying), where a tractor beam takes it in to dock.
+// art style and the movement mode; between them the pod flies itself to the station (a first
+// lesson in flying), where a tractor beam takes it in to dock. (The combat mode is asked once the
+// player first launches on the first mission: missions.js.)
 //
 // The script is a list of steps, run in order:
 //   { say }                          a line from the station (**bold** marks emphasis)
 //   { say, ask, options, portraits } a question: each option { label, value, reply? } sets the
-//                                    setting `ask` ('style' | 'move' | 'combat') to its value,
+//                                    setting `ask` ('style' | 'move') to its value,
 //                                    and its reply, if any, is the next line. portraits: show
 //                                    each option with the station's portrait in that art style
 //   { wait }                         something the flight view does: 'approach' (fly the pod
@@ -20,7 +21,7 @@
 //   run.next()                            past a line
 //   run.choose(i)                         answer the current question with option i
 //   run.signal(name)                      the flight view did what a wait step waits for
-//   run.answers                           { style, move, combat } as answered so far
+//   run.answers                           { style, move } as answered so far
 //   run.portrait                          whether lines show the station's portrait (they do
 //                                         once the art style has been picked)
 // Works as a classic browser script (global `Intro`) and as a Node module.
@@ -56,14 +57,7 @@ const Intro = (() => {
     { say: 'To reduce costs, please use your own thrusters to approach the Waystation.' },
     { wait: 'approach' },
     { say: 'Security scan in progress.' },
-    { say: 'A weapon system has been detected. Safe zone regulations require all weapons to be registered.' },
-    {
-      say: 'Please confirm your targeting protocol.', ask: 'combat',
-      options: [
-        { label: 'Manual targeting', value: 'realtime', reply: 'Real-time engagement registered. Please do not practice on the station.' },
-        { label: 'Tactical computer', value: 'rounds', reply: 'Turn-based engagement registered. Taking turns. Very civilized.' },
-      ],
-    },
+    { say: 'No weapon systems detected. No cargo detected. No gold detected.' },
     { say: 'Registration complete. Welcome to Waystation HD-1863.' },
     { wait: 'docked' },
   ];

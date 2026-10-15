@@ -539,8 +539,8 @@ function ambushCleared(c) {
 // ---------- Introduction: the escape pod, talked in to the waystation ----------
 //
 // A new game opens on an escape pod near the waystation (galaxy.js), with the station's android
-// on the comms (comms.js) running the script in intro.js: its answers set the art style, movement
-// and combat modes. Mid-way the pod is the player's to fly, until it's in reach of the station's
+// on the comms (comms.js) running the script in intro.js: its answers set the art style and the
+// movement mode (the combat mode comes with the first mission's launch). Mid-way the pod is the player's to fly, until it's in reach of the station's
 // tractor beam, which brings it in to dock as the station finishes talking. Then the player has
 // the usual ship again. ?skipintro (or the Skip button) goes straight to the docked station.
 // While it runs there is no map, no settings, no selecting things, no squad and no pirates.
@@ -598,7 +598,6 @@ function startIntro() {
 function introAnswer(setting, value) {
   if (setting === 'style') artStyle.set(value);
   else if (setting === 'move') moveMode.set(value);
-  else if (setting === 'combat') combatMode.set(value);
 }
 
 // The comms box for the script's current step: a line or a question, the flying hint, or
@@ -733,7 +732,8 @@ function skipIntro() {
 // portrait; vars: the names its lines use; hailT: seconds the android has waited to call; told:
 // the waystation has said where to go (this session).
 const mission = { site: null, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: false };
-// A conversation on the comms box: lines from someone, one after another, then `then`.
+// A conversation on the comms box: lines from someone, one after another, then `then`. A line may
+// be a question (missions.js) whose answer sets a setting.
 const talk = { lines: null, i: 0, from: '', face: null, then: null };
 const MISSION_LOCKED = ['trade', 'ship', 'research', 'squad'];
 const HAIL = { range: 4000, wait: 1.2 }; // the android calls within this range, this long after the fight
@@ -790,7 +790,21 @@ function say(lines, { from, face = null, then = null }) {
 function showTalk() {
   if (!talk.lines) return;
   if (talk.i >= talk.lines.length) { endTalk(); return; }
-  Comms.show({ from: talk.from, text: talk.lines[talk.i], face: talk.face, onNext: () => { talk.i++; showTalk(); } });
+  const line = talk.lines[talk.i];
+  if (typeof line === 'string') {
+    Comms.show({ from: talk.from, text: line, face: talk.face, onNext: () => { talk.i++; showTalk(); } });
+    return;
+  }
+  Comms.show({
+    from: talk.from, text: line.text, face: talk.face, choices: line.options.map((o) => ({ label: o.label })),
+    onChoose: (k) => {
+      const o = line.options[k];
+      if (line.ask === 'combat') combatMode.set(o.value);
+      talk.lines = [...talk.lines.slice(0, talk.i + 1), ...(o.reply ? [o.reply] : []), ...talk.lines.slice(talk.i + 1)];
+      talk.i++;
+      showTalk();
+    },
+  });
 }
 // The conversation over (or cut short by docking): its `then` still happens, unless it's
 // dropped (another galaxy loading).
@@ -844,14 +858,14 @@ function missionDocked(station) {
   if (escorting() && station.station.waystation && cargo.missions.set(OPENING, 'escort', 1)) saveCargo();
 }
 
-// On the first launch with the mission under way, the waystation says where to go.
+// On the first launch with the mission under way, the waystation says where to go and has the
+// ship's combat systems calibrated: the player picks the combat mode.
 function missionLaunched() {
   if (!missionActive() || objectiveDone('field') || mission.told) return;
   mission.told = true;
-  say([
-    'Coordinates of the asteroid field have been sent to your navigation system and your map.',
-    'Please try not to damage the ship.',
-  ], { from: mission.vars.station, face: faceOf(world.wayFace) });
+  const lines = Missions.lines(Missions.LIST[OPENING].launch, cargo.missions, OPENING)
+    .map((l) => (typeof l === 'string' ? fillIn(l) : l));
+  say(lines, { from: mission.vars.station, face: faceOf(world.wayFace) });
 }
 
 // The station screen's view of the missions (station.js): the first mission at the waystation
@@ -888,7 +902,8 @@ function completeMission() {
 }
 function joinAndroid() {
   const seed = mission.site.android.seed;
-  if (!cargo.squad.some((m) => m.seed === seed)) cargo.squad.push(Squad.member(seed, { modules: ['assist-leader'] }));
+  // It joins with empty logic slots: its first modules are for a later mission.
+  if (!cargo.squad.some((m) => m.seed === seed)) cargo.squad.push(Squad.member(seed));
   buildWings();
 }
 // ?skipintro: the introduction and the first mission as if played.

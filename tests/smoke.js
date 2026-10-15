@@ -110,15 +110,11 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
   const steer = 'ship.targetAngle = Math.atan2(intro.station.y - ship.y, intro.station.x - ship.x); ship.targetSpeed = SHIP.maxSpeed;';
   assert.ok(until('!!intro.beam', 60 * 30, steer), 'reached the tractor beam');
   assert.ok(game('SHIP.maxSpeed') < 200, 'at the pod\'s gentle speed');
-  // The beam has it; the security scan and targeting protocol.
+  // The beam has it; the security scan finds no weapons (combat comes with the first mission).
   assert.match(text(), /Security scan in progress/);
   game('Comms.next()');
-  assert.match(text(), /A weapon system has been detected/);
-  game('Comms.next()');
-  assert.match(text(), /Manual targeting.*Tactical computer/);
-  game('Comms.choose(0)');
-  assert.strictEqual(game('combatMode.value'), 'realtime');
-  assert.match(text(), /Real-time engagement registered/);
+  assert.match(text(), /No weapon systems detected/);
+  assert.ok(!/Manual targeting/.test(text()), 'no targeting question yet');
   game('Comms.next()');
   assert.match(text(), /Registration complete\. Welcome to Waystation HD-1863/);
   game('Comms.next()');
@@ -160,10 +156,23 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.ok(!launchBtn.disabled, 'Launch is open');
   assert.match(tab(), /Fly to the asteroid field/);
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'still only Missions');
+  game('combatMode.set("realtime")');
   launchBtn.dispatch('click', {});
   assert.ok(game('!docked'), 'launched');
-  // The waystation says where to go; the HUD, an edge marker and the map show it.
+  // The waystation says where to go and calibrates the combat systems: the combat mode is picked
+  // here. The HUD, an edge marker and the map show the way.
   assert.match(textOf(comms), /asteroid field have been sent to your navigation system/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /combat systems have not been calibrated/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /Please select a targeting protocol.*Manual targeting.*Tactical computer/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /select a targeting protocol/, 'the question waits for an answer');
+  game('Comms.choose(1)');
+  assert.strictEqual(game('combatMode.value'), 'rounds');
+  assert.match(textOf(comms), /Turn-based engagement calibrated/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /Calibration complete/);
   for (let i = 0; i < 5 && game('!!talk.lines'); i++) game('Comms.next()');
   assert.ok(game('!talk.lines && !Comms.isOpen'));
   browser.frames(2);
@@ -220,6 +229,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.deepStrictEqual(game('stationLocks().tabs'), []);
   assert.strictEqual(game('cargo.squad.length'), 1);
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
+  assert.deepStrictEqual(game('Squad.modulesOf(cargo.squad[0])'), [], 'with no logic modules yet');
   game(`StationMenu.showTab('squad')`);
   assert.strictEqual(game('StationMenu.tab'), 'squad');
   assert.match(tab(), new RegExp(game('mission.vars.ship')));
@@ -649,6 +659,8 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   const id = game('cargo.squad[0].id');
   assert.match(game('cargo.squad[0].name'), /^[A-Z][a-z]+-\d\d$/);
   assert.strictEqual(game(`wings.get('${id}').art.culture.lineage`), 'android', 'built in the android culture');
+  // It joined with empty logic slots; give it the Assist leader module (a later mission's job).
+  assert.ok(game(`Squad.install(cargo.squad[0], 'assist-leader', 0)`));
   // It follows the ship around and settles into its place in formation.
   game(`fight.grace = 1e9; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 2500, Math.PI / 2); } ship.targetAngle = 0.4; ship.targetSpeed = SHIP.maxSpeed * 0.6;`);
   browser.frames(120);

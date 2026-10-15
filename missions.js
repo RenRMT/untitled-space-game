@@ -8,12 +8,14 @@
 // A mission is data (LIST):
 //   { id, title, giver ('waystation'), briefing: [lines], provided?: what the giver hands over on
 //     accepting, provides?: { loadout }, reward: what it pays, objectives: [objective],
-//     hail?: [lines], report: [lines once it's ready], debrief: [lines once it's done],
-//     joined: a line once the reward is in }
+//     launch?: [lines when the player first sets out], hail?: [lines], report: [lines once it's
+//     ready], debrief: [lines once it's done], joined: a line once the reward is in }
 //   objective: { id, label, need? (a count, default 1), after?: [objective ids that come first],
 //                hidden? (tracked, never listed) }
 // Lines and labels may name {ship} and {station} (fill()); a line may be { text, if | unless:
-//   objective id }, shown only when that objective is (or isn't) done (lines()).
+//   objective id }, shown only when that objective is (or isn't) done (lines()), or a question,
+//   { text, ask: a setting, options: [{ label, value, reply? }] }, whose answer sets that setting
+//   (the flight view does it) and whose reply, if any, comes next.
 // Each mission is offered, then active once accepted, ready once every objective is done, and
 // done once handed in to its giver.
 //
@@ -58,6 +60,20 @@ const Missions = (() => {
         { id: 'regulator', label: 'Recover the coolant regulator' },
         { id: 'hail', hidden: true, after: ['pirates'] }, // {ship} has called the player
         { id: 'escort', label: 'Escort {ship} back to {station}', after: ['hail'] },
+      ],
+      // From the waystation as the player first launches: where to go, and calibrating the
+      // ship's combat systems, which sets the combat mode.
+      launch: [
+        'Coordinates of the asteroid field have been sent to your navigation system and your map.',
+        'Your ship\'s combat systems have not been calibrated. Calibration is required before engaging pirates.',
+        {
+          text: 'Please select a targeting protocol.', ask: 'combat',
+          options: [
+            { label: 'Manual targeting', value: 'realtime', reply: 'Real-time engagement calibrated. Please do not practice on the station.' },
+            { label: 'Tactical computer', value: 'rounds', reply: 'Turn-based engagement calibrated. Taking turns. Very civilized.' },
+          ],
+        },
+        'Calibration complete. Please try not to damage the ship.',
       ],
       // {ship} calls once the pirates are gone.
       hail: [
@@ -146,8 +162,9 @@ const Missions = (() => {
   // A line or label with its {names} filled in (unknown names are left as they are).
   const fill = (text, vars) => text.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
   // A mission's lines as they read now: conditional ones only when their objective is (or isn't) done.
-  const lines = (list, log, id) => list.filter((l) => typeof l === 'string' || (l.if ? log.done(id, l.if) : !log.done(id, l.unless)))
-    .map((l) => (typeof l === 'string' ? l : l.text));
+  // Questions are kept whole.
+  const lines = (list, log, id) => list.filter((l) => typeof l === 'string' || l.ask || (l.if ? log.done(id, l.if) : !log.done(id, l.unless)))
+    .map((l) => (typeof l === 'string' || l.ask ? l : l.text));
 
   // ---------- Where "Payment in kind" happens ----------
   //
