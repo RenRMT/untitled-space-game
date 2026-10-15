@@ -14,7 +14,9 @@
 //   being hit.
 // - Enemies steer: fighters make attack runs with their forward guns (close in, overshoot, swing
 //   round); ships with turrets keep their distance and circle. Pirates chase only so far from
-//   where the fight started.
+//   where the fight started. Each goes after the player, or the ally it picked (CombatCore.aim).
+// - Allies (squad members) fly the same way at the enemy their orders name, locking on and firing
+//   by the same rules; with no target they hold their place in formation (setOrders).
 // - Escape: stay clear of every enemy's guns for a few seconds.
 // The flight view (game.js) runs it as a combat mode (combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
@@ -25,7 +27,7 @@ const RealtimeCombat = (() => {
   const isNode = typeof require === 'function';
   const F = isNode ? require('./flight.js') : Flight;
   const core = isNode ? require('./combat-core.js') : CombatCore;
-  const { combatant, applyDamage, limitHit, alive } = core;
+  const { combatant, applyDamage, limitHit, alive, allies, aim, aimAt } = core;
 
   const config = {
     motionPenalty: 0.3, // hit chance lost per `motionSpeed` of target speed across the line of fire
@@ -57,7 +59,8 @@ const RealtimeCombat = (() => {
       radius: body.radius || stats.radius,
       cool: stats.weapons.map(() => 0), // seconds until each weapon can fire again
       quiet: Infinity, // seconds since last hit (shields recharge after shieldDelay)
-      lockT: 0, // enemies: seconds locking onto the player
+      lockT: 0, // enemies and allies: seconds locking onto their target
+      lockOn: null, // allies: the target that lock is on
       ai: { mode: 'attack', t: 0, heading: 0, side: 1 },
     };
   }
@@ -67,23 +70,34 @@ const RealtimeCombat = (() => {
 
   // A new fight. focus: the enemy the player attacked (null for an ambush: the nearest is picked).
   // anchor: where the fight started (defaults to the enemies' centre); pirates chase only so far.
+  // allies: squad members, flying beside the player (ship()s), with orders from setOrders.
   function create(rng, player, enemies, o = {}) {
     const anchor = o.anchor || {
       x: enemies.reduce((a, e) => a + e.x, 0) / enemies.length,
       y: enemies.reduce((a, e) => a + e.y, 0) / enemies.length,
     };
     for (const e of enemies) e.ai.side = rng() < 0.5 ? -1 : 1;
-    return {
+    const s = {
       rng, t: 0, player, enemies, anchor,
       focus: o.focus ?? null, manual: o.focus !== undefined && o.focus !== null, // player's target, and whether it was picked
       lockT: 0, locked: false, // the player's lock on its target
-      lastAttacker: null, away: 0, over: null,
+      lastAttacker: null, away: 0, over: null, allies: o.allies || [],
     };
+    for (const a of s.allies) a.order = a.order || {};
+    for (const e of enemies) e.aim = aim(rng, s);
+    return s;
+  }
+
+  // What an ally does now: fire on `target` (an enemy id), or with none hold `station` ({ x, y }).
+  function setOrders(s, id, order) {
+    const a = s.allies.find((x) => x.id === id);
+    if (a) a.order = order || {};
   }
 
   // Another ship joins the fight (a pirate flying into range).
   function join(s, e) {
     e.ai.side = s.rng() < 0.5 ? -1 : 1;
+    e.aim = aim(s.rng, s);
     s.enemies.push(e);
   }
 
@@ -169,12 +183,21 @@ const RealtimeCombat = (() => {
       s.lockT = 0;
       s.locked = false;
     }
-    for (const e of alive(s)) e.lockT = dist(e, p) - p.radius <= e.stats.lockRange ? e.lockT + dt : 0;
+    for (const e of alive(s)) {
+      const t = aimAt(s, e);
+      e.lockT = dist(e, t) - t.radius <= e.stats.lockRange ? e.lockT + dt : 0;
+    }
+    for (const a of allies(s)) {
+      const t = byId(s, a.order.target);
+      if (!t || a.lockOn !== t.id) { a.lockOn = t ? t.id : null; a.lockT = 0; }
+      if (t && dist(a, t) - t.radius <= a.stats.lockRange) a.lockT += dt;
+      else a.lockT = 0;
+    }
   }
 
-  // ---------- Enemy steering ----------
+  // ---------- Steering ----------
 
-  // Fighters: run in on the player (leading it a little), brake inside gun range and edge closer
+  // Fighters: run in on their target (leading it a little), brake inside gun range and edge closer
   // with guns on target, break off when close and veer away before turning for another run.
   function attackRun(s, e, p, d, range, dt) {
     const ai = e.ai, top = e.stats.maxSpeed;
@@ -197,7 +220,7 @@ const RealtimeCombat = (() => {
     return { angle, speed };
   }
 
-  // Turrets: hold off at about two-thirds of gun range, circling.
+  // Turrets: hold off at about two-thirds of gun range from their target, circling.
   function standOff(s, e, p, d, range) {
     const top = e.stats.maxSpeed, toward = Math.atan2(p.y - e.y, p.x - e.x);
     if (d > range * 0.85) return { angle: toward, speed: d > range + 300 ? top * config.chaseSpeed : top };
@@ -205,19 +228,11 @@ const RealtimeCombat = (() => {
     return { angle: toward + (e.ai.side * Math.PI) / 2, speed: top * 0.4 };
   }
 
-  function steer(s, e, dt) {
-    const p = s.player, d = dist(e, p), range = reach(e);
-    let c;
-    if (dist(p, s.anchor) > config.leash) {
-      // Given up the chase: back to where it started.
-      const back = dist(e, s.anchor);
-      c = { angle: Math.atan2(s.anchor.y - e.y, s.anchor.x - e.x), speed: back > 150 ? e.stats.maxSpeed * config.chaseSpeed : 0 };
-      e.ai.mode = 'attack';
-    } else if (e.stats.weapons.some((w) => w.arc >= 360)) c = standOff(s, e, p, d, range);
-    else c = attackRun(s, e, p, d, range, dt);
-    // Keep clear of the other enemies.
+  // Push a wanted velocity away from the others on the same side, then fly it, turning before
+  // speeding off.
+  function fly(e, c, side, dt) {
     let vx = Math.cos(c.angle) * c.speed, vy = Math.sin(c.angle) * c.speed;
-    for (const o of s.enemies) {
+    for (const o of side) {
       if (o === e || o.hull <= 0) continue;
       const dx = e.x - o.x, dy = e.y - o.y, dd = Math.hypot(dx, dy);
       if (dd >= config.spacing || dd < 1e-6) continue;
@@ -225,10 +240,37 @@ const RealtimeCombat = (() => {
       vx += (dx / dd) * push;
       vy += (dy / dd) * push;
     }
-    // Turn before speeding off: well off the wanted heading, ease the throttle.
     const want = Math.atan2(vy, vx);
     const speed = Math.min(e.stats.maxSpeed, Math.hypot(vx, vy)) * clamp(Math.cos(angleDiff(want, e.angle)), 0.15, 1);
     F.step(e, e.stats, { targetAngle: speed > 0 ? want : e.angle, targetSpeed: speed, mode: 'cruise' }, dt);
+  }
+
+  // An attack run or a stand-off, by the ship's guns.
+  const engageWith = (s, e, t, dt) => (e.stats.weapons.some((w) => w.arc >= 360) ? standOff(s, e, t, dist(e, t), reach(e)) : attackRun(s, e, t, dist(e, t), reach(e), dt));
+
+  function steer(s, e, dt) {
+    const p = s.player;
+    let c;
+    if (dist(p, s.anchor) > config.leash) {
+      // Given up the chase: back to where it started.
+      const back = dist(e, s.anchor);
+      c = { angle: Math.atan2(s.anchor.y - e.y, s.anchor.x - e.x), speed: back > 150 ? e.stats.maxSpeed * config.chaseSpeed : 0 };
+      e.ai.mode = 'attack';
+    } else c = engageWith(s, e, aimAt(s, e), dt);
+    fly(e, c, s.enemies, dt);
+  }
+
+  // An ally: after its target if it has one, else back to its station, arriving at the leader's
+  // speed so it keeps formation.
+  function steerAlly(s, a, dt) {
+    const t = byId(s, a.order.target), st = a.order.station;
+    let c;
+    if (t) c = engageWith(s, a, t, dt);
+    else if (st) {
+      const d = dist(a, st), lead = Math.hypot(s.player.vx, s.player.vy);
+      c = d < 30 ? { angle: s.player.angle, speed: lead } : { angle: Math.atan2(st.y - a.y, st.x - a.x), speed: Math.min(a.stats.maxSpeed, lead + d * 1.5) };
+    } else c = { angle: a.angle, speed: 0 };
+    fly(a, c, s.allies, dt);
   }
 
   // ---------- One step ----------
@@ -244,19 +286,26 @@ const RealtimeCombat = (() => {
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
     s.t += dt;
     for (const e of alive(s)) steer(s, e, dt);
+    for (const a of allies(s)) steerAlly(s, a, dt);
     updateFocus(s, events);
     updateLocks(s, dt, events);
     const target = byId(s, s.focus);
     if (target && s.locked) fire(s, p, target, dt, events);
     else p.cool.forEach((c, i) => { p.cool[i] = Math.max(0, c - dt); });
+    for (const a of allies(s)) {
+      const t = byId(s, a.order.target);
+      if (t && a.lockT >= a.stats.lockTime) fire(s, a, t, dt, events);
+      else a.cool.forEach((c, i) => { a.cool[i] = Math.max(0, c - dt); });
+    }
     for (const e of alive(s)) {
       if (e.lockT < e.stats.lockTime) continue;
+      const t = aimAt(s, e);
       const before = events.length;
-      fire(s, e, p, dt, events);
-      if (events.length > before) s.lastAttacker = e.id;
+      fire(s, e, t, dt, events);
+      if (t === p && events.length > before) s.lastAttacker = e.id;
       if (p.hull <= 0) break;
     }
-    for (const c of [p, ...alive(s)]) {
+    for (const c of [p, ...allies(s), ...alive(s)]) {
       c.quiet += dt;
       if (c.quiet >= config.shieldDelay) c.shield = Math.min(c.stats.shield, c.shield + c.stats.shieldRecharge * dt);
     }
@@ -287,17 +336,21 @@ const RealtimeCombat = (() => {
   const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull);
   const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / s.player.stats.lockTime));
 
-  // The panel's last two lines: what the guns are locking onto, shields going down, kills.
+  // The panel's last two lines: what the guns are locking onto, shields going down, kills, and an
+  // ally shot down.
   function log(s, events, lines) {
-    const name = (id) => (s.enemies.find((e) => e.id === id) || {}).name || 'the enemy';
+    const name = (id) => ([...s.enemies, ...s.allies].find((c) => c.id === id) || {}).name || 'the enemy';
+    const isAlly = (id) => s.allies.some((a) => a.id === id);
     const out = [...lines];
     for (const ev of events) {
       if (ev.type === 'target') out.push(`Targeting ${name(ev.id)}`);
       else if (ev.type === 'locked') out.push(`Locked on ${name(ev.id)}`);
       else if (ev.type === 'lost-lock') out.push(`Lost lock on ${name(ev.id)}: out of range`);
       else if (ev.type === 'shot') {
-        if (ev.from !== 'player' && ev.shieldDamage > 0 && s.player.shield <= 0) out.push('Your shields are down!');
-        if (ev.from === 'player' && ev.destroyed) out.push(`${name(ev.to)} destroyed`);
+        if (ev.to === 'player' && ev.shieldDamage > 0 && s.player.shield <= 0) out.push('Your shields are down!');
+        if (ev.destroyed && isAlly(ev.to)) out.push(`${name(ev.to)} is disabled!`);
+        else if (ev.destroyed && ev.from === 'player') out.push(`${name(ev.to)} destroyed`);
+        else if (ev.destroyed && isAlly(ev.from)) out.push(`${name(ev.from)} destroyed ${name(ev.to)}`);
       }
     }
     return out.slice(-2);
@@ -310,9 +363,10 @@ const RealtimeCombat = (() => {
     id: 'realtime',
     flying: true,
     look: { beam: 0.14, shield: 0.3, after: 0, finish: 0, sparks: () => 2, sum: true, arcs: true },
-    start: (rng, player, enemies, { target, ambushed }) => create(rng, fromSpec(player), enemies.map(fromSpec), { focus: ambushed ? null : target }),
+    start: (rng, player, enemies, { target, ambushed, allies: list = [] }) => create(rng, fromSpec(player), enemies.map(fromSpec), { focus: ambushed ? null : target, allies: list.map(fromSpec) }),
     step,
     setFocus: (s, id) => setFocus(s, id),
+    setOrders,
     join: (s, e) => join(s, fromSpec(e)),
     lock: lockOf,
     panel(s) {
@@ -326,7 +380,7 @@ const RealtimeCombat = (() => {
     log,
   };
 
-  return { config, ship, create, join, setFocus, canFire, hitChance, step, simulate, alive, reach, mode };
+  return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, step, simulate, alive, reach, mode };
 })();
 
 if (typeof module !== 'undefined') module.exports = RealtimeCombat;

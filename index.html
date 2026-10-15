@@ -201,6 +201,7 @@
   }
   #st-body .note { color: var(--wanted); margin: 14px 0 0; }
   #st-body .empty { color: var(--dim); padding: 10px 0; margin: 0; }
+  #st-body .lead { color: var(--dim); margin: 10px 0 0; line-height: 1.5; }
   .list { list-style: none; margin: 0; padding: 0; }
   /* A row: what it is (name, tag, count, gauge) on the left; Buy and Sell in fixed columns. */
   .list .good {
@@ -399,6 +400,7 @@
     <button class="btn" type="button" role="tab" data-tab="trade">Trade</button>
     <button class="btn" type="button" role="tab" data-tab="ship">Ship</button>
     <button class="btn" type="button" role="tab" data-tab="research">Research</button>
+    <button class="btn" type="button" role="tab" data-tab="squad">Squad</button>
   </nav>
   <main id="st-body" role="tabpanel"></main>
   <footer class="st-foot">
@@ -475,6 +477,8 @@
 <script src="economy.js"></script>
 <script src="mining.js"></script>
 <script src="loadout.js"></script>
+<script src="logic.js"></script>
+<script src="squad.js"></script>
 <script src="research.js"></script>
 <script src="flight.js"></script>
 <script src="combat-core.js"></script>

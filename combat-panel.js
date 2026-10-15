@@ -1,15 +1,15 @@
 'use strict';
 
 // The combat panel: shown above the speed bar while a fight runs, in place of the context card.
-// One row per ship (you first) with hull and shield bars; tap an enemy row to focus your fire on
-// it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
+// One row per ship (you first, then your squad) with hull and shield bars; tap an enemy row to
+// focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
 // real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
 // title shows progress: the round timer, or in real time the lock coming on ('lock') or getting
 // clear ('escape').
 // game.js describes it every frame; the DOM is rebuilt only when something visible changes,
 // apart from the progress bar.
 //
-//   CombatPanel.show({ title, tone, rows: [{ id, name, you, hull, maxHull, shield, maxShield, focus }],
+//   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
 //                      progress, bar?: 'lock' | 'escape' })
 //   CombatPanel.hide()
@@ -39,14 +39,15 @@ const CombatPanel = (() => {
 
   const pct = (v, max) => `${max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)).toFixed(1) : 0}%`;
 
-  // An enemy still flying is a button (focus fire on it); you and the destroyed are plain rows.
+  // An enemy still flying is a button (focus fire on it); you, your squad and the destroyed are
+  // plain rows. A squad member shot down is disabled, not destroyed.
   function row(r) {
-    const down = r.hull <= 0, pick = !r.you && !down;
+    const down = r.hull <= 0, pick = !r.you && !r.ally && !down;
     return h(pick ? 'button' : 'div', {
-      class: `cb-row${r.you ? ' you' : ''}${r.focus ? ' focus' : ''}${down ? ' down' : ''}`,
+      class: `cb-row${r.you || r.ally ? ' you' : ''}${r.focus ? ' focus' : ''}${down ? ' down' : ''}`,
       type: pick && 'button', 'data-id': pick && r.id, 'aria-pressed': pick && String(!!r.focus), title: pick && 'Focus fire on this ship',
     },
-    h('span', { class: 'cb-name' }, down ? `${r.name} · destroyed` : r.name),
+    h('span', { class: 'cb-name' }, down ? `${r.name} · ${r.ally ? 'disabled' : 'destroyed'}` : r.name),
     h('span', { class: 'cb-bars', 'aria-label': `Hull ${Math.ceil(r.hull)} of ${r.maxHull}, shield ${Math.floor(r.shield)} of ${r.maxShield}` },
       [['shd', r.shield, r.maxShield], ['hul', r.hull, r.maxHull]].map(([cls, v, max]) => h('span', { class: `cb-bar ${cls}` }, h('span', { style: { width: pct(v, max) } })))),
     h('span', { class: 'cb-nums' }, `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`));

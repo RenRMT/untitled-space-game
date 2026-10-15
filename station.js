@@ -1,6 +1,6 @@
 'use strict';
 
-// The docked screen: station header, Trade / Ship / Research tabs and a Launch button.
+// The docked screen: station header, Trade / Ship / Research / Squad tabs and a Launch button.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
 //                    outfitting, lab, shipyard, repairs, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
@@ -12,6 +12,7 @@
 // lab: { researched, components, have(kind), status(id), research(id) }: the research tree (research.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
+// squad: { members }: the squad (squad.js), each member with its logic modules (logic.js).
 // Browser script (global `StationMenu`).
 
 const StationMenu = (() => {
@@ -282,6 +283,28 @@ const StationMenu = (() => {
     ];
   }
 
+  // The squad: each member, its state, and its logic modules in the order they're checked.
+  function renderSquad() {
+    const members = ctx.squad ? ctx.squad.members : [];
+    if (!members.length) return [h('p', { class: 'empty' }, 'No squad members yet.')];
+    return [
+      h('p', { class: 'lead' }, 'Squad members check their logic modules from the top down and carry out the first one whose condition holds. If none does, they keep formation with you.'),
+      ...members.map((m) => {
+        const st = Squad.stats(m), n = Squad.modulesOf(m).length;
+        const state = m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull} hull`;
+        return h('section', { 'aria-label': m.name },
+          h('h2', {}, m.name, h('span', { class: 'count' }, `android ${Loadout.HULLS[m.hull].name.toLowerCase()} · ${Loadout.MK[m.tier]} gear · ${state}`)),
+          h('ul', { class: 'slots' }, m.modules.map((id, i) => h('li', { class: id ? 'slot' : 'slot empty' },
+            h('span', { class: 'type' }, `Logic ${i + 1}`),
+            h('span', { class: 'item' },
+              h('span', { class: 'name' }, id ? Logic.label(id) : 'Empty'),
+              h('span', { class: 'detail' }, id ? Logic.rule(id) : 'No module installed')),
+            h('span', {})))),
+          h('p', { class: 'empty' }, `${n} of ${Squad.SLOTS} logic slots in use.`));
+      }),
+    ];
+  }
+
   function refresh() {
     if (!ctx) return;
     renderHeader();
@@ -291,7 +314,7 @@ const StationMenu = (() => {
       t.tabIndex = on ? 0 : -1;
     }
     const scroll = body.scrollTop;
-    const parts = tab === 'trade' ? renderTrade() : tab === 'ship' ? renderShip() : renderResearch();
+    const parts = tab === 'trade' ? renderTrade() : tab === 'ship' ? renderShip() : tab === 'squad' ? renderSquad() : renderResearch();
     body.replaceChildren(...parts.filter(Boolean)); // optional parts are null when absent
     body.scrollTop = scroll;
   }
@@ -325,7 +348,7 @@ const StationMenu = (() => {
       body.replaceChildren();
     },
     get isOpen() { return !!ctx; },
-    // Switch to a tab ('trade' | 'ship' | 'research') while open.
+    // Switch to a tab ('trade' | 'ship' | 'research' | 'squad') while open.
     showTab(name) { tab = name; openSlot = null; body.scrollTop = 0; refresh(); },
     // Show or hide the choices for a loadout slot on the Ship tab.
     toggleSlot(id) { openSlot = openSlot === id ? null : id; refresh(); },

@@ -124,6 +124,18 @@ const Entities = (() => {
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
     },
+    // A squad member flying with you (squad.js, game.js), named in its android culture's colour.
+    wingman: {
+      order: 4, selectable: true, hit: 1, follow: 300,
+      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),
+      label: (e) => [e.color, e.radius + 20],
+      mark: (e) => ({ color: e.color, r: 1.8 }),
+      card(e) {
+        const n = e.member.modules.filter(Boolean).length;
+        const role = (ROLE_LABEL[e.member.hull] || 'ship').toLowerCase();
+        return { title: e.name, sub: `Squad · android ${role} · ${n} logic module${n === 1 ? '' : 's'}`, color: e.color, tag: 'Squad' };
+      },
+    },
     ship: {
       order: 4, selectable: true, hit: 1, follow: 600,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),

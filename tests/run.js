@@ -37,12 +37,14 @@ load('knowledge.js', ['Knowledge']);
 load('economy.js', ['Economy']);
 load('mining.js', ['Mining']);
 load('loadout.js', ['Loadout']);
+load('logic.js', ['Logic']);
+load('squad.js', ['Squad']);
 load('research.js', ['Research']);
 load('combat-core.js', ['CombatCore']);
 load('combat.js', ['Combat']);
 load('flight.js', ['Flight']);
 load('combat-realtime.js', ['RealtimeCombat']);
-const { SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
+const { Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
 
 let failed = 0;
 function test(name, fn) {
@@ -1218,6 +1220,142 @@ test('real-time combat: the starter Courier against pirate fighters, and getting
   assert(four.win < 0.1, `vs 4: ${JSON.stringify(four)}`);
   const away = fight(4, run);
   assert(away.escape > 0.8 && away.left > 100, `running from 4: ${JSON.stringify(away)}`);
+});
+
+// ---------- Squad and AI logic modules ----------
+
+test('logic modules: the first whose condition holds decides; with none, keep formation', () => {
+  const enemies = [{ id: 'a', hull: 10 }, { id: 'b', hull: 10 }];
+  const ctx = (o) => ({ self: {}, leader: {}, inFight: true, enemies, leaderTarget: 'b', ...o });
+  assert.deepStrictEqual(Logic.decide([], ctx()).intent, { type: 'follow' });
+  const d = Logic.decide(['assist-leader'], ctx());
+  assert.strictEqual(d.module.id, 'assist-leader');
+  assert.deepStrictEqual(d.intent, { type: 'attack', target: 'b' });
+  // Out of a fight, with no target, or with the target gone: the rule doesn't apply.
+  for (const o of [{ inFight: false }, { leaderTarget: null }, { leaderTarget: 'gone' }]) assert.deepStrictEqual(Logic.decide(['assist-leader'], ctx(o)).intent, { type: 'follow' });
+  // Unknown ids and empty slots are skipped; order decides between rules that both apply.
+  assert.strictEqual(Logic.decide([null, 'no-such-module', 'assist-leader'], ctx()).module.id, 'assist-leader');
+  Logic.CONDITIONS['test-first'] = { label: 'there is an enemy', test: (c) => c.enemies[0] || null };
+  Logic.MODULES['test-first'] = { id: 'test-first', category: 'combat', name: 'Test', if: 'test-first', then: 'attack' };
+  try {
+    assert.strictEqual(Logic.decide(['test-first', 'assist-leader'], ctx()).intent.target, 'a');
+    assert.strictEqual(Logic.decide(['assist-leader', 'test-first'], ctx()).intent.target, 'b');
+  } finally {
+    delete Logic.CONDITIONS['test-first'];
+    delete Logic.MODULES['test-first'];
+  }
+  // Every module names a known category, condition and action, and reads as a rule.
+  for (const id of Object.keys(Logic.MODULES)) {
+    const m = Logic.MODULES[id];
+    assert(Logic.CATEGORIES[m.category] && Logic.CONDITIONS[m.if] && Logic.ACTIONS[m.then], id);
+    assert.match(Logic.label(id), /logic module · /);
+    assert.match(Logic.rule(id), /^If .+, then .+$/);
+  }
+  assert.strictEqual(Logic.label('assist-leader'), 'Combat logic module · Assist leader');
+});
+
+test('squad: one android wingman to start, in formation behind the leader, saved and restored', () => {
+  const [m, ...rest] = Squad.starting(42);
+  assert.strictEqual(rest.length, 0);
+  assert.match(m.name, /^[A-Z][a-z]+-\d\d$/, 'an android designation');
+  assert.strictEqual(m.name, Squad.member(42).name, 'named by its seed');
+  assert.deepStrictEqual(m.modules, ['assist-leader', null, null, null]);
+  assert.strictEqual(m.modules.length, Squad.SLOTS);
+  assert(m.hullPoints === Squad.stats(m).hull && !m.disabled);
+  assert(Squad.stats(m).weapons.length >= 1, 'armed');
+  // Formation: behind the leader, first on one side then the other.
+  const leader = { x: 100, y: 50, angle: 0 };
+  const a = Squad.formation(leader, 0), b = Squad.formation(leader, 1);
+  assert(a.x < leader.x && b.x < leader.x && Math.sign(a.y - leader.y) === -Math.sign(b.y - leader.y));
+  const turned = Squad.formation({ x: 0, y: 0, angle: Math.PI / 2 }, 0);
+  assert(turned.y < -50, 'the formation turns with the leader');
+  // Installing, removing and reordering modules.
+  const w = Squad.member(7);
+  assert(!Squad.install(w, 'no-such-module', 0) && !Squad.install(w, 'assist-leader', Squad.SLOTS));
+  assert(Squad.install(w, 'assist-leader', 2) && Squad.move(w, 2, 0));
+  assert.deepStrictEqual(Squad.modulesOf(w), ['assist-leader']);
+  assert.strictEqual(w.modules[0], 'assist-leader');
+  assert.strictEqual(Squad.remove(w, 0), 'assist-leader');
+  assert.deepStrictEqual(Squad.modulesOf(w), []);
+  // A save round trip; unknown modules are dropped, bad entries skipped.
+  m.hullPoints = 12;
+  m.disabled = true;
+  const back = Squad.read(JSON.parse(JSON.stringify([m, { seed: 'x' }, { ...m, id: 'sq2', modules: ['gone', 'assist-leader'] }])));
+  assert.strictEqual(back.length, 2);
+  assert.deepStrictEqual([back[0].id, back[0].name, back[0].hullPoints, back[0].disabled, back[0].modules], [m.id, m.name, 12, true, m.modules]);
+  assert.deepStrictEqual(back[1].modules, [null, 'assist-leader', null, null]);
+  assert.strictEqual(Squad.read(undefined), null);
+});
+
+const wingman = () => Squad.stats(Squad.member(3));
+
+test('rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
+  const me = () => Combat.combatant('player', 'Me', COURIER), foe = (id) => Combat.combatant(id, 'Fighter', FIGHTER);
+  const ally = () => Combat.combatant('w1', 'Cipher-07', wingman());
+  // No orders: it holds fire.
+  let s = Combat.create(ctx.mulberry32(1), me(), [foe('f1')], 'f1', [ally()]);
+  let ev = Combat.round(s);
+  assert(!ev.some((e) => e.from === 'w1'), 'no orders, no shots');
+  // Ordered onto f2: every one of its volleys goes there.
+  s = Combat.create(ctx.mulberry32(2), me(), [foe('f1'), foe('f2')], 'f1', [ally()]);
+  Combat.setOrders(s, 'w1', { target: 'f2' });
+  ev = Combat.round(s);
+  const mine = ev.filter((e) => e.from === 'w1');
+  assert(mine.length >= 1 && mine.every((e) => e.to === 'f2'), JSON.stringify(mine));
+  // Enemies shoot at the ally now and then (about a third of them with one ally).
+  let atAlly = 0;
+  for (let i = 0; i < 300; i++) {
+    const t = Combat.create(ctx.mulberry32(100 + i), me(), [foe('f1')], 'f1', [ally()]);
+    if (t.enemies[0].aim === 'w1') atAlly++;
+  }
+  assert(atAlly > 60 && atAlly < 140, `${atAlly}/300 aimed at the ally`);
+  // An ally shot down doesn't end the fight; the enemy turns on the player.
+  s = Combat.create(ctx.mulberry32(3), me(), [foe('f1')], 'f1', [ally()]);
+  s.enemies[0].aim = 'w1';
+  s.allies[0].hull = 0;
+  ev = Combat.round(s);
+  assert(!s.over || s.over === 'won', s.over);
+  assert(ev.filter((e) => e.from === 'f1').every((e) => e.to === 'player'));
+  // With a wingman assisting, two fighters go down faster and the Courier keeps more hull.
+  const duel = (withAlly) => {
+    let rounds = 0, hull = 0;
+    for (let i = 0; i < 200; i++) {
+      const t = Combat.create(ctx.mulberry32(500 + i), me(), [foe('f1'), foe('f2')], 'f1', withAlly ? [ally()] : []);
+      while (!t.over && t.round < 300) { if (withAlly) Combat.setOrders(t, 'w1', { target: t.focus }); Combat.round(t); }
+      rounds += t.round;
+      hull += Math.max(0, t.player.hull);
+    }
+    return { rounds: rounds / 200, hull: hull / 200 };
+  };
+  const alone = duel(false), helped = duel(true);
+  assert(helped.rounds < alone.rounds * 0.8 && helped.hull > alone.hull + 10, `alone ${JSON.stringify(alone)}, helped ${JSON.stringify(helped)}`);
+});
+
+test('real time: an ally attacks its target, holds formation without one, and can be shot down', () => {
+  const me = () => RealtimeCombat.ship('player', 'Me', COURIER, { radius: 16 });
+  const foe = (id, x, y) => RealtimeCombat.ship(id, 'Fighter', FIGHTER, { x, y, angle: Math.PI, radius: 18 });
+  const ally = (x, y) => RealtimeCombat.ship('w1', 'Cipher-07', wingman(), { x, y, radius: 18 });
+  // Holding a station: it flies there and stays.
+  let s = RealtimeCombat.create(ctx.mulberry32(1), me(), [foe('f1', 4000, 0)], { allies: [ally(-600, 300)] });
+  RealtimeCombat.setOrders(s, 'w1', { station: { x: -120, y: -95 } });
+  for (let i = 0; i < 30 * 8; i++) RealtimeCombat.step(s, 1 / 30);
+  assert(Math.hypot(s.allies[0].x + 120, s.allies[0].y + 95) < 60, `ally at ${s.allies[0].x.toFixed(0)}, ${s.allies[0].y.toFixed(0)}`);
+  // Ordered onto an enemy: it closes in, locks and shoots it.
+  s = RealtimeCombat.create(ctx.mulberry32(2), me(), [foe('f1', 900, 0)], { allies: [ally(-100, 100)] });
+  RealtimeCombat.setOrders(s, 'w1', { target: 'f1' });
+  const shots = [];
+  for (let i = 0; i < 30 * 20 && !s.over; i++) shots.push(...RealtimeCombat.step(s, 1 / 30).filter((e) => e.type === 'shot' && e.from === 'w1'));
+  assert(shots.length > 0 && shots.every((e) => e.to === 'f1'), `${shots.length} ally shots`);
+  // Shot down: it drops out, and the fight goes on without it.
+  s = RealtimeCombat.create(ctx.mulberry32(3), me(), [foe('f1', 700, 0)], { allies: [ally(-100, 100)] });
+  s.enemies[0].aim = 'w1';
+  s.allies[0].hull = 1;
+  s.allies[0].shield = 0;
+  let downed = false;
+  for (let i = 0; i < 30 * 30 && !s.over && !downed; i++) downed = RealtimeCombat.step(s, 1 / 30).some((e) => e.type === 'shot' && e.to === 'w1' && e.destroyed);
+  assert(downed, 'the ally was shot down');
+  assert(!s.over, 'the fight goes on');
+  assert.strictEqual(CombatCore.aimAt(s, s.enemies[0]), s.player, 'and the enemy turns on the player');
 });
 
 if (failed) {

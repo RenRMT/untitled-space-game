@@ -2,13 +2,14 @@
 
 // Round-based combat, resolved from the ships' stats (loadout.js). No aiming or flying: once a
 // fight starts, every `round` seconds each ship's weapons fire on their own.
-// - Order: highest initiative (scanner) fires first; the player wins ties. A ship destroyed
-//   before its turn doesn't fire.
+// - Order: highest initiative (scanner) fires first; the player wins ties, then the allies. A
+//   ship destroyed before its turn doesn't fire.
 // - Each weapon fires round(fireRate × round) shots. Each hits with chance
 //   accuracy (computer) − evasion (target's engine), kept within [minHit, maxHit].
 // - Damage hits shields first, then the hull. Shields recharge at the end of every round.
-// - The player fires at the focused enemy (and moves on to the next when it dies); every enemy
-//   fires at the player.
+// - The player fires at the focused enemy (and moves on to the next when it dies). Allies (squad
+//   members) fire at the enemy their orders name, if any. Every enemy fires at the player, or at
+//   the ally it picked (CombatCore.aim) while that one is still flying.
 // - Fleeing: from then on the player stops firing, and at the end of each round gets away with a
 //   chance set by top speed against the fastest enemy.
 // The flight view (game.js) runs it as a combat mode (combat-core.js says what a mode offers) and
@@ -17,7 +18,7 @@
 
 const Combat = (() => {
   const core = typeof require === 'function' ? require('./combat-core.js') : CombatCore;
-  const { combatant, applyDamage, limitHit, alive } = core;
+  const { combatant, applyDamage, limitHit, alive, allies, aim, aimAt } = core;
   const { clamp } = typeof require === 'function' ? require('./math.js') : MathUtil;
 
   const config = {
@@ -35,8 +36,17 @@ const Combat = (() => {
 
   // A new fight: the player against one or more enemies, focusing on `focus` (an enemy id).
   // timer: seconds until the next round, as a combat mode runs them.
-  function create(rng, player, enemies, focus = enemies[0] && enemies[0].id) {
-    return { rng, player, enemies, focus, round: 0, fleeing: false, over: null, timer: config.firstRound };
+  // allyList: squad members, each with its orders ({ target }: setOrders).
+  function create(rng, player, enemies, focus = enemies[0] && enemies[0].id, allyList = []) {
+    const s = { rng, player, enemies, allies: allyList, focus, round: 0, fleeing: false, over: null, timer: config.firstRound };
+    for (const a of allyList) a.order = a.order || {};
+    for (const e of enemies) e.aim = aim(rng, s);
+    return s;
+  }
+
+  function setOrders(s, id, order) {
+    const a = s.allies.find((x) => x.id === id);
+    if (a) a.order = order || {};
   }
 
   function setFocus(s, id) {
@@ -69,7 +79,8 @@ const Combat = (() => {
     if (s.over) return [];
     s.round++;
     const events = [];
-    const actors = [s.player, ...alive(s)].sort((a, b) => b.stats.initiative - a.stats.initiative || (a === s.player ? -1 : b === s.player ? 1 : 0));
+    const rank = (c) => (c === s.player ? 0 : s.allies.includes(c) ? 1 : 2); // who wins ties
+    const actors = [s.player, ...allies(s), ...alive(s)].sort((a, b) => b.stats.initiative - a.stats.initiative || rank(a) - rank(b));
     for (const a of actors) {
       if (a.hull <= 0 || s.player.hull <= 0) continue;
       if (a === s.player) {
@@ -80,11 +91,21 @@ const Combat = (() => {
           if (!t) break;
           events.push(volley(s.rng, a, w, t));
         }
+      } else if (s.allies.includes(a)) {
+        for (const w of a.stats.weapons) {
+          const t = s.enemies.find((e) => e.id === a.order.target && e.hull > 0);
+          if (!t) break;
+          events.push(volley(s.rng, a, w, t));
+        }
       } else {
-        for (const w of a.stats.weapons) events.push(volley(s.rng, a, w, s.player));
+        for (const w of a.stats.weapons) {
+          const t = aimAt(s, a);
+          events.push(volley(s.rng, a, w, t));
+          if (t === s.player && t.hull <= 0) break;
+        }
       }
     }
-    for (const c of [s.player, ...s.enemies]) {
+    for (const c of [s.player, ...s.allies, ...s.enemies]) {
       if (c.hull > 0) c.shield = Math.min(c.stats.shield, c.shield + c.stats.shieldRecharge * config.round);
     }
     if (!alive(s).some((e) => e.id === s.focus) && alive(s).length) s.focus = alive(s)[0].id;
@@ -107,23 +128,31 @@ const Combat = (() => {
 
   // ---------- As a combat mode (combat-core.js) ----------
 
-  // The panel's two lines after a round: your last volley and theirs added up (or that you're
-  // trying to get away), then whether you got away.
+  // The panel's lines after a round: your last volley, your allies' (added up), theirs on you
+  // added up (or that you're trying to get away), then whether you got away. An ally shot down
+  // says so.
   function log(s, events, lines) {
     if (!events.length) return lines;
-    const name = (id) => (s.enemies.find((e) => e.id === id) || {}).name || 'the enemy';
+    const ship = (id) => [...s.enemies, ...s.allies].find((c) => c.id === id);
+    const name = (id) => (ship(id) || {}).name || 'the enemy';
+    const isAlly = (id) => s.allies.some((a) => a.id === id);
     let you = null;
-    const them = { shots: 0, hits: 0, damage: 0, n: 0 }, extra = [];
+    const sum = () => ({ shots: 0, hits: 0, damage: 0, n: 0, to: null, from: null, destroyed: false });
+    const add = (t, ev) => Object.assign(t, { shots: t.shots + ev.shots, hits: t.hits + ev.hits, damage: t.damage + ev.damage, n: t.n + 1, to: ev.to, from: ev.from, destroyed: t.destroyed || ev.destroyed });
+    const squad = sum(), them = sum(), extra = [];
     for (const ev of events) {
       if (ev.type === 'flee') extra.push(ev.ok ? 'You got away.' : 'Couldn\'t get away!');
       else if (ev.from === 'player') you = `You hit ${name(ev.to)} ${ev.hits}/${ev.shots} for ${ev.damage}${ev.destroyed ? ' · destroyed' : ''}`;
-      else Object.assign(them, { shots: them.shots + ev.shots, hits: them.hits + ev.hits, damage: them.damage + ev.damage, n: them.n + 1 });
+      else if (isAlly(ev.from)) add(squad, ev);
+      else if (ev.to === 'player') add(them, ev);
+      else if (ev.destroyed) extra.push(`${name(ev.to)} is disabled!`);
     }
     const out = [];
     if (you) out.push(you);
     else if (s.round > 0 && !extra.length) out.push('Trying to get away…');
+    if (squad.n) out.push(`${name(squad.from)} hit ${name(squad.to)} ${squad.hits}/${squad.shots} for ${squad.damage}${squad.destroyed ? ' · destroyed' : ''}`);
     if (them.n) out.push(`${them.n > 1 ? 'They hit' : 'It hit'} you ${them.hits}/${them.shots} for ${them.damage}`);
-    return [...out, ...extra].slice(-2);
+    return [...out, ...extra].slice(-3);
   }
 
   // Ships are held in place; every round's volleys are shown one after another, slowly.
@@ -131,8 +160,8 @@ const Combat = (() => {
     id: 'rounds',
     flying: false,
     look: { beam: 0.4, shield: 0.35, after: 0.08, finish: 0.2, sparks: (ev) => 3 + ev.hits, sum: false, arcs: false },
-    start: (rng, player, enemies, { target }) => create(rng, combatant(player.id, player.name, player.stats, player.hull),
-      enemies.map((e) => combatant(e.id, e.name, e.stats, e.hull)), target),
+    start: (rng, player, enemies, { target, allies: list = [] }) => create(rng, combatant(player.id, player.name, player.stats, player.hull),
+      enemies.map((e) => combatant(e.id, e.name, e.stats, e.hull)), target, list.map((a) => combatant(a.id, a.name, a.stats, a.hull))),
     step(s, dt) {
       if (s.over) return [];
       s.timer -= dt;
@@ -144,6 +173,7 @@ const Combat = (() => {
       return events;
     },
     setFocus,
+    setOrders,
     press(s, id) { if (id === 'flee') s.fleeing = true; },
     lock: () => 1,
     panel: (s) => ({
@@ -153,7 +183,7 @@ const Combat = (() => {
     log,
   };
 
-  return { config, combatant, hitChance, shotsPerRound, create, setFocus, round, fleeChance, simulate, alive, mode };
+  return { config, combatant, hitChance, shotsPerRound, create, setFocus, setOrders, round, fleeChance, simulate, alive, mode };
 })();
 
 if (typeof module !== 'undefined') module.exports = Combat;
