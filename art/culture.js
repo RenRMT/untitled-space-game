@@ -5,8 +5,9 @@
 // A culture is a small set of design-language parameters that every asset generator reads:
 // hull family, corner rounding, proportions, wing type, engine count, surface detail,
 // asymmetry, station topology and a palette. Cultures come from two sources:
-// - lineages: three hand-tuned design traditions (below: wedge, block, shard), sampled within
-//   their ranges per galaxy; settled systems are built in one of them (galaxy.js),
+// - lineages: hand-tuned design traditions, sampled within their ranges per system. Settled
+//   stations are built in the three human ones (wedge, block, shard; solar-system.js); alien
+//   (organic) and android (machine) are non-human cultures, made with xeno(seed),
 // - kitbash: pirates assemble each asset from parts of the three.
 // The culture's map colour becomes the accent (markings, line art).
 // Works as a classic browser script (global `ArtCulture`) and as a Node module.
@@ -39,7 +40,23 @@ const ArtCulture = (() => {
       insignia: ['diamond', 'chevron'], station: 'star', arrays: 'none',
       colors: { hull: '#646b7d', hull2: '#363b48', trim: '#9aa3b8', glass: '#c77dff', light: '#e0b0ff', flame: '#c77dff', panel: '#4a3a6a' },
     },
+    // Non-human cultures. `wing`, `engine` and `strut` colours override render.js's metal defaults.
+    alien: {
+      label: 'Alien', note: 'Grown, not built: lobed seed-pod hulls, frond and membrane wings, bioluminescent eyes and spots; hive stations of cells and tendrils.',
+      hull: 'bio', round: [0.75, 1], length: [0.9, 1.1], width: [1.1, 1.35], span: [0.8, 1.1], sweep: [0.5, 0.9],
+      wings: ['fronds', 'membrane'], engines: [1, 3], greeble: [0.4, 0.7], asym: [0.05, 0.2], stripes: [2, 4],
+      insignia: ['eye'], station: 'hive', arrays: 'none',
+      colors: { hull: '#7a5a6e', hull2: '#4a3048', trim: '#c9a883', glass: '#9dff6a', light: '#c4ff5a', flame: '#9dff6a', panel: '#5a7a3a', wing: '#8e6470', engine: '#2a1a24', strut: '#5a3a4e' },
+    },
+    android: {
+      label: 'Android', note: 'Machine geometry with no crew to house: stepped right-angle hulls, detached vane wings and floating cargo cubes, sensor slits for cockpits, circuit traces; monolith stations ringed by orbiting cubes.',
+      hull: 'synth', round: [0, 0], length: [1.0, 1.1], width: [0.9, 1.0], span: [0.9, 1.1], sweep: [0, 0],
+      wings: ['vanes', 'halo'], engines: [2, 2], greeble: [0.5, 0.8], asym: [0, 0], stripes: [1, 2],
+      insignia: ['square'], station: 'monolith', arrays: 'none',
+      colors: { hull: '#22262d', hull2: '#3a4048', trim: '#e8ecf0', glass: '#e6f6ff', light: '#5ad8ff', flame: '#9ae8ff', panel: '#14181e', wing: '#2c3139', engine: '#0c0e12', strut: '#4a515b' },
+    },
   };
+  const HUMAN = ['wedge', 'block', 'shard']; // what pirates and settled systems draw from
   const NUMERIC = ['round', 'length', 'width', 'span', 'sweep', 'greeble', 'asym'];
   const PALETTE_KEYS = ['hull', 'hull2', 'trim', 'glass', 'light', 'flame', 'panel'];
 
@@ -57,6 +74,7 @@ const ArtCulture = (() => {
     // A faint tint of the culture's colour on the hull plus a little jitter.
     const jitter = 0.92 + r() * 0.16;
     for (const k of PALETTE_KEYS) pal[k] = colors[k];
+    for (const k of ['wing', 'engine', 'strut']) if (colors[k]) pal[k] = colors[k];
     pal.hull = U.shade(U.mix(colors.hull, acc, 0.08), jitter);
     pal.hull2 = U.shade(U.mix(colors.hull2, acc, 0.1), jitter);
     pal.accent = acc;
@@ -83,7 +101,7 @@ const ArtCulture = (() => {
   // Pirates: each asset borrows its parts from the cultures they raid.
   function kitbash(donors, seed, accent, extra = {}) {
     const r = mulberry32(seed >>> 0);
-    const base = create(pickFrom(Object.keys(LINEAGES), r), seed, accent);
+    const base = create(pickFrom(HUMAN, r), seed, accent);
     const c = {
       ...base, lineage: 'kitbash', label: 'Kitbash', note: 'Captured hulls rebuilt from mismatched parts; patched, asymmetric and scorched.',
       donors, asym: 0.45, greeble: 0.7,
@@ -96,7 +114,7 @@ const ArtCulture = (() => {
 
   // The cultures of a generated galaxy: the three its settled systems are built in
   // (galaxy.cultures: lineage, colour), and the pirates, who kitbash from all three.
-  //   of(cultureId) -> the culture with that id (galaxy.js CULTURES), pirates -> the pirates' culture
+  //   of(cultureId) -> the culture with that id (solar-system.js CULTURES), pirates -> the pirates' culture
   function forGalaxy(galaxy) {
     const base = seedToInt(galaxy.seed);
     const settled = galaxy.cultures.map((c) => create(c.lineage, hashInt(base, c.id, 0xa47), c.color, { cultureId: c.id, name: c.name, color: c.color, kind: 'settled' }));
@@ -107,7 +125,16 @@ const ArtCulture = (() => {
   const legacy = create('wedge', 1, '#7df9ff', { name: 'Original', kind: 'legacy', engines: 1, stripes: 0 });
   legacy.pal = { ...LEGACY_PAL };
 
-  return { LINEAGES, create, kitbash, forGalaxy, legacy };
+  // The non-human cultures for a system seed: { alien, android }.
+  function xeno(seed) {
+    const base = seedToInt(seed);
+    return {
+      alien: create('alien', hashInt(base, 50, 0xa47), '#c86ad8', { name: 'Alien', color: '#c86ad8', kind: 'alien' }),
+      android: create('android', hashInt(base, 51, 0xa47), '#4fd8ff', { name: 'Android', color: '#4fd8ff', kind: 'android' }),
+    };
+  }
+
+  return { LINEAGES, HUMAN, create, kitbash, forGalaxy, xeno, legacy };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtCulture;

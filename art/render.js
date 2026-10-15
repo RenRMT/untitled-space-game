@@ -25,7 +25,7 @@ const Art = (() => {
     bigBuckets: 16, // ... for sprites larger than bigSprite device px
     bigSprite: 256,
     maxSprite: 768, // device px cap for vector sprites
-    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, planets and
+    // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, gates, planets and
     // stars; asteroids have their own cache, so a busy field doesn't push the rest out.
     maxPixels: 12e6, // about 48 MB
     maxSprites: 2000,
@@ -78,9 +78,9 @@ const Art = (() => {
   function palette(bp) {
     if (bp._pal) return bp._pal;
     const p = { ...bp.culture.pal };
-    p.wing = U.mix(p.hull, p.hull2, 0.3);
-    p.engine = '#3a414c';
-    p.strut = U.mix(p.hull2, '#555b66', 0.4);
+    p.wing = p.wing || U.mix(p.hull, p.hull2, 0.3);
+    p.engine = p.engine || '#3a414c';
+    p.strut = p.strut || U.mix(p.hull2, '#555b66', 0.4);
     p.dark = '#1c2028';
     p.scorch = '#120e0b';
     p.line = bp.line || p.line;

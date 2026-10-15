@@ -60,7 +60,7 @@ function until(cond, maxFrames, each = '') {
 
 test('boots at the start station', () => {
   browser.frames(3);
-  assert.ok(game('world.system && world.scene && world.knowledge'), 'world loaded');
+  assert.ok(game('world.galaxy && world.scene && world.knowledge'), 'world loaded');
   assert.ok(game('Number.isFinite(ship.x) && Number.isFinite(ship.y)'));
   assert.ok(game(`actions.state('dock', __startStation()).inRange`), 'beside the capital, in docking range');
   assert.ok(game('perfStats.posed > 0'), 'entities around the ship');
@@ -88,9 +88,9 @@ test('flies in every art style and both movement modes', () => {
 });
 
 test('moons and nebulae come from art/bodies.js, in every style', () => {
-  // Every type the system rolls is one the art draws.
+  // Every type the galaxy rolls is one the art draws.
   for (let seed = 1; seed <= 20; seed++) {
-    const s = SolarSystem.generate(seed, SYSTEM_CONFIG);
+    const s = Galaxy.generate(seed, SYSTEM_CONFIG);
     for (const m of s.moons) assert.ok(ArtBodies.MOON_TYPES.includes(m.type), `moon type ${m.type}`);
     for (const n of s.nebulae) assert.ok(ArtBodies.NEBULA_TYPES.includes(n.type), `nebula type ${n.type}`);
   }
@@ -102,7 +102,7 @@ test('moons and nebulae come from art/bodies.js, in every style', () => {
     assert.ok(game(`frameList.some((e) => e.kind === 'moon' && visible(e))`), `a moon on screen in ${style}`);
   }
   const before = game('ArtBodies.stats().builds');
-  game(`{ const n = world.system.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
+  game(`{ const n = world.galaxy.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
   for (const style of game('ART_STYLES')) { game(`artStyle.set('${style}')`); browser.frames(4); }
   assert.ok(game('ArtBodies.stats().builds') > before + 20, 'nebula chunks were built');
   game(`artStyle.set('flat'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
@@ -120,7 +120,7 @@ test('a rebuilt scene finds its sprites again', () => {
     browser.frames(2);
     game('render()');
     const before = game('Art.stats()');
-    game('world.scene = Scene.create(world.system, world.cultures); render();');
+    game('world.scene = Scene.create(world.galaxy, world.cultures); render();');
     const after = game('Art.stats()');
     assert.ok(game(`frameList.some((e) => e.kind === '${kind}' && visible(e))`), `a ${kind} on screen`);
     assert.deepStrictEqual([after.builds, after.asteroidBuilds], [before.builds, before.asteroidBuilds], `near a ${kind}`);
@@ -165,7 +165,7 @@ test('selects, approaches and docks at a station', () => {
 test('trades and launches', () => {
   const before = game('({ credits: cargo.credits, items: cargo.items.length })');
   game(`{
-    const m = Economy.market(world.system.seed, __st);
+    const m = Economy.market(world.galaxy.seed, __st);
     const g = m.goods.filter((x) => x.buy !== null && x.buy <= cargo.credits).sort((a, b) => a.buy - b.buy)[0];
     globalThis.__good = g;
     hold.buy(g.kind, g.buy, Goods.type(g.kind).name);
@@ -238,7 +238,7 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
   const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])');
-  game('saveCargoNow(); loadCargo(world.system)');
+  game('saveCargoNow(); loadCargo(world.galaxy)');
   assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); launch()`);
@@ -264,7 +264,7 @@ test('components go to their own store, even with a full hold, and stay when the
 });
 
 test('mines an asteroid and collects what it leaves', () => {
-  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.system.seed, e))) && __rock.key`);
+  const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.galaxy.seed, e))) && __rock.key`);
   assert.ok(found, 'an asteroid with a yield');
   game('placeShip(__rock.x, __rock.y + __rock.radius + 60)');
   browser.frames(1);
@@ -283,7 +283,7 @@ test('mines an asteroid and collects what it leaves', () => {
 });
 
 test('sensors find a hidden derelict, and the radar shows it once found', () => {
-  game(`fight.grace = 1e9; globalThis.__der = world.system.contacts.find((c) => c.type === 'derelict' && !world.knowledge.contactState(c.id));`);
+  game(`fight.grace = 1e9; globalThis.__der = world.galaxy.contacts.find((c) => c.type === 'derelict' && !world.knowledge.contactState(c.id));`);
   assert.ok(game('!!__der'), 'an unfound derelict');
   // From afar it is only a signal; closer in, the sensors identify it and say so.
   game('placeShip(__der.x + __der.r + SHIP.sensorRange + 1500, __der.y)');
@@ -298,20 +298,66 @@ test('sensors find a hidden derelict, and the radar shows it once found', () => 
   browser.frames(2);
 });
 
-test('a nebula dampens the sensors and lowers security; the edge holds the ship in', () => {
-  game(`fight.grace = 1e9; globalThis.__neb = world.system.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
+test('a nebula dampens the sensors and lowers security', () => {
+  game(`fight.grace = 1e9; globalThis.__neb = world.galaxy.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
   browser.frames(2);
   // Fly in, toward the nebula's core.
   game('placeShip(__neb.x + __neb.blobs[0].dx, __neb.y + __neb.blobs[0].dy)');
-  game('lastRegion = { level: 3, nebula: null }');
+  game('lastRegion = { level: 3, nebula: null, system: world.galaxy.systems[0] }');
   browser.frames(2);
   assert.match(game('toast.text'), /Entering the .* Nebula/);
   assert.ok(game('frameList.some((e) => e.kind === "nebula")'), 'the nebula is drawn');
-  // To the edge of the system, flying outward: the ship stops there.
-  game(`{ const a = Math.atan2(ship.y, ship.x), R = world.system.radius; placeShip(Math.cos(a) * (R - 300), Math.sin(a) * (R - 300), a); ship.vx = Math.cos(a) * SHIP.maxSpeed; ship.vy = Math.sin(a) * SHIP.maxSpeed; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`);
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
+  browser.frames(2);
+});
+
+test('no edge: the ship flies on out of the system into deep space', () => {
+  // Just inside the first system's edge, flying outward away from the second system.
+  game(`fight.grace = 1e9; {
+    const [A, B] = world.galaxy.systems, R = A.radius, a = Math.atan2(B.origin.y, B.origin.x) + Math.PI;
+    placeShip(Math.cos(a) * (R - 300), Math.sin(a) * (R - 300), a);
+    ship.vx = Math.cos(a) * SHIP.maxSpeed; ship.vy = Math.sin(a) * SHIP.maxSpeed; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed;
+  }`);
   browser.frames(90);
-  assert.ok(game('Math.hypot(ship.x, ship.y) <= world.system.radius'), 'still inside the edge');
+  assert.ok(game('Math.hypot(ship.x, ship.y) > world.galaxy.systems[0].radius + 300'), 'past where the edge was');
+  assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)'), null);
+  assert.match(game('toast.text'), /Leaving the .* system · deep space/);
   game('ship.targetSpeed = 0; ship.vx = ship.vy = 0; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
+  browser.frames(2);
+});
+
+test('a jump gate takes the ship to the other system, which the galaxy map then charts', () => {
+  game('globalThis.__gate = world.scene.gates.find((g) => g.gate.system === 0)');
+  assert.ok(game('__gate'), 'the first system has a gate');
+  assert.ok(!game('world.knowledge.visited(1)'), 'the second system is not charted yet');
+  game('fight.grace = 1e9; select(null); placeShip(__gate.x, __gate.y + __gate.radius + 120)');
+  browser.frames(2);
+  assert.ok(game('frameList.some((e) => e.kind === "gate" && visible(e))'), 'the gate is drawn');
+  assert.ok(game(`actions.state('jump', __gate).ok`), 'in range to jump');
+  game('select(__gate)');
+  browser.key('j');
+  browser.frames(2);
+  assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 1, 'in the second system');
+  assert.match(game('toast.text'), /^Jumped to the .* system/);
+  assert.ok(game('world.knowledge.visited(1)'), 'the second system is charted');
+  assert.ok(game('Math.hypot(ship.x - world.scene.gates[__gate.gate.link].x, ship.y - world.scene.gates[__gate.gate.link].y) < 800'), 'beside the gate at the other end');
+  // The map follows: its local view shows the second system; the galaxy view shows both.
+  game('SystemMap.open()');
+  browser.frames(2);
+  assert.strictEqual(game('SystemMap.system.index'), 1);
+  browser.document.getElementById('map-view-galaxy').dispatch('click', {});
+  browser.frames(2);
+  assert.strictEqual(game('SystemMap.mode'), 'galaxy');
+  assert.match(browser.document.getElementById('map-stats').textContent, /2 systems charted · 1 gate link/);
+  assert.ok(browser.document.getElementById('map-travel').disabled, 'no map travel from the galaxy view');
+  browser.document.getElementById('map-view-local').dispatch('click', {});
+  game('SystemMap.close()');
+  // And back through the same pair of gates.
+  game('globalThis.__back = world.scene.gates[__gate.gate.link]; select(__back);');
+  browser.key('j');
+  browser.frames(2);
+  assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 0, 'back in the first system');
+  game('select(null); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
 });
 
@@ -344,7 +390,7 @@ test('travels on the system map', () => {
   browser.frames(1);
   // To the station furthest from the one we're at: the trip ends there, or at a contact on the way.
   game(`{
-    const s = world.system.stations.slice().sort((a, b) => Math.hypot(b.x - ship.x, b.y - ship.y) - Math.hypot(a.x - ship.x, a.y - ship.y))[0];
+    const s = world.galaxy.systems[0].stations.slice().sort((a, b) => Math.hypot(b.x - ship.x, b.y - ship.y) - Math.hypot(a.x - ship.x, a.y - ship.y))[0];
     globalThis.__dest = s;
     SystemMap.hooks.travel({ kind: 'station', id: s.id, x: s.x, y: s.y, name: s.name });
     SystemMap.hooks.fast();
@@ -356,7 +402,7 @@ test('travels on the system map', () => {
   if (/^Arrived/.test(game('toast.text'))) assert.ok(game('Math.hypot(ship.x - __dest.x, ship.y - __dest.y) < 800'), 'beside the station');
   browser.frames(5);
   // A trip to a point, stopped halfway: the ship drops out of cruise where the trip had got to.
-  game(`fight.grace = 1e9; SystemMap.open(); SystemMap.hooks.travel({ kind: 'point', x: 0, y: -world.system.radius * 0.8, name: 'the marked point' });`);
+  game(`fight.grace = 1e9; SystemMap.open(); SystemMap.hooks.travel({ kind: 'point', x: 0, y: -world.galaxy.systems[0].radius * 0.8, name: 'the marked point' });`);
   browser.frames(3);
   const at = game('({ ...world.travel.pos })');
   game('SystemMap.hooks.stop()');
@@ -420,7 +466,7 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   assert.strictEqual(saved(), before, 'nothing is written straight away');
   const items = game('cargo.items.length'), credits = game('cargo.credits'), removed = game('cargo.removed.size');
   assert.ok(removed > 0, 'something was taken out of the world earlier');
-  game('loadCargo(world.system)'); // writes the pending save first
+  game('loadCargo(world.galaxy)'); // writes the pending save first
   assert.deepStrictEqual(game('[cargo.items.length, cargo.credits, cargo.removed.size]'), [items, credits, removed]);
   // A save from before the removed list: its three lists are merged. And from before components
   // had their own store: those in the hold move to it.
@@ -431,7 +477,7 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   const comps = game(`cargo.components['weapon-standard'] || 0`);
   old.items.push({ kind: 'weapon-standard', label: 'Standard weapon components', category: 'loot' });
   browser.storage.set(key, JSON.stringify(old));
-  game('loadCargo(world.system)');
+  game('loadCargo(world.galaxy)');
 
   assert.strictEqual(game('cargo.removed.size'), removed, 'an older save loads');
   assert.strictEqual(game(`cargo.components['weapon-standard']`), comps + 1, 'components in an old hold move to their store');
