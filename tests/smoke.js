@@ -72,6 +72,18 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
   const way = game('intro.station');
   assert.strictEqual(way.name, 'Waystation HD-1863');
   assert.strictEqual(way.art.culture.lineage, 'android');
+  // The opening shot: the pod drifts in toward the station, slowing, with nothing said and no HUD.
+  assert.ok(game('!!intro.arrive && !Comms.isOpen'), 'drifting in, nothing said yet');
+  assert.ok(game('!hudShown() && navHits.length === 0'), 'no HUD');
+  assert.ok(game('view.k > 2 && Math.hypot(cam.x - ship.x, cam.y - ship.y) < 20'), 'close on the pod');
+  const g0 = game('gapTo(intro.station)');
+  browser.frames(60);
+  const g1 = game('gapTo(intro.station)');
+  assert.ok(g1 < g0 - 100, `it comes closer (${g0.toFixed(0)} → ${g1.toFixed(0)})`);
+  game('ship.targetSpeed = SHIP.maxSpeed'); // no flying yet
+  assert.ok(until('!intro.arrive', 60 * 6), 'it settles');
+  assert.ok(Math.abs(game('view.k') - game('TRACTOR.zoom')) < 0.01, 'pulled back to the wide view');
+  assert.ok(game('Math.hypot(ship.vx, ship.vy) < 1 && Comms.isOpen'), 'at rest; the station speaks');
   const gap = game('gapTo(intro.station)');
   assert.ok(gap > 400 && gap < 1200, `adrift ${gap.toFixed(0)} from the station`);
   assert.ok(game('!frameList.some((e) => e.kind === "wingman")'), 'no squad yet');
@@ -120,6 +132,7 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
   game('Comms.next()');
   assert.ok(until('!!docked', 60 * 30), 'docked');
   assert.strictEqual(game('docked.station'), way, 'at the waystation');
+  assert.ok(game('hudShown()'), 'the HUD is back for the first launch');
   assert.ok(game('!intro.on && cargo.story.has("intro")'));
   assert.strictEqual(game('SHIP.name'), 'Courier', 'the usual ship again');
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull'));
