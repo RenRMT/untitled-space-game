@@ -1,10 +1,10 @@
 'use strict';
 
-// Sector security: how safe a sector is, and what that means for pirates and what they leave.
-// The galaxy (galaxy.js) gives every sector a level from 3 (high: the charted pockets around
-// settlements, held firmly) down to 0 (none: the frontier). This module says what each level
-// means, so the danger and the rewards can be tuned in one place:
-// - pirates: whether a sector has any, how many packs of them, how big each pack is and how well
+// Security: how safe a place in the system is, and what that means for pirates and what they
+// leave. The system (solar-system.js) gives every point a level from 3 (high: close to a station,
+// held firmly) down to 0 (none: the outer system and the depths of the nebulae). This module says
+// what each level means, so the danger and the rewards can be tuned in one place:
+// - pirates: whether an area has any, how many packs of them, how big each pack is and how well
 //   armed (their gear tier, Mk I–IV; loadout.js). Packs keep apart (PACK), so attacking one never
 //   draws in another: safe space has a few lone pirates to pick off one at a time, lawless space
 //   several larger, better-armed packs,
@@ -13,9 +13,9 @@
 //
 //   Security.LEVELS[level] -> { level, key, label, color }
 //   Security.pirates(level) -> { chance, packs: [min, max], size: [[n, weight]], tier: [[tier, weight]] }
-//   Security.PACK             how packs are laid out in a sector (sector.js)
+//   Security.PACK             how packs are laid out (solar-system.js)
 //   Security.pick(rng, [[value, weight]]) -> a value, by weight
-//   Security.lootTier(level) -> 1..4, the loot tier of wrecks in a sector of that level
+//   Security.lootTier(level) -> 1..4, the loot tier of wrecks at that level
 //   Security.componentTier(rng, lootTier) -> a component tier (1–5) for something at that loot tier
 // Works as a classic browser script (global `Security`) and as a Node module.
 
@@ -27,24 +27,25 @@ const Security = (() => {
     { level: 3, key: 'high', label: 'High', color: '#b6ff8a' },
   ];
 
-  // Pirates by level: the chance a sector has any, then how many packs (picked evenly in the
-  // range), and per pack its size and gear tier (picked by weight). Medium security is mostly lone
-  // Mk I pirates, which the starting ship can take; the frontier mostly packs of three or four.
-  // A deep-space ambush is one pack, as large as the biggest here or one larger.
+  // Pirates by level: the chance an area (solar-system.js pirates.cell) has any, then how many
+  // packs (picked evenly in the range), and per pack its size and gear tier (picked by weight).
+  // Medium security is mostly lone Mk I pirates, which the starting ship can take; lawless space
+  // mostly packs of three or four.
+  // An ambush is one pack, as large as the biggest here or one larger.
   const PIRATES = [
     { chance: 0.7, packs: [2, 4], size: [[1, 1], [2, 2], [3, 2], [4, 1]], tier: [[3, 1], [4, 1]] },
     { chance: 0.65, packs: [2, 4], size: [[1, 2], [2, 2], [3, 1]], tier: [[2, 1], [3, 1]] },
     { chance: 0.6, packs: [2, 4], size: [[1, 3], [2, 1]], tier: [[1, 2], [2, 1]] },
     { chance: 0.3, packs: [1, 2], size: [[1, 1]], tier: [[1, 1]] },
   ];
-  // Where packs go in a sector (world units): each member circles its pack's centre at a radius in
-  // `orbit`; centres stay `spacing` apart, so the nearest members of two packs are always more than
-  // CombatCore.config.groupRange apart (1500: who joins a fight), `clear` from stations and stars
-  // (docking stays safe), and `margin` inside the sector's edges.
+  // Where packs go (world units): each member circles its pack's centre at a radius in `orbit`;
+  // centres stay `spacing` apart, so the nearest members of two packs are always more than
+  // CombatCore.config.groupRange apart (1500: who joins a fight), `clear` from stations and the
+  // star (docking stays safe), and `margin` inside the system's edge.
   const PACK = { spacing: 3200, orbit: [300, 550], clear: 2000, margin: 800 };
 
   // Component tiers by loot tier, as [tier, weight]: a pirate's loot tier is its gear tier; a
-  // wreck's comes from its sector's level. Exotic (tier 5) components only come from the most
+  // wreck's comes from the level where it lies. Exotic (tier 5) components only come from the most
   // dangerous space.
   const COMPONENT_TIERS = [
     null,

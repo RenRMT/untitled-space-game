@@ -211,7 +211,7 @@ const StationMenu = (() => {
     const { ship, hold, outfitting } = ctx;
     const stat = (label, value) => h('div', { class: 'stat' }, h('dt', {}, label), h('dd', {}, value));
     const slots = Loadout.slots(outfitting.loadout, outfitting.upgrades);
-    const sectors = (n) => `${n} sector${n === 1 ? '' : 's'}`;
+    const k = (units) => `${(units / 1000).toFixed(1)}k`;
     const groups = new Map(); // item type -> count
     for (const it of hold.items) groups.set(it.kind, (groups.get(it.kind) || 0) + 1);
     return [
@@ -227,7 +227,7 @@ const StationMenu = (() => {
           stat('Top speed', `${ship.maxSpeed}`),
           stat('Acceleration', `${ship.accel}`),
           stat('Turn rate', `${Math.round((ship.turnRate * 180) / Math.PI)}° per second`),
-          stat('Sensors', `${sectors(ship.sensorRange)} · pings ${sectors(ship.pingRange)}`),
+          stat('Sensors', `identify at ${k(ship.sensorRange)} · ping at ${k(ship.pingRange)}`),
           stat('Mining', ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s per asteroid` : 'No ship computer'),
           stat('Shield', ship.shield ? `${ship.shield} · ${ship.shieldRecharge}/s recharge` : 'None'),
           stat('Firepower', `${ship.firepower} damage/s · ${ship.weaponsFitted} of ${ship.weaponSlots} weapons`),

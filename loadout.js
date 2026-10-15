@@ -4,7 +4,7 @@
 // A hull has 1–4 weapon slots and one each of shield, ship computer, engine and scanner. What is
 // fitted decides how the ship flies and senses:
 // - engine: top speed, acceleration and turn rate (the hull's handling scales the last two),
-// - scanner: how many sectors around the ship are charted, and how far contacts are pinged,
+// - scanner: how far around the ship hidden contacts are identified, and how far they are pinged,
 // - ship computer: mining speed, accuracy in combat, and how fast it locks on in real-time combat,
 // - weapons and shields: damage and protection in combat (combat.js); engine evasion and scanner
 //   initiative count there too. In real-time combat (combat-realtime.js) a weapon also has a range
@@ -45,7 +45,7 @@ const Loadout = (() => {
     deflector: { slot: 'shield', name: 'Deflector', stats: (t) => ({ strength: at([80, 110, 150, 200, 270], t), recharge: at([6, 8, 10, 13, 17], t) }) },
     'flight-computer': { slot: 'computer', name: 'Flight computer', stats: (t) => ({ miningRate: at([1, 1.25, 1.5, 1.8, 2.2], t), accuracy: at([0.75, 0.8, 0.85, 0.9, 0.95], t), lockTime: at([1, 0.85, 0.7, 0.55, 0.4], t) }) },
     'courier-drive': { slot: 'engine', name: 'Courier drive', stats: (t) => ({ maxSpeed: at([650, 700, 760, 820, 900], t), accel: at([520, 600, 690, 790, 900], t), turnRate: at([3.6, 3.8, 4, 4.2, 4.5], t), evasion: at([0.15, 0.18, 0.21, 0.24, 0.28], t) }) },
-    'survey-scanner': { slot: 'scanner', name: 'Survey scanner', stats: (t) => ({ sensorRange: at([1, 1, 2, 2, 3], t), pingRange: at([2, 3, 3, 4, 5], t), lockRange: at([1600, 1900, 2200, 2600, 3000], t) }) },
+    'survey-scanner': { slot: 'scanner', name: 'Survey scanner', stats: (t) => ({ sensorRange: at([3000, 3500, 4500, 5500, 7000], t), pingRange: at([7000, 9000, 11000, 13000, 16000], t), lockRange: at([1600, 1900, 2200, 2600, 3000], t) }) },
     // NPC gear: pirates fly Mk I–IV of these by their tier; freighters and patrols Mk I.
     autocannon: { slot: 'weapon', name: 'Autocannon', npc: true, stats: (t) => ({ damage: at([5, 7, 9, 12, 15], t), fireRate: 3, range: 550 + 50 * t, arc: 40 }) },
     'cargo-turret': { slot: 'weapon', name: 'Cargo turret', npc: true, stats: (t) => ({ damage: at([5, 6, 8, 10, 12], t), fireRate: 3, range: 600, arc: 360 }) },
@@ -54,7 +54,7 @@ const Loadout = (() => {
     'targeting-computer': { slot: 'computer', name: 'Targeting computer', npc: true, stats: (t) => ({ miningRate: 0, accuracy: at([0.65, 0.7, 0.75, 0.8, 0.85], t), lockTime: at([0.6, 0.55, 0.5, 0.45, 0.4], t) }) },
     'fighter-drive': { slot: 'engine', name: 'Fighter drive', npc: true, stats: (t) => ({ maxSpeed: at([700, 740, 780, 820, 860], t), accel: at([900, 950, 1000, 1050, 1100], t), turnRate: at([4.2, 4.3, 4.4, 4.5, 4.6], t), evasion: at([0.25, 0.27, 0.29, 0.31, 0.33], t) }) },
     'freighter-drive': { slot: 'engine', name: 'Freighter drive', npc: true, stats: () => ({ maxSpeed: 300, accel: 200, turnRate: 1.5, evasion: 0.05 }) },
-    'basic-scanner': { slot: 'scanner', name: 'Basic scanner', npc: true, stats: (t) => ({ sensorRange: 1, pingRange: 1, lockRange: 1200 + 150 * (t - 1) }) },
+    'basic-scanner': { slot: 'scanner', name: 'Basic scanner', npc: true, stats: (t) => ({ sensorRange: 2000, pingRange: 2000, lockRange: 1200 + 150 * (t - 1) }) },
   };
   // Credits to buy one, by tier; weapons cost a fifth more.
   const PRICES = [null, 250, 800, 2000, 5000, 12000];
@@ -77,7 +77,7 @@ const Loadout = (() => {
   // hull its hit points in combat, handling a factor on the engine's acceleration and turn rate.
   // price: sold at shipyards for this many credits (a trade-in fetches half); art: which design
   // it is drawn as (game.js). The player starts in a Courier; fighters and freighters are the NPC
-  // ships of the same names (sector.js roles), fitted with their lines at a tier (npc()).
+  // ships of the same names (scene.js roles), fitted with their lines at a tier (npc()).
   const HULLS = {
     courier: {
       name: 'Courier', radius: 16, cargo: 20, hull: 120, weapons: 2, handling: 1, price: 4000,
@@ -186,7 +186,7 @@ const Loadout = (() => {
   }
 
   const degrees = (rad) => Math.round((rad * 180) / Math.PI);
-  const sectors = (n) => `${n} sector${n === 1 ? '' : 's'}`;
+  const k = (units) => `${(units / 1000).toFixed(1)}k`;
 
   // One line of what a piece of equipment does, for the Ship and Research tabs.
   function summary(item) {
@@ -196,7 +196,7 @@ const Loadout = (() => {
       case 'shield': return `${s.strength} strength · ${s.recharge}/s recharge`;
       case 'computer': return `${Math.round(s.accuracy * 100)}% accuracy · ${s.lockTime} s lock · mining ×${s.miningRate.toFixed(1)}`;
       case 'engine': return `${s.maxSpeed} speed · ${s.accel} accel · ${degrees(s.turnRate)}°/s · ${Math.round(s.evasion * 100)}% evasion`;
-      case 'scanner': return `Charts ${sectors(s.sensorRange)} around · pings ${sectors(s.pingRange)} · locks at ${(s.lockRange / 1000).toFixed(1)}k`;
+      case 'scanner': return `Identifies at ${k(s.sensorRange)} · pings at ${k(s.pingRange)} · locks at ${k(s.lockRange)}`;
       default: return '';
     }
   }

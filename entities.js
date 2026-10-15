@@ -3,22 +3,22 @@
 // What each kind of thing in space is, in one place: draw order and how it is drawn, how close a
 // tap must land to pick it, its name label and minimap mark, and how its context card describes
 // it. A new kind of object is a new entry here (plus its art and, if it does something, an action
-// in game.js). Also the one factory for floating items, which both the sector generator
-// (sector.js) and the flight view (loot, mining drops, lost cargo) make.
+// in game.js). Also the one factory for floating items, which both the scene (scene.js) and the
+// flight view (loot, mining drops, lost cargo) make.
 //
 //   Entities.KINDS[kind] = {
 //     order                                  draw order, lowest first
 //     selectable, hit                        a tap selects it, within hit × its radius
 //     follow                                 an approach keeps station with it at this distance
-//     draw(ctx, e, style, x, y, scene)       scene: { t, list, sector } (list: everything nearby)
+//     draw(ctx, e, style, x, y, scene)       scene: { t, list } (list: everything nearby)
 //     label(e) -> [colour, offset]           its name in space, that far below its centre
 //                                            (only things with a name show one)
-//     mark(e, galaxy) -> { color, r, ring? } | null    on the minimap
-//     card(e, galaxy) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
+//     mark(e, system) -> { color, r, ring? } | null    on the minimap
+//     card(e, system) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a goods.js type
-//   Entities.isHostile(e, galaxy)          pirate ships
-//   Entities.stationSubtitle(station, galaxy)
+//   Entities.isHostile(e)                  pirate ships
+//   Entities.stationSubtitle(station)
 // Works as a classic browser script (global `Entities`) and as a Node module. Drawing and the
 // colours need art/render.js and theme.js, so only the factories work in Node.
 
@@ -29,7 +29,7 @@ const Entities = (() => {
   const color = () => Theme.color; // looked up when drawing, so Node never needs theme.js
 
   // A floating item: its art, its type (goods.js) and how it turns. Position and turning come
-  // from the caller's own random stream, so generated sectors stay as they were.
+  // from the caller's own random stream, so generated scenes stay as they were.
   function item({ key, kind, seed, angle, tumble, x = 0, y = 0 }) {
     const art = ArtItemsRef.create(kind, seed);
     return {
@@ -54,7 +54,50 @@ const Entities = (() => {
   const spinning = (e, t) => e.spin + t * e.art.spinRate;
   const named = (e) => [color().neutral, e.radius + 20]; // anything else with a name
 
+  // Nebulae have no art of their own yet: until art/render.js has an Art.drawNebula(ctx, nebula,
+  // style, { x, y, t }), each is painted once as soft overlapping clouds in its colour (its blobs,
+  // solar-system.js), small, and drawn stretched over the whole cloud; blocky in the pixel style.
+  const NEBULA_PX = 192;
+  function nebulaSprite(n) {
+    if (n._sprite) return n._sprite;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = NEBULA_PX;
+    const c = cv.getContext('2d'), k = NEBULA_PX / (n.r * 2), C = NEBULA_PX / 2;
+    const [cr, cg, cb] = [1, 3, 5].map((i) => parseInt(n.color.slice(i, i + 2), 16));
+    const cloud = (x, y, r, a) => {
+      const g = c.createRadialGradient(x, y, 0, x, y, r);
+      g.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${a})`);
+      g.addColorStop(0.6, `rgba(${cr}, ${cg}, ${cb}, ${a * 0.45})`);
+      g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
+      c.fillStyle = g;
+      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+    };
+    for (const b of n.blobs) cloud(C + b.dx * k, C + b.dy * k, b.r * k, 0.5);
+    // Knots and wisps inside the blobs, so the cloud isn't a smooth disc.
+    const r = mulberry32(n.seed);
+    for (let i = 0; i < 26; i++) {
+      const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * Math.PI * 2, d = Math.sqrt(r()) * b.r * 0.8;
+      cloud(C + (b.dx + Math.cos(a) * d) * k, C + (b.dy + Math.sin(a) * d) * k, b.r * k * (0.15 + r() * 0.3), 0.25 + r() * 0.3);
+    }
+    n._sprite = cv;
+    return cv;
+  }
+  function drawNebula(ctx, n, style, x, y, t) {
+    if (typeof Art !== 'undefined' && Art.drawNebula) { Art.drawNebula(ctx, n, style, { x, y, t }); return; }
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    ctx.imageSmoothingEnabled = style !== 'pixel';
+    ctx.drawImage(nebulaSprite(n), x - n.r, y - n.r, n.r * 2, n.r * 2);
+    ctx.restore();
+  }
+
   const KINDS = {
+    nebula: {
+      order: -1,
+      draw: (ctx, e, style, x, y, { t }) => drawNebula(ctx, e.nebula, style, x, y, t),
+      label: () => null, // too big for a name in space: the HUD names the one you're in
+      mark: () => null,
+    },
     star: {
       order: 0,
       draw: (ctx, e, style, x, y, { t }) => Art.drawStar(ctx, e.body, style, { x, y, t }),
@@ -63,11 +106,9 @@ const Entities = (() => {
     },
     planet: {
       order: 1,
-      // Lit from the nearest star around it.
-      draw(ctx, e, style, x, y, { list, sector }) {
-        const star = list.find((s) => s.kind === 'star' && Math.abs(s.x - e.x) < sector && Math.abs(s.y - e.y) < sector);
-        Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: star ? Math.atan2(star.y - e.y, star.x - e.x) : -2.2 });
-      },
+      // Lit from the star (e.lightAngle, scene.js).
+      draw: (ctx, e, style, x, y) => Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: e.lightAngle ?? -2.2 }),
+
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 3 }),
     },
@@ -86,7 +127,7 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
       label: (e) => [e.color, e.radius * 1.05],
       mark: (e) => ({ color: e.color, r: 2.5 }),
-      card: (e, galaxy) => ({ title: e.name, sub: stationSubtitle(e, galaxy), color: e.color }),
+      card: (e) => ({ title: e.name, sub: stationSubtitle(e), color: e.color }),
     },
     wreck: {
       order: 3,

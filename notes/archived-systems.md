@@ -238,3 +238,50 @@ several seeds). `Galaxy.VERSION` went to 3, so old charts and cargo positions ar
 **To bring it back.** It's all parameters: set `size`, `frontier`, `density`, `systems`,
 `outposts` back in `GALAXY_CONFIG.params` (values above), and widen `security` to suit (about
 2, 5 and 8 sectors). A larger map wants more to find between settlements first.
+
+## The galaxy grid
+
+**What it was.** The play area was a galaxy of 25 × 25 square sectors, 12,000 units each. 13–16
+settled systems (one capital at the centre, the rest major or minor, each in one of three
+cultures by region) and 16–24 single-station outposts (mining camps, salvage yards) were spread
+by a density noise field that thinned toward a 2-sector frontier ring. Each system sector held a
+star, a planet per planet location and its stations, sometimes an asteroid belt; each outpost
+sector its station with a field or wrecks around it. Small circular *charted pockets* around
+every settlement were safe; deep space between them rolled a contact per sector (derelicts and
+ambushes), plus the odd asteroid field. Security came from the distance in sectors to the
+nearest settled system. Sectors were built on demand from the seed and their coordinates
+(`Sectors.at`, 40 cached, the ones past an edge prefetched one a frame), and the flight view
+posed the 3 × 3 sectors around the camera. The map showed the grid, explored sectors tinted by
+security, pockets, systems and outposts; fog of war tracked explored sectors, known systems and
+outposts, and pinged or identified contacts per sector. Map travel crossed the grid sector by
+sector (an Amanatides–Woo traversal), pinging contacts it passed, interdicted by ambushes and
+paused by unidentified signals. Scanners charted 1–3 sectors around the ship and pinged 2–5.
+
+The grid felt crowded and empty at once: every system was a cramped sector, everything between
+them was empty squares.
+
+**What replaced it.** One procedurally generated solar system (`solar-system.js`) as the whole
+play area: a star, planets on widening orbits with moons and rings, a main asteroid belt and
+often an outer one, free asteroid fields, nebulae, stations around planets (a capital and a major
+station with shipyards, minor ones) and bases in space (mining camps, a salvage yard). Security
+comes from the distance to the nearest station, a level lower in nebulae. Pirates are laid out in
+cells by security, ambushes wait in every nebula and in lawless space, and hidden derelicts lie
+away from the stations. The flight view builds everything once (`scene.js`) and poses what is
+within 14,000 units of the camera; the minimap is a radar around the ship. The map is a system
+map (`map.js`, `SystemMap`); fog of war covers only contacts (`knowledge.js`); map travel flies a
+straight line and meets contacts by distance (`travel.js`). Scanner ranges are world units.
+Cultures, markets, mining, combat, research and loot work as before.
+
+**Where it lived.** On `main` at `3e2ffeb` (after PR #21): `galaxy.js` (the whole generator:
+density field, systems, outposts, pockets, `territoryOf`, `deepSector`, `securityOf`),
+`sector.js` (`Sectors.create`, `at`, `has`, per-sector contents), `data/galaxy-config.js`
+(`GALAXY_CONFIG`, `sectorUnits`), `map.js` (`GalaxyMap`: the grid, the cached static layer,
+pockets, outposts, the frontier ring), `knowledge.js` (explored sectors, `knowsSystem`,
+`knowsOutpost`, `revealSector`), `travel.js` (`crossings`, sector-by-sector `enter`), `game.js`
+(`SECTOR`, `sectorOf`, `moveShipTo`, `prefetchSectors`, pockets, the sector grid, zones and the
+sector minimap), `loadout.js` (scanner ranges in sectors), tests in both suites.
+
+**To bring it back.** A galaxy would now be a map of solar systems: `SolarSystem.generate` per
+system (seeded from the galaxy seed and the system), with travel between systems on a galaxy map
+and the system map for the one you're in. The old density field and system placement in
+`galaxy.js` could pick where systems go; `Sectors` would not return.

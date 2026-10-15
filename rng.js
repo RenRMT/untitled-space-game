@@ -1,6 +1,6 @@
 'use strict';
 
-// Seeded random helpers shared by the starfield, the galaxy generator, sectors and the art.
+// Seeded random helpers shared by the starfield, the solar system generator, the scene and the art.
 
 // Deterministic 32-bit hash of an integer pair plus a seed.
 function hashInt(x, y, s) {
@@ -19,7 +19,7 @@ function mulberry32(seed) {
   };
 }
 
-// A galaxy seed (integer or string) as an unsigned 32-bit integer; strings are FNV-1a hashed.
+// A system seed (integer or string) as an unsigned 32-bit integer; strings are FNV-1a hashed.
 function seedToInt(seed) {
   if (Number.isInteger(seed)) return seed >>> 0;
   let h = 2166136261;

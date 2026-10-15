@@ -416,20 +416,20 @@
 <div id="map-overlay" hidden>
   <canvas id="map-canvas"></canvas>
   <div class="bar top">
-    <span id="map-title">GALAXY</span>
+    <span id="map-title">SYSTEM</span>
     <span id="map-stats"></span>
     <button id="map-close" class="btn" type="button">Close</button>
   </div>
   <div id="map-info" hidden></div>
   <div class="bar bottom">
-    <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
+    <button id="map-reroll" class="btn" type="button" title="Generate a new system from a random seed">Re-roll</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>
     <button id="map-fast" class="btn" type="button" aria-pressed="false" title="Fast-forward the trip" hidden>×4</button>
     <button id="map-stop" class="btn" type="button" title="Drop out of cruise here" hidden>Stop</button>
     <button id="map-travel" class="btn" type="button" disabled title="Plot a course to the selected place">Travel</button>
-    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected sector" hidden>Jump</button>
+    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected place" hidden>Jump</button>
     <button id="map-reset" class="btn" type="button">Reset view</button>
   </div>
   <div id="map-prompt" hidden>
@@ -447,9 +447,9 @@
 <script src="theme.js"></script>
 <script src="ui.js"></script>
 <script src="goods.js"></script>
-<script src="data/galaxy-config.js"></script>
-<script src="galaxy.js"></script>
 <script src="security.js"></script>
+<script src="data/system-config.js"></script>
+<script src="solar-system.js"></script>
 <script src="map.js"></script>
 <script src="art/util.js"></script>
 <script src="art/sprite-cache.js"></script>
@@ -459,7 +459,7 @@
 <script src="art/render.js"></script>
 <script src="art/icons.js"></script>
 <script src="entities.js"></script>
-<script src="sector.js"></script>
+<script src="scene.js"></script>
 <script src="interactions.js"></script>
 <script src="knowledge.js"></script>
 <script src="economy.js"></script>

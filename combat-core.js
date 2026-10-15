@@ -67,7 +67,7 @@ const CombatCore = (() => {
   const limitHit = (p) => clamp(p, config.minHit, config.maxHit);
   const alive = (s) => s.enemies.filter((e) => e.hull > 0);
 
-  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Seeded by the galaxy
+  // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Seeded by the system
   // and the ship.
   // - Fighters (pirates) usually drop a salvaged component, sometimes two, at a tier set by their
   //   own gear tier (security.js: better-armed pirates in more dangerous space carry better
