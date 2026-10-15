@@ -1965,6 +1965,15 @@ function drawMinimap(list) {
   ctx.rect(x0, y0, size, size);
   ctx.clip();
 
+  // Orbits crossing the radar, faintly: the planets' around the nearest system's star.
+  ctx.strokeStyle = COLORS.planet;
+  ctx.globalAlpha = 0.18;
+  ctx.lineWidth = 1;
+  const sys = world.galaxy.nearestSystem(ship.x, ship.y);
+  const cx = x0 + (sys.star.x - ox) * s, cy = y0 + (sys.star.y - oy) * s;
+  for (const p of sys.planets) { ctx.beginPath(); ctx.arc(cx, cy, p.orbit * s, 0, TAU); ctx.stroke(); }
+  ctx.globalAlpha = 1;
+
   for (const e of list) {
     if (Math.abs(e.x - ship.x) > RADAR + e.radius || Math.abs(e.y - ship.y) > RADAR + e.radius || hidden(e)) continue;
     const m = KINDS[e.kind].mark(e, world.galaxy); // a dot, or a ring
