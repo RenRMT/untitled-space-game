@@ -11,13 +11,19 @@
 //   CombatCore.applyDamage(target, amount) -> { shieldDamage, hullDamage }   shields first
 //   CombatCore.limitHit(p)             a hit chance kept within [minHit, maxHit]
 //   CombatCore.alive(s)                the enemies still flying
+//   CombatCore.allies(s)               the squad members (squad.js) still flying beside the player
+//   CombatCore.aim(rng, s) -> id       whom an enemy shoots at: the player, or now and then an ally
+//   CombatCore.aimAt(s, e)             that combatant while it flies, else the player
 //   CombatCore.loot(galaxySeed, key, role, tier) -> [{ kind, seed }]   what a destroyed ship leaves
 //
 // A mode (each module's `mode`):
 //   id, flying               ships keep flying (real time), or are held in place (rounds)
-//   start(rng, player, enemies, { target, ambushed }) -> s
-//       player, enemies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
-//       target: the enemy attacked; ambushed: the pirates attacked first
+//   start(rng, player, enemies, { target, ambushed, allies }) -> s
+//       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
+//       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
+//   setOrders(s, id, { target, station })   what an ally does now (game.js decides, from its
+//                                      logic modules): fire on `target` (an enemy id), or with
+//                                      none hold `station` (its place in formation, in real time)
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
 //   setFocus(s, id)                    the player picks a target
 //   press?(s, id)                      a combat panel button (Flee)
@@ -33,8 +39,9 @@
 //                                      of fire is shown (arcs)
 // Events: { type: 'shot', from, to, shots, hits, damage, shieldDamage, hullDamage, destroyed,
 //   delay? } (delay: seconds before it shows), { type: 'flee', ok }, and in real time
-//   { type: 'target' | 'locked' | 'lost-lock', id }. s.player, s.enemies and s.focus as named;
-//   s.over becomes 'won', 'lost' or 'fled' when the fight ends.
+//   { type: 'target' | 'locked' | 'lost-lock', id }. s.player, s.enemies, s.allies and s.focus as
+//   named; s.over becomes 'won', 'lost' or 'fled' when the fight ends (an ally shot down drops out:
+//   only the player's ship decides the outcome).
 // Works as a classic browser script (global `CombatCore`) and as a Node module.
 
 const CombatCore = (() => {
@@ -66,6 +73,16 @@ const CombatCore = (() => {
 
   const limitHit = (p) => clamp(p, config.minHit, config.maxHit);
   const alive = (s) => s.enemies.filter((e) => e.hull > 0);
+  const allies = (s) => (s.allies || []).filter((a) => a.hull > 0);
+
+  // An enemy picks whom it shoots at when the fight starts or it joins: one of the allies with a
+  // chance that grows with their number (one ally: a third), else the player.
+  function aim(rng, s) {
+    const list = allies(s);
+    if (!list.length || rng() >= list.length / (list.length + 2)) return 'player';
+    return list[Math.floor(rng() * list.length)].id;
+  }
+  const aimAt = (s, e) => (e.aim !== 'player' && allies(s).find((a) => a.id === e.aim)) || s.player;
 
   // What a destroyed ship leaves floating: [{ kind, seed }] (goods.js types). Seeded by the system
   // and the ship.
@@ -104,7 +121,7 @@ const CombatCore = (() => {
     return out;
   }
 
-  return { config, combatant, applyDamage, limitHit, alive, loot };
+  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot };
 })();
 
 if (typeof module !== 'undefined') module.exports = CombatCore;

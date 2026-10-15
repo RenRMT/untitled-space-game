@@ -449,6 +449,56 @@ test('fights in real time, then gets away', () => {
   browser.frames(300);
 });
 
+// All the text under an element of the DOM stub.
+const textOf = (el) => (el === null || el === undefined ? '' : typeof el !== 'object' ? String(el) : (el.textContent || '') + (el.children || []).map(textOf).join(''));
+
+test('the wingman flies in formation, assists the leader in both combat modes, and is repaired at a dock', () => {
+  assert.strictEqual(game('cargo.squad.length'), 1, 'a new game has one wingman');
+  const id = game('cargo.squad[0].id');
+  assert.match(game('cargo.squad[0].name'), /^[A-Z][a-z]+-\d\d$/);
+  assert.strictEqual(game(`wings.get('${id}').art.culture.lineage`), 'android', 'built in the android culture');
+  // It follows the ship around and settles into its place in formation.
+  game(`fight.grace = 1e9; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 2500, Math.PI / 2); } ship.targetAngle = 0.4; ship.targetSpeed = SHIP.maxSpeed * 0.6;`);
+  browser.frames(120);
+  game('ship.targetSpeed = 0');
+  browser.frames(240);
+  const gap = game(`{ const w = wings.get('${id}'), st = Squad.formation(ship, 0); Math.hypot(w.x - st.x, w.y - st.y) }`);
+  assert.ok(gap < 80, `in formation (${gap.toFixed(0)} units off)`);
+  assert.ok(game(`frameList.some((e) => e.kind === 'wingman' && e.key === '${id}' && visible(e))`), 'drawn beside the ship');
+  game(`select(frameList.find((e) => e.kind === 'wingman'))`);
+  browser.frames(1);
+  assert.match(game('describe(selected.e).subtitle'), /^Squad · android fighter · 1 logic module/);
+  game('select(null)');
+  // In a fight it joins as an ally, and its combat logic module has it fire on the leader's target.
+  for (const mode of ['rounds', 'realtime']) {
+    game(`combatMode.set('${mode}'); repairSquad(); snapWings();`);
+    meetPirate();
+    assert.strictEqual(game('fight.s.allies.length'), 1, `${mode}: the wingman fights`);
+    const chase = mode === 'realtime' ? `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.4; } }` : '';
+    assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === '${id}')`, 60 * 40, chase), `${mode}: it opens fire`);
+    if (game('!!fight.s')) assert.strictEqual(game(`fight.s.allies[0].order.target`), game('fight.s.focus'), `${mode}: on the leader's target`);
+    game('fight.s && (fight.s.over = "fled")');
+    browser.frames(2);
+    game('ship.targetSpeed = 0');
+    browser.frames(300);
+  }
+  // Shot down: gone from space until the ship docks, which repairs it.
+  game(`wingDisabled('${id}')`);
+  browser.frames(2);
+  assert.ok(game(`cargo.squad[0].disabled && !frameList.some((e) => e.kind === 'wingman')`), 'disabled and out of sight');
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }');
+  assert.ok(game('!!docked'), 'docked');
+  assert.ok(game('!cargo.squad[0].disabled && cargo.squad[0].hullPoints === Squad.stats(cargo.squad[0]).hull'), 'repaired');
+  game(`StationMenu.showTab('squad')`);
+  const tab = textOf(browser.document.getElementById('st-body'));
+  assert.match(tab, /Combat logic module · Assist leader/);
+  assert.match(tab, /If the leader is fighting a target, then attack it/);
+  assert.match(tab, /1 of 4 logic slots in use/);
+  game('launch()');
+  browser.frames(3);
+  assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');
+});
+
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));

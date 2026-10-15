@@ -33,6 +33,9 @@ const view = { w: 0, h: 0, dpr: 1, zoom: 1 };
 const cam = { x: 0, y: 0 };
 const particles = [];
 const debris = []; // rock fragments thrown off by mining, in world units
+// The squad's ships flying with yours (see Squad below), by member id: { kind: 'wingman', key,
+// member, art, name, color, stats, radius, x, y, vx, vy, angle, a, thrust }.
+const wings = new Map();
 const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds mined so far
 // Approach: fly to the selected object and stop beside it (or keep station with a moving ship).
 // key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes.
@@ -180,10 +183,11 @@ const world = { galaxy: null, cultures: null, scene: null, knowledge: null, trav
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
 // (repaired at stations). home: the last station docked at, where a lost ship is towed.
 // loadout: the ship's class and fitted equipment; gear: spare equipment bought or taken out
-// ({ [equipment id]: count }); research: the research nodes done (a Set of ids).
+// ({ [equipment id]: count }); research: the research nodes done (a Set of ids); squad: the
+// squad members (squad.js), with their logic modules and hull.
 const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
-  loadout: Loadout.starter('courier'), gear: {}, research: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, research: new Set(), squad: [],
 };
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
@@ -233,6 +237,7 @@ function loadCargo(galaxy) {
   cargo.loadout = Loadout.starter('courier');
   cargo.gear = {};
   cargo.research = new Set();
+  cargo.squad = Squad.starting(hashInt(seedToInt(galaxy.seed), 1, 0x5a0d)); // a new game's wingman
   cargo.hull = Infinity; // full, once applyShip knows the maximum
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
@@ -240,11 +245,13 @@ function loadCargo(galaxy) {
     if (d) readCargo(d);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
   applyShip({ loading: true });
+  buildWings(); // the squad's ships, for the members just read
 }
 // The parts of a save, each checked. Saves from before components had their own store kept them
 // in the hold: they move across.
 function readCargo(d) {
   if (Array.isArray(d.research)) cargo.research = new Set(d.research.filter((id) => Research.NODES[id]));
+  cargo.squad = Squad.read(d.squad) || cargo.squad; // saves from before the squad get the starting one
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
@@ -278,7 +285,7 @@ function saveCargoNow() {
   Store.setJSON(cargo.key, {
     items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
     drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-    loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research],
+    loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research], squad: cargo.squad,
   });
 }
 
@@ -450,6 +457,7 @@ function placeShip(x, y, angle = -Math.PI / 2) {
   autopilot.key = null;
   lastRegion = undefined; // no enter/leave notice for a teleport
   sense();
+  snapWings();
 }
 
 // Place the ship beside something in space, on its side facing its system's star. Beside a
@@ -488,6 +496,7 @@ function loadGalaxy(galaxy) {
   world.scene = Scene.create(galaxy, world.cultures);
   // What the player knows (fog of war); ?fresh forgets saved charts.
   world.knowledge = Knowledge.create(galaxy, { fresh: Params.has('fresh') });
+  world.android = ArtCulture.xeno(galaxy.seed).android; // what squad members are built in
   loadCargo(galaxy);
   SystemMap.knowledge = world.knowledge;
   world.travel = Travel.create(galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: ambushCleared });
@@ -536,6 +545,7 @@ function dock(station) {
   docked = { station };
   // A lost ship is towed back to the last station it docked at.
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
+  repairSquad();
   saveCargo();
   ship.vx = ship.vy = 0;
   ship.targetSpeed = 0;
@@ -553,6 +563,7 @@ function dock(station) {
     lab,
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
+    squad: { members: cargo.squad },
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
@@ -591,6 +602,118 @@ function jump(gate) {
 }
 
 actions.add({ id: 'jump', kind: 'gate', verb: 'Jump', key: 'j', range: () => GATE.range, maxSpeed: () => GATE.maxSpeed, run: jump });
+
+// ---------- Squad: android wingmen in formation, run by their logic modules ----------
+//
+// Squad members (squad.js) fly in formation behind the ship. In a fight they join it as allies
+// (combat-core.js): every frame each one's logic modules (logic.js), checked in slot order, decide
+// what it does; the first that applies gives its orders, and with none it keeps formation. One
+// whose hull is shot down is disabled until the ship next docks, which repairs the whole squad.
+
+const WING_SNAP = 4000; // a wingman this far from its place (after a jump or map travel) is put there
+// (Function declarations: buildWings and snapWings run while the galaxy first loads.)
+function activeSquad() { return cargo.squad.filter((m) => !m.disabled); }
+function memberOf(id) { return cargo.squad.find((m) => m.id === id) || null; }
+
+// The wingmen's ships, from the squad: android art (world.android) and their designations.
+function buildWings() {
+  wings.clear();
+  for (const m of cargo.squad) {
+    const art = ArtBlueprints.create(m.hull, world.android, m.seed);
+    wings.set(m.id, {
+      kind: 'wingman', key: m.id, member: m, art, name: m.name, color: world.android.color, stats: Squad.stats(m),
+      radius: art.radius, x: ship.x, y: ship.y, vx: 0, vy: 0, angle: ship.angle, a: ship.angle, thrust: 0,
+    });
+  }
+  snapWings();
+}
+
+// Every active wingman to its place in formation, at rest (after a teleport).
+function snapWings() {
+  activeSquad().forEach((m, i) => {
+    const w = wings.get(m.id);
+    if (w) Object.assign(w, Squad.formation(ship, i), { vx: 0, vy: 0, angle: ship.angle, a: ship.angle, thrust: 0 });
+  });
+}
+
+// Out of a fight the wingmen fly to their places, arriving at the ship's speed. In a round-based
+// fight they're held where they are, turning to face their targets; in real time the fight flies
+// them.
+function tickWings(dt) {
+  if (fight.s) {
+    if (fightMode().flying) return;
+    for (const a of CombatCore.allies(fight.s)) {
+      const w = wings.get(a.id), t = fight.ships.get(a.order.target);
+      if (w && t) w.a = w.angle = turnToward(w.angle, Math.atan2(t.y - w.y, t.x - w.x), w.stats.turnRate * dt);
+    }
+    return;
+  }
+  const lead = Math.hypot(ship.vx, ship.vy);
+  activeSquad().forEach((m, i) => {
+    const w = wings.get(m.id);
+    const st = Squad.formation(ship, i), d = Math.hypot(st.x - w.x, st.y - w.y);
+    if (d > WING_SNAP) { Object.assign(w, st, { vx: ship.vx, vy: ship.vy, angle: ship.angle, a: ship.angle }); return; }
+    const there = d < 30;
+    Flight.step(w, w.stats, {
+      targetAngle: there ? ship.angle : Math.atan2(st.y - w.y, st.x - w.x),
+      targetSpeed: there ? lead : Math.min(w.stats.maxSpeed, lead + d * 1.5), mode: 'cruise',
+    }, dt);
+    w.a = w.angle;
+  });
+}
+
+// The active wingmen as a combat mode takes allies.
+function allySpecs() {
+  return activeSquad().filter((m) => wings.has(m.id)).map((m) => {
+    const w = wings.get(m.id);
+    return { id: m.id, name: m.name, stats: w.stats, hull: m.hullPoints, body: { x: w.x, y: w.y, vx: w.vx, vy: w.vy, angle: w.angle, radius: w.radius } };
+  });
+}
+
+// Each ally's orders for this frame, from its logic modules: attack what they name, or keep
+// formation.
+function orderSquad(s) {
+  const m = fightMode(), enemies = CombatCore.alive(s);
+  CombatCore.allies(s).forEach((a, i) => {
+    const member = memberOf(a.id);
+    if (!member) return;
+    const ctx = { self: a, leader: s.player, inFight: true, enemies, leaderTarget: s.focus ?? null };
+    const { intent } = Logic.decide(Squad.modulesOf(member), ctx);
+    m.setOrders(s, a.id, intent.type === 'attack' ? { target: intent.target } : { station: Squad.formation(ship, i) });
+  });
+}
+
+// After a fight's step: the allies' hull into their saved members and, in real time, where they flew.
+function syncAllies(s) {
+  let changed = false;
+  for (const a of s.allies) {
+    const member = memberOf(a.id), w = wings.get(a.id);
+    if (!member) continue;
+    const hull = Math.max(0, a.hull);
+    if (hull !== member.hullPoints) { member.hullPoints = hull; changed = true; }
+    if (fightMode().flying && w && a.hull > 0) Object.assign(w, { x: a.x, y: a.y, vx: a.vx, vy: a.vy, angle: a.angle, a: a.angle, thrust: a.thrust });
+  }
+  if (changed) saveCargo();
+}
+
+// A wingman shot down: out of the fight, back with the squad once the ship docks.
+function wingDisabled(id) {
+  const m = memberOf(id), w = wings.get(id);
+  if (!m || m.disabled) return;
+  m.disabled = true;
+  m.hullPoints = 0;
+  if (w) explode(w.x, w.y, w.radius);
+  notify(`${m.name} disabled · repaired at the next dock`, 3);
+  saveCargo();
+}
+
+// Docking repairs the squad and brings back the disabled.
+function repairSquad() {
+  for (const m of cargo.squad) {
+    m.disabled = false;
+    m.hullPoints = Squad.stats(m).hull;
+  }
+}
 
 // ---------- Mining: stop by an asteroid, mine it, collect what it leaves behind ----------
 
@@ -816,6 +939,8 @@ function nearbyEntities(t) {
     else Scene.pose(e, t);
     out.push(e);
   }
+  // The squad's ships fly with yours.
+  for (const w of wings.values()) if (!w.member.disabled) out.push(w);
   // Floating items left by mining, combat or a lost ship live outside the generated scene.
   for (const e of cargo.drops) {
     if (Math.abs(e.x - cam.x) > NEAR || Math.abs(e.y - cam.y) > NEAR) continue;
@@ -1009,13 +1134,13 @@ function brackets(x, y, radius, { open = 0, arm = 18 } = {}) {
 // Pirates that survive a real-time fight fly back to their usual paths.
 const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 const RESPAWN_GRACE = 8;
-const SHOT_COLOR = { player: COLORS.cyan, enemy: COLORS.hostile };
+const SHOT_COLOR = { player: COLORS.cyan, ally: '#5ad8ff', enemy: COLORS.hostile };
 const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
-// Where a combatant is: the player ship, or an enemy's pose.
+// Where a combatant is: the player ship, a wingman, or an enemy's pose.
 function fighterPos(id) {
   if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius };
-  return fight.ships.get(id) || fight.lastShips.get(id) || null;
+  return fight.ships.get(id) || wings.get(id) || fight.lastShips.get(id) || null;
 }
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
@@ -1063,7 +1188,7 @@ function engage(target, ambushed = false) {
     id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull,
     body: { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius },
   };
-  fight.s = m.start(rng, player, group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed });
+  fight.s = m.start(rng, player, group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: allySpecs() });
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);
@@ -1119,15 +1244,16 @@ function playEvents(s, events) {
   const jitter = () => (Math.random() - 0.5) * 30; // so numbers landing together don't overlap
   for (const ev of events) {
     if (ev.type !== 'shot') continue;
-    const mine = ev.from === 'player', d = ev.delay || 0, hit = d + look.after;
-    fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color: mine ? SHOT_COLOR.player : SHOT_COLOR.enemy });
+    const d = ev.delay || 0, hit = d + look.after;
+    const color = ev.from === 'player' ? SHOT_COLOR.player : wings.has(ev.from) ? SHOT_COLOR.ally : SHOT_COLOR.enemy;
+    fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: hit, t: look.shield, max: look.shield, at: ev.to });
     if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
     if (look.sum) { if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0); }
     else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${ev.damage}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
     else fight.fx.push({ type: 'number', delay: hit, t: 0.8, max: 0.8, at: ev.to, jx: jitter(), text: 'miss', color: COLORS.dim });
     if (ev.destroyed) {
-      const blowUp = mine ? () => shipDestroyed(ev.to) : playerDestroyed;
+      const blowUp = ev.to === 'player' ? playerDestroyed : wings.has(ev.to) ? () => wingDisabled(ev.to) : () => shipDestroyed(ev.to);
       if (d + look.finish > 0) fight.fx.push({ type: 'call', delay: d + look.finish, run: blowUp });
       else blowUp();
     }
@@ -1274,7 +1400,9 @@ function tickFight(dt) {
   // When it isn't steering, the ship turns to face its target.
   const target = fight.ships.get(s.focus);
   if (target && ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(target.y - ship.y, target.x - ship.x), SHIP.turnRate * dt);
+  orderSquad(s);
   const events = m.step(s, dt, ship); // the player's ship has already flown this frame (update)
+  syncAllies(s);
   if (m.flying) {
     for (const e of s.enemies) {
       const p = fight.ships.get(e.id);
@@ -1306,8 +1434,9 @@ function updateCombatPanel() {
   const s = fight.s || (fight.result ? fight.final : null);
   if (!s) return;
   const over = !fight.s;
-  const rows = [s.player, ...s.enemies].map((c) => ({
-    id: c.id, name: c.name, you: c === s.player, hull: c.hull, maxHull: c.stats.hull,
+  const allies = s.allies || [];
+  const rows = [s.player, ...allies, ...s.enemies].map((c) => ({
+    id: c.id, name: c.name, you: c === s.player, ally: allies.includes(c), hull: c.hull, maxHull: c.stats.hull,
     shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
   }));
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
@@ -1346,6 +1475,7 @@ function drawFieldOfFire(s) {
   ctx.strokeStyle = HOSTILE_COLOR;
   ctx.globalAlpha = 0.3;
   for (const e of CombatCore.alive(s)) {
+    if (CombatCore.aimAt(s, e) !== s.player) continue; // after a wingman
     if (e.lockT < e.stats.lockTime || !e.stats.weapons.some((ew) => RealtimeCombat.canFire(e, ew, s.player))) continue;
     ctx.beginPath();
     ctx.moveTo(rx(e.x), ry(e.y));
@@ -1422,7 +1552,7 @@ function drawFightOverlay() {
   ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   if (s) {
-    for (const c of [s.player, ...s.enemies]) {
+    for (const c of [s.player, ...(s.allies || []), ...s.enemies]) {
       if (c.hull <= 0) continue;
       const p = fighterPos(c.id);
       if (!p) continue;
@@ -1434,9 +1564,9 @@ function drawFightOverlay() {
       ctx.fillRect(x - w / 2, top + 4, w, 3);
       ctx.fillStyle = COLORS.cyan;
       ctx.fillRect(x - w / 2, top, w * (c.stats.shield ? c.shield / c.stats.shield : 0), 3);
-      ctx.fillStyle = c === s.player ? COLORS.good : HOSTILE_COLOR;
+      ctx.fillStyle = s.enemies.includes(c) ? HOSTILE_COLOR : COLORS.good;
       ctx.fillRect(x - w / 2, top + 4, w * (c.hull / c.stats.hull), 3);
-      if (c !== s.player && s.enemies.length > 1) {
+      if (s.enemies.includes(c) && s.enemies.length > 1) {
         ctx.fillStyle = c.id === s.focus ? COLORS.bright : COLORS.neutral;
         ctx.fillText(c.name.split(' ').pop(), x, top - 4);
       }
@@ -1570,6 +1700,7 @@ function update(dt) {
   }
   tickMining(dt);
   tickFight(dt);
+  tickWings(dt);
 
   flash = Math.max(0, flash - dt * 1.8);
   toast.t = Math.max(0, toast.t - dt);
