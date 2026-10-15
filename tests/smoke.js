@@ -87,7 +87,30 @@ test('flies in every art style and both movement modes', () => {
   browser.frames(5);
 });
 
+test('moons and nebulae come from art/bodies.js, in every style', () => {
+  // Every type the system rolls is one the art draws.
+  for (let seed = 1; seed <= 20; seed++) {
+    const s = SolarSystem.generate(seed, SYSTEM_CONFIG);
+    for (const m of s.moons) assert.ok(ArtBodies.MOON_TYPES.includes(m.type), `moon type ${m.type}`);
+    for (const n of s.nebulae) assert.ok(ArtBodies.NEBULA_TYPES.includes(n.type), `nebula type ${n.type}`);
+  }
+  // Beside a moon, then inside a nebula: drawn in each style, the nebula built over a few frames.
+  game(`fight.grace = 1e9; globalThis.__moon = __find((e) => e.kind === 'moon'); placeShip(__moon.x + __moon.radius + 150, __moon.y);`);
+  for (const style of game('ART_STYLES')) {
+    game(`artStyle.set('${style}')`);
+    browser.frames(2);
+    assert.ok(game(`frameList.some((e) => e.kind === 'moon' && visible(e))`), `a moon on screen in ${style}`);
+  }
+  const before = game('ArtBodies.stats().builds');
+  game(`{ const n = world.system.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
+  for (const style of game('ART_STYLES')) { game(`artStyle.set('${style}')`); browser.frames(4); }
+  assert.ok(game('ArtBodies.stats().builds') > before + 20, 'nebula chunks were built');
+  game(`artStyle.set('flat'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
+  browser.frames(2);
+});
+
 test('a rebuilt scene finds its sprites again', () => {
+
   // Beside a station, the star, a planet and an asteroid in turn: the same frame drawn from a
   // freshly built scene (new objects from the same seeds) builds no sprite.
   game('fight.grace = 1e9');

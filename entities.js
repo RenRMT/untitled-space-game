@@ -10,7 +10,8 @@
 //     order                                  draw order, lowest first
 //     selectable, hit                        a tap selects it, within hit × its radius
 //     follow                                 an approach keeps station with it at this distance
-//     draw(ctx, e, style, x, y, scene)       scene: { t, list } (list: everything nearby)
+//     draw(ctx, e, style, x, y, scene)       scene: { t, list, view } (list: everything nearby,
+//                                            view: the visible world rect [x0, y0, x1, y1])
 //     label(e) -> [colour, offset]           its name in space, that far below its centre
 //                                            (only things with a name show one)
 //     mark(e, system) -> { color, r, ring? } | null    on the minimap
@@ -20,7 +21,7 @@
 //   Entities.isHostile(e)                  pirate ships
 //   Entities.stationSubtitle(station)
 // Works as a classic browser script (global `Entities`) and as a Node module. Drawing and the
-// colours need art/render.js and theme.js, so only the factories work in Node.
+// colours need art/render.js, art/bodies.js and theme.js, so only the factories work in Node.
 
 const Entities = (() => {
   const isNode = typeof require === 'function' && typeof module !== 'undefined';
@@ -54,47 +55,16 @@ const Entities = (() => {
   const spinning = (e, t) => e.spin + t * e.art.spinRate;
   const named = (e) => [color().neutral, e.radius + 20]; // anything else with a name
 
-  // Nebulae have no art of their own yet: until art/render.js has an Art.drawNebula(ctx, nebula,
-  // style, { x, y, t }), each is painted once as soft overlapping clouds in its colour (its blobs,
-  // solar-system.js), small, and drawn stretched over the whole cloud; blocky in the pixel style.
-  const NEBULA_PX = 192;
-  function nebulaSprite(n) {
-    if (n._sprite) return n._sprite;
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = NEBULA_PX;
-    const c = cv.getContext('2d'), k = NEBULA_PX / (n.r * 2), C = NEBULA_PX / 2;
-    const [cr, cg, cb] = [1, 3, 5].map((i) => parseInt(n.color.slice(i, i + 2), 16));
-    const cloud = (x, y, r, a) => {
-      const g = c.createRadialGradient(x, y, 0, x, y, r);
-      g.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${a})`);
-      g.addColorStop(0.6, `rgba(${cr}, ${cg}, ${cb}, ${a * 0.45})`);
-      g.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
-      c.fillStyle = g;
-      c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
-    };
-    for (const b of n.blobs) cloud(C + b.dx * k, C + b.dy * k, b.r * k, 0.5);
-    // Knots and wisps inside the blobs, so the cloud isn't a smooth disc.
-    const r = mulberry32(n.seed);
-    for (let i = 0; i < 26; i++) {
-      const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * Math.PI * 2, d = Math.sqrt(r()) * b.r * 0.8;
-      cloud(C + (b.dx + Math.cos(a) * d) * k, C + (b.dy + Math.sin(a) * d) * k, b.r * k * (0.15 + r() * 0.3), 0.25 + r() * 0.3);
-    }
-    n._sprite = cv;
-    return cv;
-  }
-  function drawNebula(ctx, n, style, x, y, t) {
-    if (typeof Art !== 'undefined' && Art.drawNebula) { Art.drawNebula(ctx, n, style, { x, y, t }); return; }
-    ctx.save();
-    ctx.globalAlpha = 0.42;
-    ctx.imageSmoothingEnabled = style !== 'pixel';
-    ctx.drawImage(nebulaSprite(n), x - n.r, y - n.r, n.r * 2, n.r * 2);
-    ctx.restore();
-  }
-
   const KINDS = {
     nebula: {
       order: -1,
-      draw: (ctx, e, style, x, y, { t }) => drawNebula(ctx, e.nebula, style, x, y, t),
+      // Drawn in world coordinates (art/bodies.js anchors its cloud there), culled to the view.
+      draw(ctx, e, style, x, y, { view }) {
+        ctx.save();
+        ctx.translate(x - e.x, y - e.y);
+        ArtBodies.drawNebula(ctx, e.cloud, style, { view });
+        ctx.restore();
+      },
       label: () => null, // too big for a name in space: the HUD names the one you're in
       mark: () => null,
     },
@@ -111,6 +81,12 @@ const Entities = (() => {
 
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 3 }),
+    },
+    moon: {
+      order: 1,
+      draw: (ctx, e, style, x, y) => ArtBodies.drawMoon(ctx, e.body, style, { x, y }),
+      label: (e) => [color().planet, e.body.r * 1.3],
+      mark: () => ({ color: color().planet, r: 2 }),
     },
     asteroid: {
       order: 1.5, selectable: true, hit: 1,

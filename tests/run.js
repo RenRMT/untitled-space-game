@@ -140,7 +140,9 @@ test('the scene builds every system, filing everything where near() finds it', (
     const sc = sceneOf(seed), s = systems.get(seed);
     assert.strictEqual(thingsOf(seed, 'station').length, s.stations.length);
     assert.strictEqual(thingsOf(seed, 'asteroid').length, s.asteroids.length);
-    assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length + s.moons.length);
+    assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length);
+    assert.strictEqual(thingsOf(seed, 'moon').length, s.moons.length);
+
     assert.strictEqual(thingsOf(seed, 'nebula').length, s.nebulae.length);
     assert.strictEqual(thingsOf(seed, 'ship').length, s.packs.reduce((n, k) => n + k.ships.length, 0));
     // Whatever is within range of a point (by where it is or circles) is among what near() returns.

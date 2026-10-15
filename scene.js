@@ -2,7 +2,7 @@
 
 // The flight view's things in space, built once from a generated solar system (solar-system.js)
 // and its cultures (art/culture.js):
-// - the star, planets and moons, and the nebulae (drawn under everything),
+// - the star, planets, moons, and the nebulae (drawn under everything),
 // - stations in their culture, with their markets (economy.js),
 // - asteroids, each with the stable key the system gave it, so a mined one can stay gone,
 // - wrecks: hidden derelicts, ambush victims and the salvage yard's, each with things floating
@@ -43,14 +43,24 @@ const Scene = (() => {
     // ---------- Star, nebulae, planets and moons ----------
     const S = system.star;
     const star = addWide({ kind: 'star', body: { r: S.r, cls: S.cls, seed: S.seed, rays: 8 }, name: S.name, radius: S.r * 3.2, x: S.x, y: S.y });
-    for (const n of system.nebulae) addWide({ kind: 'nebula', nebula: n, body: n, radius: n.r, x: n.x, y: n.y });
-    // Planets and moons, lit from the star.
-    for (const p of [...system.planets, ...system.moons]) {
+    // A nebula as art/bodies.js draws it: its blobs in world units, inside its square, with the
+    // cloud's features about a seventh of its radius across.
+    for (const n of system.nebulae) {
+      const cloud = {
+        type: n.type, seed: n.seed, x: n.x - n.r, y: n.y - n.r, w: n.r * 2, h: n.r * 2, scale: Math.round(n.r / 7),
+        blobs: n.blobs.map((b) => ({ x: n.x + b.dx, y: n.y + b.dy, r: b.r })),
+      };
+      addWide({ kind: 'nebula', nebula: n, cloud, radius: n.r, x: n.x, y: n.y });
+    }
+    // Planets, lit from the star; moons (art/bodies.js) by the fixed world light.
+    for (const p of system.planets) {
       add({
         kind: 'planet', body: { r: p.r, type: p.type, ring: p.ring, ringTilt: p.ringTilt, seed: p.seed }, name: p.name, radius: p.r * 2,
         lightAngle: Math.atan2(S.y - p.y, S.x - p.x), x: p.x, y: p.y,
       });
     }
+    for (const m of system.moons) add({ kind: 'moon', body: { type: m.type, r: m.r, seed: m.seed }, name: m.name, radius: m.r * 1.3, x: m.x, y: m.y });
+
 
 
     // ---------- Stations ----------

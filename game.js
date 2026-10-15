@@ -469,7 +469,7 @@ function placeBeside(e) {
     placeShip(mx + Math.cos(side) * off, my + Math.sin(side) * off, Math.atan2(e.y - my, e.x - mx));
     return;
   }
-  const d = e.kind === 'planet' ? e.body.r * (e.body.ring ? 2.1 : 1.3) + 260 : e.radius + 220;
+  const d = e.kind === 'planet' || e.kind === 'moon' ? e.body.r * (e.body.ring ? 2.1 : 1.3) + 260 : e.radius + 220;
   placeShip(e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, a + Math.PI);
 }
 const startStation = () => world.scene.stations[world.system.startStation];
@@ -497,6 +497,7 @@ function loadSystem(system) {
   world.travel = Travel.create(system, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: ambushCleared });
   SystemMap.trip = world.travel;
   Art.clearCache();
+  ArtBodies.clearCache();
   placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);
 }
@@ -738,7 +739,7 @@ function drawDebris() {
 // Where a destination is in the flight view: the station or planet itself, or else its point.
 function arriveAt(dest) {
   if (dest.kind === 'station') placeBeside(world.scene.stations[dest.id]);
-  else if (dest.kind === 'planet') placeBeside(world.scene.entities.find((e) => e.kind === 'planet' && e.name === dest.id));
+  else if (dest.kind === 'planet') placeBeside(world.scene.entities.find((e) => (e.kind === 'planet' || e.kind === 'moon') && e.name === dest.id));
   else if (dest.kind === 'contact') {
     const c = world.system.contacts.find((x) => x.id === dest.id);
     dropNearContact(c, Math.atan2(c.y - ship.y, c.x - ship.x));
@@ -1797,7 +1798,8 @@ function drawEntities(list, t) {
   const shown = list.filter(visible).sort((a, b) => KINDS[a.kind].order - KINDS[b.kind].order);
   perfStats.posed = list.length;
   perfStats.drawn = shown.length;
-  const scene = { t, list };
+  const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom;
+  const scene = { t, list, view: [cam.x - hw, cam.y - hh, cam.x + hw, cam.y + hh] };
   let halos = false;
   for (const e of shown) {
     // Pickup highlights go above wrecks and asteroids, just under the items themselves.
@@ -2167,7 +2169,8 @@ function recordFrame(workMs, gapMs) {
 }
 function drawPerf() {
   const now = performance.now();
-  const s = Art.stats();
+  const s = Art.stats(), b = ArtBodies.stats();
+
   if (!perfStats.prev || now - perfStats.prevT >= 1000) {
     if (perfStats.prev) {
       const secs = (now - perfStats.prevT) / 1000;
@@ -2187,11 +2190,12 @@ function drawPerf() {
     `entities ${perfStats.posed} posed · ${perfStats.drawn} drawn · ${starCount} stars`,
     `sprites ${s.sprites} cached · ${Math.round((s.spritePixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.builds)} built/s · ${Math.round(perfStats.rates.deferred)} waited/s`,
     `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
+    `moons and nebulae ${b.sprites} cached · ${Math.round((b.pixels * 4) / 1e6)} MB · ${b.builds} built`,
   ];
   ctx.save();
   ctx.font = Theme.font(11);
   ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
-  ctx.fillRect(8, 92, 330, lines.length * 15 + 8);
+  ctx.fillRect(8, 92, 360, lines.length * 15 + 8);
   ctx.fillStyle = COLORS.cyan;
   lines.forEach((l, i) => ctx.fillText(l, 14, 108 + i * 15));
   ctx.restore();

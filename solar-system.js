@@ -31,7 +31,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 1;
+  const VERSION = 2;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -83,13 +83,16 @@ const SolarSystem = (() => {
   ];
   const PLANET_SIZE = { gas: [300, 420], blue: [240, 330], terran: [170, 230], desert: [160, 220], ice: [150, 210], lava: [140, 200] };
   const RING_CHANCE = { gas: 0.6, blue: 0.4 };
-  const MOON_TYPES = [['ice', 3], ['desert', 2], ['lava', 1]];
+  // Moon and nebula types are art/bodies.js's (MOONS, NEBULAE); a nebula's colour on the map and
+  // in the HUD is its type's line colour there.
+  const MOON_TYPES = [['grey', 3], ['ice', 3], ['rust', 2], ['dark', 2], ['sulfur', 1]];
+  const NEBULA_TYPES = [['emission', 3], ['reflection', 3], ['ion', 2], ['ember', 2], ['dust', 1]];
+  const NEBULA_COLORS = { emission: '#ff6ab0', reflection: '#7ab8ff', ion: '#5affd0', ember: '#ffaa4a', dust: '#a08870' };
   const ASTEROIDS = {
     main: [['stony', 3], ['metal', 2], ['carbon', 1]],
     outer: [['ice', 3], ['carbon', 2], ['stony', 1]],
     field: [['carbon', 3], ['stony', 2], ['ice', 2], ['metal', 1]],
   };
-  const NEBULA_COLORS = ['#8a5cff', '#3fc6c0', '#ff6fa8', '#6f9dff', '#d58aff'];
   // Nominal station sizes for keeping things clear of them (the art decides the real size).
   const STATION_SIZE = { major: 260, minor: 140 };
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
@@ -169,7 +172,7 @@ const SolarSystem = (() => {
         const d = p.body + 300 + k * 280 + mr;
         const a = rp() * TAU;
         const m = {
-          id: moons.length, parent: p.id, name: `${p.name} ${'abcd'[k]}`, type: weightedPick(MOON_TYPES, rp()), r: mr, ring: false,
+          id: moons.length, parent: p.id, name: `${p.name} ${'abcd'[k]}`, type: weightedPick(MOON_TYPES, rp()), r: mr,
           ringTilt: 0, seed: nextSeed(rp) % 9973, orbit: d, x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
         };
         moons.push(m);
@@ -203,10 +206,8 @@ const SolarSystem = (() => {
         const br = r * between(rn, [0.3, 0.5]), a = rn() * TAU, d = between(rn, [0.25, 1]) * (r - br);
         blobs.push({ dx: Math.cos(a) * d, dy: Math.sin(a) * d, r: br });
       }
-      nebulae.push({
-        id: i++, name: `${makeName()} Nebula`, ...at, r, blobs,
-        color: NEBULA_COLORS[Math.floor(rn() * NEBULA_COLORS.length)], seed: nextSeed(rn),
-      });
+      const type = weightedPick(NEBULA_TYPES, rn());
+      nebulae.push({ id: i++, name: `${makeName()} Nebula`, ...at, r, blobs, type, color: NEBULA_COLORS[type], seed: nextSeed(rn) });
     }
     function nebulaAt(x, y) {
       for (const n of nebulae) {

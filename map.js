@@ -30,6 +30,10 @@ const SystemMap = (() => {
   const CONTACT = SolarSystem.CONTACT_TYPES; // label, colour and prompt per contact type
   const PLANET_COLOR = { gas: '#e0a868', blue: '#6f97d8', terran: '#58b07a', desert: '#d9a066', ice: '#cfe6f5', lava: '#ff7a3a' };
   const PLANET_LABEL = { gas: 'gas giant', blue: 'ice giant', terran: 'terran world', desert: 'desert world', ice: 'ice world', lava: 'lava world' };
+  // Moons by their art/bodies.js type.
+  const MOON_COLOR = { grey: '#8e8a84', ice: '#bcd3e2', sulfur: '#d6bf55', rust: '#a35a3b', dark: '#86838e' };
+  const MOON_LABEL = { grey: 'grey regolith', ice: 'icy', sulfur: 'volcanic', rust: 'rust', dark: 'carbon' };
+  const bodyColor = (p) => (p.parent !== undefined ? MOON_COLOR[p.type] : PLANET_COLOR[p.type]);
   const MARKET_LABEL = { capital: 'capital station · shipyard', major: 'station · shipyard', minor: 'station' };
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56;
@@ -241,7 +245,7 @@ const SystemMap = (() => {
     }
     for (const m of system.moons) {
       const [mx, my] = toScreen(m.x, m.y);
-      ctx.fillStyle = PLANET_COLOR[m.type];
+      ctx.fillStyle = MOON_COLOR[m.type];
       ctx.beginPath(); ctx.arc(mx, my, dot(m.r, 1.5), 0, Math.PI * 2); ctx.fill();
     }
 
@@ -464,8 +468,9 @@ const SystemMap = (() => {
       const p = sel.planet;
       const moons = p.moons ? p.moons.length : 0;
       info.innerHTML =
-        swatchHead(PLANET_COLOR[p.type], p.name) +
-        row('type', p.parent !== undefined ? `moon · ${PLANET_LABEL[p.type].split(' ')[0]}` : PLANET_LABEL[p.type] + (p.ring ? ' · rings' : '')) +
+        swatchHead(bodyColor(p), p.name) +
+        row('type', p.parent !== undefined ? `moon · ${MOON_LABEL[p.type]}` : PLANET_LABEL[p.type] + (p.ring ? ' · rings' : '')) +
+
         (p.parent === undefined ? row('orbit', km(p.orbit)) : '') +
         (moons ? row('moons', String(moons)) : '') +
         securityRow(p.x, p.y) + awayRow(p);
