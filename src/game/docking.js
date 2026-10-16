@@ -14,7 +14,7 @@ import { missionDocked, missionLaunched, missionViews, stationLocks } from './mi
 import { artStyle } from './options.js';
 import { hullmods, outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
-import { repairSquad } from './squad.js';
+import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship, whiteOut } from './state.js';
 import { world } from './world.js';
 
@@ -65,7 +65,7 @@ export function dock(station) {
     hullmods,
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
-    squad: { members: cargo.squad },
+    squad: programs,
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
     tab: opening() ? 'missions' : 'trade', // the opening missions are all there is to do at first

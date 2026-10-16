@@ -262,12 +262,17 @@
   .st-costs .cost.short { color: var(--warn); }
   .st-costs .icon { margin: -2px 0; }
 
-  /* Squad: each member's hull and logic modules. */
+  /* Squad: each member's hull and program; the line editor's fields and conditions. */
   .st-member { display: flex; align-items: center; gap: 10px; }
   .st-member .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .st-member .line { display: flex; gap: 8px; align-items: baseline; }
   .st-member .name { font-size: 17px; font-weight: 600; color: var(--bright); }
   .st-member .sub { font-size: 13px; color: var(--dim); }
+  .st-field { display: flex; flex-direction: column; gap: 6px; }
+  .st-clause { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px solid var(--line); }
+  .st-clause-head { display: flex; justify-content: space-between; align-items: center; }
+  .st-line-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  .st-line-tools .ui-btn { flex: 1 1 0; min-width: 0; padding: 0 8px; }
 
   /* Settings: a dialog over the flight view (which keeps drawing behind it, so art style changes
      show right away). One group per option: a row of choices and a line about the selected one. */

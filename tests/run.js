@@ -1385,65 +1385,129 @@ test('the introduction: lines, questions that set the art style and movement, an
 
 // ---------- Squad and AI logic modules ----------
 
-test('logic modules: the first whose condition holds decides; with none, keep formation', () => {
-  const enemies = [{ id: 'a', hull: 10 }, { id: 'b', hull: 10 }];
-  const ctx = (o) => ({ self: {}, leader: {}, inFight: true, enemies, leaderTarget: 'b', ...o });
-  assert.deepStrictEqual(Logic.decide([], ctx()).intent, { type: 'follow' });
-  const d = Logic.decide(['assist-leader'], ctx());
-  assert.strictEqual(d.module.id, 'assist-leader');
-  assert.deepStrictEqual(d.intent, { type: 'attack', target: 'b' });
-  // Out of a fight, with no target, or with the target gone: the rule doesn't apply.
-  for (const o of [{ inFight: false }, { leaderTarget: null }, { leaderTarget: 'gone' }]) assert.deepStrictEqual(Logic.decide(['assist-leader'], ctx(o)).intent, { type: 'follow' });
-  // Unknown ids and empty slots are skipped; order decides between rules that both apply.
-  assert.strictEqual(Logic.decide([null, 'no-such-module', 'assist-leader'], ctx()).module.id, 'assist-leader');
-  Logic.CONDITIONS['test-first'] = { label: 'there is an enemy', test: (c) => c.enemies[0] || null };
-  Logic.MODULES['test-first'] = { id: 'test-first', category: 'combat', name: 'Test', if: 'test-first', then: 'attack' };
-  try {
-    assert.strictEqual(Logic.decide(['test-first', 'assist-leader'], ctx()).intent.target, 'a');
-    assert.strictEqual(Logic.decide(['assist-leader', 'test-first'], ctx()).intent.target, 'b');
-  } finally {
-    delete Logic.CONDITIONS['test-first'];
-    delete Logic.MODULES['test-first'];
-  }
-  // Every module names a known category, condition and action, and reads as a rule.
-  for (const id of Object.keys(Logic.MODULES)) {
-    const m = Logic.MODULES[id];
-    assert(Logic.CATEGORIES[m.category] && Logic.CONDITIONS[m.if] && Logic.ACTIONS[m.then], id);
-    assert.match(Logic.label(id), /logic module · /);
-    assert.match(Logic.rule(id), /^If .+, then .+$/);
-  }
-  assert.strictEqual(Logic.label('assist-leader'), 'Combat logic module · Assist leader');
+// A fight as a squad member sees it (rules/logic.js ctx): ships on a line, x = distance.
+function logicFight(o = {}) {
+  const ship = (id, x, hull, max = 100, name = 'Fighter') => ({ id, x, hull, shield: 0, stats: { hull: max, shield: 0, name } });
+  const self = ship('me', 0, 100), leader = ship('player', 50, 100), buddy = ship('sq2', 80, 30);
+  const enemies = [ship('a', 900, 80), ship('b', 300, 20), ship('c', 600, 100, 100, 'Freighter')];
+  return {
+    self, leader, enemies, allies: [buddy], leaderTarget: 'c',
+    dist: (p, q) => Math.abs(p.x - q.x), targetOf: (e) => (e.id === 'b' ? 'sq2' : 'player'), ready: () => false, ...o,
+  };
+}
+const ALL = new Set(['core.bool', 'core.bool.or', 'combat.select', 'combat.threat', 'combat.range', 'combat.focus', 'tactics.count', 'tactics.use', 'maint.sense', 'squad.link', 'maint.guard', 'maint.retreat']);
+const L = (o) => ({ ...Logic.blank(), ...o, when: (o.when || []).map((c) => Logic.clause(c)) });
+
+test('logic: the first line that holds decides; with none, keep formation', () => {
+  const ctx = logicFight();
+  assert.deepStrictEqual(Logic.decide([], ctx), { line: -1, intent: { type: 'follow' } });
+  const assist = Logic.copy(Logic.PRESETS['assist.leader']);
+  assert.deepStrictEqual(Logic.decide([assist], ctx), { line: 0, intent: { type: 'attack', target: 'c' } });
+  assert.strictEqual(Logic.text(assist), 'if enemy.isLeaderTarget → attack(enemy)');
+  assert.deepStrictEqual(Logic.decide([assist], logicFight({ leaderTarget: null })).intent, { type: 'follow' });
+  // Order decides between lines that both hold; lines that are off, broken or past the limit are skipped.
+  const weak = L({ pick: 'weakest' });
+  assert.strictEqual(Logic.decide([weak, assist], ctx).intent.target, 'b');
+  assert.strictEqual(Logic.decide([assist, weak], ctx).intent.target, 'c');
+  assert.strictEqual(Logic.decide([{ ...weak, on: false }, assist], ctx).line, 1);
+  assert.strictEqual(Logic.decide([{ ...weak, err: 'x' }, assist], ctx).line, 1);
+  assert.deepStrictEqual(Logic.decide([L({ subject: 'self', when: [{ prop: 'hull', rel: '<', value: 10 }] }), assist], ctx, 1), { line: -1, intent: { type: 'follow' } }, 'the limit');
+  // Picks.
+  assert.strictEqual(Logic.decide([L({ pick: 'nearest' })], ctx).intent.target, 'b');
+  assert.strictEqual(Logic.decide([L({ pick: 'strongest' })], ctx).intent.target, 'c');
+  assert.strictEqual(Logic.decide([L({})], ctx).intent.target, 'a', 'any: in the order given');
+  // Conditions about the candidate, about self or the fight, with not, and, or.
+  const lowHull = { prop: 'hull', rel: '<', value: 50 };
+  assert.strictEqual(Logic.decide([L({ when: [lowHull] })], ctx).intent.target, 'b');
+  assert.strictEqual(Logic.decide([L({ when: [{ ...lowHull, not: true }] })], ctx).intent.target, 'a');
+  assert.strictEqual(Logic.decide([L({ when: [{ prop: 'targeting', value: 'ally' }] })], ctx).intent.target, 'b');
+  assert.strictEqual(Logic.decide([L({ when: [{ prop: 'class', rel: '==', value: 'freighter' }] })], ctx).intent.target, 'c');
+  assert.strictEqual(Logic.decide([L({ when: [{ prop: 'distance', rel: '<=', value: 600 }, { join: 'and', ...lowHull }] })], ctx).intent.target, 'b');
+  assert.strictEqual(Logic.decide([L({ when: [{ prop: 'enemies', of: 'fight', rel: '>=', value: 4 }] })], ctx).line, -1);
+  assert.deepStrictEqual(Logic.decide([L({ subject: 'self', act: 'retreat', when: [{ prop: 'hull', rel: '<=', value: 100 }] })], ctx).intent, { type: 'retreat' });
+  // and binds tighter than or: false and false or true.
+  const never = { prop: 'hull', rel: '>', value: 100 }, always = { prop: 'hull', rel: '<=', value: 100 };
+  assert.strictEqual(Logic.decide([L({ when: [never, { join: 'and', ...never }, { join: 'or', ...always }] })], ctx).line, 0);
+  assert.strictEqual(Logic.decide([L({ when: [always, { join: 'and', ...never }, { join: 'or', ...never }] })], ctx).line, -1);
+  assert.strictEqual(Logic.decide([L({ when: [never, { join: 'or', ...always }, { join: 'and', ...never }] })], ctx).line, -1);
+  // Guarding: the ally.
+  assert.deepStrictEqual(Logic.decide([L({ subject: 'ally', act: 'guard', when: [{ prop: 'hull', rel: '<', value: 50 }] })], ctx).intent, { type: 'guard', ward: 'sq2' });
+  // use() runs only when the ability is ready, else the next line does.
+  const use = L({ act: 'use', skill: 'emp' });
+  assert.strictEqual(Logic.decide([use, assist], ctx).line, 1);
+  assert.deepStrictEqual(Logic.decide([use, assist], logicFight({ ready: (k, c) => k === 'emp' && c.id === 'b' })).intent, { type: 'use', skill: 'emp', target: 'b' });
+});
+
+test('logic: lines check against what research has unlocked, and read back from a save', () => {
+  assert(Logic.check(Logic.PRESETS['assist.leader'], new Set()).ok, 'the first module needs nothing');
+  assert(Logic.check(Logic.blank(), new Set()).ok);
+  const errs = (line, known = ALL) => Logic.check(line, known).errors;
+  assert.match(errs(L({ pick: 'nearest' }), new Set())[0], /import combat\.select/);
+  assert.match(errs(L({ subject: 'ally', act: 'guard' }), new Set())[0], /import squad\.link/);
+  assert.match(errs(L({ subject: 'self', pick: 'nearest' }))[0], /nothing to pick/);
+  assert.match(errs(L({ subject: 'self', act: 'attack' }))[0], /can't take self/);
+  assert.match(errs(L({ when: [{ prop: 'enemies', rel: '<', value: 2 }] }))[0], /enemy\.enemies isn't a thing/);
+  assert.match(errs(L({ when: [{ prop: 'hull', rel: '<', value: 33 }] }))[0], /bad value/);
+  assert.match(errs(L({ when: [{ prop: 'hull', rel: '~', value: 30 }] }))[0], /bad operator/);
+  assert.match(errs(L({ when: [{ prop: 'isLeaderTarget' }, { join: null, prop: 'isLeaderTarget' }] }))[0], /needs and \/ or/);
+  assert.match(errs(L({ when: [{ prop: 'isLeaderTarget' }, { join: 'or', prop: 'isLeaderTarget' }] }), new Set(['core.bool']))[0], /import core\.bool\.or/);
+  assert.match(errs(L({ when: [{ prop: 'isLeaderTarget', not: true }] }), new Set())[0], /import core\.bool/);
+  assert.match(errs(L({ act: 'use' }))[0], /bad ability/);
+  assert.match(errs(L({ when: Array.from({ length: 5 }, (_, i) => ({ join: i ? 'and' : null, prop: 'isLeaderTarget' })) }))[0], /at most 4/);
+  // Read: cleaned; a line that doesn't check is kept, off, with why.
+  const ok = Logic.read(JSON.parse(JSON.stringify(Logic.PRESETS['assist.leader'])), new Set());
+  assert.deepStrictEqual(ok, Logic.PRESETS['assist.leader']);
+  const bad = Logic.read({ subject: 'enemy', pick: 'nearest', when: [null, { prop: 'hull', rel: '<', value: 30 }], act: 'attack' }, new Set());
+  assert(!bad.on && /import/.test(bad.err));
+  assert.strictEqual(bad.when.length, 1);
+  assert(Logic.read(null, new Set()).act === 'follow' && Logic.read(null, new Set()).on, 'garbage reads as a line that follows');
+  // As code.
+  assert.strictEqual(Logic.text(L({ pick: 'nearest', when: [{ prop: 'hull', rel: '<', value: 30 }, { join: 'and', not: true, prop: 'targeting', value: 'leader' }] })),
+    'if enemy.hull < 30% and not enemy.targeting(leader) → attack(nearest(enemy))');
+  assert.strictEqual(Logic.text(L({ subject: 'self', act: 'retreat', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 3 }] })), 'if fight.enemies >= 3 → retreat()');
+  assert.strictEqual(Logic.text(Logic.blank()), 'if true → attack(enemy)');
+  for (const t of Logic.tokens(L({ act: 'use', skill: 'emp' }))) assert(['kw', 'subj', 'prop', 'op', 'num', 'fn', 'punc', 'ws', 'err'].includes(t.t));
+  // Every block has a package, and every package's blocks are found.
+  for (const B of [Logic.SUBJECTS, Logic.PICKS, Logic.PROPS, Logic.KEYWORDS, Logic.ACTIONS]) for (const b of Object.values(B)) assert(typeof b.pkg === 'string' && Logic.blocks(b.pkg).some((x) => x.id === b.id), b.id);
 });
 
 test('squad: an android wingman, in formation behind the leader, saved and restored', () => {
-  const m = Squad.member(42, { modules: ['assist-leader'] });
+  const assist = Logic.copy(Logic.PRESETS['assist.leader']);
+  const m = Squad.member(42, { program: [assist] });
   assert.match(m.name, /^[A-Z][a-z]+-\d\d$/, 'an android designation');
   assert.strictEqual(m.name, Squad.member(42).name, 'named by its seed');
-  assert.deepStrictEqual(m.modules, ['assist-leader', null, null, null]);
-  assert.strictEqual(m.modules.length, Squad.SLOTS);
+  assert.deepStrictEqual(m.program, [assist]);
   assert(m.hullPoints === Squad.stats(m).hull && !m.disabled);
   assert(Squad.stats(m).weapons.length >= 1, 'armed');
+  assert.strictEqual(Squad.lineLimit(0), Squad.BASE_LINES);
+  assert.strictEqual(Squad.lineLimit(99), Squad.MAX_LINES);
   // Formation: behind the leader, first on one side then the other.
   const leader = { x: 100, y: 50, angle: 0 };
   const a = Squad.formation(leader, 0), b = Squad.formation(leader, 1);
   assert(a.x < leader.x && b.x < leader.x && Math.sign(a.y - leader.y) === -Math.sign(b.y - leader.y));
   const turned = Squad.formation({ x: 0, y: 0, angle: Math.PI / 2 }, 0);
   assert(turned.y < -50, 'the formation turns with the leader');
-  // Installing, removing and reordering modules.
+  // Adding, moving, switching off and removing lines.
   const w = Squad.member(7);
-  assert(!Squad.install(w, 'no-such-module', 0) && !Squad.install(w, 'assist-leader', Squad.SLOTS));
-  assert(Squad.install(w, 'assist-leader', 2) && Squad.move(w, 2, 0));
-  assert.deepStrictEqual(Squad.modulesOf(w), ['assist-leader']);
-  assert.strictEqual(w.modules[0], 'assist-leader');
-  assert.strictEqual(Squad.remove(w, 0), 'assist-leader');
-  assert.deepStrictEqual(Squad.modulesOf(w), []);
-  // A save round trip; unknown modules are dropped, bad entries skipped.
+  const x = Logic.blank(), y = L({ pick: 'weakest' });
+  assert(!Squad.setLine(w, 1, x), 'no gaps');
+  assert(Squad.setLine(w, 0, x) && Squad.setLine(w, 1, y) && Squad.moveLine(w, 1, 0));
+  assert.deepStrictEqual(w.program, [y, x]);
+  assert(Squad.toggleLine(w, 0) && !w.program[0].on);
+  assert.strictEqual(Squad.removeLine(w, 0), y);
+  assert.deepStrictEqual(w.program, [x]);
+  assert(!Squad.moveLine(w, 0, 3) && Squad.removeLine(w, 5) === null);
+  for (let i = 1; i < Squad.MAX_LINES; i++) assert(Squad.setLine(w, i, Logic.blank()));
+  assert(!Squad.setLine(w, Squad.MAX_LINES, Logic.blank()), 'at most MAX_LINES');
+  // A save round trip; lines that don't check stay, off; bad entries are skipped.
   m.hullPoints = 12;
   m.disabled = true;
-  const back = Squad.read(JSON.parse(JSON.stringify([m, { seed: 'x' }, { ...m, id: 'sq2', modules: ['gone', 'assist-leader'] }])));
-  assert.strictEqual(back.length, 2);
-  assert.deepStrictEqual([back[0].id, back[0].name, back[0].hullPoints, back[0].disabled, back[0].modules], [m.id, m.name, 12, true, m.modules]);
-  assert.deepStrictEqual(back[1].modules, [null, 'assist-leader', null, null]);
+  m.program.push(L({ pick: 'nearest' }));
+  const back = Squad.read(JSON.parse(JSON.stringify([m, { seed: 'x' }])), new Set());
+  assert.strictEqual(back.length, 1);
+  assert.deepStrictEqual([back[0].id, back[0].name, back[0].hullPoints, back[0].disabled, back[0].program[0]], [m.id, m.name, 12, true, assist]);
+  assert(!back[0].program[1].on && back[0].program[1].err, 'needs combat.select');
+  assert(Squad.read(JSON.parse(JSON.stringify([m])), ALL)[0].program[1].on, 'fine once researched');
   assert.strictEqual(Squad.read(undefined), null);
 });
 

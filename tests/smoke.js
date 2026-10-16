@@ -264,7 +264,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.ok(game('!!stationLocks().launch'), 'Launch waits for the second mission');
   assert.strictEqual(game('cargo.squad.length'), 1);
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
-  assert.deepStrictEqual(game('Squad.modulesOf(cargo.squad[0])'), [], 'with no logic modules yet');
+  assert.deepStrictEqual(game('cargo.squad[0].program'), [], 'with no program yet');
   game(`StationMenu.showTab('squad')`);
   assert.strictEqual(game('StationMenu.tab'), 'squad');
   assert.match(tab(), new RegExp(game('mission.vars.ship')));
@@ -463,15 +463,33 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   assert.match(tab(), /Jump gate activated/);
   assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
   assert.match(tab(), /share our findings with Waystation HD-1908/);
-  assert.deepStrictEqual(game('Squad.modulesOf(firstMember())'), ['assist-leader'], 'its first combat logic module');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)'], 'its first combat logic module');
   assert.ok(game('gatesOnline() && !world.scene.gates[mission.gate.gate].offline'), 'the gate is online');
   game(`StationMenu.showTab('squad')`);
-  assert.match(tab(), /Combat logic module · Assist leader/);
+  assert.match(tab(), /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'the program, as code');
+  // Editing it: a new line, through its sheet.
+  game(`StationMenu.showLine(firstMember().id, 1)`);
+  assert.match(onStation(), /New line/);
+  assert.match(onStation(), /if true → attack\(enemy\)/, 'a blank line to start from');
+  pressOnStation('Add line');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)', 'if true → attack(enemy)']);
+  // Moved up, switched off, then deleted.
+  game(`StationMenu.showLine(firstMember().id, 1)`);
+  pressOnStation('↑');
+  assert.strictEqual(game('Logic.text(firstMember().program[0])'), 'if true → attack(enemy)');
+  game(`StationMenu.showLine(firstMember().id, 0)`);
+  pressOnStation('Off');
+  assert.strictEqual(game('firstMember().program[0].on'), false);
+  game(`StationMenu.showLine(firstMember().id, 0)`);
+  pressOnStation('Delete');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)']);
+  // What research hasn't unlocked can't be picked.
+  assert.ok(!game(`programs.set(firstMember().id, 1, { ...Logic.blank(), pick: 'nearest' })`), 'nearest needs combat.select');
   game('launch()');
   browser.frames(3);
   assert.strictEqual(game('objective()'), null, 'nothing more to do');
   // The tests after this one start from offline gates and a fresh squad member.
-  game('cargo.story.delete("gates"); showGates(); Squad.remove(firstMember(), firstMember().modules.indexOf("assist-leader")); saveCargo()');
+  game('cargo.story.delete("gates"); showGates(); firstMember().program = []; saveCargo()');
   game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
 });
 
@@ -677,7 +695,9 @@ test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys 
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
-  assert.strictEqual(game('CARGO_MIGRATIONS.length'), 4);
+  // Logic modules in slots become program lines.
+  const sq = game(`(() => { const d = { squad: [{ seed: 1, modules: ['assist-leader', null, 'gone', null] }, { seed: 2 }] }; CARGO_MIGRATIONS[4](d); return d.squad; })()`);
+  assert.deepStrictEqual(sq, [{ seed: 1, program: [game(`Logic.PRESETS['assist.leader']`)] }, { seed: 2 }]);
 });
 
 test('components go to their own store, even with a full hold, and stay when the ship is lost', () => {
@@ -951,8 +971,8 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   const id = game('cargo.squad[0].id');
   assert.match(game('cargo.squad[0].name'), /^[A-Z][a-z]+-\d\d$/);
   assert.strictEqual(game(`wings.get('${id}').art.culture.lineage`), 'android', 'built in the android culture');
-  // It joined with empty logic slots; give it the Assist leader module (a later mission's job).
-  assert.ok(game(`Squad.install(cargo.squad[0], 'assist-leader', 0)`));
+  // It joined with an empty program; give it the Assist leader line (a later mission's job).
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.PRESETS['assist.leader'])`));
   // It follows the ship around and settles into its place in formation.
   game(`fight.grace = 1e9; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 2500, Math.PI / 2); } ship.targetAngle = 0.4; ship.targetSpeed = SHIP.maxSpeed * 0.6;`);
   browser.frames(120);
@@ -963,7 +983,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman' && e.key === '${id}' && visible(e))`), 'drawn beside the ship');
   game(`select(frameList.find((e) => e.kind === 'wingman'))`);
   browser.frames(1);
-  assert.match(game('describe(selected.e).subtitle'), /^Squad · android fighter · 1 logic module/);
+  assert.match(game('describe(selected.e).subtitle'), /^Squad · android fighter · 1 logic line/);
   game('select(null)');
   // In a fight it joins as an ally, and its combat logic module has it fire on the leader's target.
   for (const mode of ['rounds', 'realtime']) {
@@ -987,9 +1007,9 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game('!cargo.squad[0].disabled && cargo.squad[0].hullPoints === Squad.stats(cargo.squad[0]).hull'), 'repaired');
   game(`StationMenu.showTab('squad')`);
   const tab = textOf(browser.document.getElementById('st-body'));
-  assert.match(tab, /Combat logic module · Assist leader/);
-  assert.match(tab, /If the leader is fighting a target, then attack it/);
-  assert.match(tab, /1 of 4 logic slots in use/);
+  assert.match(tab, /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'its program, as code');
+  assert.match(tab, /else → follow\(leader\)/, 'and what it does when no line holds');
+  assert.match(tab, /1\/3 lines run/);
   game('launch()');
   browser.frames(3);
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');

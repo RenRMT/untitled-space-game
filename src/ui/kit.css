@@ -296,3 +296,35 @@
 .ui-toast[hidden] { display: none; }
 @keyframes ui-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
 @media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }
+
+/* Code: logic programs as numbered lines of mono text, coloured by token kind. */
+.ui-code { display: flex; flex-direction: column; padding: 4px 0; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); font: 400 13px/1.5 var(--mono); }
+.ui-code-line {
+  display: flex; align-items: flex-start; gap: 10px; width: 100%; min-height: var(--hit); box-sizing: border-box; padding: 11px 12px 11px 0;
+  background: none; border: 0; border-left: 2px solid transparent; text-align: left; color: var(--hud); font: inherit;
+}
+button.ui-code-line { cursor: pointer; touch-action: manipulation; }
+button.ui-code-line:hover { background: var(--cyan-tint); }
+.ui-code-line:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.ui-code-line .ln { flex: none; width: 30px; text-align: right; color: var(--line-strong); user-select: none; }
+.ui-code-line .src { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ui-code-line .msg { display: block; color: var(--dim); font-style: italic; }
+.ui-code-line .msg.err { color: var(--hostile); }
+.ui-code-line.off .src > span:not(.msg) { text-decoration: line-through; opacity: 0.5; }
+.ui-code-line.dim { opacity: 0.45; }
+.ui-code-line.active { border-left-color: var(--good); background: rgba(182, 255, 138, 0.06); }
+.ui-code-line.active .ln { color: var(--good); }
+.tk-kw { color: var(--t4); } .tk-subj { color: var(--cyan); } .tk-prop { color: var(--t3); } .tk-op, .tk-punc { color: var(--dim); }
+.tk-num { color: var(--t5); } .tk-fn { color: var(--good); } .tk-cmt { color: var(--dim); font-style: italic; }
+.tk-err { color: var(--hostile); text-decoration: underline wavy; }
+
+/* Choices: a row of mono buttons, one on (the editor for a program line). */
+.ui-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.ui-choice {
+  min-height: var(--hit); min-width: var(--hit); padding: 0 12px; box-sizing: border-box;
+  background: transparent; border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  font: 500 13px var(--mono); color: var(--hud); cursor: pointer; touch-action: manipulation;
+}
+.ui-choice.on { border-color: var(--cyan); background: var(--cyan-tint); color: var(--cyan-hi); }
+.ui-choice.locked { border-style: dashed; color: var(--line-strong); cursor: default; }
+.ui-choice:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }

@@ -1,5 +1,5 @@
 // The squad in flight: android wingmen in formation, given orders in a fight by their logic
-// modules (rules/squad.js, rules/logic.js), repaired at a dock.
+// programs (rules/squad.js, rules/logic.js), repaired at a dock.
 // Part of the flight view; src/main.js starts it.
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -7,7 +7,7 @@ import { CombatCore } from '../combat/combat-core.js';
 import { Flight } from '../flight/flight.js';
 import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
-import { cargo, saveCargo } from './cargo.js';
+import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode } from './combat.js';
 import { escorting, mission, workSpot } from './missions.js';
 import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
@@ -15,8 +15,8 @@ import { world } from './world.js';
 
 //
 // Squad members (rules/squad.js) fly in formation behind the ship. In a fight they join it as allies
-// (combat/combat-core.js): every frame each one's logic modules (rules/logic.js), checked in slot order, decide
-// what it does; the first that applies gives its orders, and with none it keeps formation. One
+// (combat/combat-core.js): every frame each one's program (rules/logic.js), run top down, decides
+// what it does; the first line that holds gives its orders, and with none it keeps formation. One
 // whose hull is shot down is disabled until the ship next docks, which repairs the whole squad.
 
 export const WING_SNAP = 4000; // a wingman this far from its place (after a jump or map travel) is put there
@@ -85,15 +85,33 @@ export function allySpecs() {
   });
 }
 
-// Each ally's orders for this frame, from its logic modules: attack what they name, or keep
-// formation.
+// Where a combatant is: its own position in real time; in a round-based fight, where its ship is
+// held (the player's ship, a wingman, an enemy).
+function posOf(c) {
+  if (Number.isFinite(c.x)) return c;
+  if (c.id === 'player') return ship;
+  return wings.get(c.id) || fight.ships.get(c.id) || ship;
+}
+const distance = (a, b) => { const p = posOf(a), q = posOf(b); return Math.hypot(p.x - q.x, p.y - q.y); };
+
+// What an ally knows when it decides (rules/logic.js ctx).
+export function logicContext(s, a) {
+  return {
+    self: a, leader: s.player, enemies: CombatCore.alive(s), allies: CombatCore.allies(s).filter((x) => x !== a),
+    leaderTarget: s.focus ?? null, dist: distance, targetOf: (e) => CombatCore.aimAt(s, e).id,
+    ready: () => false, // abilities come later (from gear); until then `use` lines never run
+  };
+}
+
+// Each ally's orders for this frame, from its program: the line that ran (a.line, -1 for none)
+// and what it says to do, else keep formation.
 export function orderSquad(s) {
-  const m = fightMode(), enemies = CombatCore.alive(s);
+  const m = fightMode(), limit = logicLines();
   CombatCore.allies(s).forEach((a, i) => {
     const member = memberOf(a.id);
     if (!member) return;
-    const facts = { self: a, leader: s.player, inFight: true, enemies, leaderTarget: s.focus ?? null };
-    const { intent } = Logic.decide(Squad.modulesOf(member), facts);
+    const { line, intent } = Logic.decide(member.program, logicContext(s, a), limit);
+    a.line = line;
     m.setOrders(s, a.id, intent.type === 'attack' ? { target: intent.target } : { station: Squad.formation(ship, i) });
   });
 }
@@ -126,4 +144,25 @@ export function repairSquad() {
     m.disabled = false;
     m.hullPoints = Squad.stats(m).hull;
   }
+}
+
+// Squad programs as the station menu sees them: the members, what research has unlocked, how
+// many lines run, and editing a member's lines (only lines that check go in).
+export const programs = {
+  get members() { return cargo.squad; },
+  get known() { return logicKnown(); },
+  get limit() { return logicLines(); },
+  set(id, i, line) {
+    const m = memberOf(id);
+    if (!m || !Logic.check(line, logicKnown()).ok || !Squad.setLine(m, i, Logic.copy(line))) return false;
+    saveCargo();
+    return true;
+  },
+  remove(id, i) { return edited(Squad.removeLine(memberOf(id) || { program: [] }, i) !== null); },
+  move(id, from, to) { return edited(Squad.moveLine(memberOf(id) || { program: [] }, from, to)); },
+  toggle(id, i) { return edited(Squad.toggleLine(memberOf(id) || { program: [] }, i)); },
+};
+function edited(ok) {
+  if (ok) saveCargo();
+  return ok;
 }

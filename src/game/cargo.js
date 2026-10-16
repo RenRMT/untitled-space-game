@@ -10,6 +10,7 @@ import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { HullMods } from '../rules/hullmods.js';
+import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
@@ -29,7 +30,7 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // ({ [equipment id]: count }); schematics: equipment recovered from pirates (rules/loadout.js ids, a
 // Set), which every station then sells; hullMods: the hull refits fitted (rules/hullmods.js ids, a
 // Set); squad: the
-// squad members (rules/squad.js), with their logic modules and hull. story: what has happened so far
+// squad members (rules/squad.js), with their programs and hull. story: what has happened so far
 // (a Set of STORY flags). missions: the mission log (story/missions.js): what's been accepted, done
 // and handed in.
 export const cargo = {
@@ -149,13 +150,28 @@ export const CARGO_MIGRATIONS = [
     d.hullMods = d.research.filter((id) => HullMods.NODES[id]);
     delete d.research;
   },
+  // 5. Squad members run programs of logic lines, not modules in slots: the one module there
+  //    was (assist-leader) becomes its line.
+  (d) => {
+    if (!Array.isArray(d.squad)) return;
+    const LINES = { 'assist-leader': 'assist.leader' };
+    for (const m of d.squad) {
+      if (!m || !Array.isArray(m.modules)) continue;
+      m.program = m.modules.filter((id) => LINES[id]).map((id) => Logic.copy(Logic.PRESETS[LINES[id]]));
+      delete m.modules;
+    }
+  },
 ];
+
+// The logic packages known (rules/research.js) and how many lines of a program run.
+export const logicKnown = () => new Set();
+export const logicLines = () => Squad.lineLimit(0);
 
 // The parts of a save (in the current form), each checked.
 export function readCargo(d) {
   if (Array.isArray(d.schematics)) cargo.schematics = new Set(d.schematics.filter((id) => Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc));
   if (Array.isArray(d.hullMods)) cargo.hullMods = new Set(d.hullMods.filter((id) => HullMods.NODES[id]));
-  cargo.squad = Squad.read(d.squad) || cargo.squad;
+  cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions);
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;

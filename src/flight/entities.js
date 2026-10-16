@@ -159,9 +159,9 @@ const Entities = (() => {
       label: (e) => [e.color, e.radius + 20],
       mark: (e) => ({ color: e.color, r: 1.8 }),
       card(e) {
-        const n = e.member.modules.filter(Boolean).length;
+        const n = e.member.program.length;
         const role = (ROLE_LABEL[e.member.hull] || 'ship').toLowerCase();
-        return { title: e.name, sub: `Squad · android ${role} · ${n} logic module${n === 1 ? '' : 's'}`, color: e.color, tag: 'Squad' };
+        return { title: e.name, sub: `Squad · android ${role} · ${n} logic line${n === 1 ? '' : 's'}`, color: e.color, tag: 'Squad' };
       },
     },
     ship: {

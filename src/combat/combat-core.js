@@ -22,7 +22,7 @@
 //       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
 //       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
 //   setOrders(s, id, { target, station })   what an ally does now (game/squad.js decides, from its
-//                                      logic modules): fire on `target` (an enemy id), or with
+//                                      logic programs): fire on `target` (an enemy id), or with
 //                                      none hold `station` (its place in formation, in real time)
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
 //   setFocus(s, id)                    the player picks a target
