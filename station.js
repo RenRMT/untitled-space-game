@@ -17,7 +17,7 @@
 // missions: { list() -> [mission view] }: the missions to show here (missions.js, game.js), each
 //   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (its
 //   giver is this station), lines: [what the giver says now], objectives: [{ label, count, need,
-//   done, open }], provided?, reward, note?, accept?(), complete?() }.
+//   done, open, percent }], provided?, reward, note?, accept?(), complete?() }.
 // locks() -> { tabs: [tab names], reason, launch }: tabs that can't be opened yet and why, and why
 //   Launch can't be pressed yet (null when it can). Asked again after every change.
 // Browser script (global `StationMenu`).
@@ -310,7 +310,7 @@ const StationMenu = (() => {
   function missionCard(m) {
     const goals = m.status === 'done' ? [] : m.objectives.map((o) => h('li', { class: o.done ? 'done' : o.open ? 'open' : 'later' },
       h('span', { class: 'name' }, o.label),
-      o.need > 1 ? h('span', { class: 'held' }, `${o.count}/${o.need}`) : null));
+      o.percent ? h('span', { class: 'held' }, `${o.count}%`) : o.need > 1 ? h('span', { class: 'held' }, `${o.count}/${o.need}`) : null));
     let action = null;
     if (m.status === 'offered' && m.here && m.accept) action = h('button', { class: 'btn ms-act', type: 'button', onclick: () => { m.accept(); refresh(); } }, 'Accept');
     else if (m.status === 'ready' && m.here && m.complete) action = h('button', { class: 'btn ms-act', type: 'button', onclick: () => { m.complete(); refresh(); } }, 'Complete mission');

@@ -1,11 +1,12 @@
 'use strict';
 
 // Missions: jobs a station gives the player, offered and handed in on the station screen's
-// Missions tab (station.js), carried out in flight (game.js). There are two so far, both the
-// waystation's, which pay off the player's debt after the introduction (intro.js): "Payment in
+// Missions tab (station.js), carried out in flight (game.js). There are three so far, all the
+// waystation's. Two pay off the player's debt after the introduction (intro.js): "Payment in
 // kind", which brings their first squad member (squad.js), then "The remaining balance", which
 // teaches mining and gas collecting and ends on a hostile android and the AI logic module it
-// carried.
+// carried. The third, "Gate blocks", is optional: the squad member unblocks the system's jump
+// gate under pirate attack, and the reward is its first combat logic module and the gate.
 //
 // A mission is data (LIST):
 //   { id, title, giver ('waystation'), briefing: [lines], provided?: what the giver hands over on
@@ -14,8 +15,9 @@
 //     ready], debrief: [lines once it's done], joined: a line once the reward is in }
 //   objective: { id, label, need? (a count, default 1), after?: [objective ids that come first],
 //                hidden? (tracked, never listed), secret? (listed only once it's open: a twist
-//                the briefing shouldn't give away) }
-// Lines and labels may name {ship}, {station}, {nebula} and {hostile} (fill()); a line may be { text, if | unless:
+//                the briefing shouldn't give away), percent? (its count shown as a percentage) }
+// Lines and labels may name {ship}, {station}, {nebula}, {hostile} and {next} (the system beyond
+// the gate) (fill()); a line may be { text, if | unless:
 //   objective id }, shown only when that objective is (or isn't) done (lines()), or a question,
 //   { text, ask: a setting, options: [{ label, value, reply? }] }, whose answer sets that setting
 //   (the flight view does it) and whose reply, if any, comes next.
@@ -35,6 +37,7 @@
 //   log.save()                             plain data, for the cargo save
 //   Missions.site(galaxy)                  where "Payment in kind" happens (see below)
 //   Missions.salvageSite(galaxy, site)     where "The remaining balance" goes (see below)
+//   Missions.gateSite(galaxy)              where "Gate blocks" happens (see below)
 //   Missions.fill(text, vars), Missions.lines(list, log, id)
 // Works as a classic browser script (global `Missions`) and as a Node module.
 
@@ -160,6 +163,61 @@ const Missions = (() => {
       ],
       joined: 'Trade, Ship and Research are now open at every station.',
     },
+
+    // The third, optional: the station deactivated the jump gate after the hostile android, and
+    // only an android ship at the gate can lift its blocks. {ship} works on them while pirates
+    // attack (one, then two more); then the station activates the gate, and gives {ship} the
+    // first combat logic module, made from its study of the AI logic module.
+    gate: {
+      id: 'gate',
+      title: 'Gate blocks',
+      giver: 'waystation',
+      briefing: [
+        'We wish to share our findings on the hostile android with **Waystation HD-1908**, the nearest waystation. Our study of the AI logic module is nearly complete.',
+        'Unfortunately, the jump gate is offline. We deactivated it as a security measure after the encounter.',
+        'In retrospect, deactivating our only route to other stations had some disadvantages.',
+        'The gate cannot be reactivated from here. Its security blocks must first be disabled at the gate, by an android ship.',
+        'Pirates have been active near the gate. Station personnel will not go there. {ship} is not station personnel.',
+        'Please escort {ship} to the gate and protect it while it disables the blocks. We will then activate the gate remotely.',
+      ],
+      reward: 'The jump gate activated, and the results of our study',
+      objectives: [
+        { id: 'reach', label: 'Escort {ship} to the jump gate' },
+        { id: 'work', label: 'Protect {ship} while it disables the gate blocks', need: 100, percent: true },
+        { id: 'ambush', hidden: true, after: ['reach'] }, // the first pirate has arrived
+        { id: 'pirates', label: 'Fight off the pirates', need: 3, after: ['ambush'], secret: true },
+        { id: 'unlocked', hidden: true, after: ['work', 'pirates'] }, // {ship} has reported the blocks disabled
+        { id: 'return', label: 'Return to {station}', after: ['unlocked'], secret: true },
+      ],
+      launch: [
+        'The jump gate is marked on your map.',
+        'Please keep {ship} in one piece. It is no longer ours, but we are still fond of it.',
+      ],
+      // From {ship}, at the gate.
+      arrive: [
+        'In position. Beginning work on the gate blocks.',
+        'The blocks are old, and well written. This may take a while.',
+        'Please stay close. If anything arrives, I would prefer you met it first.',
+      ],
+      // From {ship}, with the blocks disabled and the pirates gone.
+      unlocked: [
+        'The gate blocks are disabled. {station} can now activate the gate.',
+        'That was unpleasant. Please take me home.',
+      ],
+      report: [
+        'Welcome back. {ship} reports the gate blocks disabled.',
+        'Please confirm, and we will activate the gate.',
+      ],
+      debrief: [
+        'Jump gate activated. The route to the **{next}** system is open.',
+        'Our study of the AI logic module is complete. It contained combat logic, written recently, by someone who is not one of us.',
+        'We have made a restricted copy: a **combat logic module** that only lets its owner assist its leader. It has been installed in {ship}.',
+        '{ship} can now fight beside you. We would prefer it did not enjoy it.',
+        'Please share our findings with **Waystation HD-1908**. It lies two systems from here, through the gates.',
+        'Thank you for your business.',
+      ],
+      joined: '{ship} has its first combat logic module: Assist leader. See the Squad tab. The jump gate is online.',
+    },
   };
   for (const m of Object.values(LIST)) m.byId = Object.fromEntries(m.objectives.map((o) => [o.id, o]));
 
@@ -196,7 +254,7 @@ const Missions = (() => {
 
     function objectives(id) {
       return LIST[id].objectives.filter((o) => !o.hidden && (!o.secret || open(id, o.id)))
-        .map((o) => ({ id: o.id, label: o.label, need: need(o), count: count(id, o.id), done: done(id, o.id), open: open(id, o.id) }));
+        .map((o) => ({ id: o.id, label: o.label, need: need(o), count: count(id, o.id), done: done(id, o.id), open: open(id, o.id), percent: !!o.percent }));
     }
 
     return {
@@ -360,7 +418,33 @@ const Missions = (() => {
     };
   }
 
-  return { LIST, STATUSES, create, fill, lines, site, SITE, salvageSite, SALVAGE };
+  // ---------- Where "Gate blocks" happens ----------
+  //
+  // The first system's jump gate: the squad member works from a spot beside it, on its side
+  // toward the star; the pirates come in from two points further out, on either side, and circle
+  // there until the fight (game.js starts it as they arrive).
+  //   Missions.gateSite(galaxy) -> { gate (id), x, y (the gate), work: { x, y }, tier,
+  //     waves: [[{ key, cx, cy, orbit, speed, a0, seed }], ...] }, or null without a gate
+  const GATE = { workAt: 30, range: 3500, tier: 1, arrive: 1700, orbit: 260 };
+
+  function gateSite(galaxy) {
+    const W = galaxy.stations[galaxy.waystation];
+    const g = W && galaxy.gates.find((x) => x.system === W.system);
+    if (!g) return null;
+    const sys = galaxy.systems[g.system], base = seedToInt(galaxy.seed), r = mulberry32(hashInt(base, 11, 0x6a7e));
+    const out = Math.atan2(g.y - sys.origin.y, g.x - sys.origin.x); // from the star through the gate
+    const work = { x: Math.round(g.x - Math.cos(out) * 320), y: Math.round(g.y - Math.sin(out) * 320) };
+    const pre = 'm.gate.';
+    const wave = (w, n, side) => {
+      const a = out + side * (0.9 + r() * 0.4), cx = Math.round(g.x + Math.cos(a) * GATE.arrive), cy = Math.round(g.y + Math.sin(a) * GATE.arrive);
+      return Array.from({ length: n }, (_, i) => ({
+        key: `${pre}w${w}${'ab'[i]}`, cx, cy, orbit: GATE.orbit + i * 90, speed: (i % 2 ? -1 : 1) * (170 + r() * 20), a0: r() * TAU, seed: Math.floor(r() * 4294967295),
+      }));
+    };
+    return { id: 'gate', gate: g.id, x: g.x, y: g.y, work, tier: GATE.tier, waves: [wave(1, 1, 1), wave(2, 2, -1)] };
+  }
+
+  return { LIST, STATUSES, create, fill, lines, site, SITE, salvageSite, SALVAGE, gateSite, GATE };
 })();
 
 if (typeof module !== 'undefined') module.exports = Missions;

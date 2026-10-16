@@ -1594,6 +1594,54 @@ test('the second mission: the nearest nebula, its pockets, and an android signal
   assert(wins > 95, `real time: won ${wins} of 100`);
 });
 
+test('the gate mission: the work spot by the gate, two waves of pirates, and a fight that isn\'t hard', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, G = Missions.gateSite(g), gate = g.gates[G.gate], W = g.stations[g.waystation];
+    assert.deepStrictEqual(Missions.gateSite(g), G, `${where}: the same every time`);
+    assert.strictEqual(gate.system, W.system, `${where}: the waystation's own gate`);
+    assert(dist(G.work, gate) > 250 && dist(G.work, gate) < 500, `${where}: the work spot`);
+    assert(dist(G.work, g.systems[gate.system].origin) < dist(gate, g.systems[gate.system].origin), `${where}: on the gate's inner side`);
+    assert.deepStrictEqual(G.waves.map((w) => w.length), [1, 2]);
+    const keys = G.waves.flat().map((p) => p.key);
+    assert.strictEqual(new Set(keys).size, 3);
+    for (const p of G.waves.flat()) {
+      const c = { x: p.cx, y: p.cy };
+      assert(Math.abs(dist(c, gate) - Missions.GATE.arrive) < 1, `${where}: ${p.key} arrives ${dist(c, gate).toFixed(0)} out`);
+      assert(dist(c, G.work) < Missions.GATE.range, `${where}: ${p.key} too far to defend against`);
+    }
+    const [a, b] = G.waves[1];
+    assert(dist({ x: a.cx, y: a.cy }, { x: b.cx, y: b.cy }) + a.orbit + b.orbit < CombatCore.config.groupRange, `${where}: the second wave fights together`);
+  }
+  // Objectives: the pirates and the return stay secret until they open.
+  const ID = 'gate', log = Missions.create();
+  log.accept(ID);
+  assert.deepStrictEqual(log.objectives(ID).map((o) => o.id), ['reach', 'work']);
+  assert(log.objectives(ID)[1].percent);
+  log.set(ID, 'reach', 1);
+  log.set(ID, 'ambush', 1);
+  assert.deepStrictEqual(log.objectives(ID).map((o) => o.id), ['reach', 'work', 'pirates']);
+  log.set(ID, 'work', 100);
+  log.set(ID, 'pirates', 3);
+  assert(log.open(ID, 'unlocked') && !log.open(ID, 'return'));
+  log.set(ID, 'unlocked', 1);
+  log.set(ID, 'return', 1);
+  assert.strictEqual(log.status(ID), 'ready');
+  // One Mk I pirate, then two more, without a repair between: the Courier the first mission
+  // provides comes through almost always.
+  const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), foe = Loadout.stats(Loadout.npc('fighter', Missions.GATE.tier));
+  let wins = 0;
+  for (let i = 0; i < 300; i++) {
+    const rng = ctx.mulberry32(i * 2654435 + 17);
+    const one = Combat.create(rng, Combat.combatant('p', 'Me', me), [Combat.combatant('a', 'Pirate', foe)]);
+    while (!one.over) Combat.round(one);
+    if (one.over !== 'won') continue;
+    const two = Combat.create(rng, Combat.combatant('p', 'Me', me, one.player.hull), [0, 1].map((k) => Combat.combatant(`b${k}`, 'Pirate', foe)));
+    while (!two.over) Combat.round(two);
+    if (two.over === 'won') wins++;
+  }
+  assert(wins / 300 > 0.95, `won both fights ${wins} of 300 times`);
+});
+
 const wingman = () => Squad.stats(Squad.member(3));
 
 test('rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
