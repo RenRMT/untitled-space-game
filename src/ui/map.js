@@ -3,9 +3,9 @@
 // - Local: the system the ship is in (or nearest to, in deep space): the star, orbits, planets and
 //   moons, belts and fields, nebulae, every station and gate, and the contacts the player knows
 //   of (SystemMap.knowledge, see rules/knowledge.js): identified ones by type, pinged ones as signals.
-// - Galaxy: the star of every system charted (entered at least once), by name, and the gate links
-//   between them; a link to a system not yet charted leads to a '?'. The system the ship is in is
-//   ringed; in deep space, the ship shows where it is.
+// - Galaxy: the star of every system charted (entered at least once), by name and who holds it
+//   (world/regions.js), and the gate links between them; a link to a system not yet charted leads
+//   to a '?'. The system the ship is in is ringed; in deep space, the ship shows where it is.
 // ?dev shows every system and contact, plus the testing buttons (Jump, Contacts).
 // A mission's objective (SystemMap.objective, set by the flight view) shows as an amber ring; it
 // can be picked and travelled to like anything else.
@@ -23,6 +23,7 @@ import { Format } from '../core/format.js';
 import { MathUtil } from '../core/math.js';
 import { Params } from '../core/store.js';
 import { Theme } from '../core/theme.js';
+import { Factions } from '../world/factions.js';
 import { Security } from '../world/security.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { Callout } from './callout.js';
@@ -461,6 +462,11 @@ const SystemMap = (() => {
       ctx.font = Theme.font(12);
       ctx.fillStyle = '#e6ebff';
       ctx.fillText(s.name.toUpperCase(), x, y + STAR_DOT + 20);
+      // Who holds it, in their colour.
+      const holder = s.holder && Factions.get(s.holder);
+      ctx.font = Theme.font(10);
+      ctx.fillStyle = holder ? holder.color : UNCHARTED;
+      ctx.fillText(holder ? holder.name : 'Unclaimed', x, y + STAR_DOT + 34);
     }
     ctx.textAlign = 'left';
   }
@@ -605,8 +611,11 @@ const SystemMap = (() => {
     const sec = Security.LEVELS[galaxy.securityAt(at.x, at.y)];
     const name = nameOf(selected);
     const why = cantTravel(selected);
+    // A charted system says who holds it.
+    const sys = selected.system && charted(selected.system) ? selected.system : null;
+    const holder = sys && (sys.holder ? Factions.get(sys.holder) : { name: 'No one', color: UNCHARTED });
     callout.show({
-      lines: [name && { text: name, kind: 'name' }, { text: `Security: ${sec.label}`, color: sec.color }].filter(Boolean),
+      lines: [name && { text: name, kind: 'name' }, holder && { text: `${sys.region.label} · ${holder.name}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color }].filter(Boolean),
       actions: [
         mode === 'galaxy'
           ? { id: 'travel', label: 'Travel', kind: 'primary', enabled: !why, title: why || 'Plot a course here' }

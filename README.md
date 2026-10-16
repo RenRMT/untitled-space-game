@@ -38,7 +38,7 @@ URL parameters:
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in four styles (line, pixel, flat, low-poly) and the sprite caches |
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, fog of war |
-| `src/world/` | galaxy and solar system generation, security levels |
+| `src/world/` | the factions, galaxy and solar system generation, regions and their politics, security levels |
 | `src/core/` | maths, seeded randomness, saved data, the screen's pixel ratio, colours, number formats |
 
 Modules under `src/game/` import each other freely. None of them does anything as it loads beyond
@@ -70,6 +70,7 @@ Each file starts with a comment saying what it does and, for modules other parts
 npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node
 npm run lint   # ESLint (eslint.config.js)
 npm run perf   # tests/perf.js: frame cost in Chromium as a phone would run it (needs Playwright)
+npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: systems, factions, routes, situations
 ```
 
 The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in a stand-in
@@ -79,4 +80,6 @@ which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs 
 Design notes live in `notes/`: `archived-systems.md` lists systems taken out of the game and how to
 bring each back; `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
-plan for crafting, facilities and ship research, phase by phase.
+plan for crafting, facilities and ship research, phase by phase; `factions.md` is the faction
+overview (the factions, their standings and the story beats); `galaxy.md` is how the factions are
+placed in a generated galaxy.
