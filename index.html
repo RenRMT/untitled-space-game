@@ -66,17 +66,19 @@
   #map-view .btn { flex: none; padding: 0 12px; }
   #map-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   #map-view .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; }
-  #map-stats { font: 12px var(--mono); color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #map-travel, #map-investigate { border-color: var(--cyan); color: var(--cyan); }
-  #map-travel:disabled { border-color: var(--line); color: var(--hud); }
+  #map-investigate { border-color: var(--cyan); color: var(--cyan); }
 
-  #map-info {
-    position: absolute; top: calc(64px + env(safe-area-inset-top, 0px)); right: 12px; width: min(260px, calc(100vw - 24px));
-    box-sizing: border-box; padding: 12px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
-    font-size: 14px; pointer-events: none;
-  }
-  #map-info[hidden] { display: none; }
+  /* Selection callout (ui/callout.js): the selected thing's name and details above it, its
+     actions below, moved into place by transforms. Only the buttons take taps. */
+  .callout { position: absolute; left: 0; top: 0; pointer-events: none; }
+  .callout[hidden] { display: none; }
+  .co-above, .co-below { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+  .co-above { gap: 1px; padding: 3px 7px; background: rgba(5, 6, 10, 0.72); border-radius: var(--r-md); }
+  .co-below { flex-direction: row; gap: 6px; }
+  .co-below .btn { pointer-events: auto; min-height: var(--hit); }
+  .co-below .btn.primary:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+  .co-name { font: 600 14px var(--sans); color: var(--bright); }
+  .co-meta { font: 12px var(--mono); color: var(--dim); }
   #map-overlay [hidden] { display: none !important; }
   #map-travel-status { font: 12px var(--mono); color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #map-prompt {
@@ -86,17 +88,9 @@
     display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: var(--bright);
   }
   #map-prompt .actions { display: flex; gap: 8px; justify-content: flex-end; }
-  #map-info .head { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--bright); margin-bottom: 6px; }
-  #map-info .swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.2); }
-  #map-info .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
-  #map-info .row span:first-child { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
-  #map-info .row span:last-child { text-align: right; font-family: var(--mono); font-size: 12px; }
 
   @media (max-width: 560px) {
     #map-overlay .btn { padding: 0 9px; font-size: 12px; letter-spacing: 0.08em; }
-    /* The stats get a line of their own under the title and buttons. */
-    #map-overlay .top { flex-wrap: wrap; row-gap: 4px; }
-    #map-stats { order: 3; flex-basis: 100%; }
     #map-title { flex: 1 1 0; }
   }
 
@@ -433,20 +427,15 @@
       <button id="map-view-local" class="btn" type="button" role="radio" aria-checked="true" title="This system (L)">Local</button>
       <button id="map-view-galaxy" class="btn" type="button" role="radio" aria-checked="false" title="Every system charted, and the gates between them (G)">Galaxy</button>
     </div>
-    <span id="map-stats"></span>
-    <button id="map-close" class="btn" type="button">Close</button>
   </div>
-  <div id="map-info" hidden></div>
   <div class="bar bottom">
-    <button id="map-reroll" class="btn" type="button" title="Generate a new galaxy from a random seed">Re-roll</button>
+    <button id="map-reset" class="btn" type="button">Reset view</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
     <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>
     <button id="map-fast" class="btn" type="button" aria-pressed="false" title="Fast-forward the trip" hidden>×4</button>
     <button id="map-stop" class="btn" type="button" title="Drop out of cruise here" hidden>Stop</button>
-    <button id="map-travel" class="btn" type="button" disabled title="Plot a course to the selected place">Travel</button>
-    <button id="map-jump" class="btn" type="button" disabled title="Testing: move the ship to the selected place" hidden>Jump</button>
-    <button id="map-reset" class="btn" type="button">Reset view</button>
+    <button id="map-close" class="btn" type="button">Close</button>
   </div>
   <div id="map-prompt" hidden>
     <span id="map-prompt-text"></span>

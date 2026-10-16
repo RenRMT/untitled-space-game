@@ -889,7 +889,7 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   assert.match(game('describe(__gate).subtitle'), /^Offline/);
   game('SystemMap.open(); SystemMap.setMode("galaxy")');
   browser.frames(2);
-  assert.match(textOf(browser.document.getElementById('map-stats')), /1 system charted · 0 gate links/);
+  assert.strictEqual(game('world.galaxy.systems.filter((s) => world.knowledge.visited(s.index)).length'), 1, 'one system charted');
   game('SystemMap.setMode("local"); SystemMap.close()');
   game('cargo.story.add("gates"); showGates()');
   assert.match(game('__gate.name'), /Gate$/);
@@ -909,8 +909,12 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   browser.document.getElementById('map-view-galaxy').dispatch('click', {});
   browser.frames(2);
   assert.strictEqual(game('SystemMap.mode'), 'galaxy');
-  assert.match(browser.document.getElementById('map-stats').textContent, /2 systems charted · 1 gate link/);
-  assert.ok(browser.document.getElementById('map-travel').disabled, 'no map travel from the galaxy view');
+  assert.strictEqual(game('world.galaxy.systems.filter((s) => world.knowledge.visited(s.index)).length'), 2, 'two systems charted');
+  // Nothing to select in the galaxy view: a tap shows no callout.
+  const map = browser.document.getElementById('map-canvas');
+  map.dispatch('pointerdown', { pointerId: 8, pointerType: 'touch', clientX: 640, clientY: 400 });
+  map.dispatch('pointerup', { pointerId: 8, pointerType: 'touch', clientX: 640, clientY: 400 });
+  assert.ok(!game('SystemMap.callout.isShown'), 'no callout in the galaxy view');
   browser.document.getElementById('map-view-local').dispatch('click', {});
   game('SystemMap.close()');
   // And back through the same pair of gates.
@@ -959,6 +963,29 @@ test('travels on the system map', () => {
   assert.ok(game('SystemMap.stats.frames') > frames, 'the map redraws as it moves');
   browser.document.getElementById('map-reset').dispatch('click', {});
   browser.frames(1);
+  // Tap a station: its callout shows its name and security above it, and Travel below.
+  const tap = ([x, y]) => {
+    map.dispatch('pointerdown', { pointerId: 9, pointerType: 'touch', clientX: x, clientY: y });
+    map.dispatch('pointerup', { pointerId: 9, pointerType: 'touch', clientX: x, clientY: y });
+  };
+  const st = game('__startStation()');
+  tap(game(`SystemMap.toScreen(${st.x}, ${st.y})`));
+  let c = game('SystemMap.callout.content');
+  assert.ok(c, 'a callout for the station');
+  assert.deepStrictEqual(c.lines.map((l) => l.text), [st.name, c.lines[1].text]);
+  assert.match(c.lines[1].text, /^Security: /);
+  assert.deepStrictEqual(c.actions.map((a) => a.id), ['travel']);
+  // Tap empty space inside the system: only its security, and Travel.
+  const o = game('SystemMap.system.origin'), R = game('SystemMap.system.radius');
+  tap(game(`SystemMap.toScreen(${o.x + R * 0.37}, ${o.y + R * 0.61})`));
+  c = game('SystemMap.callout.content');
+  assert.ok(c, 'a callout for the point');
+  assert.strictEqual(c.lines.length, 1);
+  assert.match(c.lines[0].text, /^Security: /);
+  assert.deepStrictEqual(c.actions.map((a) => a.id), ['travel']);
+  // Tapping it again lets go.
+  tap(game(`SystemMap.toScreen(${o.x + R * 0.37}, ${o.y + R * 0.61})`));
+  assert.ok(!game('SystemMap.callout.isShown'), 'deselected');
   // To the station furthest from the one we're at: the trip ends there, or at a contact on the way.
   game(`{
     const s = world.galaxy.systems[0].stations.slice().sort((a, b) => Math.hypot(b.x - ship.x, b.y - ship.y) - Math.hypot(a.x - ship.x, a.y - ship.y))[0];
@@ -1100,6 +1127,8 @@ test('text with **bold** runs becomes text and <strong> elements', () => {
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
+  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'Re-roll');
+  assert.ok(reroll && !reroll.disabled, 'Re-roll is in the menu');
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
