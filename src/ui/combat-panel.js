@@ -7,11 +7,12 @@
 // game/combat.js describes it every frame; the DOM is rebuilt only when the rows, log or button change.
 // Hull and shield readings update the bars in place, and the progress bar is set only when it moves.
 //
-//   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus }],
+//   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run? }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
 //                      progress, bar?: 'lock' | 'escape' })
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
+// run: for a squad member, the program line it is running ('L2', or 'else' for none).
 //   CombatPanel.top   its top edge on screen, null while hidden (UI.topEdge)
 // ES module (`CombatPanel`); needs a browser.
 
@@ -51,7 +52,8 @@ const CombatPanel = (() => {
       class: `cb-row${r.you || r.ally ? ' you' : ''}${r.focus ? ' focus' : ''}${down ? ' down' : ''}`,
       type: pick && 'button', 'data-id': pick && r.id, 'aria-pressed': pick && String(!!r.focus), title: pick && 'Focus fire on this ship',
     },
-    h('span', { class: 'cb-name' }, down ? `${r.name} · ${r.ally ? 'disabled' : 'destroyed'}` : r.name),
+    h('span', { class: 'cb-name' }, down ? `${r.name} · ${r.ally ? 'disabled' : 'destroyed'}` : r.name,
+      r.run ? h('span', { class: 'cb-run', title: 'The program line it is running' }, ` ${r.run}`) : null),
     h('span', { class: 'cb-bars', 'aria-label': `Hull ${Math.ceil(r.hull)} of ${r.maxHull}, shield ${Math.floor(r.shield)} of ${r.maxShield}` },
       [['shd', r.shield, r.maxShield], ['hul', r.hull, r.maxHull]].map(([cls, v, max]) => h('span', { class: `cb-bar ${cls}` }, h('span', { style: { width: pct(v, max) } })))),
     h('span', { class: 'cb-nums' }, `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`));
@@ -67,7 +69,7 @@ const CombatPanel = (() => {
 
   function show(d) {
     const readings = d.rows.map((r) => [Math.ceil(r.hull), Math.floor(r.shield)]);
-    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus])])) {
+    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || ''])])) {
       root.hidden = false;
       root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;

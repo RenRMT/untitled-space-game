@@ -1056,9 +1056,13 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
     game(`combatMode.set('${mode}'); repairSquad(); snapWings();`);
     meetPirate();
     assert.strictEqual(game('fight.s.allies.length'), 1, `${mode}: the wingman fights`);
+    browser.frames(1);
+    assert.ok(game(`fight.fx.some((f) => f.type === 'code' && f.at === '${id}' && f.text === 'L1 › attack(enemy)')`), `${mode}: the line it runs shows over it`);
     const chase = mode === 'realtime' ? `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.4; } }` : '';
     assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === '${id}')`, 60 * 40, chase), `${mode}: it opens fire`);
     if (game('!!fight.s')) assert.strictEqual(game(`fight.s.allies[0].order.target`), game('fight.s.focus'), `${mode}: on the leader's target`);
+    if (game('!!fight.s')) assert.match(textOf(browser.document.getElementById('combat').querySelector('.cb-rows')), /L1/, `${mode}: the panel shows the line it runs`);
+    assert.ok(game(`lineRuns.get('${id}')[0] >= 1`), `${mode}: line 1 ran`);
     game('fight.s && (fight.s.over = "fled")');
     browser.frames(2);
     game('ship.targetSpeed = 0');
@@ -1076,6 +1080,12 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.match(tab, /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'its program, as code');
   assert.match(tab, /else → follow\(leader\)/, 'and what it does when no line holds');
   assert.match(tab, /1\/3 lines run/);
+  assert.match(tab, /ran ×\d+ last fight/, 'how often the line took over');
+  // A line after one that always holds never runs, and says so.
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.blank()) && programs.set(cargo.squad[0].id, 1, Logic.PRESETS['assist.leader'])`));
+  game(`StationMenu.refresh()`);
+  assert.match(textOf(browser.document.getElementById('st-body')), /never runs: line 1 always holds first/);
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.PRESETS['assist.leader']) && programs.remove(cargo.squad[0].id, 1)`));
   game('launch()');
   browser.frames(3);
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');

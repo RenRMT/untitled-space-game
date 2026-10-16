@@ -1467,6 +1467,9 @@ test('logic: lines check against what research has unlocked, and read back from 
     'if enemy.hull < 30% and not enemy.targeting(leader) → attack(nearest(enemy))');
   assert.strictEqual(Logic.text(L({ subject: 'self', act: 'retreat', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 3 }] })), 'if fight.enemies >= 3 → retreat()');
   assert.strictEqual(Logic.text(Logic.blank()), 'if true → attack(enemy)');
+  assert.strictEqual(Logic.actionText(L({ pick: 'weakest', when: [{ prop: 'hull', rel: '<', value: 30 }] })), 'attack(weakest(enemy))');
+  assert(Logic.alwaysRuns(Logic.blank()) && !Logic.alwaysRuns(Logic.PRESETS['assist.leader']) && !Logic.alwaysRuns({ ...Logic.blank(), on: false }));
+  assert(!Logic.alwaysRuns(L({ act: 'use', skill: 'emp' })), 'use waits for its ability');
   for (const t of Logic.tokens(L({ act: 'use', skill: 'emp' }))) assert(['kw', 'subj', 'prop', 'op', 'num', 'fn', 'punc', 'ws', 'err'].includes(t.t));
   // Every block has a package, and every package's blocks are found.
   for (const B of [Logic.SUBJECTS, Logic.PICKS, Logic.PROPS, Logic.KEYWORDS, Logic.ACTIONS]) for (const b of Object.values(B)) assert(typeof b.pkg === 'string' && Logic.blocks(b.pkg).some((x) => x.id === b.id), b.id);

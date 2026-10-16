@@ -131,14 +131,33 @@ export function ordersFor(s, a, intent, i) {
   return { station: formation };
 }
 
+// How often each line of each member's program took over in the last fight ({ [member id]: [count
+// per line] }); not saved, and cleared when a program changes (the lines move).
+export const lineRuns = new Map();
+let runsOf = null; // the fight lineRuns counts
+export const LINE_LABEL = 1.8; // seconds a line's label shows over a wingman when it takes over
+
 // Each ally's orders for this frame, from its program: the line that ran (a.line, -1 for none)
-// and what it says to do, else keep formation.
+// and what it says to do, else keep formation. When the line changes, it shows over the
+// wingman as code ('L2 › attack(weakest(enemy))') and counts as a run.
 export function orderSquad(s) {
+  if (runsOf !== s) { runsOf = s; lineRuns.clear(); }
   const m = fightMode(), limit = logicLines();
   CombatCore.allies(s).forEach((a, i) => {
     const member = memberOf(a.id);
     if (!member) return;
     const { line, intent } = Logic.decide(member.program, logicContext(s, a), limit);
+    if (line !== a.line) {
+      if (line >= 0) {
+        const runs = lineRuns.get(member.id) || [];
+        runs[line] = (runs[line] || 0) + 1;
+        lineRuns.set(member.id, runs);
+      }
+      const old = fight.fx.findIndex((f) => f.type === 'code' && f.at === a.id);
+      if (old >= 0) fight.fx.splice(old, 1);
+      const text = line >= 0 ? `L${line + 1} › ${Logic.actionText(member.program[line])}` : 'else › follow(leader)';
+      fight.fx.push({ type: 'code', delay: 0, t: LINE_LABEL, max: LINE_LABEL, at: a.id, text, idle: line < 0 });
+    }
     a.line = line;
     m.setOrders(s, a.id, ordersFor(s, a, intent, i));
   });
@@ -180,17 +199,20 @@ export const programs = {
   get members() { return cargo.squad; },
   get known() { return logicKnown(); },
   get limit() { return logicLines(); },
+  // How often each line took over in the last fight: [count per line] (empty if none).
+  runs: (id) => lineRuns.get(id) || [],
   set(id, i, line) {
     const m = memberOf(id);
     if (!m || !Logic.check(line, logicKnown()).ok || !Squad.setLine(m, i, Logic.copy(line))) return false;
-    saveCargo();
-    return true;
+    return edited(id, true);
   },
-  remove(id, i) { return edited(Squad.removeLine(memberOf(id) || { program: [] }, i) !== null); },
-  move(id, from, to) { return edited(Squad.moveLine(memberOf(id) || { program: [] }, from, to)); },
-  toggle(id, i) { return edited(Squad.toggleLine(memberOf(id) || { program: [] }, i)); },
+  remove(id, i) { return edited(id, Squad.removeLine(memberOf(id) || { program: [] }, i) !== null); },
+  move(id, from, to) { return edited(id, Squad.moveLine(memberOf(id) || { program: [] }, from, to)); },
+  toggle(id, i) { return edited(id, Squad.toggleLine(memberOf(id) || { program: [] }, i)); },
 };
-function edited(ok) {
-  if (ok) saveCargo();
-  return ok;
+function edited(id, ok) {
+  if (!ok) return false;
+  lineRuns.delete(id);
+  saveCargo();
+  return true;
 }

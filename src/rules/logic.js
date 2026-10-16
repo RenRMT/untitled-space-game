@@ -22,7 +22,9 @@
 //                                            with its first error in `err`
 //   Logic.decide(program, ctx, limit) -> { line: index | -1, intent }
 //   Logic.tokens(line) -> [{ t, text }]      the line as code: t is kw | subj | prop | op | num | fn |
-//                                            punc | ws | err; Logic.text(line) joins them
+//                                            punc | ws | err; Logic.text(line) joins them, and
+//                                            Logic.actionText(line) is just its action
+//   Logic.alwaysRuns(line) -> bool           it holds whenever there's a fight: nothing after it runs
 //   Logic.blocks(pkg) -> [{ kind, id, label }]   what a package gives
 // ctx: what a squad member knows when it decides: { self, leader, enemies: the enemies still
 //   flying, allies: the other squad members still flying, leaderTarget: the enemy id the leader is
@@ -228,6 +230,10 @@ const Logic = (() => {
     return out;
   }
   const text = (line) => tokens(line).map((x) => x.text).join('');
+  // Just what the line does: 'attack(weakest(enemy))'.
+  const actionText = (line) => { const t = tokens(line); return t.slice(t.findIndex((x) => x.text === '→') + 2).map((x) => x.text).join(''); };
+  // A line that always holds in a fight (no conditions, nothing to wait for): nothing after it runs.
+  const alwaysRuns = (line) => !!line && line.on && !line.err && !line.when.length && line.act !== 'use';
 
   // What a package gives: every block tagged with it.
   function blocks(pkg) {
@@ -241,7 +247,7 @@ const Logic = (() => {
     return out;
   }
 
-  return { MAX_CLAUSES, SUBJECTS, PICKS, PROPS, RELS, KEYWORDS, ACTIONS, PRESETS, knows, copy, blank, clause, check, read, decide, tokens, text, blocks };
+  return { MAX_CLAUSES, SUBJECTS, PICKS, PROPS, RELS, KEYWORDS, ACTIONS, PRESETS, knows, copy, blank, clause, check, read, decide, tokens, text, actionText, alwaysRuns, blocks };
 })();
 
 export { Logic };

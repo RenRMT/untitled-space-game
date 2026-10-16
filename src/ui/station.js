@@ -16,7 +16,7 @@
 //   logic research on the real-world clock (rules/research.js, game/lab.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
-// squad: { members, known, limit, set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
+// squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
 //   (game/squad.js programs).
 // missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game/missions.js), each
@@ -624,15 +624,30 @@ const StationMenu = (() => {
   const WS = { t: 'ws', text: ' ' };
   const ELSE = [{ t: 'kw', text: 'else' }, WS, { t: 'op', text: '→' }, WS, { t: 'fn', text: 'follow' }, { t: 'punc', text: '(' }, { t: 'subj', text: 'leader' }, { t: 'punc', text: ')' }];
 
+  // Why a line won't run, if it won't: past what memory runs, after a line that always holds, or
+  // about squad members when there are none to be about.
+  function idleWhy(m, i) {
+    const { limit, members } = ctx.squad, line = m.program[i];
+    if (line.err) return null;
+    if (i >= limit) return '// not run: out of memory · import mem.ext';
+    const first = m.program.slice(0, i).findIndex(Logic.alwaysRuns);
+    if (first >= 0) return `// never runs: line ${first + 1} always holds first`;
+    if (line.subject === 'ally' && members.length < 2) return '// never true yet: no other squad member';
+    return null;
+  }
   // A member's program as code: its lines (tap one to edit it), what it does when none holds, and
-  // a line to add one. Lines past what its memory runs are greyed.
+  // a line to add one. Lines that won't run are greyed, with why; after a fight, how often each
+  // took over.
   function programBlock(m) {
-    const { limit } = ctx.squad;
-    const lines = m.program.map((line, i) => Kit.codeLine({
-      n: i + 1, tokens: Logic.tokens(line), off: !line.on, dim: i >= limit, err: line.err,
-      note: i >= limit && !line.err ? '// not run: out of memory · import mem.ext' : null,
-      onclick: () => showLine(m.id, i), aria: `Line ${i + 1}: ${Logic.text(line)}${line.on ? '' : ' (off)'}. Edit`,
-    }));
+    const { limit } = ctx.squad, runs = ctx.squad.runs ? ctx.squad.runs(m.id) : [];
+    const lines = m.program.map((line, i) => {
+      const why = idleWhy(m, i);
+      return Kit.codeLine({
+        n: i + 1, tokens: Logic.tokens(line), off: !line.on, dim: !!why, err: line.err, active: !!runs[i] && !why,
+        note: why || (runs[i] ? `// ran ×${runs[i]} last fight` : null),
+        onclick: () => showLine(m.id, i), aria: `Line ${i + 1}: ${Logic.text(line)}${line.on ? '' : ' (off)'}. Edit`,
+      });
+    });
     const add = m.program.length < Squad.MAX_LINES
       ? Kit.codeLine({ tokens: [{ t: 'cmt', text: '+ add line' }], onclick: () => showLine(m.id, m.program.length), aria: 'Add a line' }) : null;
     return [
