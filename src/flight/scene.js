@@ -88,9 +88,7 @@ const Scene = (() => {
     });
 
     // ---------- Asteroids ----------
-    for (const a of galaxy.asteroids) {
-      add({ kind: 'asteroid', ast: { type: a.type, r: a.r, seed: a.seed }, key: a.key, spin0: a.spin0, tumble: a.tumble, radius: a.r, x: a.x, y: a.y });
-    }
+    for (const a of galaxy.asteroids) add(Entities.asteroid(a));
 
     // ---------- Gas pockets ----------
     // pocket: the generated pocket (world/solar-system.js); color: its nebula's.
@@ -131,8 +129,7 @@ const Scene = (() => {
     for (const k of galaxy.packs) {
       for (const s of k.ships) {
         const art = ArtBlueprints.create('fighter', cultures.pirates, s.seed);
-        const motion = { type: 'orbit', cx: k.x, cy: k.y, r: s.orbit, w: s.speed / s.orbit, a0: s.a0 };
-        add({ kind: 'ship', role: 'fighter', pirate: true, key: s.key, art, motion, radius: art.radius, x: k.x, y: k.y, tier: k.tier, pack: k.id }, k.x, k.y);
+        add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id }, k.x, k.y);
       }
     }
 

@@ -3,6 +3,7 @@
 
 import assert from 'node:assert';
 import { hashInt, mulberry32, seedToInt } from '../src/core/rng.js';
+import { Save } from '../src/core/save.js';
 import { Goods } from '../src/rules/goods.js';
 import { Security } from '../src/world/security.js';
 import { SYSTEM_CONFIG } from '../src/world/system-config.js';
@@ -793,6 +794,23 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   }
   const rate = stocked.map((n, l) => n / (types[l] || 1));
   for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
+});
+
+test('saves: old data steps up a version at a time; a burst of changes is one write', () => {
+  const steps = [(d) => { d.a = 1; }, (d) => { d.b = d.a + 1; }];
+  assert.deepStrictEqual(Save.migrate({}, steps), { a: 1, b: 2, version: 2 }, 'from before versions');
+  assert.deepStrictEqual(Save.migrate({ a: 5, version: 1 }, steps), { a: 5, b: 6, version: 2 }, 'from version 1');
+  assert.deepStrictEqual(Save.migrate({ version: 3 }, steps), { version: 3 }, 'from a newer game: left alone');
+  let writes = 0;
+  const w = Save.debounced(() => writes++, 1e6);
+  w.change(); w.change(); w.change();
+  assert(w.pending && writes === 0, 'nothing written straight away');
+  w.flush();
+  assert(!w.pending && writes === 1, 'flushed: one write');
+  w.flush();
+  assert.strictEqual(writes, 1, 'nothing waiting: no write');
+  w.now();
+  assert.strictEqual(writes, 2, 'now() writes regardless');
 });
 
 test('old saves: item categories and labels become item types', () => {

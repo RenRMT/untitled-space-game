@@ -366,6 +366,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   game('saveCargoNow()');
   const key = game('cargo.key'), saved = JSON.parse(browser.storage.get(key));
   delete saved.missions.salvage;
+  delete saved.version; // saves of that time had none
   delete saved.missionsVersion;
   browser.storage.set(key, JSON.stringify(saved));
   game('loadCargo(world.galaxy)');
@@ -996,6 +997,7 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   const old = JSON.parse(saved());
   const [a, b, ...rest] = old.removed;
   delete old.removed;
+  delete old.version;
   Object.assign(old, { collected: [a], mined: [b], destroyed: rest });
   const comps = game(`cargo.components['weapon-standard'] || 0`);
   old.items.push({ kind: 'weapon-standard', label: 'Standard weapon components', category: 'loot' });

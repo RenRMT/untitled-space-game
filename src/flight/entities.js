@@ -16,6 +16,8 @@
 //     card(e, system) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a rules/goods.js type
+//   Entities.asteroid(a) -> an asteroid from a generated one ({ key, type, r, seed, spin0, tumble, x, y })
+//   Entities.fighter({ key, art, x, y, orbit, speed, a0, tier }) -> a hostile fighter circling (x, y)
 //   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly,
 //                                          except one marked a pirate too)
 //   Entities.stationSubtitle(station)
@@ -44,6 +46,17 @@ const Entities = (() => {
       angle, tumble, radius: art.radius, x, y,
     };
   }
+
+  const asteroid = (a) => ({
+    kind: 'asteroid', ast: { type: a.type, r: a.r, seed: a.seed }, key: a.key, spin0: a.spin0, tumble: a.tumble, radius: a.r, x: a.x, y: a.y,
+  });
+
+  // A pirate fighter (or one marked a pirate), circling (x, y) at `orbit`, `speed` world units a
+  // second, starting at angle a0. tier: its gear (rules/loadout.js).
+  const fighter = ({ key, art, x, y, orbit, speed, a0, tier }) => ({
+    kind: 'ship', role: 'fighter', pirate: true, key, art, radius: art.radius, x, y, tier,
+    motion: { type: 'orbit', cx: x, cy: y, r: orbit, w: speed / orbit, a0 },
+  });
 
   // Pirates are the only hostile ships (and, for now, the only ships).
   const isHostile = (e) => e.kind === 'ship' && !!e.pirate;
@@ -174,7 +187,7 @@ const Entities = (() => {
     },
   };
 
-  return { KINDS, ROLE_LABEL, item, isHostile, stationSubtitle };
+  return { KINDS, ROLE_LABEL, item, asteroid, fighter, isHostile, stationSubtitle };
 })();
 
 export { Entities };

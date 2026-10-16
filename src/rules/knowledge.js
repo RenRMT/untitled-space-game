@@ -9,6 +9,7 @@
 // - pass(): a coarse long-range pass, as during map travel: contacts in reach are only pinged.
 // Saved per galaxy (core/store.js). ES module (`Knowledge`); also runs in Node (the tests).
 
+import { Save } from '../core/save.js';
 import { Store } from '../core/store.js';
 import { Galaxy } from '../world/galaxy.js';
 
@@ -23,12 +24,14 @@ const Knowledge = (() => {
     const byId = new Map(galaxy.contacts.map((c) => [c.id, c]));
     const storeKey = `knowledge:${Galaxy.saveKey(galaxy)}`;
     let version = 0; // bumps on every change, so the map knows when to redraw
-    let saveTimer = null;
+    // Saved a second after a change (core/save.js); save() writes at once.
+    // Storage unavailable: knowledge lasts for this session only (core/store.js).
+    const saver = Save.debounced(() => Store.setJSON(storeKey, { contacts: [...states], systems: [...visited] }), 1000);
+    const save = saver.now;
 
     const changed = () => {
       version++;
-      if (saveTimer) return;
-      saveTimer = setTimeout(() => { saveTimer = null; save(); }, 1000);
+      saver.change();
     };
     const gap = (c, x, y) => Math.hypot(c.x - x, c.y - y) - c.r;
 
@@ -63,11 +66,6 @@ const Knowledge = (() => {
       if (any) changed();
     }
 
-    // Storage unavailable: knowledge lasts for this session only (core/store.js).
-    function save() {
-      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
-      Store.setJSON(storeKey, { contacts: [...states], systems: [...visited] });
-    }
     function load() {
       const d = Store.getJSON(storeKey);
       try {

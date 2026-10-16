@@ -1,5 +1,8 @@
 // The opening missions in flight (their data: story/missions.js): building each one's sites and
 // ships, the comms lines, each one's checks every frame, and the objective the HUD and map show.
+// A new mission: its data and lines in story/missions.js; here, its things in space (as the
+// build* functions make them), the progress rules its tick passes to progress(), and whatever it
+// does beyond those (a call on the comms, an escort, waves).
 // Part of the flight view; src/main.js starts it.
 
 import { ArtAndroids } from '../art/androids.js';
@@ -16,7 +19,7 @@ import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { faceOf, waystation } from './intro.js';
 import { burst } from './mining.js';
-import { combatMode } from './options.js';
+import { chooseSetting } from './options.js';
 import { frameList } from './selection.js';
 import { WING_SNAP, activeSquad, buildWings } from './squad.js';
 import { NEAR, SHIP, TAU, cam, ctx, fight, inFight, intro, notify, setMode, ship, view, wings } from './state.js';
@@ -60,6 +63,12 @@ export const SIGNAL_REACHED = 2200; // the android signal counts as investigated
 export const HAIL = { range: 4000, wait: 1.2 }; // the android calls within this range, this long after the fight
 export const FIELD_REACHED = 1500; // the field counts as reached this far beyond its spread
 
+// A mission's pirate fighter ({ key, seed, orbit, speed, a0 }, story/missions.js), circling (x, y),
+// built in the pirates' culture or another.
+const pirate = (p, x, y, tier, culture = world.cultures.pirates) => Entities.fighter({
+  key: p.key, art: ArtBlueprints.create('fighter', culture, p.seed), x, y, orbit: p.orbit, speed: p.speed, a0: p.a0, tier,
+});
+
 export function buildMission() {
   const site = Missions.site(world.galaxy);
   Object.assign(mission, {
@@ -67,14 +76,8 @@ export function buildMission() {
     gate: null, waves: [], work: 0, said: new Set(), waveT: 0,
   });
   if (!site) return;
-  mission.rocks = site.rocks.map((a) => ({ kind: 'asteroid', ast: { type: a.type, r: a.r, seed: a.seed }, key: a.key, spin0: a.spin0, tumble: a.tumble, radius: a.r, x: a.x, y: a.y }));
-  mission.pirates = site.pirates.map((p) => {
-    const art = ArtBlueprints.create('fighter', world.cultures.pirates, p.seed);
-    return {
-      kind: 'ship', role: 'fighter', pirate: true, key: p.key, art, radius: art.radius, x: site.x, y: site.y, tier: site.tier,
-      motion: { type: 'orbit', cx: site.x, cy: site.y, r: p.orbit, w: p.speed / p.orbit, a0: p.a0 },
-    };
-  });
+  mission.rocks = site.rocks.map(Entities.asteroid);
+  mission.pirates = site.pirates.map((p) => pirate(p, site.x, site.y, site.tier));
   const a = site.android, art = ArtBlueprints.create('fighter', world.android, a.seed), name = Squad.designation(a.seed);
   mission.android = {
     kind: 'ship', android: true, key: a.key, art, name, note: '', color: world.android.color, stats: Squad.stats(Squad.member(a.seed)),
@@ -93,13 +96,7 @@ export function buildGate() {
   const G = Missions.gateSite(world.galaxy);
   mission.gate = G;
   if (!G) return;
-  mission.waves = G.waves.map((wave) => wave.map((p) => {
-    const art = ArtBlueprints.create('fighter', world.cultures.pirates, p.seed);
-    return {
-      kind: 'ship', role: 'fighter', pirate: true, key: p.key, art, radius: art.radius, x: p.cx, y: p.cy, tier: G.tier,
-      motion: { type: 'orbit', cx: p.cx, cy: p.cy, r: p.orbit, w: p.speed / p.orbit, a0: p.a0 },
-    };
-  }));
+  mission.waves = G.waves.map((wave) => wave.map((p) => pirate(p, p.cx, p.cy, G.tier)));
   mission.vars.next = world.galaxy.systems[world.galaxy.gates[G.gate].to].name;
 }
 
@@ -109,12 +106,8 @@ export function buildSalvage() {
   const S = Missions.salvageSite(world.galaxy, mission.site);
   mission.salvage = S;
   if (!S) return;
-  const h = S.hostile, art = ArtBlueprints.create('fighter', world.android, h.seed), name = Squad.designation(h.seed);
-  mission.hostile = {
-    kind: 'ship', role: 'fighter', pirate: true, android: true, key: h.key, art, name, color: world.android.color,
-    radius: art.radius, x: S.x, y: S.y, tier: S.tier,
-    motion: { type: 'orbit', cx: S.x, cy: S.y, r: h.orbit, w: h.speed / h.orbit, a0: h.a0 },
-  };
+  const h = S.hostile, name = Squad.designation(h.seed);
+  mission.hostile = { ...pirate(h, S.x, S.y, S.tier, world.android), android: true, name, color: world.android.color };
   const m = S.module;
   mission.module = { ...Entities.item({ key: m.key, kind: m.kind, seed: m.seed, angle: 0, tumble: 0.25, x: m.x, y: m.y }), label: 'AI logic module', mission: SALVAGE };
   Object.assign(mission.vars, { nebula: world.galaxy.nebulae[S.nebula].name, hostile: name });
@@ -187,7 +180,7 @@ export function showTalk() {
     from: talk.from, text: line.text, face: talk.face, choices: line.options.map((o) => ({ label: o.label })),
     onChoose: (k) => {
       const o = line.options[k];
-      if (line.ask === 'combat') combatMode.set(o.value);
+      if (line.ask) chooseSetting(line.ask, o.value);
       talk.lines = [...talk.lines.slice(0, talk.i + 1), ...(o.reply ? [o.reply] : []), ...talk.lines.slice(talk.i + 1)];
       talk.i++;
       showTalk();
@@ -205,22 +198,47 @@ export function endTalk(keep = true) {
   if (then) then();
 }
 
-// The objectives, from what has happened; the android calls once the pirates are gone and the
-// fight is over.
+// Nothing else going on (no fight or its outcome, no conversation, not docked): when a mission's
+// comms calls come.
+const calm = () => !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
+
+// The objectives that follow from where things are, as rules per mission, in order:
+//   { o, reach: [x, y, r], after?, notice?, then? }  done once the ship is within r of (x, y) (and
+//                                                    objective `after` is done): a notice, then `then`
+//   { o, gone: [keys] }                              counts those of these keys gone from the world
+//                                                    (destroyed or collected: cargo.removed)
+// Whether the log changed.
+function progress(id, rules) {
+  const log = cargo.missions;
+  let changed = false;
+  for (const r of rules) {
+    if (r.gone) {
+      changed = log.set(id, r.o, r.gone.filter((k) => cargo.removed.has(k)).length) || changed;
+      continue;
+    }
+    const [x, y, range] = r.reach;
+    if (log.done(id, r.o) || (r.after && !log.done(id, r.after)) || Math.hypot(ship.x - x, ship.y - y) >= range) continue;
+    if (!log.set(id, r.o, 1)) continue;
+    changed = true;
+    if (r.notice) notify(r.notice, 3);
+    if (r.then) r.then();
+  }
+  return changed;
+}
+
+// The first mission: the field reached, the pirates and the regulator; the android calls once the
+// pirates are gone and the fight is over.
 export function tickMission(dt) {
   tickSalvage(dt);
   tickGate(dt);
   if (!missionActive() || intro.on) return;
-  const log = cargo.missions, site = mission.site, w = mission.android;
-  let changed = false;
-  if (!objectiveDone('field') && Math.hypot(ship.x - site.x, ship.y - site.y) < site.spread + FIELD_REACHED) {
-    changed = log.set(OPENING, 'field', 1);
-    notify(`${mission.vars.ship} found · pirates guarding it`, 3);
-  }
-  changed = log.set(OPENING, 'pirates', site.pirates.filter((p) => cargo.removed.has(p.key)).length) || changed;
-  if (cargo.removed.has(site.cargo.key)) changed = log.set(OPENING, 'regulator', 1) || changed;
-  const calm = !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
-  if (objectiveDone('pirates') && !objectiveDone('hail') && calm && Math.hypot(ship.x - w.x, ship.y - w.y) < HAIL.range) {
+  const site = mission.site, w = mission.android;
+  const changed = progress(OPENING, [
+    { o: 'field', reach: [site.x, site.y, site.spread + FIELD_REACHED], notice: `${mission.vars.ship} found · pirates guarding it` },
+    { o: 'pirates', gone: site.pirates.map((p) => p.key) },
+    { o: 'regulator', gone: [site.cargo.key] },
+  ]);
+  if (objectiveDone('pirates') && !objectiveDone('hail') && calm() && Math.hypot(ship.x - w.x, ship.y - w.y) < HAIL.range) {
     mission.hailT += dt;
     if (mission.hailT >= HAIL.wait) hail();
   } else mission.hailT = 0;
@@ -243,10 +261,8 @@ export function hail() {
 export function tickSalvage(dt) {
   if (!salvageActive() || intro.on) return;
   const log = cargo.missions, S = mission.salvage;
-  let changed = false;
-  const calm = !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
   const call = (o, lines) => {
-    if (!calm || !log.open(SALVAGE, o) || salvageDone(o)) return false;
+    if (!calm() || !log.open(SALVAGE, o) || salvageDone(o)) return false;
     mission.callT += dt;
     if (mission.callT < HAIL.wait) return true;
     mission.callT = 0;
@@ -258,12 +274,11 @@ export function tickSalvage(dt) {
   };
   const def = Missions.LIST[SALVAGE];
   if (!call('signal', def.signal) && !call('puzzle', def.puzzle)) mission.callT = 0;
-  if (salvageDone('signal') && !salvageDone('investigate') && Math.hypot(ship.x - S.x, ship.y - S.y) < SIGNAL_REACHED) {
-    changed = log.set(SALVAGE, 'investigate', 1);
-    notify(`Android vessel ${mission.vars.hostile} · weapons hot`, 3);
-  }
-  if (cargo.removed.has(S.hostile.key)) changed = log.set(SALVAGE, 'hostile', 1) || changed;
-  if (cargo.removed.has(S.module.key)) changed = log.set(SALVAGE, 'module', 1) || changed;
+  const changed = progress(SALVAGE, [
+    { o: 'investigate', after: 'signal', reach: [S.x, S.y, SIGNAL_REACHED], notice: `Android vessel ${mission.vars.hostile} · weapons hot` },
+    { o: 'hostile', gone: [S.hostile.key] },
+    { o: 'module', gone: [S.module.key] },
+  ]);
   if (changed) saveCargo();
 }
 
@@ -275,17 +290,15 @@ export const GATE_WORK = { seconds: 30, reach: 1600, pause: 2.5 };
 export function tickGate(dt) {
   if (!gateActive() || intro.on) return;
   const log = cargo.missions, G = mission.gate, m = firstMember();
-  let changed = false;
-  const calm = !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
   const tell = (key, lines, then) => {
-    if (!calm || mission.said.has(key)) return;
+    if (!calm() || mission.said.has(key)) return;
     mission.said.add(key);
     say(Missions.lines(lines, log, GATE_JOB).map(fillIn), { from: mission.vars.ship, face: m ? faceOf(mission.face) : null, then });
   };
-  if (!gateDone('reach') && Math.hypot(ship.x - G.x, ship.y - G.y) < GATE_WORK.reach) {
-    changed = log.set(GATE_JOB, 'reach', 1);
-    mission.work = log.count(GATE_JOB, 'work');
-  }
+  let changed = progress(GATE_JOB, [
+    { o: 'reach', reach: [G.x, G.y, GATE_WORK.reach], then: () => { mission.work = log.count(GATE_JOB, 'work'); } },
+    { o: 'pirates', gone: mission.waves.flat().map((e) => e.key) },
+  ]);
   if (gateDone('reach') && !gateDone('work')) tell('arrive', Missions.LIST[GATE_JOB].arrive);
   if (gateWorking() && !talk.lines) {
     mission.work = Math.max(mission.work, log.count(GATE_JOB, 'work')) + (dt * 100) / GATE_WORK.seconds;
@@ -302,9 +315,7 @@ export function tickGate(dt) {
   } else if (gateActive() && gateDone('reach') && !gateDone('work') && m && m.disabled) {
     notify(`${m.name} disabled · it needs repairs at a station`, 2.5, { once: true });
   }
-  // The pirates: counted as they go; the next wave after a pause; each fight started as it comes.
-  const waves = mission.waves.flat();
-  changed = log.set(GATE_JOB, 'pirates', waves.filter((e) => cargo.removed.has(e.key)).length) || changed;
+  // The pirates (counted as they go, above): the next wave after a pause; each fight started as it comes.
   mission.waveT = mission.waves[0].every((e) => cargo.removed.has(e.key)) && !inFight() && !fight.result ? mission.waveT + dt : mission.waveT;
   const due = wavesIn().flat().find((e) => !cargo.removed.has(e.key));
   if (due && !inFight() && fight.grace <= 0 && !docked) {

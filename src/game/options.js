@@ -42,6 +42,13 @@ export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
 export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
 
+// A conversation's question answered (story/intro.js, story/missions.js: { ask: key, options }):
+// the setting it asks about, by its saved key, takes the chosen value.
+export const SETTINGS = { style: artStyle, move: moveMode, combat: combatMode };
+export function chooseSetting(key, value) {
+  if (SETTINGS[key]) SETTINGS[key].set(value);
+}
+
 export const ART_HINT = {
   line: 'Neon outlines on the dark.',
   pixel: 'Coarse pixels with dithered shading.',

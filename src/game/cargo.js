@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { mulberry32 } from '../core/rng.js';
+import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
 import { Economy } from '../rules/economy.js';
@@ -46,9 +47,6 @@ export const OPENING = 'repayment', SALVAGE = 'salvage', GATE_JOB = 'gate';
 // The waystation's missions, in the order it offers them (the third is optional).
 export const CHAIN = [OPENING, SALVAGE, GATE_JOB];
 export const opening = () => cargo.missions.status(SALVAGE) !== 'done';
-// Saves from before the second mission count it as done once the first was: their debt was
-// settled by the first. Saves carry the version of the mission chain they were made with.
-export const MISSIONS_VERSION = 2;
 export const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
 export const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
@@ -86,7 +84,7 @@ export function applyShip({ loading = false } = {}) {
 }
 
 export function loadCargo(galaxy) {
-  if (cargoSave.timer !== null) saveCargoNow(); // the old galaxy's cargo first
+  cargoSave.flush(); // the old galaxy's cargo first
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
   cargo.items = [];
   cargo.components = {};
@@ -104,32 +102,55 @@ export function loadCargo(galaxy) {
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
   try {
-    if (d) readCargo(d);
+    if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS));
   } catch (e) { /* a damaged save: keep what was read before the error */ }
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
 }
-// The parts of a save, each checked. Saves from before components had their own store kept them
-// in the hold: they move across. Saves from before missions that had played the introduction
-// already have the wingman the first mission brings: for them it's done.
+// How a save from an older version of the game becomes the current form: step i takes a save of
+// version i to i + 1 (Save.migrate, core/save.js; saves from before versions are version 0). A
+// change to what is saved adds a step here, rather than a special case in readCargo.
+export const CARGO_MIGRATIONS = [
+  // 1. Things gone from the world in one list (it was three: collected, mined, destroyed), and
+  //    salvaged components in their own store (they were kept in the hold).
+  (d) => {
+    d.removed = [d.removed, d.collected, d.mined, d.destroyed].filter(Array.isArray).flat();
+    if (!Array.isArray(d.items)) return;
+    const items = d.items.map(upgradeItem).filter(Boolean);
+    d.components = { ...(d.components || {}) };
+    for (const it of items) if (Goods.isSalvage(it.kind)) addTo(d.components, it.kind);
+    d.items = items.filter((it) => !Goods.isSalvage(it.kind));
+  },
+  // 2. The mission log: a save that had played the introduction already has the wingman the
+  //    first mission brings, so that mission is done.
+  (d) => {
+    if (d.missions || !(Array.isArray(d.story) && d.story.includes('intro'))) return;
+    const log = Missions.create();
+    log.finish(OPENING);
+    d.missions = log.save();
+  },
+  // 3. The second mission: with the first done, the debt was already settled by it. (Saves of
+  //    this form carried missionsVersion: 2.)
+  (d) => {
+    if (!d.missions || d.missionsVersion >= 2) return;
+    const log = Missions.create(d.missions);
+    if (log.status(OPENING) !== 'done') return;
+    log.finish(SALVAGE);
+    d.missions = log.save();
+  },
+];
+
+// The parts of a save (in the current form), each checked.
 export function readCargo(d) {
   if (Array.isArray(d.research)) cargo.research = new Set(d.research.filter((id) => Research.NODES[id]));
   cargo.squad = Squad.read(d.squad) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions);
-  else if (cargo.story.has('intro')) cargo.missions.finish(OPENING);
-  if (!(d.missionsVersion >= MISSIONS_VERSION) && cargo.missions.status(OPENING) === 'done') cargo.missions.finish(SALVAGE);
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
-  if (Array.isArray(d.items)) {
-    for (const it of d.items.map(upgradeItem).filter(Boolean)) {
-      if (Goods.isSalvage(it.kind)) addTo(cargo.components, it.kind);
-      else cargo.items.push(it);
-    }
-  }
-  // Older saves kept collected items, mined asteroids and destroyed ships in three lists.
-  cargo.removed = new Set([d.removed, d.collected, d.mined, d.destroyed].filter(Array.isArray).flat());
+  if (Array.isArray(d.items)) cargo.items = d.items.map(upgradeItem).filter((it) => it && !Goods.isSalvage(it.kind));
+  if (Array.isArray(d.removed)) cargo.removed = new Set(d.removed);
   if (Number.isFinite(d.credits)) cargo.credits = d.credits;
   if (Array.isArray(d.drops)) {
     cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
@@ -138,24 +159,18 @@ export function readCargo(d) {
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
   if (d.home && Number.isFinite(d.home.x)) cargo.home = d.home;
 }
-// Cargo is saved CARGO_SAVE_MS after the first change, so a burst of changes (Sell all, hull
-// damage in a fight) is one write; and when the page is hidden or closed, or another system
-// loads. Storage unavailable: cargo lasts for this session only (core/store.js).
-export const CARGO_SAVE_MS = 1000;
-export const cargoSave = { timer: null };
-export function saveCargo() {
-  if (cargoSave.timer === null) cargoSave.timer = setTimeout(saveCargoNow, CARGO_SAVE_MS);
-}
-export function saveCargoNow() {
-  clearTimeout(cargoSave.timer);
-  cargoSave.timer = null;
-  Store.setJSON(cargo.key, {
-    items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
-    drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-    loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research], squad: cargo.squad,
-    story: [...cargo.story], missions: cargo.missions.save(), missionsVersion: MISSIONS_VERSION,
-  });
-}
+// Cargo is saved a second after the first change (core/save.js), so a burst of changes (Sell all)
+// is one write; and when the page is hidden or closed, or another galaxy loads. Storage
+// unavailable: cargo lasts for this session only (core/store.js).
+export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
+  version: CARGO_MIGRATIONS.length,
+  items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
+  drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
+  loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research], squad: cargo.squad,
+  story: [...cargo.story], missions: cargo.missions.save(),
+}), 1000);
+export const saveCargo = () => cargoSave.change();
+export const saveCargoNow = () => cargoSave.now();
 
 // The hold as the station menu sees it: buying and selling one unit at a time.
 export const hold = {

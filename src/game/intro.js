@@ -10,7 +10,7 @@ import { Comms } from '../ui/comms.js';
 import { applyShip, cargo, saveCargo } from './cargo.js';
 import { dock, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
-import { HULL_ART, artStyle, moveMode, setting } from './options.js';
+import { HULL_ART, artStyle, chooseSetting, moveMode } from './options.js';
 import { placeBeside, placeShip } from './outfitting.js';
 import { SHIP, cam, clamp, ctx, fight, intro, lerp, setMode, ship, turnToward, view } from './state.js';
 import { world } from './world.js';
@@ -64,7 +64,7 @@ export function startIntro() {
   const st = waystation();
   Object.assign(intro, { on: true, station: st, flying: false, beam: null });
   intro.face = world.wayFace;
-  intro.run = Intro.create(introAnswer);
+  intro.run = Intro.create(chooseSetting);
   Object.assign(SHIP, POD);
   ship.art = HULL_ART.pod();
   // It ends up adrift below the station (on screen: above the comms box), turned a little away
@@ -112,11 +112,6 @@ export function endArrive() {
   intro.arrive = null;
   placeShip(A.to.x, A.to.y, A.a1);
   showIntroStep();
-}
-
-export function introAnswer(setting, value) {
-  if (setting === 'style') artStyle.set(value);
-  else if (setting === 'move') moveMode.set(value);
 }
 
 // The comms box for the script's current step: a line or a question, the flying hint, or
