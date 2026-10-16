@@ -32,7 +32,7 @@ const Comms = (() => {
 
   // A portrait into a canvas, sharp at the screen's pixel density.
   function paint(canvas, face, size) {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Display.uiDpr();
     canvas.width = Math.round(size * dpr);
     canvas.height = Math.round(size * dpr);
     const ctx = canvas.getContext('2d');

@@ -18,7 +18,7 @@
 const SystemMap = (() => {
   const overlay = document.getElementById('map-overlay');
   const canvas = document.getElementById('map-canvas');
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { alpha: false }); // each draw starts with an opaque fill
   const info = document.getElementById('map-info');
   const titleEl = document.getElementById('map-title');
   const statsEl = document.getElementById('map-stats');
@@ -158,7 +158,7 @@ const SystemMap = (() => {
   // ---------- View ----------
 
   function resize() {
-    view.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    view.dpr = Display.dpr();
     view.w = window.innerWidth;
     view.h = window.innerHeight;
     canvas.width = Math.round(view.w * view.dpr);
@@ -848,7 +848,7 @@ const SystemMap = (() => {
       const moved = !player || Math.abs(player.x - x) * view.scale > 1 || Math.abs(player.y - y) * view.scale > 1;
       player = { x, y };
       if (!(trip && trip.active)) setLocal(galaxy.nearestSystem(x, y));
-      if (moved) { updateTravelUI(); requestDraw(); }
+      if (moved && isOpen) { updateTravelUI(); requestDraw(); } // open() brings both up to date
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
     set onLoad(fn) { onLoad = fn; },

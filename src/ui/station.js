@@ -293,7 +293,7 @@ const StationMenu = (() => {
   // A portrait (a face(ctx, size) drawer) in a canvas, sharp at the screen's pixel density.
   function portrait(face, size) {
     const c = h('canvas', { class: 'ms-face', 'aria-hidden': 'true', style: { width: `${size}px`, height: `${size}px` } });
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Display.uiDpr();
     c.width = Math.round(size * dpr);
     c.height = Math.round(size * dpr);
     const g = c.getContext('2d');

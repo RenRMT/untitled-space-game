@@ -18,6 +18,10 @@ const Art = (() => {
   const U = ArtUtil;
   const { TAU, clamp, lerp } = U;
 
+  // Mobile browsers kill tabs that hold too much canvas memory (around 64 MB on some), so on touch
+  // screens the caches below keep about a third: 12M px, about 48 MB in all. Sprites there are
+  // drawn at a lower pixel ratio too (core/display.js), so the same scene needs about half the pixels.
+  const MEM = typeof Display !== 'undefined' && Display.touch() ? 0.35 : 1;
   const config = {
     texel: 2, // world units per pixel-art texel
     tilt: 0.62, // low-poly camera tilt (radians from straight down)
@@ -27,13 +31,12 @@ const Art = (() => {
     maxSprite: 768, // device px cap for vector sprites
     // Sprite cache limits: pixels (4 bytes each) and count, for ships, stations, gates, planets and
     // stars; asteroids have their own cache, so a busy field doesn't push the rest out.
-    maxPixels: 12e6, // about 48 MB
+    maxPixels: 12e6 * MEM, // about 48 MB (desktop)
     maxSprites: 2000,
-    // Mobile browsers kill tabs that hold too much canvas memory: 16M px is about 64 MB.
-    maxAsteroidPixels: 16e6,
+    maxAsteroidPixels: 16e6 * MEM, // about 64 MB (desktop)
     maxAsteroidSprites: 3000,
     buildBudgetMs: 4, // sprite building per frame before objects make do with their last sprite
-    maxBodyPixels: 6e6, // moon sprites and nebula chunks (art/bodies.js), about 24 MB
+    maxBodyPixels: 6e6 * MEM, // moon sprites and nebula tiles (art/bodies.js), about 24 MB (desktop)
     maxBodySprites: 1500,
     bg: '#05060a',
     outline: '#0e1016',
@@ -71,7 +74,7 @@ const Art = (() => {
   // theirs from art/blueprints.js.
   const idOf = (o) => o._artId || (o._artId = JSON.stringify(o, (k, v) => (k[0] === '_' ? undefined : v)));
   const quant = (ppu) => 2 ** (Math.round(Math.log2(ppu) * 4) / 4);
-  const dprOf = () => (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const dprOf = () => (typeof Display !== 'undefined' ? Display.dpr() : 1); // core/display.js
 
   // ---------- Palette ----------
 

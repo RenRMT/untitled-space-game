@@ -545,8 +545,12 @@ const SolarSystem = (() => {
     // field), for the HUD and the map.
     function regionAt(x, y) {
       const at = { x, y };
-      const body = [...planets, ...moons].map((p) => ({ p, d: dist(p, at) - (p.extent || p.r) })).sort((a, b) => a.d - b.d)[0];
-      const near = body && body.d < 3000 ? body.p
+      let body = null, bodyD = Infinity; // the nearest planet or moon, by its edge
+      for (const list of [planets, moons]) for (const p of list) {
+        const d = dist(p, at) - (p.extent || p.r);
+        if (d < bodyD) { body = p; bodyD = d; }
+      }
+      const near = bodyD < 3000 ? body
         : beltAt(x - O.x, y - O.y, 500) || fields.find((f) => dist(f, at) < f.spread + 500) || null;
       return { security: securityAt(x, y), nebula: nebulaAt(x, y), near, fromStar: Math.hypot(x - O.x, y - O.y) };
     }

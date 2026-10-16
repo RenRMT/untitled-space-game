@@ -443,26 +443,58 @@ const ArtBodies = (() => {
     return { facets: [...groups], px: 20000 };
   }
 
-  // A tile's place in the world, drawn: the raster over its square, then the paths.
-  function drawTile(ctx, t, x0, y0, W, ppu) {
-    if (t.canvas) {
-      const N = t.canvas.width;
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(t.canvas, 1, 1, N - 2, N - 2, x0, y0, W, W);
+  // The tiles in view are drawn raster by raster, then their vector parts all at once: the line
+  // style's isolines as one path per density band, low-poly's facets as one path per colour. The
+  // merged paths are kept until the tiles in view change, so a frame strokes 4 paths (line) or a
+  // few dozen (low-poly), however many tiles it covers.
+  function drawRaster(ctx, t, x0, y0, W) {
+    const N = t.canvas.width;
+    ctx.drawImage(t.canvas, 1, 1, N - 2, N - 2, x0, y0, W, W);
+  }
+  function mergeVectors(tiles) {
+    const first = tiles[0];
+    if (first.paths) {
+      const paths = first.paths.map(() => new Path2D());
+      for (const t of tiles) t.paths.forEach((p, li) => paths[li].addPath(p));
+      return { paths, colors: first.colors };
     }
-    if (t.facets) {
+    if (first.facets) {
+      const groups = new Map();
+      for (const t of tiles) for (const [col, p] of t.facets) {
+        let g = groups.get(col);
+        if (!g) groups.set(col, (g = new Path2D()));
+        g.addPath(p);
+      }
+      return { facets: [...groups] };
+    }
+    return {};
+  }
+  function drawVectors(ctx, v, ppu) {
+    if (v.facets) {
       ctx.lineWidth = 0.75 / ppu;
       ctx.lineJoin = 'round';
-      for (const [col, p] of t.facets) { ctx.fillStyle = ctx.strokeStyle = col; ctx.fill(p); ctx.stroke(p); }
+      for (const [col, p] of v.facets) { ctx.fillStyle = ctx.strokeStyle = col; ctx.fill(p); ctx.stroke(p); }
     }
-    if (t.paths) {
+    if (v.paths) {
       const lw = Math.max(1, Math.min(1.5 * ppu, 2 * dprOf())) / ppu;
       ctx.lineCap = ctx.lineJoin = 'round';
-      t.paths.forEach((p, li) => { ctx.strokeStyle = t.colors[li]; ctx.lineWidth = lw * [0.6, 0.75, 0.9, 1][li]; ctx.stroke(p); });
+      v.paths.forEach((p, li) => { ctx.strokeStyle = v.colors[li]; ctx.lineWidth = lw * [0.6, 0.75, 0.9, 1][li]; ctx.stroke(p); });
     }
   }
 
   const TILE_MAKERS = { line: tileLine, flat: tileFlat, lowpoly: tileLow };
+
+  // The cache key prefix for a cloud's tiles in one style, kept on the cloud (its shape's id is long).
+  function tileBase(neb, G, style, texel) {
+    const k = `${G.key}|${style}|${style === 'pixel' ? texel : 0}`;
+    const keys = neb._tileBase || (neb._tileBase = new Map());
+    let base = keys.get(k);
+    if (!base) {
+      const shape = neb.blobs ? idOf(neb) : `${neb.x},${neb.y},${neb.w},${neb.h}`;
+      keys.set(k, (base = `nebtile|${G.key}|${neb.type}|${style}|${style === 'pixel' ? texel : 0}|${shape}`));
+    }
+    return base;
+  }
 
   function drawNebula(ctx, neb, style, o = {}) {
     const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb);
@@ -470,16 +502,28 @@ const ArtBodies = (() => {
     const v = o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h];
     const vx0 = Math.max(v[0], neb.x), vy0 = Math.max(v[1], neb.y), vx1 = Math.min(v[2], neb.x + neb.w), vy1 = Math.min(v[3], neb.y + neb.h);
     if (vx0 >= vx1 || vy0 >= vy1) return;
-    const shape = neb.blobs ? idOf(neb) : `${neb.x},${neb.y},${neb.w},${neb.h}`;
     ctx.save();
     const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat, W = TILE * G.g;
-    const base = `nebtile|${G.key}|${neb.type}|${style}|${style === 'pixel' ? texel : 0}|${shape}`;
+    const base = tileBase(neb, G, style, texel);
     const ti0 = Math.floor(vx0 / W), ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W), tj1 = Math.floor((vy1 - 1e-6) / W);
     const inside = (ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+    const tiles = [];
+    let complete = true;
+    ctx.imageSmoothingEnabled = false;
     for (let tj = tj0; tj <= tj1; tj++) for (let ti = ti0; ti <= ti1; ti++) {
       const key = `${base}|${ti},${tj}`;
-      if (!o.force && budget.over && !cache.has(key)) continue; // built in a later frame
-      drawTile(ctx, cache.get(key, () => make(neb, G, T, ti, tj), { force: true }), ti * W, tj * W, W, ppu);
+      if (!o.force && budget.over && !cache.has(key)) { complete = false; continue; } // built in a later frame
+      const t = cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+      if (t.canvas) drawRaster(ctx, t, ti * W, tj * W, W);
+      if (t.paths || t.facets) tiles.push(t);
+    }
+    if (tiles.length) {
+      // Kept while the same tiles are in view (and none was rebuilt, or still to be built).
+      const range = `${base}|${ti0},${tj0},${ti1},${tj1}`, m = neb._merged;
+      const same = complete && m && m.range === range && m.tiles.length === tiles.length && m.tiles.every((t, i) => t === tiles[i]);
+      const vectors = same ? m.vectors : mergeVectors(tiles);
+      if (!same && complete) neb._merged = { range, tiles, vectors };
+      drawVectors(ctx, vectors, ppu);
     }
     // Build ahead: the ring of tiles just outside the view, while the frame has budget to spare.
     if (!o.force) {

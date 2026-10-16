@@ -886,7 +886,20 @@ test('fights in real time, then gets away', () => {
   assert.strictEqual(game('fight.mode'), 'realtime');
   // Fly at the target for a while (the guns fire on their own), then break away.
   const chase = `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5; } }`;
-  until('!inFight()', 30 * 60, chase);
+  // Meanwhile the panel's first row (the player's) shows the hull and shield every frame, as they
+  // change between the log's lines (the shield recharging, from half).
+  const shown = () => textOf(browser.document.getElementById('combat').querySelector('.cb-rows').children[0].children[2]);
+  const actual = '`${Math.ceil(fight.s.player.hull)} · ${Math.floor(fight.s.player.shield)}`';
+  const readings = new Set();
+  game('fight.s.player.shield = Math.floor(fight.s.player.stats.shield / 2)'); // so it recharges, hit or not
+  for (let i = 0; i < 30 * 60 && game('!!fight.s'); i++) {
+    game(chase);
+    browser.frames(1);
+    if (!game('!!fight.s')) break;
+    assert.strictEqual(shown(), game(actual), 'the panel shows the player\'s hull and shield');
+    readings.add(shown());
+  }
+  assert.ok(readings.size > 1, 'the readings changed during the fight');
   const away = `{ const a = fight.s ? Math.atan2(ship.y - fight.s.anchor.y, ship.x - fight.s.anchor.x) : 0; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`;
   assert.ok(until('!inFight()', 120 * 60, away), 'the fight ends');
   game('ship.targetSpeed = 0');

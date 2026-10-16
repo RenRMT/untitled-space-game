@@ -3,14 +3,15 @@
 // ---------- Setup ----------
 
 const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
+const ctx = canvas.getContext('2d', { alpha: false }); // every frame starts with an opaque fill
 const { TAU, clamp, lerp } = MathUtil;
 
 // The play area is a galaxy of solar systems in one open space (world/galaxy.js), joined by jump gates:
 // world coordinates are units from the first system's star.
-// Each frame poses and draws only what lies within NEAR of the camera (flight/scene.js); drawing happens
-// relative to a nearby grid point to keep precision.
-const NEAR = 14000;
+// Each frame poses and draws only what lies within NEAR of the camera (flight/scene.js): the screen
+// and the minimap's square (RADAR, 6000 each way: 8500 to its corners). Drawing happens relative to
+// a nearby grid point to keep precision.
+const NEAR = 9000;
 const NAV_RANGE = 18000; // off-screen stations and gates this close get an edge marker
 
 const COLORS = Theme.color; // core/theme.js, shared with the map and the CSS
@@ -81,13 +82,16 @@ function setMode(name, on) {
   document.body.classList.toggle(name, on);
   SystemMap.blocked = MAP_BLOCKERS.some((m) => modes.has(m));
 }
+// Where the ship is (world/galaxy.js regionAt: system, security, nebula, what it's near) and the
+// mission's next step (objective()), worked out once a step and read by the HUD, minimap and markers.
+const here = { region: null, objective: null };
 let lastRegion; // the system, security level and nebula the ship was in last frame, for enter/leave notices
 let senseTimer = 0;
 
 const { turnToward } = Flight;
 
 function resize() {
-  view.dpr = Math.min(window.devicePixelRatio || 1, 2);
+  view.dpr = Display.dpr();
   view.w = window.innerWidth;
   view.h = window.innerHeight;
   canvas.width = Math.round(view.w * view.dpr);
@@ -1049,7 +1053,9 @@ function tickGate(dt) {
     // Each wave stops the work until it's dealt with.
     const cap = gateDone('ambush') && !gateDone('pirates') ? 99 : 100;
     mission.work = Math.min(cap, mission.work);
-    changed = log.set(GATE_JOB, 'work', Math.floor(mission.work)) || changed;
+    // Progress is kept every percent but saved every tenth: it's redone from the last save at worst.
+    const saved = log.count(GATE_JOB, 'work');
+    if (log.set(GATE_JOB, 'work', Math.floor(mission.work)) && Math.floor(mission.work / 10) !== Math.floor(saved / 10)) changed = true;
     if (!gateDone('ambush') && mission.work >= Missions.GATE.workAt) {
       changed = log.set(GATE_JOB, 'ambush', 1) || changed;
       notify('Contacts incoming · pirates', 2.5);
@@ -1304,9 +1310,11 @@ function loadGalaxy(galaxy) {
 loadGalaxy(SystemMap.galaxy);
 SystemMap.onLoad = loadGalaxy; // re-rolled on the map
 // Knowledge and cargo save on a short debounce; write them out when the page is hidden or closed.
+// Everything, now: when the page is hidden or closed (a fight's hull damage isn't saved until then
+// or the fight's end).
 function saveAll() {
   world.knowledge.save();
-  if (cargoSave.timer !== null) saveCargoNow();
+  saveCargoNow();
 }
 window.addEventListener('pagehide', saveAll);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveAll(); });
@@ -1490,17 +1498,15 @@ function orderSquad(s) {
   });
 }
 
-// After a fight's step: the allies' hull into their saved members and, in real time, where they flew.
+// After a fight's step: the allies' hull into their members (saved when the fight ends, like the
+// player's) and, in real time, where they flew.
 function syncAllies(s) {
-  let changed = false;
   for (const a of s.allies) {
     const member = memberOf(a.id), w = wings.get(a.id);
     if (!member) continue;
-    const hull = Math.max(0, a.hull);
-    if (hull !== member.hullPoints) { member.hullPoints = hull; changed = true; }
+    member.hullPoints = Math.max(0, a.hull);
     if (fightMode().flying && w && a.hull > 0) Object.assign(w, { x: a.x, y: a.y, vx: a.vx, vy: a.vy, angle: a.angle, a: a.angle, thrust: a.thrust });
   }
-  if (changed) saveCargo();
 }
 
 // A wingman shot down: out of the fight, back with the squad once the ship docks.
@@ -2264,9 +2270,9 @@ function tickFight(dt) {
     }
   }
   playEvents(s, events);
-  // Hull damage is saved as it happens (on saveCargo's debounce), so it survives closing the page.
-  const hull = Math.max(0, s.player.hull);
-  if (hull !== cargo.hull) { cargo.hull = hull; saveCargo(); }
+  // Hull damage is saved when the fight ends (endFight) or the page is hidden (saveAll), not on
+  // every hit: a save writes the whole cargo.
+  cargo.hull = Math.max(0, s.player.hull);
   if (s.over) {
     fight.s = null;
     fight.final = s; // shown on the panel until it closes
@@ -2701,9 +2707,10 @@ const securityLabel = (level) => Security.LEVELS[level].label.toLowerCase();
 // A notice when the ship crosses into another system or out into deep space, into another
 // security level, or into or out of a nebula. Entering a system for the first time charts it
 // (rules/knowledge.js), so it shows on the galaxy map.
+// Also keeps here.region up to date for the HUD and minimap.
 function updateRegionNotice() {
-  const level = world.galaxy.securityAt(ship.x, ship.y), nebula = world.galaxy.nebulaAt(ship.x, ship.y);
-  const system = world.galaxy.systemAt(ship.x, ship.y);
+  const r = here.region = world.galaxy.regionAt(ship.x, ship.y);
+  const { security: level, nebula, system } = r;
   const now = { level, nebula, system };
   const was = lastRegion;
   lastRegion = now;
@@ -2898,17 +2905,21 @@ let navHits = [];
 
 // The mission's objective gets one too, at any distance: the station's own marker ringed in amber
 // when it's a station, else an amber one of its own.
-function drawNavMarkers(list) {
+// Stations and gates are few, so they come from the scene's own lists rather than the frame's
+// (which reaches only NEAR).
+function drawNavMarkers() {
   const stations = [];
-  const obj = objective();
-  for (const st of list) {
-    if ((st.kind !== 'station' && st.kind !== 'gate') || visible(st)) continue;
+  const obj = here.objective;
+  const mark = (st) => {
+    if (visible(st)) return;
     const d = Math.hypot(st.x - ship.x, st.y - ship.y);
-    if (d > NAV_RANGE) continue;
+    if (d > NAV_RANGE) return;
     // The selected station's marker, or the objective's.
     const ring = selected && selected.key === entityKey(st) ? SELECT_COLOR : obj && obj.station === st ? COLORS.amber : null;
     stations.push({ ref: st, x: st.x, y: st.y, color: st.color, ring, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
-  }
+  };
+  world.scene.stations.forEach(mark);
+  world.scene.gates.forEach(mark);
   const R = obj && (obj.station ? obj.station.radius : mission.site.spread);
   if (obj && !visible({ x: obj.x, y: obj.y, radius: R }) && !stations.some((m) => m.ref === obj.station)) {
     const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(Math.hypot(obj.x - ship.x, obj.y - ship.y) - (obj.station ? R : 0))}`;
@@ -2971,7 +2982,7 @@ function drawMinimap(list) {
   const y0 = pad;
   const s = size / (RADAR * 2);
   const ox = ship.x - RADAR, oy = ship.y - RADAR;
-  const security = Security.LEVELS[world.galaxy.securityAt(ship.x, ship.y)];
+  const security = Security.LEVELS[here.region.security];
   const hidden = (e) => e.kind === 'wreck' && e.contact && world.knowledge.contactState(e.contact) !== 'known';
 
   ctx.save();
@@ -3064,7 +3075,7 @@ function drawHud() {
   ctx.fillRect(pad + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, y - 3, 2, 12);
 
   // Where you are: the system, the security here, and the nebula you're in or what you're near.
-  const r = world.galaxy.regionAt(ship.x, ship.y);
+  const r = here.region;
   ctx.globalAlpha = 0.85;
   ctx.fillStyle = COLORS.dim;
   const head = `${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · `;
@@ -3080,7 +3091,7 @@ function drawHud() {
     ctx.fillText(`Near ${r.near.name}`, pad, pad + 28);
   }
   // The mission's next step.
-  const obj = objective();
+  const obj = here.objective;
   if (obj) {
     ctx.fillStyle = COLORS.amber;
     ctx.fillText(`◇ ${obj.text}`, pad, pad + 46);
@@ -3107,11 +3118,12 @@ function react(list) {
   collectItems(list);
   updateSelection(list);
   checkAggro(list);
-  const obj = objective();
+  const obj = here.objective = objective();
   SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
 }
 
 function render(list = nearbyEntities(simTime)) {
+  if (!here.region) here.region = world.galaxy.regionAt(ship.x, ship.y); // drawn before the first step
   Art.beginFrame();
   const t = simTime;
   updateCombatPanel();
@@ -3154,7 +3166,7 @@ function render(list = nearbyEntities(simTime)) {
     ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
     ctx.restore();
   }
-  if (hudShown()) drawNavMarkers(list);
+  if (hudShown()) drawNavMarkers();
   else navHits = [];
   drawFoeMarkers();
   drawDragIndicator();

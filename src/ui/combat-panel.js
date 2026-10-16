@@ -6,8 +6,8 @@
 // real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
 // title shows progress: the round timer, or in real time the lock coming on ('lock') or getting
 // clear ('escape').
-// game.js describes it every frame; the DOM is rebuilt only when something visible changes,
-// apart from the progress bar.
+// game.js describes it every frame; the DOM is rebuilt only when the rows, log or button change.
+// Hull and shield readings update the bars in place, and the progress bar is set only when it moves.
 //
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
@@ -23,6 +23,9 @@ const CombatPanel = (() => {
   const titleEl = q('.cb-title'), rowsEl = q('.cb-rows'), logEl = q('.cb-log'), btn = q('.cb-btn'), timer = q('.cb-timer');
   const { h } = UI; // ui/ui.js
   const view = UI.keyed(); // what the DOM shows, to skip unchanged frames
+  const values = UI.keyed(); // the rows' hull and shield readings
+  let bars = []; // per row: its bar and number elements, to update in place
+  let timerWidth = '';
   const baseClass = root.className; // 'panel' (index.html), plus the tone while one is shown
   const edge = UI.topEdge(root);
   let onFocus = null, onButton = null;
@@ -53,12 +56,27 @@ const CombatPanel = (() => {
     h('span', { class: 'cb-nums' }, `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`));
   }
 
+  // A row's readings into its elements: the two bars' widths, the numbers and the label.
+  function setReadings(el, r) {
+    el.bars.setAttribute('aria-label', `Hull ${Math.ceil(r.hull)} of ${r.maxHull}, shield ${Math.floor(r.shield)} of ${r.maxShield}`);
+    el.shd.style.width = pct(r.shield, r.maxShield);
+    el.hul.style.width = pct(r.hull, r.maxHull);
+    el.nums.textContent = `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`;
+  }
+
   function show(d) {
-    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, Math.ceil(r.hull), Math.floor(r.shield), r.focus])])) {
+    const readings = d.rows.map((r) => [Math.ceil(r.hull), Math.floor(r.shield)]);
+    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus])])) {
       root.hidden = false;
       root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;
-      rowsEl.replaceChildren(...d.rows.map(row));
+      const els = d.rows.map(row);
+      rowsEl.replaceChildren(...els);
+      bars = els.map((el) => {
+        const [, barsEl, nums] = el.children;
+        return { bars: barsEl, shd: barsEl.children[0].children[0], hul: barsEl.children[1].children[0], nums };
+      });
+      values.changed(readings);
       logEl.replaceChildren(...d.log.map((line) => h('div', {}, line)));
       btn.hidden = !d.button;
       if (d.button) {
@@ -67,13 +85,19 @@ const CombatPanel = (() => {
         btn.disabled = !d.button.enabled;
       }
       timer.className = `cb-timer${d.bar ? ` ${d.bar}` : ''}`;
+    } else if (values.changed(readings)) {
+      d.rows.forEach((r, i) => setReadings(bars[i], r));
     }
-    timer.style.width = `${(Math.max(0, Math.min(1, d.progress || 0)) * 100).toFixed(1)}%`;
+    const width = `${(Math.max(0, Math.min(1, d.progress || 0)) * 100).toFixed(1)}%`;
+    if (width !== timerWidth) timer.style.width = timerWidth = width;
   }
 
   function hide() {
     if (!view.shown) return;
     view.reset();
+    values.reset();
+    timerWidth = '';
+    bars = [];
     root.hidden = true;
     rowsEl.replaceChildren();
   }

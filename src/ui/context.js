@@ -59,7 +59,8 @@ const ContextCard = (() => {
     for (const a of d.actions) {
       if (a.progress === undefined) continue;
       const b = actionsEl.querySelector(`button[data-id="${a.id}"]`);
-      if (b) b.style.setProperty('--progress', `${(Math.min(1, a.progress) * 100).toFixed(1)}%`);
+      const p = `${(Math.min(1, a.progress) * 100).toFixed(1)}%`;
+      if (b && b.dataset.progress !== p) { b.dataset.progress = p; b.style.setProperty('--progress', p); }
     }
   }
 
