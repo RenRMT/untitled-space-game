@@ -59,7 +59,7 @@ export const mission = {
 // A conversation on the comms box: lines from someone, one after another, then `then`. A line may
 // be a question (story/missions.js) whose answer sets a setting.
 export const talk = { lines: null, i: 0, from: '', face: null, then: null };
-export const MISSION_LOCKED = ['trade', 'ship', 'research', 'squad'];
+export const MISSION_LOCKED = ['trade', 'ship', 'research', 'industry', 'squad'];
 export const SIGNAL_REACHED = 2200; // the android signal counts as investigated this close
 export const HAIL = { range: 4000, wait: 1.2 }; // the android calls within this range, this long after the fight
 export const FIELD_REACHED = 1500; // the field counts as reached this far beyond its spread

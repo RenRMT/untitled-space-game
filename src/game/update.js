@@ -10,6 +10,7 @@ import { gapTo } from './docking.js';
 import { updateRegion } from './draw-world.js';
 import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
 import { steady } from './input.js';
+import { tickIndustry } from './industry.js';
 import { tickLab } from './lab.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
@@ -25,6 +26,7 @@ export let senseTimer = 0;
 export function update(dt) {
   simTime += dt;
   tickLab();
+  tickIndustry();
   tickAutopilot();
   // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight/flight.js);
   // in the introduction's tractor beam, the beam's pull.

@@ -47,6 +47,20 @@ Station specialties (×1.25 speed): mining camps and salvage yards run refinerie
 major stations run fabricators, and capitals run assemblers. A crafted good is worth 1.15–4× its
 inputs.
 
+## Facilities
+
+Bays are leased at the station you're docked at, paid once: a refinery costs 3,000 credits and a
+fabricator 6,000, with two bays per station to start. Each station where you lease has a warehouse
+of your own (40 units, plus 60 per bay). You store goods from the hold (and components, for
+recycling), and you take back what's made. A bay's job is a recipe, run a set number of times or
+for as long as inputs last.
+
+A run takes its inputs when it starts and keeps room for what it makes, so finishing never fails.
+Bays start runs only when a run finishes or when you change something, and when bays want the same
+goods the first in line goes first. That makes settling time order exact (`Industry.settle`):
+whether the game catches up in one step on load or every second while docked, the result is the
+same. Each settle call stops after a set number of runs and goes on in the next.
+
 ## Research
 
 The research groups are Logic (the squad's packages), Weapons, Systems, Hull and Industry. They
@@ -73,7 +87,7 @@ work settled after a long time offline speeds up exactly when the bonus finished
     per node, and what research adds (`ui/research-view.js`, `Research.layout`). *(done)*
 2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage. *(done)*
 3. Facilities: leased bays, station warehouses, offline settlement in event order
-   (`rules/industry.js`), and the Industry tab.
+   (`rules/industry.js`, `game/industry.js`), and the Industry tab (`ui/industry-view.js`). *(done)*
 4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints.
 5. Refinements and industry research.
 6. Mods.

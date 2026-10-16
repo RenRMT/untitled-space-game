@@ -172,7 +172,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   const tab = onStation, press = pressOnStation;
   // Docked after the introduction: only the Missions tab, and no launching before accepting.
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'opens on the Missions tab');
-  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'squad']);
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'industry', 'squad']);
   game(`StationMenu.showTab('trade')`);
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'the other tabs are locked');
   assert.match(tab(), /Payment in kind/);
@@ -270,7 +270,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.match(tab(), /surplus to requirements/);
   assert.match(tab(), /reduced to 6 bars of gold/);
   assert.match(tab(), /has joined your squad/);
-  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research'], 'Squad opens; the debt is not settled yet');
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'industry'], 'Squad opens; the debt is not settled yet');
   assert.match(tab(), /The remaining balance/);
   assert.ok(game('!!stationLocks().launch'), 'Launch waits for the second mission');
   assert.strictEqual(game('cargo.squad.length'), 1);
@@ -639,7 +639,7 @@ test('buys, fits and sells gear from the outfitter, researches a hull refit, and
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
   assert.ok(game(`outfitting.known.has('pulse-laser-2') && !outfitting.known.has('pulse-laser-5')`), 'a capital sells Mk II, never Mk V');
   // Every tab draws, with slot choices open on the Ship tab.
-  for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
+  for (const t of ['research', 'industry', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
   assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
@@ -778,6 +778,39 @@ test('logic intents become orders: guard fires on the ward\'s attacker, retreat 
   assert.ok(!orders({ type: 'use', skill: 'x', target: 'e1' }).target, 'no abilities yet: keeps formation');
 });
 
+test('industry: leases a refinery, stores iron, sets a job, and finds steel pipe made while away', () => {
+  game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Industry.*Lease a bay.*Refinery.*Fabricator/, 'nothing leased: the leases on offer');
+  game('cargo.credits = 10000; cargo.items = []');
+  pressOnStation(/^Lease3,000 cr/);
+  assert.strictEqual(game('cargo.credits'), 7000, 'paid once');
+  assert.match(onStation(), /Bays.*Refinery.*No job.*Warehouse.*Empty/);
+  // Iron aboard, stored.
+  game(`for (let i = 0; i < 10; i++) cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' }); StationMenu.refresh()`);
+  pressOnStation('Store all');
+  assert.ok(game(`cargo.items.length === 0 && industry.site().storage.iron === 10`), 'from the hold into the warehouse');
+  // A job: steel pipe, as long as the iron lasts.
+  pressOnStation(/^Set job/);
+  assert.match(onStation(), /Recipe.*Steel pipe.*2 Iron → Steel pipe/, 'the bay\'s recipes');
+  pressOnStation(/^Choose/); // the first recipe: steel pipe
+  pressOnStation('Repeat');
+  pressOnStation('Start');
+  assert.ok(game(`industry.site().bays[0].job.recipe === 'make.steel-pipe' && industry.site().bays[0].job.next > __T`), 'working');
+  assert.match(onStation(), /Working.*2 Iron → Steel pipe.*left/);
+  // Away for an hour: on load, everything the iron makes is made.
+  game('launch(); saveCargoNow(); __T += 3600e3; loadCargo(world.galaxy)');
+  assert.ok(game(`cargo.industry.sites[__startStation().key].storage['steel-pipe'] === 5 && !cargo.industry.sites[__startStation().key].storage.iron`), 'made while away');
+  // Back at the station, taken aboard.
+  game(`{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Waiting.*5 made.*Warehouse.*Steel pipe/);
+  pressOnStation('Take');
+  assert.strictEqual(game(`hold.count('steel-pipe')`), 5);
+  game('Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
@@ -790,6 +823,13 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   const lab = game(`(() => { const d = { hullMods: ['armour-1', 'gone'], lab: { done: ['core.bool'], active: null, queue: [] } }; CARGO_MIGRATIONS[6](d); return d; })()`);
   assert.deepStrictEqual(lab, { lab: { done: ['core.bool', 'hull.armour-1'], doneAt: { 'hull.armour-1': 0 }, active: null, queue: [] } });
   assert.deepStrictEqual(game(`readLab(${JSON.stringify(lab.lab)}).doneAt`), { 'core.bool': 0, 'hull.armour-1': 0 });
+  // Industry starts empty; a damaged one keeps what makes sense.
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { sites: {} });
+  const ind = game(`readIndustry({ sites: { a: { name: 'A', type: 'minor', storage: { iron: 3.7, nope: 2, titanium: -1 },
+    bays: [{ type: 'refinery', job: { recipe: 'make.steel-pipe', left: null, made: 2, at: 5, next: 9 } }, { type: 'mint' },
+      { type: 'fabricator', job: { recipe: 'make.steel-pipe', left: 1, made: 0, at: null, next: null } }] }, b: 'x' } })`);
+  assert.deepStrictEqual(ind, { sites: { a: { name: 'A', type: 'minor', storage: { iron: 3 },
+    bays: [{ type: 'refinery', job: { recipe: 'make.steel-pipe', left: null, made: 2, at: 5, next: 9 } }, { type: 'fabricator', job: null }] } } });
   assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
   assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
 });

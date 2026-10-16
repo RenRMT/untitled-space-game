@@ -25,6 +25,8 @@ import { Loadout } from './rules/loadout.js';
 import { Logic } from './rules/logic.js';
 import { Mining } from './rules/mining.js';
 import { HullMods } from './rules/hullmods.js';
+import { Industry } from './rules/industry.js';
+import { Recipes } from './rules/recipes.js';
 import { Research } from './rules/research.js';
 import { Clock } from './core/clock.js';
 import { Squad } from './rules/squad.js';
@@ -45,6 +47,7 @@ import * as world from './game/world.js';
 import * as cargo from './game/cargo.js';
 import * as outfitting from './game/outfitting.js';
 import * as lab from './game/lab.js';
+import * as industry from './game/industry.js';
 import * as intro from './game/intro.js';
 import * as missions from './game/missions.js';
 import * as docking from './game/docking.js';
@@ -60,7 +63,7 @@ import * as drawWorld from './game/draw-world.js';
 import * as hud from './game/hud.js';
 import * as loop from './game/loop.js';
 
-const parts = [state, options, world, cargo, outfitting, lab, intro, missions, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, docking, squad, mining, travel,
   selection, combat, input, update, starfield, drawWorld, hud, loop];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
@@ -69,8 +72,8 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Knowledge, Loadout,
-  Logic, Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+  Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Knowledge, Loadout,
+  Logic, Mining, Missions, Recipes, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {
