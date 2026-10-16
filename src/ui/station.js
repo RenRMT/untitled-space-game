@@ -489,7 +489,7 @@ const StationMenu = (() => {
       code: CAT_CODE[p.cat], name: `import ${p.name}@${p.ver}`, tag, tagTone: tone,
       sub: `// ${p.note}`,
       extra: st.state === 'available' || st.state === 'locked' ? costChips(st.cost, st.credits, h('span', { class: 'cost num', title: 'Build time' }, `⏱ ${duration(Research.timeOf(p.id))}`)) : null,
-      note: [gives && `Adds ${gives}.`, p.example ? `e.g. ${Logic.text(p.example)}` : '', st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}.` : ''].filter(Boolean).join(' '),
+      note: [gives && `Adds ${gives}.`, p.example ? `e.g. ${Logic.say(p.example)}` : '', st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}.` : ''].filter(Boolean).join(' '),
       open: openPkg === p.id, onToggle: () => { openPkg = openPkg === p.id ? null : p.id; refresh(); },
       locked: st.state === 'locked', lockLabel: 'Locked',
       action: st.state === 'available' ? Kit.button(idle ? 'Build' : 'Queue', act(() => lab.enqueue(p.id), () => Kit.toast(idle ? `Compiling ${pkgName(p)}` : `${pkgName(p)} queued`)), {
@@ -621,38 +621,49 @@ const StationMenu = (() => {
 
   // ---------- Squad ----------
 
-  const WS = { t: 'ws', text: ' ' };
-  const ELSE = [{ t: 'kw', text: 'else' }, WS, { t: 'op', text: '→' }, WS, { t: 'fn', text: 'follow' }, { t: 'punc', text: '(' }, { t: 'subj', text: 'leader' }, { t: 'punc', text: ')' }];
+  const ELSE = [{ kw: 'ELSE', not: false, chips: [{ kind: 'act', text: 'Follow leader' }] }];
+  // Why an instruction can't be saved, in plain words (Logic.check's reasons).
+  function plainError(e) {
+    if (!e) return null;
+    const pkg = e.match(/needs import (\S+)/);
+    if (pkg) return `Needs research: ${pkg[1]}`;
+    const aim = e.match(/can't take (\w+)/);
+    if (aim) return `That action can't be aimed at ${Logic.SUBJECTS[aim[1]]?.say || aim[1]}`;
+    if (/isn't a thing/.test(e)) return "That condition doesn't apply to it";
+    if (/nothing to pick/.test(e)) return 'There is only one to pick';
+    if (/needs and \/ or/.test(e)) return 'Join conditions with AND or OR';
+    return e[0].toUpperCase() + e.slice(1);
+  }
 
-  // Why a line won't run, if it won't: past what memory runs, after a line that always holds, or
-  // about squad members when there are none to be about.
+  // Why an instruction won't run, if it won't: past what memory runs, after one that always
+  // applies, or about squad members when there are none to be about.
   function idleWhy(m, i) {
     const { limit, members } = ctx.squad, line = m.program[i];
     if (line.err) return null;
-    if (i >= limit) return '// not run: out of memory · import mem.ext';
+    if (i >= limit) return 'Not run: out of memory (research mem.ext)';
     const first = m.program.slice(0, i).findIndex(Logic.alwaysRuns);
-    if (first >= 0) return `// never runs: line ${first + 1} always holds first`;
-    if (line.subject === 'ally' && members.length < 2) return '// never true yet: no other squad member';
+    if (first >= 0) return `Never runs: instruction ${first + 1} always applies first`;
+    if (line.subject === 'ally' && members.length < 2) return 'Never true yet: no other squad member';
     return null;
   }
-  // A member's program as code: its lines (tap one to edit it), what it does when none holds, and
-  // a line to add one. Lines that won't run are greyed, with why; after a fight, how often each
-  // took over.
+  // A member's program as instruction cards (tap one to edit it), what it does when none applies,
+  // and a card to add one. Cards that won't run are greyed, with why; after a fight, how often
+  // each was used.
   function programBlock(m) {
     const { limit } = ctx.squad, runs = ctx.squad.runs ? ctx.squad.runs(m.id) : [];
-    const lines = m.program.map((line, i) => {
+    const cards = m.program.map((line, i) => {
       const why = idleWhy(m, i);
-      return Kit.codeLine({
-        n: i + 1, tokens: Logic.tokens(line), off: !line.on, dim: !!why, err: line.err, active: !!runs[i] && !why,
-        note: why || (runs[i] ? `// ran ×${runs[i]} last fight` : null),
-        onclick: () => showLine(m.id, i), aria: `Line ${i + 1}: ${Logic.text(line)}${line.on ? '' : ' (off)'}. Edit`,
+      return Kit.instruction({
+        n: i + 1, rows: Logic.rows(line), off: !line.on, dim: !!why, err: plainError(line.err), active: !!runs[i] && !why,
+        note: why || (runs[i] ? `Used ${runs[i]}× last fight` : !line.on ? 'Switched off' : null),
+        onclick: () => showLine(m.id, i), aria: `Instruction ${i + 1}: ${Logic.say(line)}${line.on ? '' : ' (off)'} Edit`,
       });
     });
     const add = m.program.length < Squad.MAX_LINES
-      ? Kit.codeLine({ tokens: [{ t: 'cmt', text: '+ add line' }], onclick: () => showLine(m.id, m.program.length), aria: 'Add a line' }) : null;
+      ? Kit.instruction({ kind: 'add', rows: [{ kw: '+', not: false, chips: [{ kind: 'subj', text: 'Add instruction' }] }], onclick: () => showLine(m.id, m.program.length), aria: 'Add an instruction' }) : null;
     return [
-      Kit.head('Program', h('span', { class: 'aside num' }, `${Math.min(m.program.length, limit)}/${limit} lines run`)),
-      Kit.code([...lines, add, Kit.codeLine({ tokens: ELSE, dim: true })], { label: `${m.name}'s program` }),
+      Kit.head('Instructions', h('span', { class: 'aside num' }, `${Math.min(m.program.length, limit)}/${limit} run`)),
+      h('div', { class: 'ui-instrs', role: 'list', 'aria-label': `${m.name}'s instructions` }, cards, add, Kit.instruction({ kind: 'else', rows: ELSE, aria: 'Otherwise: follow the leader' })),
     ];
   }
 
@@ -661,7 +672,7 @@ const StationMenu = (() => {
     const members = ctx.squad ? ctx.squad.members : [];
     return [
       titleRow('Squad', `${members.length} member${members.length === 1 ? '' : 's'}`),
-      members.length ? h('p', { class: 'ui-note' }, 'Each member runs its program top down and does what the first line that holds says. If none holds, it keeps formation with you. Tap a line to edit it.') : null,
+      members.length ? h('p', { class: 'ui-note' }, 'Your wingmen check their instructions from the top and follow the first one that applies; if none does, they keep formation with you. Tap an instruction to change it. In combat they show the instruction they are running as code.') : null,
       members.length ? members.map((m) => {
         const st = Squad.stats(m);
         const k = m.disabled ? 0 : m.hullPoints / st.hull;
@@ -680,8 +691,8 @@ const StationMenu = (() => {
     ];
   }
 
-  // The sheet for one program line: the line as it will read, then a row of choices for each
-  // part of it (subject, pick, each condition, action). Blocks not yet researched are dashed.
+  // The sheet for one instruction: the card as it will read, then a row of choices for each part
+  // of it (who, which one, each condition, then what). Blocks not yet researched are dashed.
   // Changes go to a draft; Save puts it in the program if it checks.
   const ABOUT = ['self', 'leader', 'fight'];
   const propsFor = (about) => Object.values(Logic.PROPS).filter((p) => p.of.includes(about));
@@ -711,7 +722,7 @@ const StationMenu = (() => {
     if (!m) return null;
     const known = sq.known, isNew = i >= m.program.length;
     const has = (b) => Logic.knows(known, b.pkg);
-    const item = (b, label = b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs import ${b.pkg} (Research)` });
+    const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs research: ${b.pkg}` });
     const edit = (fn) => (v) => { fn(v); fitDraft(d, known); refresh(); };
     const check = Logic.check(d, known);
     const field = (label, ...parts) => h('div', { class: 'st-field' }, h('span', { class: 'ui-label' }, label), parts);
@@ -719,22 +730,22 @@ const StationMenu = (() => {
     const clauses = d.when.map((c, j) => {
       const about = c.of || d.subject;
       const p = Logic.PROPS[c.prop];
-      const aboutItems = [{ id: '', label: d.subject, on: !c.of }, ...ABOUT.filter((a) => a !== d.subject).map((a) => ({
-        id: a, label: a, on: c.of === a, locked: !propsFor(a).some(has), title: propsFor(a).some(has) ? undefined : 'Nothing known about it yet (Research)',
+      const aboutItems = [{ id: '', label: Logic.SUBJECTS[d.subject].say, on: !c.of }, ...ABOUT.filter((a) => a !== d.subject).map((a) => ({
+        id: a, label: a === 'fight' ? 'Fight' : Logic.SUBJECTS[a].say, on: c.of === a, locked: !propsFor(a).some(has), title: propsFor(a).some(has) ? undefined : 'Nothing known about it yet (Research)',
       }))];
       return h('div', { class: 'st-clause' },
         h('div', { class: 'st-clause-head' }, h('span', { class: 'ui-label' }, `Condition ${j + 1}`),
           h('button', { class: 'ui-link', type: 'button', onclick: () => { d.when.splice(j, 1); if (d.when[0]) d.when[0].join = null; refresh(); } }, 'Remove')),
-        j ? Kit.choices([item(Logic.KEYWORDS.and, 'and', c.join === 'and'), item(Logic.KEYWORDS.or, 'or', c.join === 'or')], edit((v) => { c.join = v; }), { label: 'Joined by' }) : null,
-        Kit.choices([item(Logic.KEYWORDS.not, 'not', c.not)], edit(() => { c.not = !c.not; }), { label: 'Negate' }),
+        j ? Kit.choices([item(Logic.KEYWORDS.and, 'AND', c.join === 'and'), item(Logic.KEYWORDS.or, 'OR', c.join === 'or')], edit((v) => { c.join = v; }), { label: 'Joined by' }) : null,
+        Kit.choices([item(Logic.KEYWORDS.not, 'NOT', c.not)], edit(() => { c.not = !c.not; }), { label: 'Negate' }),
         Kit.choices(aboutItems, edit((v) => {
           c.of = v || null;
           const now = c.of || d.subject;
           if (!Logic.PROPS[c.prop]?.of.includes(now)) { const q = propsFor(now).find(has); if (q) setProp(c, q); }
         }), { label: 'About' }),
-        Kit.choices(propsFor(about).map((q) => item(q, `.${q.id}`, q.id === c.prop)), edit((v) => setProp(c, Logic.PROPS[v])), { label: 'Property' }),
-        p && p.rels.length ? Kit.choices(p.rels.map((r) => ({ id: r, label: r, on: c.rel === r })), edit((v) => { c.rel = v; }), { label: 'Operator' }) : null,
-        p && p.values ? Kit.choices(p.values.map((v) => ({ id: String(v), label: `${v}${p.unit || ''}`, on: c.value === v })),
+        Kit.choices(propsFor(about).map((q) => item(q, q.say, q.id === c.prop)), edit((v) => setProp(c, Logic.PROPS[v])), { label: 'Property' }),
+        p && p.rels.length ? Kit.choices(p.rels.map((r) => ({ id: r, label: Logic.sayRel(r), on: c.rel === r })), edit((v) => { c.rel = v; }), { label: 'Operator' }) : null,
+        p && p.values ? Kit.choices(p.values.map((v) => ({ id: String(v), label: Logic.sayValue(p, v), on: c.value === v })),
           edit((v) => { c.value = p.values.find((x) => String(x) === v); }), { label: 'Value' }) : null);
     });
     const canAdd = d.when.length < Logic.MAX_CLAUSES && (!d.when.length || has(Logic.KEYWORDS.and)) && newClause(d, known);
@@ -742,26 +753,26 @@ const StationMenu = (() => {
     const subj = Logic.SUBJECTS[d.subject];
 
     const tools = isNew ? null : h('div', { class: 'st-line-tools' },
-      Kit.button('↑', act(() => sq.move(id, i, i - 1), closeSheet), { kind: 'ghost', disabled: i === 0, aria: 'Move the line up' }),
-      Kit.button('↓', act(() => sq.move(id, i, i + 1), closeSheet), { kind: 'ghost', disabled: i >= m.program.length - 1, aria: 'Move the line down' }),
-      Kit.button(m.program[i].on ? 'Off' : 'On', act(() => sq.toggle(id, i), closeSheet), { kind: 'ghost', disabled: !!m.program[i].err, aria: m.program[i].on ? 'Switch the line off' : 'Switch the line on' }),
-      Kit.button('Copy', act(() => sq.set(id, m.program.length, m.program[i]), closeSheet), { kind: 'ghost', disabled: m.program.length >= Squad.MAX_LINES || !!m.program[i].err, aria: 'Copy the line to the end' }),
-      Kit.button('Delete', act(() => sq.remove(id, i), () => { closeSheet(); Kit.toast(`Line ${i + 1} deleted`, 'warn'); }), { kind: 'warn', aria: 'Delete the line' }));
+      Kit.button('↑', act(() => sq.move(id, i, i - 1), closeSheet), { kind: 'ghost', disabled: i === 0, aria: 'Move the instruction up' }),
+      Kit.button('↓', act(() => sq.move(id, i, i + 1), closeSheet), { kind: 'ghost', disabled: i >= m.program.length - 1, aria: 'Move the instruction down' }),
+      Kit.button(m.program[i].on ? 'Off' : 'On', act(() => sq.toggle(id, i), closeSheet), { kind: 'ghost', disabled: !!m.program[i].err, aria: m.program[i].on ? 'Switch the instruction off' : 'Switch the instruction on' }),
+      Kit.button('Copy', act(() => sq.set(id, m.program.length, m.program[i]), closeSheet), { kind: 'ghost', disabled: m.program.length >= Squad.MAX_LINES || !!m.program[i].err, aria: 'Copy the instruction to the end' }),
+      Kit.button('Delete', act(() => sq.remove(id, i), () => { closeSheet(); Kit.toast(`Instruction ${i + 1} deleted`, 'warn'); }), { kind: 'warn', aria: 'Delete the instruction' }));
 
     return {
-      title: isNew ? 'New line' : `Line ${i + 1}`, sub: m.name, code: 'LGC', tall: true,
+      title: isNew ? 'New instruction' : `Instruction ${i + 1}`, sub: m.name, code: 'LGC', tall: true,
       body: [
-        Kit.code([Kit.codeLine({ n: i + 1, tokens: Logic.tokens(d), err: check.ok ? null : check.errors[0] })], { label: 'The line' }),
-        field('Subject', Kit.choices(Object.values(Logic.SUBJECTS).map((b) => item(b, b.id, d.subject === b.id)), edit((v) => { d.subject = v; }), { label: 'Subject' })),
-        subj.many ? field('Pick', Kit.choices(Object.values(Logic.PICKS).map((b) => item(b, b.id, d.pick === b.id)), edit((v) => { d.pick = v; }), { label: 'Pick' })) : null,
+        h('div', { class: 'ui-instrs' }, Kit.instruction({ n: i + 1, rows: Logic.rows(d), err: check.ok ? null : plainError(check.errors[0]), aria: Logic.say(d) })),
+        field('Who', Kit.choices(Object.values(Logic.SUBJECTS).map((b) => item(b, b.say, d.subject === b.id)), edit((v) => { d.subject = v; }), { label: 'Who' })),
+        subj.many ? field('Which one', Kit.choices(Object.values(Logic.PICKS).map((b) => item(b, b.say, d.pick === b.id)), edit((v) => { d.pick = v; }), { label: 'Which one' })) : null,
         clauses,
         canAdd ? Kit.button('+ Condition', () => { d.when.push(newClause(d, known)); refresh(); }, { kind: 'ghost', wide: true })
-          : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need and (import core.bool).') : null,
-        field('Action', Kit.choices(actions.map((a) => item(a, `${a.id}()`, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Action' }),
+          : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
+        field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
       ],
       foot: [
-        Kit.button(isNew ? 'Add line' : 'Save line', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => { closeSheet(); Kit.toast(isNew ? 'Line added' : 'Line saved'); }), {
+        Kit.button(isNew ? 'Add instruction' : 'Save instruction', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => { closeSheet(); Kit.toast(isNew ? 'Instruction added' : 'Instruction saved'); }), {
           kind: 'primary', lg: true, wide: true, disabled: !check.ok,
         }),
         tools,
