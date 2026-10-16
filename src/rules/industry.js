@@ -12,7 +12,7 @@
 // moment it finished.
 //
 //   Industry.empty() -> state                { sites: { [station key]: site } }
-//   site: { name, type (the station's market type), storage: { [kind]: n }, bays: [bay] }
+//   site: { name, type (the station's market type), storage: { [kind (Recipes.item)]: n }, bays: [bay] }
 //   bay: { type (Recipes.BAYS), job: null | { recipe, left: n | null (null: while inputs last), made, at, next } }
 //     at / next: when the run under way started and finishes (ms), or null between runs
 //   Industry.LEASE[type], MAX_BAYS, STORAGE { base, perBay }, SPECIALTY[station type] -> bay type, FAST
@@ -29,12 +29,11 @@
 //   Industry.summary(state, log) -> [text]   what was made, per station and good
 // Times are milliseconds since the epoch (core/clock.js). ES module (`Industry`); also runs in Node.
 
-import { Goods } from './goods.js';
 import { Recipes } from './recipes.js';
 import { Research } from './research.js';
 
 const Industry = (() => {
-  const LEASE = { refinery: 3000, fabricator: 6000 };
+  const LEASE = { refinery: 1500, fabricator: 3000, assembler: 5000 };
   const MAX_BAYS = 2;
   const STORAGE = { base: 40, perBay: 60 };
   const SPECIALTY = { 'mining camp': 'refinery', 'salvage yard': 'refinery', waystation: 'fabricator', major: 'fabricator', capital: 'assembler' };
@@ -162,7 +161,7 @@ const Industry = (() => {
     }
     return [...made].map(([id, n]) => {
       const [key, kind] = id.split('\u0000');
-      return `${state.sites[key].name}: ${n} × ${Goods.type(kind).name}`;
+      return `${state.sites[key].name}: ${n} × ${Recipes.item(kind).name}`;
     });
   }
 

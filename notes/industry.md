@@ -36,7 +36,7 @@ code follows it phase by phase.
 | refined | refinery (20 s) | steel pipe, copper cable, carbon fibre, hydrazine |
 | advanced | refinery (25–60 s) | graphene, aerogel, superconductor, optical fibre, metamaterial |
 | part | fabricator (30–90 s) | electronics, actuators, power cells, sensor arrays, thruster nozzles, capacitors, hull plating, focusing lenses, cooling loops, robotics, plasma conduit, nanite suspension, AI cores |
-| item | assembler (2 m to 2 h by Mk) | gear Mk I–V, mods; later consumables and refit kits |
+| item | assembler (2 m to 2 h by Mk) | gear Mk I–V (Mk I from refined goods, then parts; Mk IV–V also complex and exotic components); later mods, consumables and refit kits |
 
 Salvaged components are recycled at a refinery: simple and standard ones into refined goods,
 advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives carbon, icy rock
@@ -49,8 +49,9 @@ inputs.
 
 ## Facilities
 
-Bays are leased at the station you're docked at, paid once: a refinery costs 3,000 credits and a
-fabricator 6,000, with two bays per station to start. Each station where you lease has a warehouse
+Bays are leased at the station you're docked at, paid once: a refinery costs 1,500 credits, a
+fabricator 3,000 and an assembler 5,000, with two bays per station to start (so a whole chain
+takes two stations, or research). Each station where you lease has a warehouse
 of your own (40 units, plus 60 per bay). You store goods from the hold (and components, for
 recycling), and you take back what's made. A bay's job is a recipe, run a set number of times or
 for as long as inputs last.
@@ -68,7 +69,9 @@ share one lab queue, so every hour of lab time is a choice between them. Package
 
 - **logic:** code libraries for squad programs (`notes/squad-logic.md`).
 - **hull:** the hull refits (`hull.armour-2`), from `rules/hullmods.js`.
-- **blueprint** (planned): unlocks the assembler recipe for one line at one Mk (`bp.pulse-laser-3`).
+- **blueprint:** unlocks the assembler recipe for one line at one Mk (`bp.pulse-laser-3`). Mk II
+  needs only credits and components; from Mk III, parts made by industry too (capacitors, power
+  cells, electronics, thruster nozzles); Mk V an exotic component. Each needs the Mk before it.
 - **refine** (planned): +4% to one stat of a line, three steps per line.
 - **industry** (planned): faster bays, more bays and storage, alternative recipes, a longer lab
   queue.
@@ -88,7 +91,8 @@ work settled after a long time offline speeds up exactly when the bonus finished
 2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage. *(done)*
 3. Facilities: leased bays, station warehouses, offline settlement in event order
    (`rules/industry.js`, `game/industry.js`), and the Industry tab (`ui/industry-view.js`). *(done)*
-4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints.
+4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints
+   (migration 9: gear owned and schematics recovered become blueprints done). *(done)*
 5. Refinements and industry research.
 6. Mods.
 7. Later: consumables through `use()`, squad refit kits, logistics between warehouses.

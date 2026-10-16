@@ -56,7 +56,6 @@ export function dock(station) {
   ship.thrust = 0;
   drag.active = false;
   particles.length = 0;
-  outfitting.sells = Economy.outfitter(world.galaxy.seed, station);
   lab.settle();
   industry.here = { key: station.key, name: station.name, type: station.market.type };
   industry.settle();

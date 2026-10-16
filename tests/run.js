@@ -801,15 +801,16 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
 
 // ---------- Industry ----------
 
-const STAGE_RANK = { raw: 0, salvage: 0, refined: 1, advanced: 2, part: 3 };
+const STAGE_RANK = { raw: 0, salvage: 0, refined: 1, advanced: 2, part: 3, item: 4 };
 test('recipes: real goods in and out, made from earlier stages, and no loops', () => {
   assert.strictEqual(new Set(Recipes.LIST.map((r) => r.id)).size, Recipes.LIST.length);
   for (const r of Recipes.LIST) {
     assert(Recipes.BAYS[r.bay], `${r.id}: bay ${r.bay}`);
     assert(r.time > 0 && Object.keys(r.in).length && Object.keys(r.out).length, r.id);
-    for (const [kind, n] of [...Object.entries(r.in), ...Object.entries(r.out)]) assert(Goods.type(kind) && Number.isInteger(n) && n > 0, `${r.id}: ${kind} × ${n}`);
+    for (const [kind, n] of [...Object.entries(r.in), ...Object.entries(r.out)]) assert(Recipes.item(kind) && Number.isInteger(n) && n > 0, `${r.id}: ${kind} × ${n}`);
+    for (const kind of Object.keys(r.in)) assert(Recipes.item(kind).kind !== 'gear', `${r.id}: gear goes in`);
     assert(r.unlock === null || Research.PACKAGES[r.unlock], `${r.id}: unlock ${r.unlock}`);
-    const rank = (k) => STAGE_RANK[Goods.type(k).stage];
+    const rank = (k) => STAGE_RANK[Recipes.item(k).stage];
     assert(Math.min(...Object.keys(r.out).map(rank)) >= Math.max(...Object.keys(r.in).map(rank)), `${r.id} goes back down the chain`);
   }
   // No loops: everything made can be made, in some order, from raw materials and salvage.
@@ -822,6 +823,43 @@ test('recipes: real goods in and out, made from earlier stages, and no loops', (
     }
   }
   for (const t of Object.values(Goods.TYPES)) assert(have.has(t.id), `${t.id} can't be had`);
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(have.has(id), `${id} can't be made`);
+});
+
+test('gear is assembled: one recipe per piece, Mk I known, the rest by blueprint, the best from exotic salvage', () => {
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) {
+    const R = Recipes.gearRecipe(id);
+    if (e.npc) { assert.strictEqual(R, null, `${id} is NPC gear`); continue; }
+    assert(R && R.bay === 'assembler' && R.out[id] === 1 && Recipes.producers(id).length === 1, id);
+    assert.strictEqual(R.unlock, e.tier === 1 ? null : `bp.${id}`);
+    assert.strictEqual(Research.blueprintFor(id), e.tier === 1 ? null : `bp.${id}`);
+    const salvage = Object.keys(R.in).filter(Goods.isSalvage).map((k) => Goods.type(k).tier);
+    assert.deepStrictEqual(salvage.sort(), e.tier === 5 ? [4, 5] : e.tier === 4 ? [4] : [], `${id}: complex and exotic components`);
+  }
+  // Blueprints: each needs the Mk before it in its line; the best take exotic components.
+  for (const p of Object.values(Research.PACKAGES).filter((x) => x.kind === 'blueprint')) {
+    assert(Loadout.EQUIPMENT[p.gear] && p.id === `bp.${p.gear}` && Recipes.known([p.id]).has(`make.${p.gear}`));
+    const before = `bp.${p.line}-${p.tier - 1}`;
+    assert.deepStrictEqual(p.requires, Research.PACKAGES[before] ? [before] : []);
+    if (p.tier === 5) assert(Object.keys(p.cost).some((k) => Goods.type(k)?.tier === 5), `${p.id} needs an exotic component`);
+  }
+  // Schematics name gear with a blueprint.
+  for (let i = 0; i < 2000; i++) {
+    const id = CombatCore.schematic(1, `p${i}`, 'fighter', 4);
+    if (id) assert(Research.blueprintFor(id), `${id} has no blueprint`);
+  }
+});
+
+test('a blueprint can be granted (a schematic): done at once, refunded in full if it was queued', () => {
+  const lab = Research.empty(), T = 1e12;
+  Research.enqueue(lab, 'bp.pulse-laser-2', T);
+  Research.enqueue(lab, 'bp.pulse-laser-3', T);
+  assert.deepStrictEqual(Research.grant(lab, 'bp.pulse-laser-2', T + 1000), [{ id: 'bp.pulse-laser-2', refund: 1 }]);
+  assert.deepStrictEqual(lab.active, { id: 'bp.pulse-laser-3', start: T + 1000, end: T + 1000 + Research.timeOf('bp.pulse-laser-3') }, 'the next one starts');
+  assert.strictEqual(lab.doneAt['bp.pulse-laser-2'], T + 1000);
+  assert.deepStrictEqual(Research.grant(lab, 'bp.pulse-laser-2', T), [], 'already done');
+  assert.deepStrictEqual(Research.grant(lab, 'bp.deflector-5', T), [], 'not queued: nothing to refund');
+  assert(lab.done.includes('bp.deflector-5'));
 });
 
 test('every trade good has a source and a use beyond selling', () => {
@@ -837,7 +875,7 @@ test('every trade good has a source and a use beyond selling', () => {
     for (const t of Goods.ofCategory(cat)) {
       if (t.stage === 'raw') assert(mined.has(t.id), `${t.id} is raw but never mined or collected`);
       else assert(Recipes.producers(t.id).length, `${t.id} is never made`);
-      if (t.stage !== 'part') assert(Recipes.consumers(t.id).length || research.has(t.id), `${t.id} has no use`);
+      assert(Recipes.consumers(t.id).length || research.has(t.id), `${t.id} has no use`);
     }
   }
   for (const t of Object.values(Goods.TYPES)) if (t.stage === 'raw' || t.stage === 'salvage') assert(!Recipes.producers(t.id).some((r) => !Object.keys(r.in).some(Goods.isSalvage)), `${t.id} is raw, not made`);
@@ -1272,35 +1310,15 @@ test('gear tuned by research: fractions added to its line, kept within limits, n
   assert.deepStrictEqual(Loadout.tuned({ lockTime: 0.4 }, { lockTime: -0.9 }), { lockTime: 0.2 });
 });
 
-test('outfitters: Mk I everywhere, better gear at bigger stations, Mk V never; schematics fill the gap', () => {
-  const stations = SEEDS.flatMap((seed) => thingsOf(seed, 'station').map((st) => [seed, st]));
-  const sold = new Set();
-  for (const [seed, st] of stations) {
-    const sells = Economy.outfitter(seed, st);
-    assert.deepStrictEqual([...sells], [...Economy.outfitter(seed, st)], 'seeded: the same every time');
-    for (const id of Loadout.STARTER_GEAR) assert(sells.has(id), `${st.name} sells ${id}`);
-    const top = Economy.OUTFITTER[st.market.type] || 1;
-    for (const id of sells) {
-      assert(!Loadout.EQUIPMENT[id].npc, `${id} is NPC gear`);
-      assert(Loadout.EQUIPMENT[id].tier <= top, `${st.market.type} sells ${id}`);
-      sold.add(id);
-    }
-  }
-  assert(sold.has('pulse-laser-4'), 'capitals sell Mk IV');
-  // Schematics: only from armed pirates, and every piece of player gear can come from one.
-  const fromSchematic = new Set();
+test('schematics: only from armed pirates, for gear of their tier or one better', () => {
   for (let i = 0; i < 6000; i++) {
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'fighter', 1), null, 'tier 1 pirates carry none');
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'freighter', 4), null, 'freighters carry none');
     for (const tier of [2, 3, 4]) {
       const id = CombatCore.schematic(1, `p${i}`, 'fighter', tier);
-      if (!id) continue;
-      assert(!Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier >= tier && Loadout.EQUIPMENT[id].tier <= tier + 1);
-      fromSchematic.add(id);
+      if (id) assert(!Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier >= tier && Loadout.EQUIPMENT[id].tier <= tier + 1);
     }
   }
-  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(sold.has(id) || fromSchematic.has(id), `${id} can never be had`);
-  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc && e.tier === 5) assert(!sold.has(id) && fromSchematic.has(id), `${id}: schematics only`);
 });
 
 test('each step up the gear ladder takes on the next pirate band', () => {

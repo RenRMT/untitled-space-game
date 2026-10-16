@@ -1,4 +1,4 @@
-// Cargo hold and credits: items collected or bought, saved per galaxy (with the loadout, schematics,
+// Cargo hold and credits: items collected or bought, saved per galaxy (with the loadout, spare gear,
 // research, industry, squad and missions), and the ship's stats from its loadout (applyShip).
 // Part of the flight view; src/main.js starts it.
 
@@ -30,16 +30,15 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
 // (repaired at stations). home: the last station docked at, where a lost ship is towed.
-// loadout: the ship's class and fitted equipment; gear: spare equipment bought or taken out
-// ({ [equipment id]: count }); schematics: equipment recovered from pirates (rules/loadout.js ids, a
-// Set), which every station then sells; lab: research (rules/research.js: what's done, building
-// and queued, hull refits among it); industry: bays leased at stations and their warehouses
+// loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out
+// ({ [equipment id]: count }); lab: research (rules/research.js: what's done, building and queued,
+// blueprints and hull refits among it); industry: bays leased at stations and their warehouses
 // (rules/industry.js); squad: the squad members (rules/squad.js), with their programs
 // and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
-  loadout: Loadout.starter('courier'), gear: {}, schematics: new Set(), lab: Research.empty(), industry: Industry.empty(), squad: [], story: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, lab: Research.empty(), industry: Industry.empty(), squad: [], story: new Set(),
   missions: Missions.create(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
@@ -101,7 +100,6 @@ export function loadCargo(galaxy) {
   cargo.home = null;
   cargo.loadout = Loadout.starter('courier');
   cargo.gear = {};
-  cargo.schematics = new Set();
   cargo.lab = Research.empty();
   cargo.industry = Industry.empty();
   cargo.squad = []; // the first member joins at the end of the first mission
@@ -192,6 +190,21 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     if (!d.industry) d.industry = Industry.empty();
   },
+  // 9. Gear isn't sold any more but assembled by blueprint: schematics recovered, and gear owned
+  //    (fitted or spare), become their blueprints, researched as of the start of time.
+  (d) => {
+    d.lab = d.lab || Research.empty();
+    d.lab.done = Array.isArray(d.lab.done) ? d.lab.done : [];
+    d.lab.doneAt = d.lab.doneAt || {};
+    const owned = [...(Array.isArray(d.schematics) ? d.schematics : []), ...Object.values(d.loadout?.fitted || {}), ...Object.keys(d.gear || {})];
+    for (const id of owned) {
+      const bp = typeof id === 'string' && Research.blueprintFor(id);
+      if (bp && !d.lab.done.includes(bp)) { d.lab.done.push(bp); d.lab.doneAt[bp] = 0; }
+    }
+    if (Array.isArray(d.lab.queue)) d.lab.queue = d.lab.queue.filter((id) => !d.lab.done.includes(id));
+    if (d.lab.active && d.lab.done.includes(d.lab.active.id)) d.lab.active = null;
+    delete d.schematics;
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -222,7 +235,7 @@ export function readIndustry(d) {
   for (const [key, s] of Object.entries(d.sites)) {
     if (!s || typeof s !== 'object' || !Array.isArray(s.bays)) continue;
     const site = { name: String(s.name || key), type: String(s.type || ''), storage: {}, bays: [] };
-    for (const [kind, n] of Object.entries(s.storage || {})) if (Goods.type(kind) && whole(n) > 0) site.storage[kind] = whole(n);
+    for (const [kind, n] of Object.entries(s.storage || {})) if (Recipes.item(kind) && whole(n) > 0) site.storage[kind] = whole(n);
     for (const b of s.bays) {
       if (!b || !Recipes.BAYS[b.type]) continue;
       const j = b.job, ok = j && Recipes.RECIPES[j.recipe]?.bay === b.type;
@@ -238,7 +251,6 @@ export function readIndustry(d) {
 export function readCargo(d) {
   cargo.lab = readLab(d.lab); // before the squad: what its programs may use
   cargo.industry = readIndustry(d.industry);
-  if (Array.isArray(d.schematics)) cargo.schematics = new Set(d.schematics.filter((id) => Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc));
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions);
@@ -262,7 +274,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-  loadout: cargo.loadout, gear: cargo.gear, schematics: [...cargo.schematics], lab: cargo.lab, industry: cargo.industry, squad: cargo.squad,
+  loadout: cargo.loadout, gear: cargo.gear, lab: cargo.lab, industry: cargo.industry, squad: cargo.squad,
   story: [...cargo.story], missions: cargo.missions.save(),
 }), 1000);
 export const saveCargo = () => cargoSave.change();

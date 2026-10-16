@@ -10,10 +10,9 @@
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
-// outfitting: { loadout, upgrades, gear, known, sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
-//               fit(slot, id, buy?), unfit(slot), sell(id), buyHull(id) }: the ship's equipment,
-//               spare gear, buying what this station sells (or a schematic unlocked), and the
-//               shipyard (game/outfitting.js).
+// outfitting: { loadout, upgrades, gear, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
+//               fit(slot, id), unfit(slot), sell(id), buyHull(id) }: the ship's equipment, spare
+//               gear, whether industry can make a piece, and the shipyard (game/outfitting.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
 // industry: game/industry.js: bays leased at stations, their jobs and warehouses (rules/industry.js).
@@ -243,32 +242,32 @@ const StationMenu = (() => {
     }));
   }
 
-  // Where gear of a Mk is sold (rules/economy.js outfitter), for gear this station doesn't sell.
-  const WHERE = [null, 'every station', 'system stations', 'major stations and salvage yards', 'capitals'];
-  const whereSold = (item) => (item.tier >= 5 ? 'Never sold: only from schematics recovered from pirates.'
-    : `Sold at ${WHERE[item.tier]} (not all of them stock every line), or from a schematic recovered from pirates.`);
+  // Where a piece of gear is, if it's waiting in a warehouse (game/industry.js), for the slot sheet.
+  const inStore = (id) => (ctx.industry ? ctx.industry.sites.filter((x) => x.storage[id]).map((x) => x.name) : []);
 
-  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), gear sold here (Buy) and
-  // the next of each line not sold here, each with its stat changes against what's fitted.
+  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), and the next Mk of each
+  // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
+  // changes against what's fitted.
   function slotSheet(id) {
-    const { outfitting: o, hold } = ctx;
+    const { outfitting: o } = ctx;
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
     if (!s) return null;
     const cur = s.item;
     const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && !Loadout.EQUIPMENT[e].npc && e !== cur?.id);
-    const rank = (e) => (o.gear[e] ? 0 : o.known.has(e) ? 1 : 2);
-    // Of the gear not sold here, only the next Mk of each line.
+    // Of each line, the Mk after the best you have (fitted or spare).
     const next = new Set();
-    for (const e of ids) {
-      const item = Loadout.EQUIPMENT[e];
-      if (rank(e) === 2 && ![...next].some((n) => Loadout.EQUIPMENT[n].line === item.line)) next.add(e);
+    for (const line of new Set(ids.map((e) => Loadout.EQUIPMENT[e].line))) {
+      const best = Math.max(0, ...[cur?.id, ...Object.keys(o.gear)].filter((e) => e && Loadout.EQUIPMENT[e].line === line).map((e) => Loadout.EQUIPMENT[e].tier));
+      const n = ids.filter((e) => Loadout.EQUIPMENT[e].line === line && Loadout.EQUIPMENT[e].tier > best && !o.gear[e]).sort((x, y) => Loadout.EQUIPMENT[x].tier - Loadout.EQUIPMENT[y].tier)[0];
+      if (n) next.add(n);
     }
-    const options = ids.filter((e) => rank(e) < 2 || next.has(e))
+    const rank = (e) => (o.gear[e] ? 0 : o.canMake(e) ? 1 : 2);
+    const options = ids.filter((e) => o.gear[e] || next.has(e))
       .sort((a, b) => rank(a) - rank(b) || Loadout.EQUIPMENT[a].tier - Loadout.EQUIPMENT[b].tier)
       .map((e) => {
         const item = { id: e, ...Loadout.EQUIPMENT[e] };
-        const kind = ['fit', 'buy', 'locked'][rank(e)];
-        const short = hold.credits < item.price;
+        const kind = ['fit', 'make', 'locked'][rank(e)];
+        const stored = inStore(e);
         const fitted = () => {
           closeSheet();
           refresh();
@@ -276,15 +275,15 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : kind === 'locked' ? 'Not sold here' : '', tagTone: kind === 'fit' ? 'good' : null,
+          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored.length ? 'In a warehouse' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
+          tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored.length ? 'cyan' : null,
           locked: kind === 'locked',
           note: kind === 'fit' ? `Spare gear aboard. Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : kind === 'buy' ? [Loadout.STARTER_GEAR.includes(e) ? 'Sold at every station.' : o.schematics.has(e) ? 'Yours by schematic: sold to you everywhere.' : 'Sold here.', short ? `You need ${(item.price - hold.credits).toLocaleString('en-US')} cr more.` : '', cur ? 'The current one goes to spare gear.' : ''].filter(Boolean).join(' ')
-              : whereSold(item),
+            : [stored.length ? `Made, and waiting in the warehouse at ${stored.join(', ')}: take it from the Industry tab there.` : '',
+              kind === 'make' ? 'Assembled at an assembler (Industry tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
-          action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` })
-            : kind === 'buy' ? Kit.button('Buy', act(() => o.fit(s.id, e, true), fitted), { price: item.price, disabled: short, aria: `Buy and fit ${item.name} for ${item.price} credits` })
-              : null,
+          action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` }) : null,
+          lockLabel: null,
         });
       });
     return {
@@ -296,7 +295,7 @@ const StationMenu = (() => {
           action: Kit.button('Remove', act(() => o.unfit(s.id), () => Kit.toast(`${cur.name} moved to spare gear`)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
         h('span', { class: 'ui-label' }, 'Options'),
-        options.length ? options : h('p', { class: 'ui-note' }, 'Bigger stations sell better equipment for this slot.'),
+        options.length ? options : h('p', { class: 'ui-note' }, 'Better gear for this slot is assembled at an assembler, by blueprint.'),
       ],
     };
   }
@@ -319,7 +318,7 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
   }
 
-  // Spare gear: bought or taken out, kept aboard (it takes no hold space); sold back for half.
+  // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half.
   function renderGear() {
     const { outfitting: o } = ctx;
     const ids = Object.keys(o.gear);

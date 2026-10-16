@@ -8,8 +8,8 @@
 //   initiative count there too. In real-time combat (combat/combat-realtime.js) a weapon also has a range
 //   and a firing arc, and the scanner sets how far away a target can be locked.
 // Equipment comes in lines of Mk I–V (tier 1–5). The player starts with the Mk I of each slot's
-// line; the rest are bought at stations for `price` credits: better gear at bigger stations
-// (rules/economy.js outfitter), Mk V only from schematics pirates carry (combat/combat-core.js).
+// line; the rest is assembled from parts (rules/recipes.js), Mk II and up by blueprint
+// (rules/research.js). `price` is what it's worth: spare gear sells for half.
 // NPC ships (fighters, freighters) fit their own lines, by tier: pirates in more dangerous space
 // fly better gear (world/security.js). Hulls marked with a price are sold at shipyards.
 // Research (rules/research.js upgrades: hull refits, refinements) comes in as `upgrades`:

@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Loadout } from '../rules/loadout.js';
+import { Recipes } from '../rules/recipes.js';
 import { Research } from '../rules/research.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
@@ -11,29 +12,25 @@ import { snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
 import { world } from './world.js';
 
-// Equipment: what's fitted, spare gear (bought or taken out), buying what this station's outfitter
-// sells (sells: set on docking, rules/economy.js outfitter) or a schematic has unlocked,
-// selling spare gear for half its price, and the shipyard's hulls (the current one traded in for
-// half its price; the gear moves across, what doesn't fit goes to the spare gear).
+// Equipment: what's fitted, spare gear (assembled, or taken out) to fit, selling spare gear for half
+// its price, and the shipyard's hulls (the current one traded in for half its price; the gear moves
+// across, what doesn't fit goes to the spare gear). Gear isn't sold: industry assembles it.
 export const SELL_BACK = 0.5;
 export const outfitting = {
   get loadout() { return cargo.loadout; },
-  sells: new Set(),
   get upgrades() { return Research.upgrades(cargo.lab.done); },
   get gear() { return cargo.gear; },
-  get schematics() { return cargo.schematics; },
-  get known() { return new Set([...Loadout.STARTER_GEAR, ...outfitting.sells, ...cargo.schematics]); },
+  // Whether industry can make a piece of gear: Mk I always, the rest once its blueprint is researched.
+  canMake: (id) => Recipes.known(cargo.lab.done).has(`make.${id}`),
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
   tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
   hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
-  // Fit spare gear (or, with buy, a new one) in a slot; what was there goes to the spare gear.
-  fit(slot, id, buy = false) {
+  // Fit spare gear in a slot; what was there goes to the spare gear.
+  fit(slot, id) {
     const item = Loadout.EQUIPMENT[id];
     const s = Loadout.slotsOf(cargo.loadout.hull, outfitting.upgrades).find((x) => x.id === slot);
-    if (!item || !s || item.slot !== s.type) return false;
-    if (buy ? !outfitting.known.has(id) || cargo.credits < item.price : !cargo.gear[id]) return false;
-    if (buy) cargo.credits -= item.price;
-    else addTo(cargo.gear, id, -1);
+    if (!item || !s || item.slot !== s.type || !cargo.gear[id]) return false;
+    addTo(cargo.gear, id, -1);
     const old = cargo.loadout.fitted[slot];
     if (old) addTo(cargo.gear, old);
     cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: id } };

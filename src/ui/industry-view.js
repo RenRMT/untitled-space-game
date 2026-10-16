@@ -28,7 +28,13 @@ const IndustryView = {
     let live = []; // working bays' meters and times left (see tick)
 
     const ind = () => env.ctx().industry;
-    const name = (kind) => Goods.type(kind).name;
+    const name = (kind) => Recipes.item(kind).name;
+    const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
+    // A thing's icon: a good's art, or for gear its slot's code.
+    const iconOf = (kind, size) => {
+      const it = Recipes.item(kind);
+      return it.kind === 'gear' ? Kit.icon(SLOT_CODE[it.slot], size, { code: SLOT_CODE[it.slot], tier: it.tier }) : env.itemIcon(kind, size);
+    };
     const list = (counts) => Object.entries(counts).map(([k, n]) => (n > 1 ? `${n} ${name(k)}` : name(k))).join(' + ');
     const recipeText = (R) => `${list(R.in)} → ${list(R.out)}`;
     const recipeName = (R) => Object.keys(R.out).map(name).join(' + ');
@@ -71,21 +77,22 @@ const IndustryView = {
     // ---------- Warehouse and hold ----------
 
     function goodRow(kind, n, action) {
-      const t = Goods.type(kind);
+      const t = Recipes.item(kind);
       return Kit.optionRow({
-        icon: h('span', { class: 'st-item' }, env.itemIcon(kind, 40), h('span', { class: 'n num' }, `×${n}`)),
-        name: t.name, tag: t.stage, tagTone: null, action,
+        icon: h('span', { class: 'st-item' }, iconOf(kind, 40), h('span', { class: 'n num' }, `×${n}`)),
+        name: t.name, tag: t.kind === 'gear' ? 'gear' : t.stage, tagTone: null, action,
       });
     }
     function warehouse(s) {
       const e = ind().env(), now = ind().now();
       const cap = Industry.capacity(s, e, now), used = Industry.used(s), held = Industry.reserved(s);
-      const kinds = Object.keys(s.storage).sort((a, b) => Goods.STAGES.indexOf(Goods.type(a).stage) - Goods.STAGES.indexOf(Goods.type(b).stage));
+      const order = (k) => [...Goods.STAGES, 'item'].indexOf(Recipes.item(k).stage);
+      const kinds = Object.keys(s.storage).sort((a, b) => order(a) - order(b));
       return env.section('Warehouse',
         Kit.head('Warehouse', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
         kinds.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, s.storage[k],
-          Kit.button('Take', env.act(() => ind().withdraw(k), () => Kit.toast(`${name(k)} to your ${Goods.isSalvage(k) ? 'components' : 'hold'}`)), {
-            kind: 'ghost', disabled: !Goods.isSalvage(k) && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of the warehouse`,
+          Kit.button('Take', env.act(() => ind().withdraw(k), () => Kit.toast(`${name(k)} to your ${{ component: 'components', gear: 'spare gear' }[Recipes.item(k).kind] || 'hold'}`)), {
+            kind: 'ghost', disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of the warehouse`,
           }))))
           : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
         held ? h('p', { class: 'ui-note' }, `${held} kept free for what the bays are making.`) : null);
@@ -151,6 +158,7 @@ const IndustryView = {
       if (!b) return null;
       const known = ind().known(), e = ind().env();
       const recipes = Recipes.forBay(b.type).filter((R) => known.has(R.id));
+      const locked = Recipes.forBay(b.type).length - recipes.length;
       const chosen = Recipes.RECIPES[open.recipe];
       const t = chosen ? Industry.runTime(s, { type: b.type, job: { recipe: chosen.id } }, e, ind().now()) : 0;
       return {
@@ -162,13 +170,14 @@ const IndustryView = {
           h('div', { class: 'ui-list' }, recipes.map((R) => {
             const on = open.recipe === R.id;
             return Kit.optionRow({
-              icon: env.itemIcon(Object.keys(R.out)[0], 40), name: recipeName(R), tag: on ? 'Chosen' : '', tagTone: 'cyan', current: on,
+              icon: iconOf(Object.keys(R.out)[0], 40), name: recipeName(R), tag: on ? 'Chosen' : '', tagTone: 'cyan', current: on,
               sub: recipeText(R),
               extra: env.costChips(Object.entries(R.in).map(([kind, need]) => ({ kind, need, have: s.storage[kind] || 0 })), 0,
                 h('span', { class: 'cost num', title: 'Time per run' }, `⏱ ${duration(Industry.runTime(s, { type: b.type, job: { recipe: R.id } }, e, ind().now()))}`)),
               action: on ? null : Kit.button('Choose', () => env.setBay({ recipe: R.id }), { kind: 'ghost', aria: `Choose ${recipeName(R)}` }),
             });
           })),
+          locked ? h('p', { class: 'ui-note' }, `${locked} more by blueprint (Research tab).`) : null,
           h('span', { class: 'ui-label' }, 'Runs'),
           Kit.choices(COUNTS.map((n) => ({ id: String(n), label: n === null ? 'Repeat' : `×${n}`, on: open.count === n })),
             (id) => env.setBay({ count: id === 'null' ? null : Number(id) }), { label: 'Runs' }),

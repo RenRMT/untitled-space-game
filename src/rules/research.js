@@ -6,15 +6,17 @@
 // queue left overnight is worked through overnight).
 // Logic packages only ever unlock decisions (subjects, conditions, keywords, actions, more lines);
 // the abilities a `use` line runs come from elsewhere, so the packages for it are hidden until then.
-// The same lab also researches the ship: hull refits (rules/hullmods.js) for every hull you fly.
-// Each package is of a kind: 'logic' (a code library, `name@ver`) or 'hull' (an upgrade).
+// The same lab also researches the ship: blueprints for gear from Mk II up (assembled at an
+// assembler, rules/recipes.js), and hull refits (rules/hullmods.js) for every hull you fly.
+// Each package is of a kind: 'logic' (a code library, `name@ver`), 'blueprint' (`bp.<gear id>`) or
+// 'hull' (an upgrade). A schematic recovered from pirates grants its blueprint outright (grant).
 //
 //   Research.GROUPS                   [{ id, label }]: the Research tab's groups, in order
 //   Research.CATEGORIES               [{ id, group, label, note }] in display order
 //   Research.PACKAGES[id]             { id, kind, name, ver?, cat, requires: [id], cost: { credits, [goods kind]: n },
 //                                       time (s), lines?, hidden?, note, example? (a line),
 //                                       upgrade? { cargo?, hull?, weapons? }, refine? { line, stats: { [stat]: fraction } },
-//                                       industry? { [bonus]: n } }
+//                                       industry? { [bonus]: n }, gear? (a blueprint's equipment id), col? (its column) }
 //   Research.LIST                     the packages that show, in display order
 //   Research.config.speed             time runs this many times faster (?fastresearch)
 //   Research.title(id)                its name as shown: `name@ver` for logic, the name otherwise
@@ -25,6 +27,9 @@
 //   Research.upgrades(done)           -> { cargo, hull, weapons, lines: { [line]: { [stat]: fraction } } }:
 //                                     what's done adds to every ship (rules/loadout.js stats)
 //   Research.bonusAt(lab, t, key) -> n   an industry bonus from what was done by time t
+//   Research.blueprintFor(gear id) -> package id | null   (Mk I and NPC gear have none)
+//   Research.grant(lab, id, now) -> [{ id, refund }]   done at once (a schematic): what was queued or
+//                                building of it comes out, refunded in full; nothing if already done
 //   Research.empty() -> lab           { done: [id], doneAt: { [id]: ms }, active: { id, start, end } | null, queue: [id] }
 //   Research.status(id, lab, credits, have(kind) -> n)
 //                -> { state: 'done' | 'active' | 'queued' | 'available' | 'locked', ok, needs: [id],
@@ -42,6 +47,7 @@
 
 import { Goods } from './goods.js';
 import { HullMods } from './hullmods.js';
+import { Loadout } from './loadout.js';
 import { Logic } from './logic.js';
 
 const Research = (() => {
@@ -52,13 +58,18 @@ const Research = (() => {
 
   const GROUPS = [
     { id: 'logic', label: 'Logic' },
+    { id: 'weapons', label: 'Weapons' },
+    { id: 'systems', label: 'Systems' },
     { id: 'hull', label: 'Hull' },
   ];
+  // Blueprints: a category per gear line (its name labels the row), weapons apart from the rest.
+  const GEAR_LINES = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc);
   const CATEGORIES = [
     { id: 'core', group: 'logic', label: 'Core', note: 'the language itself: keywords and memory' },
     { id: 'combat', group: 'logic', label: 'Combat', note: 'who to target and how to engage' },
     { id: 'tactics', group: 'logic', label: 'Tactics', note: 'reading the fight' },
     { id: 'maint', group: 'logic', label: 'Maintenance', note: 'keeping self and the squad flying' },
+    ...GEAR_LINES.map(([line, spec]) => ({ id: `bp.${line}`, group: spec.slot === 'weapon' ? 'weapons' : 'systems', label: spec.name, note: `blueprints for ${spec.name.toLowerCase()} gear` })),
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
   ];
 
@@ -144,7 +155,28 @@ const Research = (() => {
       time: n.upgrade.weapons ? 4 * H : HULL_TIME[n.tier], cost: { credits: n.credits, ...n.cost }, upgrade: n.upgrade, note: n.note,
     };
   }
+  // Blueprints, Mk II to V of each line: each needs the Mk before it, takes components of the
+  // gear's kind of salvage at its tier (Mk V an exotic one, so the best gear needs dangerous space)
+  // and, from Mk III, parts made by industry.
+  const BP_TIME = [0, 0, 15 * M, H, 4 * H, 12 * H];
+  const BP_CREDITS = [0, 0, 500, 1500, 4000, 10000];
+  const BP_PART = { weapon: 'capacitor', shield: 'power-cell', computer: 'electronics', engine: 'thruster-nozzle', scanner: 'electronics' };
+  const BP_SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer' };
+  for (const [line, spec] of GEAR_LINES) {
+    for (let t = Math.max(2, spec.from || 1); t <= 5; t++) {
+      const gear = `${line}-${t}`, id = `bp.${gear}`, prev = `bp.${line}-${t - 1}`, cat = BP_SALVAGE[spec.slot];
+      const cost = { credits: BP_CREDITS[t], [c(cat, Math.min(t, 4))]: 2 };
+      if (t === 5) cost[c(cat, 5)] = 1;
+      if (t >= 3) cost[BP_PART[spec.slot]] = t - 2;
+      PACKAGES[id] = {
+        id, kind: 'blueprint', name: Loadout.EQUIPMENT[gear].name, cat: `bp.${line}`, line, tier: t, col: t - 2, gear,
+        requires: Loadout.EQUIPMENT[`${line}-${t - 1}`] && t > 2 ? [prev] : [], time: BP_TIME[t], cost,
+        note: `Assemble the ${Loadout.EQUIPMENT[gear].name} at an assembler`,
+      };
+    }
+  }
   const LIST = CATEGORIES.flatMap((cat) => Object.values(PACKAGES).filter((p) => p.cat === cat.id && !p.hidden));
+  const blueprintFor = (gear) => (PACKAGES[`bp.${gear}`] ? `bp.${gear}` : null);
 
   const title = (id) => (PACKAGES[id].kind === 'logic' ? `${PACKAGES[id].name}@${PACKAGES[id].ver}` : PACKAGES[id].name);
   const timeOf = (id) => (PACKAGES[id].time * 1000) / config.speed;
@@ -154,6 +186,7 @@ const Research = (() => {
       ...Logic.blocks(id),
       ...(p.lines ? [{ kind: 'lines', id: 'lines', label: `+${p.lines} line${p.lines === 1 ? '' : 's'}` }] : []),
       ...(p.upgrade || p.refine || p.industry ? [{ kind: 'upgrade', id: 'upgrade', label: p.note }] : []),
+      ...(p.gear ? [{ kind: 'recipe', id: `make.${p.gear}`, label: `the ${p.name} recipe` }] : []),
     ];
   };
   const known = (done) => new Set(done);
@@ -235,6 +268,21 @@ const Research = (() => {
     return out;
   }
 
+  function grant(lab, id, now) {
+    if (!PACKAGES[id] || lab.done.includes(id)) return [];
+    const out = [];
+    const i = lab.queue.indexOf(id);
+    if (i >= 0) { lab.queue.splice(i, 1); out.push({ id, refund: 1 }); }
+    if (lab.active?.id === id) {
+      const next = lab.queue.shift();
+      lab.active = next ? { id: next, start: now, end: now + timeOf(next) } : null;
+      out.push({ id, refund: 1 });
+    }
+    lab.done.push(id);
+    (lab.doneAt ||= {})[id] = now;
+    return out;
+  }
+
   function progress(lab, now) {
     const a = lab.active;
     if (!a) return 0;
@@ -249,7 +297,7 @@ const Research = (() => {
     const list = LIST.filter((p) => CATEGORIES.find((k) => k.id === p.cat).group === group);
     const ids = new Set(list.map((p) => p.id));
     const col = {};
-    const colOf = (id) => (col[id] ??= Math.max(-1, ...PACKAGES[id].requires.filter((r) => ids.has(r)).map(colOf)) + 1);
+    const colOf = (id) => (col[id] ??= PACKAGES[id].col ?? Math.max(-1, ...PACKAGES[id].requires.filter((r) => ids.has(r)).map(colOf)) + 1);
     const nodes = [], lanes = [], taken = new Set(), rowOf = {};
     let rows = 0;
     for (const cat of CATEGORIES.filter((k) => k.group === group)) {
@@ -269,7 +317,10 @@ const Research = (() => {
     return { cols: Math.max(0, ...nodes.map((n) => n.col + 1)), rows, nodes, edges, lanes };
   }
 
-  return { QUEUE_MAX, MAX_COLS, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, empty, status, enqueue, cancel, settle, progress, layout };
+  return {
+    QUEUE_MAX, MAX_COLS, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor,
+    empty, status, enqueue, cancel, grant, settle, progress, layout,
+  };
 })();
 
 export { Research };
