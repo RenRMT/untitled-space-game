@@ -5,18 +5,19 @@
 // - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
-//   often where the category is produced); exotics are never sold, only found.
+//   often where the category is produced); exotics are never sold, only found,
+// - goods further along the production chain (rules/goods.js stage) are stocked less often, except
+//   where they're made, and the rarest parts (AI cores, plasma conduit, nanite suspension) never:
+//   they have to be made.
 // Salvaged components aren't traded at all: they're used for research (rules/research.js), hull
 // refits among it.
-// Equipment (rules/loadout.js) is sold by each station's outfitter (outfitter()): Mk I everywhere,
-// better gear at bigger stations, Mk V never (only from schematics pirates leave).
+// Equipment isn't sold: it's assembled from parts (rules/recipes.js), by blueprint (rules/research.js).
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // ES module (`Economy`); also runs in Node (the tests).
 
 import { seeded } from '../core/rng.js';
 import { Goods } from './goods.js';
-import { Loadout } from './loadout.js';
 
 const Economy = (() => {
   const G = Goods;
@@ -34,6 +35,10 @@ const Economy = (() => {
     // used to be (very rare ones were 5% and 15%).
     stock: [null, 1, 0.7, 0.4, 0.2, 0],
     stockProduced: [null, 1, 1, 0.7, 0.4, 0],
+    // ... times this, by production stage, where the category isn't produced; parts this rare or
+    // rarer are never stocked.
+    stockStage: { raw: 1, refined: 1, advanced: 0.6, part: 0.5 },
+    madeOnly: 4,
     startingCredits: 500,
   };
 
@@ -79,8 +84,10 @@ const Economy = (() => {
       const factor = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
         const price = t.price * factor * jitter();
-        // The commonest type of a category on sale is always stocked; the rest by rarity.
-        const stocked = forSale.has(category) && (r() < (produced ? config.stockProduced : config.stock)[t.rarity] || t === G.ofCategory(category)[0]);
+        // The commonest type of a category on sale is always stocked; the rest by rarity and stage.
+        const chance = produced ? config.stockProduced[t.rarity] : config.stock[t.rarity] * (config.stockStage[t.stage] ?? 1);
+        const madeOnly = t.stage === 'part' && t.rarity >= config.madeOnly;
+        const stocked = forSale.has(category) && !madeOnly && (r() < chance || t === G.ofCategory(category)[0]);
         goods.push({
           kind: t.id, category, rarity: t.rarity, produced, consumed,
           buy: stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,
@@ -91,23 +98,7 @@ const Economy = (() => {
     return { goods };
   }
 
-  // The best Mk a station's outfitter sells, by station type; each equipment line is one Mk lower
-  // at about a third of stations (seeded), so neighbours differ. Mk I is sold everywhere.
-  const OUTFITTER = { capital: 4, major: 3, minor: 2, 'mining camp': 2, 'salvage yard': 3, waystation: 1 };
-  // The equipment ids a station sells: a Set.
-  function outfitter(galaxySeed, station) {
-    const r = seeded(galaxySeed, station.key, 0x0f17);
-    const top = OUTFITTER[station.market.type] || 1;
-    const out = new Set();
-    for (const [line, L] of Object.entries(Loadout.LINES)) {
-      if (L.npc) continue;
-      const best = Math.max(1, top - (r() < 0.35 ? 1 : 0));
-      for (let t = 1; t <= best; t++) if (Loadout.EQUIPMENT[`${line}-${t}`]) out.add(`${line}-${t}`);
-    }
-    return out;
-  }
-
-  return { config, basePrice, market, outfitter, OUTFITTER };
+  return { config, basePrice, market };
 })();
 
 export { Economy };

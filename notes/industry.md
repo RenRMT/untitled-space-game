@@ -32,15 +32,35 @@ code follows it phase by phase.
 
 | Stage | Made at (base time per item) | Goods |
 |---|---|---|
-| raw | mined, gas, salvage | iron, titanium, platinum, corundum, diamond, deuterium, helium-3; later copper ore, silicates, carbon, water ice |
+| raw | mined, gas, salvage | iron, copper ore, titanium, platinum, silicates, carbon, corundum, diamond, water ice, deuterium, helium-3 |
 | refined | refinery (20 s) | steel pipe, copper cable, carbon fibre, hydrazine |
-| advanced | refinery | graphene, aerogel, superconductor, optical fibre, metamaterial |
-| part | fabricator (30 s) | electronics, robotics, AI cores, plasma conduit, nanite suspension; later focusing lens, capacitor, power cell, actuator, hull plating, sensor array, thruster nozzle, cooling loop |
-| item | assembler (2 m to 2 h by Mk) | gear Mk I–V, mods; later consumables and refit kits |
+| advanced | refinery (25–60 s) | graphene, aerogel, superconductor, optical fibre, metamaterial |
+| part | fabricator (30–90 s) | electronics, actuators, power cells, sensor arrays, thruster nozzles, capacitors, hull plating, focusing lenses, cooling loops, robotics, plasma conduit, nanite suspension, AI cores |
+| item | assembler (2 m to 2 h by Mk) | gear Mk I–V (Mk I from refined goods, then parts; Mk IV–V also complex and exotic components); later mods, consumables and refit kits |
+
+Salvaged components are recycled at a refinery: simple and standard ones into refined goods,
+advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives carbon, icy rock
+water ice, and nebula gas pockets the rarer gases. Markets stock goods further along the chain
+less often (except where they're made), and never the rarest parts, which have to be made.
 
 Station specialties (×1.25 speed): mining camps and salvage yards run refineries, waystations and
 major stations run fabricators, and capitals run assemblers. A crafted good is worth 1.15–4× its
 inputs.
+
+## Facilities
+
+Bays are leased at the station you're docked at, paid once: a refinery costs 1,500 credits, a
+fabricator 3,000 and an assembler 5,000, with two bays per station to start (so a whole chain
+takes two stations, or research). Each station where you lease has a warehouse
+of your own (40 units, plus 60 per bay). You store goods from the hold (and components, for
+recycling), and you take back what's made. A bay's job is a recipe, run a set number of times or
+for as long as inputs last.
+
+A run takes its inputs when it starts and keeps room for what it makes, so finishing never fails.
+Bays start runs only when a run finishes or when you change something, and when bays want the same
+goods the first in line goes first. That makes settling time order exact (`Industry.settle`):
+whether the game catches up in one step on load or every second while docked, the result is the
+same. Each settle call stops after a set number of runs and goes on in the next.
 
 ## Research
 
@@ -49,10 +69,15 @@ share one lab queue, so every hour of lab time is a choice between them. Package
 
 - **logic:** code libraries for squad programs (`notes/squad-logic.md`).
 - **hull:** the hull refits (`hull.armour-2`), from `rules/hullmods.js`.
-- **blueprint** (planned): unlocks the assembler recipe for one line at one Mk (`bp.pulse-laser-3`).
-- **refine** (planned): +4% to one stat of a line, three steps per line.
-- **industry** (planned): faster bays, more bays and storage, alternative recipes, a longer lab
-  queue.
+- **blueprint:** unlocks the assembler recipe for one line at one Mk (`bp.pulse-laser-3`). Mk II
+  needs only credits and components; from Mk III, parts made by industry too (capacitors, power
+  cells, electronics, thruster nozzles); Mk V an exotic component. Each needs the Mk before it.
+- **refine:** +4% to a line's stats (damage; shield strength and recharge; accuracy; top speed and
+  acceleration; identify and ping range), three steps per line. Each step needs the one before and a
+  blueprint (Mk II, then III, then IV). Drawn under the blueprints in the same row group.
+- **industry:** bay speed (+15% a step, three steps), warehouse racks (+100 room), extra bays per
+  station (+1, two steps), alternative recipes (power cells straight from water ice, graphene
+  without corundum) and a longer lab queue (+1).
 
 `Research.upgrades(done)` sums what's done for `Loadout.stats` (hull refits, and per-line stat
 fractions through `Loadout.tuned`, kept within `Loadout.LIMITS`). `lab.doneAt` records when each
@@ -66,10 +91,13 @@ work settled after a long time offline speeds up exactly when the bonus finished
 1. Hull refits move into the Hull research group (save migration 7). *(done)*
 1b. The Research tab redrawn like the Ship tab: a lab bench, groups, a tech tree schematic, a sheet
     per node, and what research adds (`ui/research-view.js`, `Research.layout`). *(done)*
-2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage.
+2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage. *(done)*
 3. Facilities: leased bays, station warehouses, offline settlement in event order
-   (`rules/industry.js`), and the Industry tab.
-4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints.
-5. Refinements and industry research.
-6. Mods.
+   (`rules/industry.js`, `game/industry.js`), and the Industry tab (`ui/industry-view.js`). *(done)*
+4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints
+   (migration 9: gear owned and schematics recovered become blueprints done). *(done)*
+5. Refinements and industry research. *(done)*
+6. Mods (`rules/mods.js`): fourteen fixed trades across the five kinds of gear, researched per kind
+   (`mods.<slot>`), assembled from parts, fitted from a slot's sheet on the Ship tab (room by Mk: I
+   none, II–III one, IV–V two), kept with the slot when its gear is swapped (migration 10). *(done)*
 7. Later: consumables through `use()`, squad refit kits, logistics between warehouses.

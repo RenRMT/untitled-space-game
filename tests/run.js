@@ -27,6 +27,9 @@ import { Logic } from '../src/rules/logic.js';
 import { Squad } from '../src/rules/squad.js';
 import { HullMods } from '../src/rules/hullmods.js';
 import { Research } from '../src/rules/research.js';
+import { Recipes } from '../src/rules/recipes.js';
+import { Industry } from '../src/rules/industry.js';
+import { Mods } from '../src/rules/mods.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -797,6 +800,274 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
 });
 
+// ---------- Industry ----------
+
+const STAGE_RANK = { raw: 0, salvage: 0, refined: 1, advanced: 2, part: 3, item: 4 };
+test('recipes: real goods in and out, made from earlier stages, and no loops', () => {
+  assert.strictEqual(new Set(Recipes.LIST.map((r) => r.id)).size, Recipes.LIST.length);
+  for (const r of Recipes.LIST) {
+    assert(Recipes.BAYS[r.bay], `${r.id}: bay ${r.bay}`);
+    assert(r.time > 0 && Object.keys(r.in).length && Object.keys(r.out).length, r.id);
+    for (const [kind, n] of [...Object.entries(r.in), ...Object.entries(r.out)]) assert(Recipes.item(kind) && Number.isInteger(n) && n > 0, `${r.id}: ${kind} × ${n}`);
+    for (const kind of Object.keys(r.in)) assert(Recipes.item(kind).kind !== 'gear', `${r.id}: gear goes in`);
+    assert(r.unlock === null || Research.PACKAGES[r.unlock], `${r.id}: unlock ${r.unlock}`);
+    const rank = (k) => STAGE_RANK[Recipes.item(k).stage];
+    assert(Math.min(...Object.keys(r.out).map(rank)) >= Math.max(...Object.keys(r.in).map(rank)), `${r.id} goes back down the chain`);
+  }
+  // No loops: everything made can be made, in some order, from raw materials and salvage.
+  const have = new Set(Object.values(Goods.TYPES).filter((t) => t.stage === 'raw' || t.stage === 'salvage').map((t) => t.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const r of Recipes.LIST) {
+      if (!Object.keys(r.in).every((k) => have.has(k))) continue;
+      for (const k of Object.keys(r.out)) if (!have.has(k)) { have.add(k); changed = true; }
+    }
+  }
+  for (const t of Object.values(Goods.TYPES)) assert(have.has(t.id), `${t.id} can't be had`);
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(have.has(id), `${id} can't be made`);
+  for (const m of Mods.LIST) assert(have.has(m.id), `${m.id} can't be made`);
+});
+
+test('mods: a trade each, made at an assembler once researched, fitted as far as the gear has room', () => {
+  for (const m of Mods.LIST) {
+    const fx = Object.entries(m.effects).map(([k, f]) => (Mods.LOWER.has(k) ? -f : f));
+    assert(fx.some((f) => f > 0) && fx.some((f) => f < 0), `${m.id} is a trade, not just better`);
+    const stats = Object.values(Loadout.EQUIPMENT).find((e) => e.slot === m.slot && !e.npc).stats;
+    for (const k of Object.keys(m.effects)) assert(k in stats, `${m.id}: ${k} isn't a ${m.slot} stat`);
+    const R = Recipes.RECIPES[`make.${m.id}`];
+    assert(R && R.bay === 'assembler' && R.unlock === `mods.${m.slot}` && Research.PACKAGES[R.unlock].mods.includes(m.id), m.id);
+  }
+  const lo = { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-4' }, mods: { 'weapon-1': ['mod.overcharger'], 'weapon-2': ['mod.overcharger', 'mod.overcharger', 'mod.overcharger'] } };
+  const w = Loadout.stats(lo).weapons;
+  assert.strictEqual(w[0].damage, Loadout.EQUIPMENT['pulse-laser-1'].stats.damage, 'Mk I: no room, no effect');
+  assert(Math.abs(w[1].damage - Loadout.EQUIPMENT['pulse-laser-4'].stats.damage * 1.3) < 1e-9, 'Mk IV: two of them count');
+  // Cut to the room the gear has; a mod that doesn't fit the gear comes out too.
+  const t = Loadout.trimMods({ ...lo, mods: { ...lo.mods, shield: ['mod.overcharger'] }, fitted: { ...lo.fitted, shield: 'deflector-3' } });
+  assert.deepStrictEqual(t.loadout.mods, { 'weapon-2': ['mod.overcharger', 'mod.overcharger'] });
+  assert.deepStrictEqual(t.left, ['mod.overcharger', 'mod.overcharger', 'mod.overcharger']);
+  // Moving to a hull with fewer hardpoints hands back that slot's mods.
+  const r = Loadout.refit({ hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-2', 'weapon-2': 'pulse-laser-2' }, mods: { 'weapon-2': ['mod.gimbal-mount'] } }, 'hauler');
+  assert.deepStrictEqual([r.left, r.leftMods], [['pulse-laser-2'], ['mod.gimbal-mount']]);
+});
+
+test('gear is assembled: one recipe per piece, Mk I known, the rest by blueprint, the best from exotic salvage', () => {
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) {
+    const R = Recipes.gearRecipe(id);
+    if (e.npc) { assert.strictEqual(R, null, `${id} is NPC gear`); continue; }
+    assert(R && R.bay === 'assembler' && R.out[id] === 1 && Recipes.producers(id).length === 1, id);
+    assert.strictEqual(R.unlock, e.tier === 1 ? null : `bp.${id}`);
+    assert.strictEqual(Research.blueprintFor(id), e.tier === 1 ? null : `bp.${id}`);
+    const salvage = Object.keys(R.in).filter(Goods.isSalvage).map((k) => Goods.type(k).tier);
+    assert.deepStrictEqual(salvage.sort(), e.tier === 5 ? [4, 5] : e.tier === 4 ? [4] : [], `${id}: complex and exotic components`);
+  }
+  // Blueprints: each needs the Mk before it in its line; the best take exotic components.
+  for (const p of Object.values(Research.PACKAGES).filter((x) => x.kind === 'blueprint')) {
+    assert(Loadout.EQUIPMENT[p.gear] && p.id === `bp.${p.gear}` && Recipes.known([p.id]).has(`make.${p.gear}`));
+    const before = `bp.${p.line}-${p.tier - 1}`;
+    assert.deepStrictEqual(p.requires, Research.PACKAGES[before] ? [before] : []);
+    if (p.tier === 5) assert(Object.keys(p.cost).some((k) => Goods.type(k)?.tier === 5), `${p.id} needs an exotic component`);
+  }
+  // Schematics name gear with a blueprint.
+  for (let i = 0; i < 2000; i++) {
+    const id = CombatCore.schematic(1, `p${i}`, 'fighter', 4);
+    if (id) assert(Research.blueprintFor(id), `${id} has no blueprint`);
+  }
+});
+
+test('refinements tune every piece of a gear line, a few % a step, after its blueprints', () => {
+  const lines = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc).map(([id]) => id);
+  for (const line of lines) {
+    const steps = [1, 2, 3].map((n) => Research.PACKAGES[`ref.${line}.${n}`]);
+    assert(steps.every((p) => p && p.kind === 'refine' && p.refine.line === line), line);
+    for (const p of steps) assert(p.requires.some((r) => Research.PACKAGES[r].kind === 'blueprint'), `${p.id} needs a blueprint`);
+  }
+  const u = Research.upgrades(['ref.pulse-laser.1', 'ref.pulse-laser.2', 'ref.pulse-laser.3', 'ref.deflector.1']);
+  assert(Math.abs(u.lines['pulse-laser'].damage - 0.12) < 1e-9);
+  assert(Math.abs(u.lines.deflector.strength - 0.04) < 1e-9 && Math.abs(u.lines.deflector.recharge - 0.04) < 1e-9);
+  const plain = Loadout.stats(Loadout.starter('courier')), tuned = Loadout.stats(Loadout.starter('courier'), u);
+  assert(Math.abs(tuned.weapons[0].damage - plain.weapons[0].damage * 1.12) < 1e-9);
+  assert(Math.abs(tuned.shield - plain.shield * 1.04) < 1e-9);
+  // Every refinement done: better, but Mk still counts for more than tuning.
+  const all = Research.upgrades(Object.keys(Research.PACKAGES));
+  for (const line of lines) {
+    for (let t = 1; t < 5; t++) {
+      const a = Loadout.EQUIPMENT[`${line}-${t}`], b = Loadout.EQUIPMENT[`${line}-${t + 1}`];
+      if (!a || !b) continue;
+      for (const [k, f] of Object.entries(all.lines[line])) assert(a.stats[k] * (1 + f) <= b.stats[k] * 1.15 || b.stats[k] === a.stats[k], `${line} Mk ${t} tuned against Mk ${t + 1}: ${k}`);
+    }
+  }
+});
+
+test('industry research: faster bays, more bays and room, a longer lab queue, other recipes', () => {
+  const lab = Research.empty(), T = 1e12;
+  const env = () => Industry.env(lab);
+  assert.deepStrictEqual([env().speed(T), env().room(T), Industry.maxBays(env()), Research.queueMax(lab)], [1, 0, Industry.MAX_BAYS, Research.QUEUE_MAX]);
+  for (const id of ['ind.speed.1', 'ind.speed.2', 'ind.storage.1', 'ind.bays.1', 'ind.lab.1']) { lab.done.push(id); lab.doneAt[id] = T; }
+  assert(Math.abs(env().speed(T) - 1.3) < 1e-9 && env().speed(T - 1) === 1, 'from when it finished');
+  assert.deepStrictEqual([env().room(T), Industry.maxBays(env()), Research.queueMax(lab)], [100, Industry.MAX_BAYS + 1, Research.QUEUE_MAX + 1]);
+  // A longer queue takes one more.
+  Research.enqueue(lab, 'core.bool', T);
+  for (const id of ['maint.sense', 'squad.link', 'combat.select', 'mem.ext.1']) assert(Research.enqueue(lab, id, T), id);
+  assert(!Research.enqueue(lab, 'bp.pulse-laser-2', T));
+  // Alternative recipes, once researched.
+  assert(!Recipes.known([]).has('alt.graphene') && Recipes.known(['ind.alt.graphene']).has('alt.graphene'));
+  assert.deepStrictEqual(Recipes.producers('graphene').map((r) => r.id).sort(), ['alt.graphene', 'make.graphene', 'recycle.computer-advanced']);
+});
+
+test('a blueprint can be granted (a schematic): done at once, refunded in full if it was queued', () => {
+  const lab = Research.empty(), T = 1e12;
+  Research.enqueue(lab, 'bp.pulse-laser-2', T);
+  Research.enqueue(lab, 'bp.pulse-laser-3', T);
+  assert.deepStrictEqual(Research.grant(lab, 'bp.pulse-laser-2', T + 1000), [{ id: 'bp.pulse-laser-2', refund: 1 }]);
+  assert.deepStrictEqual(lab.active, { id: 'bp.pulse-laser-3', start: T + 1000, end: T + 1000 + Research.timeOf('bp.pulse-laser-3') }, 'the next one starts');
+  assert.strictEqual(lab.doneAt['bp.pulse-laser-2'], T + 1000);
+  assert.deepStrictEqual(Research.grant(lab, 'bp.pulse-laser-2', T), [], 'already done');
+  assert.deepStrictEqual(Research.grant(lab, 'bp.deflector-5', T), [], 'not queued: nothing to refund');
+  assert(lab.done.includes('bp.deflector-5'));
+});
+
+test('every trade good has a source and a use beyond selling', () => {
+  // Sources: mined, collected or made.
+  const mined = new Set();
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const s = systems.get(seed);
+    for (const e of thingsOf(seed, 'asteroid')) { const y = Mining.yieldOf(s.seed, e); if (y) mined.add(y.kind); }
+    for (const e of thingsOf(seed, 'gas')) for (const y of Mining.gasOf(s.seed, e)) mined.add(y.kind);
+  }
+  const research = new Set(Object.values(Research.PACKAGES).flatMap((p) => Object.keys(p.cost)));
+  for (const cat of Goods.categories('trade')) {
+    for (const t of Goods.ofCategory(cat)) {
+      if (t.stage === 'raw') assert(mined.has(t.id), `${t.id} is raw but never mined or collected`);
+      else assert(Recipes.producers(t.id).length, `${t.id} is never made`);
+      assert(Recipes.consumers(t.id).length || research.has(t.id), `${t.id} has no use`);
+    }
+  }
+  for (const t of Object.values(Goods.TYPES)) if (t.stage === 'raw' || t.stage === 'salvage') assert(!Recipes.producers(t.id).some((r) => !Object.keys(r.in).some(Goods.isSalvage)), `${t.id} is raw, not made`);
+});
+
+test('a recipe makes something worth more than what goes in, but not absurdly more', () => {
+  for (const r of Recipes.LIST) {
+    const k = Recipes.value(r.out) / Recipes.value(r.in);
+    assert(k >= 1.1 && k <= 4, `${r.id}: worth ×${k.toFixed(2)} what goes in`);
+  }
+});
+
+test('markets: raw and refined goods are stocked, parts less often, the rarest parts never', () => {
+  const stocked = {}, offered = {};
+  for (const seed of STATION_SEEDS) {
+    for (const st of stationsOf(seed)) {
+      for (const g of Economy.market(seed, st).goods) {
+        const stage = Goods.type(g.kind).stage;
+        offered[stage] = (offered[stage] || 0) + 1;
+        if (g.buy !== null) stocked[stage] = (stocked[stage] || 0) + 1;
+        if (stage === 'part' && g.rarity >= Economy.config.madeOnly) assert.strictEqual(g.buy, null, `${g.kind} sold at ${st.name}`);
+      }
+    }
+  }
+  const rate = (s) => (stocked[s] || 0) / offered[s];
+  assert(rate('raw') > rate('part') && rate('refined') > rate('part'), JSON.stringify(stocked));
+});
+
+// A station's site with a refinery making copper cable and a fabricator making electronics from it.
+function cableWorks(T, { ore = 40, silicates = 20 } = {}) {
+  const state = Industry.empty(), env = Industry.env(Research.empty());
+  const s = Industry.site(state, 'st-1', { name: 'Kerr', type: 'minor' });
+  Industry.lease(s, 'refinery');
+  Industry.lease(s, 'fabricator');
+  Industry.deposit(s, 'copper-ore', ore, env, T);
+  Industry.deposit(s, 'silicates', silicates, env, T);
+  Industry.setJob(s, 0, 'make.copper-cable', null, env, T);
+  Industry.setJob(s, 1, 'make.electronics', null, env, T);
+  return { state, env, s };
+}
+
+test('industry: a refinery feeds a fabricator through the warehouse, while away too', () => {
+  const T = 1e12, { state, env, s } = cableWorks(T);
+  assert.strictEqual(Industry.status(s, 0), 'working');
+  assert.strictEqual(Industry.status(s, 1), 'waiting', 'no cable yet');
+  const { log } = Industry.settle(state, T + 3600e3, env);
+  // 40 ore make 20 cables, 20 silicates make 20 electronics from them.
+  assert.strictEqual(s.storage.electronics, 20);
+  assert.strictEqual(s.storage['copper-cable'], undefined);
+  assert.strictEqual(s.storage['copper-ore'], undefined);
+  assert.strictEqual(log.length, 40);
+  assert(log.every((x, i) => !i || x.at >= log[i - 1].at), 'in time order');
+  assert.deepStrictEqual([Industry.status(s, 0), Industry.status(s, 1)], ['waiting', 'waiting'], 'out of inputs: waiting for more');
+  assert.deepStrictEqual(Industry.summary(state, log), ['Kerr: 20 × Copper cable', 'Kerr: 20 × Electronics']);
+  // More ore, and the refinery takes it up at once.
+  Industry.deposit(s, 'copper-ore', 2, env, T + 3600e3);
+  assert.strictEqual(Industry.status(s, 0), 'working');
+});
+
+test('industry: settling in many steps comes out the same as in one, and a clock set back undoes nothing', () => {
+  const T = 1e12, end = T + 30 * 60e3;
+  const once = cableWorks(T);
+  Industry.settle(once.state, end, once.env);
+  const r = mulberry32(5);
+  for (let trial = 0; trial < 20; trial++) {
+    const many = cableWorks(T);
+    const times = Array.from({ length: 10 }, () => T + r() * (end - T)).sort((a, b) => a - b);
+    for (const t of times) Industry.settle(many.state, t, many.env);
+    Industry.settle(many.state, T, many.env); // the clock set back
+    Industry.settle(many.state, end, many.env);
+    assert.deepStrictEqual(many.state, once.state);
+  }
+  // A cap on runs per call stops part way, and the next call goes on to the same end.
+  const capped = cableWorks(T);
+  assert(Industry.settle(capped.state, end, capped.env, 5).truncated);
+  while (Industry.settle(capped.state, end, capped.env, 5).truncated);
+  assert.deepStrictEqual(capped.state, once.state);
+});
+
+test('industry: room in the warehouse, counted jobs, stopping, order and the station\'s speciality', () => {
+  const T = 1e12, env = Industry.env(Research.empty());
+  const state = Industry.empty(), s = Industry.site(state, 'a', { name: 'A', type: 'mining camp' });
+  assert.strictEqual(Industry.capacity(s, env, T), Industry.STORAGE.base);
+  Industry.lease(s, 'refinery');
+  const cap = Industry.capacity(s, env, T);
+  assert.strictEqual(Industry.deposit(s, 'iron', 1000, env, T), cap, 'only as much as there is room for');
+  assert.strictEqual(Industry.free(s, env, T), 0);
+  // Full: a run that makes more than it takes can't start (2 iron make 1 pipe: it can).
+  Industry.setJob(s, 0, 'make.steel-pipe', 3, env, T);
+  assert.strictEqual(Industry.status(s, 0), 'working');
+  const run = Industry.runTime(s, s.bays[0], env, T);
+  assert.strictEqual(run, Math.round(Recipes.RECIPES['make.steel-pipe'].time * 1000 / Industry.FAST), 'refineries are faster at a mining camp');
+  Industry.settle(state, T + 10 * run, env);
+  assert.deepStrictEqual([s.storage['steel-pipe'], s.bays[0].job.made, Industry.status(s, 0)], [3, 3, 'finished'], 'a count of runs, then it stops');
+  // Stopping a bay part way gives the run's inputs back.
+  Industry.setJob(s, 0, 'make.steel-pipe', null, env, T + 10 * run);
+  const iron = s.storage.iron;
+  Industry.clearJob(s, 0);
+  assert.strictEqual(s.storage.iron, iron + 2);
+  assert.strictEqual(Industry.status(s, 0), 'idle');
+  // Two bays after the same inputs: the first in order goes first.
+  const two = Industry.site(state, 'b', { name: 'B', type: 'minor' });
+  Industry.lease(two, 'refinery');
+  Industry.lease(two, 'refinery');
+  Industry.deposit(two, 'iron', 2, env, T);
+  Industry.setJob(two, 0, 'make.steel-pipe', null, env, T);
+  Industry.setJob(two, 1, 'make.steel-pipe', null, env, T);
+  assert.deepStrictEqual([Industry.status(two, 0), Industry.status(two, 1)], ['working', 'waiting']);
+  assert(Industry.move(two, 1, 0) && Industry.status(two, 0) === 'waiting');
+  assert.strictEqual(Industry.withdraw(two, 'iron', 5), 0);
+});
+
+test('industry research counts from when it finished, even part way through a long absence', () => {
+  const T = 1e12, lab = Research.empty();
+  Research.PACKAGES['core.bool'].industry = { speed: 1 }; // twice as fast, as an industry package would make it
+  try {
+    lab.done.push('core.bool');
+    lab.doneAt['core.bool'] = T + 60e3;
+    const env = Industry.env(lab), state = Industry.empty(), s = Industry.site(state, 'a', { name: 'A', type: 'minor' });
+    Industry.lease(s, 'refinery');
+    Industry.deposit(s, 'iron', 20, env, T);
+    Industry.setJob(s, 0, 'make.steel-pipe', null, env, T);
+    const { log } = Industry.settle(state, T + 120e3, env);
+    // 20 s runs until the minute is up, then 10 s.
+    assert.deepStrictEqual(log.map((x) => (x.at - T) / 1000), [20, 40, 60, 70, 80, 90, 100, 110, 120]);
+  } finally { delete Research.PACKAGES['core.bool'].industry; }
+});
+
 test('saves: old data steps up a version at a time; a burst of changes is one write', () => {
   const steps = [(d) => { d.a = 1; }, (d) => { d.b = d.a + 1; }];
   assert.deepStrictEqual(Save.migrate({}, steps), { a: 1, b: 2, version: 2 }, 'from before versions');
@@ -816,10 +1087,10 @@ test('saves: old data steps up a version at a time; a burst of changes is one wr
 
 test('old saves: item categories and labels become item types', () => {
   assert.strictEqual(Goods.resolve('metal'), 'iron');
-  assert.strictEqual(Goods.resolve('gas'), 'deuterium');
+  assert.strictEqual(Goods.resolve('gas'), 'water-ice');
   assert.strictEqual(Goods.resolve('hull'), 'hull-simple');
   assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'weapon-simple');
-  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'corundum');
+  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'silicates');
   assert.strictEqual(Goods.resolve('titanium'), 'titanium');
   assert.strictEqual(Goods.resolve('unobtainium'), null);
   // Goods and categories taken out of the catalogue are dropped from old saves.
@@ -1103,35 +1374,15 @@ test('gear tuned by research: fractions added to its line, kept within limits, n
   assert.deepStrictEqual(Loadout.tuned({ lockTime: 0.4 }, { lockTime: -0.9 }), { lockTime: 0.2 });
 });
 
-test('outfitters: Mk I everywhere, better gear at bigger stations, Mk V never; schematics fill the gap', () => {
-  const stations = SEEDS.flatMap((seed) => thingsOf(seed, 'station').map((st) => [seed, st]));
-  const sold = new Set();
-  for (const [seed, st] of stations) {
-    const sells = Economy.outfitter(seed, st);
-    assert.deepStrictEqual([...sells], [...Economy.outfitter(seed, st)], 'seeded: the same every time');
-    for (const id of Loadout.STARTER_GEAR) assert(sells.has(id), `${st.name} sells ${id}`);
-    const top = Economy.OUTFITTER[st.market.type] || 1;
-    for (const id of sells) {
-      assert(!Loadout.EQUIPMENT[id].npc, `${id} is NPC gear`);
-      assert(Loadout.EQUIPMENT[id].tier <= top, `${st.market.type} sells ${id}`);
-      sold.add(id);
-    }
-  }
-  assert(sold.has('pulse-laser-4'), 'capitals sell Mk IV');
-  // Schematics: only from armed pirates, and every piece of player gear can come from one.
-  const fromSchematic = new Set();
+test('schematics: only from armed pirates, for gear of their tier or one better', () => {
   for (let i = 0; i < 6000; i++) {
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'fighter', 1), null, 'tier 1 pirates carry none');
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'freighter', 4), null, 'freighters carry none');
     for (const tier of [2, 3, 4]) {
       const id = CombatCore.schematic(1, `p${i}`, 'fighter', tier);
-      if (!id) continue;
-      assert(!Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier >= tier && Loadout.EQUIPMENT[id].tier <= tier + 1);
-      fromSchematic.add(id);
+      if (id) assert(!Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier >= tier && Loadout.EQUIPMENT[id].tier <= tier + 1);
     }
   }
-  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(sold.has(id) || fromSchematic.has(id), `${id} can never be had`);
-  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc && e.tier === 5) assert(!sold.has(id) && fromSchematic.has(id), `${id}: schematics only`);
 });
 
 test('each step up the gear ladder takes on the next pirate band', () => {

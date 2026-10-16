@@ -15,6 +15,17 @@ let lastCheck = 0;
 
 const label = (id) => Research.title(id);
 
+function refund(out) {
+  for (const { id, refund: k } of out) {
+    for (const [kind, n] of Object.entries(Research.PACKAGES[id].cost)) {
+      const back = Math.floor(n * k);
+      if (kind === 'credits') cargo.credits += back;
+      else if (Goods.isSalvage(kind)) addTo(cargo.components, kind, back);
+      else for (let i = 0; i < back && hold.free > 0; i++) cargo.items.push({ kind, label: Goods.type(kind).name, category: 'trade' });
+    }
+  }
+}
+
 export const lab = {
   get state() { return cargo.lab; },
   get components() { return cargo.components; },
@@ -39,16 +50,17 @@ export const lab = {
   cancel(id) {
     lab.settle();
     const out = Research.cancel(cargo.lab, id, Clock.now());
-    for (const { id: pid, refund } of out) {
-      for (const [kind, n] of Object.entries(Research.PACKAGES[pid].cost)) {
-        const back = Math.floor(n * refund);
-        if (kind === 'credits') cargo.credits += back;
-        else if (Goods.isSalvage(kind)) addTo(cargo.components, kind, back);
-        else for (let i = 0; i < back && hold.free > 0; i++) cargo.items.push({ kind, label: Goods.type(kind).name, category: 'trade' });
-      }
-    }
+    refund(out);
     if (out.length) saveCargo();
     return out.map((x) => x.id);
+  },
+  // A package done at once (a schematic's blueprint), with what was paid for it back if it was queued.
+  grant(id) {
+    lab.settle();
+    if (cargo.lab.done.includes(id)) return false;
+    refund(Research.grant(cargo.lab, id, Clock.now()));
+    saveCargo();
+    return true;
   },
   // Packages finished by now: into what's known, each announced; refits apply to the ship at once.
   settle({ quiet = false } = {}) {

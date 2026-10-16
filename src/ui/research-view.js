@@ -13,8 +13,10 @@
 // ES module (`ResearchView`); needs a browser.
 
 import { Goods } from '../rules/goods.js';
+import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
+import { Recipes } from '../rules/recipes.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
@@ -23,7 +25,10 @@ import { UI } from './ui.js';
 const ResearchView = {
   create(env) {
     const { h } = UI;
+    const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
     const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
+    for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = SLOT_CODE[L.slot];
+    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
     const STATE = {
       done: { tag: 'Done', tone: 'var(--good)' },
       active: { tag: 'Building', tone: 'var(--cyan)' },
@@ -49,6 +54,9 @@ const ResearchView = {
     const isDone = (id) => lab().state.done.includes(id);
     // A package's name on its node: 'select', 'bool 1.1', 'ext 2.0'; a refit's line ('Armour') with its Mk as pips.
     function short(p) {
+      if (p.kind === 'blueprint') return Loadout.MK[p.tier];
+      if (p.kind === 'refine') return `+${p.step * 4}%`;
+      if (p.short) return p.short;
       if (p.kind !== 'logic') return p.name.replace(/ Mk [IV]+$/, '').split(' ')[0];
       const rest = p.name.split('.').slice(1).join('.');
       return p.ver === '1.0' && !p.lines ? rest : `${rest} ${p.ver}`;
@@ -75,7 +83,7 @@ const ResearchView = {
         card = h('div', { class: 'st-bench-cur idle' }, h('span', { class: 'cmd tk-cmt' }, '// idle: pick a package below'));
       }
       const slots = [];
-      for (let i = 0; i < Research.QUEUE_MAX; i++) {
+      for (let i = 0; i < Research.queueMax(st); i++) {
         const id = st.queue[i];
         if (!id) { slots.push(h('div', { class: 'st-bench-slot empty', 'aria-hidden': 'true' }, Kit.icon('open', 20, { code: '+' }))); continue; }
         const p = Research.PACKAGES[id];
@@ -84,7 +92,7 @@ const ResearchView = {
           h('span', { class: 'lbl' }, short(p)), h('span', { class: 'num' }, duration(Research.timeOf(id)))));
       }
       return [
-        Kit.head('Lab', h('span', { class: 'aside num' }, `queue ${st.queue.length}/${Research.QUEUE_MAX}`)),
+        Kit.head('Lab', h('span', { class: 'aside num' }, `queue ${st.queue.length}/${Research.queueMax(st)}`)),
         h('div', { class: 'st-bench' }, card, h('div', { class: 'st-bench-q' }, slots)),
       ];
     }
@@ -137,7 +145,10 @@ const ResearchView = {
         { id: 'hul', code: 'HUL', label: 'Hull', value: `+${pct(u.hull)}`, detail: 'Added to the hull of every ship you fly.', from: from((p) => p.upgrade?.hull) },
         { id: 'crg', code: 'CRG', label: 'Cargo', value: `+${pct(u.cargo)}`, detail: 'Added to the hold of every ship you fly.', from: from((p) => p.upgrade?.cargo) },
         { id: 'wpn', code: 'WPN', label: 'Hardpoints', value: `+${u.weapons}`, detail: `Weapon slots added to every hull (${Loadout.MAX_WEAPONS} at most).`, from: from((p) => p.upgrade?.weapons) },
-        { id: 'que', code: 'QUE', label: 'Queue', value: `${Research.QUEUE_MAX}`, detail: 'Packages that can wait behind the one building.', from: 'The lab' },
+        { id: 'blu', code: 'BLU', label: 'Blueprints', value: `${done.filter((id) => Research.PACKAGES[id]?.kind === 'blueprint').length}/${Research.LIST.filter((p) => p.kind === 'blueprint').length}`, detail: 'Gear an assembler can make, beyond Mk I.', from: 'Research, and schematics recovered from pirates' },
+        { id: 'que', code: 'QUE', label: 'Queue', value: `${Research.queueMax(lab().state)}`, detail: 'Packages that can wait behind the one building.', from: from((p) => p.industry?.queue) },
+        { id: 'spd', code: 'BAY', label: 'Bay speed', value: `+${pct(Research.bonusAt(lab().state, Infinity, 'speed'))}`, detail: 'Every bay works this much faster.', from: from((p) => p.industry?.speed) },
+        { id: 'rom', code: 'WHS', label: 'Bays, room', value: `${Industry.MAX_BAYS + Research.bonusAt(lab().state, Infinity, 'bays')} · +${Research.bonusAt(lab().state, Infinity, 'storage')}`, detail: 'Bays per station, and room added to every warehouse.', from: from((p) => p.industry?.bays || p.industry?.storage) },
         { id: 'pkg', code: 'PKG', label: 'Researched', value: `${done.filter((id) => Research.LIST.some((p) => p.id === id)).length}/${Research.LIST.length}`, detail: 'Packages done, in every group.', from: '' },
       ];
       return Kit.statChips(stats, openStat, (id) => { openStat = id; env.refresh(); });
@@ -172,6 +183,32 @@ const ResearchView = {
       const without = Loadout.stats(o.loadout, Research.upgrades(others)), withIt = Loadout.stats(o.loadout, Research.upgrades([...others, id]));
       return Kit.compareTable(Kit.compare(without, withIt, SHIP_METRICS).filter((r) => r.diff));
     }
+    // A blueprint: what the gear does (against what's fitted in that kind of slot), and what it's made of.
+    function gearInfo(p) {
+      const item = { id: p.gear, ...Loadout.EQUIPMENT[p.gear] }, R = Recipes.gearRecipe(p.gear);
+      const { outfitting: o } = env.ctx();
+      const fitted = Loadout.slots(o.loadout, o.upgrades).filter((s) => s.type === item.slot && s.item).map((s) => s.item);
+      const names = (counts) => Object.entries(counts).map(([k, n]) => (n > 1 ? `${n} ${Recipes.item(k).name}` : Recipes.item(k).name)).join(' + ');
+      return [
+        h('span', { class: 'ui-label' }, 'The gear'),
+        h('p', { class: 'st-gives' }, Loadout.summary(item)),
+        fitted.length ? h('p', { class: 'ui-note' }, `Fitted now: ${fitted.map((f) => `${f.name} (${Loadout.summary(f)})`).join('; ')}`) : null,
+        h('span', { class: 'ui-label' }, 'Assembled from'),
+        h('p', { class: 'ui-note' }, names(R.in)),
+      ];
+    }
+    // A refinement: what it does to the gear of its line that's fitted, without it and with it.
+    function refineInfo(p) {
+      const { outfitting: o } = env.ctx(), others = lab().state.done.filter((x) => x !== p.id);
+      const fitted = Loadout.slots(o.loadout, o.upgrades).filter((s) => s.item?.line === p.refine.line).map((s) => s.item);
+      if (!fitted.length) return h('p', { class: 'ui-note' }, `No ${Loadout.LINES[p.refine.line].name.toLowerCase()} fitted now.`);
+      const before = Research.upgrades(others).lines[p.refine.line], after = Research.upgrades([...others, p.id]).lines[p.refine.line];
+      const r2 = (v) => Math.round(v * 100) / 100;
+      return [h('span', { class: 'ui-label' }, 'Your gear'), fitted.map((f) => {
+        const a = Loadout.tuned(f.stats, before), b = Loadout.tuned(f.stats, after);
+        return h('p', { class: 'ui-note' }, `${f.name}: ${Object.keys(p.refine.stats).map((k) => `${k} ${r2(a[k])} → ${r2(b[k])}`).join(' · ')}`);
+      })];
+    }
     const link = (id) => h('div', { class: 'st-need' }, Kit.check(isDone(id) ? 'done' : 'open', true),
       h('button', { class: 'ui-link', type: 'button', onclick: () => env.show(id) }, Research.title(id)),
       h('span', { class: 'num' }, STATE[lab().status(id).state].tag));
@@ -180,7 +217,7 @@ const ResearchView = {
       const p = Research.PACKAGES[id];
       if (!p) return null;
       const L = lab(), st = L.status(id), S = STATE[st.state], idle = !L.state.active;
-      const gives = Research.gives(id).filter((g) => g.kind !== 'upgrade').map((g) => g.label);
+      const gives = Research.gives(id).filter((g) => g.kind !== 'upgrade' && g.kind !== 'recipe').map((g) => g.label);
       const leads = Research.LIST.filter((q) => q.requires.includes(id));
       const lacking = st.cost.filter((c) => c.have < c.need).map((c) => Goods.type(c.kind).name);
       const why = st.state !== 'available' || st.ok ? null : st.full ? 'The queue is full.'
@@ -203,6 +240,8 @@ const ResearchView = {
             gives.length ? h('p', { class: 'st-gives' }, gives.join(' · ')) : null,
             p.example ? h('p', { class: 'ui-note' }, `e.g. ${Logic.say(p.example)}`) : null] : null,
           p.upgrade ? [h('span', { class: 'ui-label' }, 'Your ship'), shipChange(id)] : null,
+          p.gear ? gearInfo(p) : null,
+          p.refine ? refineInfo(p) : null,
           p.requires.length ? [h('span', { class: 'ui-label' }, 'Needs'), p.requires.map(link)] : null,
           leads.length ? [h('span', { class: 'ui-label' }, 'Leads to'), leads.map((q) => link(q.id))] : null,
           st.state === 'done' ? null : [h('span', { class: 'ui-label' }, 'Cost'),

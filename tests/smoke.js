@@ -172,7 +172,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   const tab = onStation, press = pressOnStation;
   // Docked after the introduction: only the Missions tab, and no launching before accepting.
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'opens on the Missions tab');
-  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'squad']);
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'industry', 'squad']);
   game(`StationMenu.showTab('trade')`);
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'the other tabs are locked');
   assert.match(tab(), /Payment in kind/);
@@ -270,7 +270,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.match(tab(), /surplus to requirements/);
   assert.match(tab(), /reduced to 6 bars of gold/);
   assert.match(tab(), /has joined your squad/);
-  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research'], 'Squad opens; the debt is not settled yet');
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'industry'], 'Squad opens; the debt is not settled yet');
   assert.match(tab(), /The remaining balance/);
   assert.ok(game('!!stationLocks().launch'), 'Launch waits for the second mission');
   assert.strictEqual(game('cargo.squad.length'), 1);
@@ -630,20 +630,19 @@ test('trades and launches', () => {
   browser.frames(3);
 });
 
-test('buys, fits and sells gear from the outfitter, researches a hull refit, and buys a hull', () => {
+test('assembles gear by blueprint, fits and sells it, researches a hull refit, and buys a hull', () => {
   game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
     globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
     placeShip(__cap.x, __cap.y + __cap.radius + 150);`);
   browser.frames(1);
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
-  assert.ok(game(`outfitting.known.has('pulse-laser-2') && !outfitting.known.has('pulse-laser-5')`), 'a capital sells Mk II, never Mk V');
   // Every tab draws, with slot choices open on the Ship tab.
-  for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
+  for (const t of ['research', 'industry', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
   assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
-  assert.match(onStation(), /Mk I*V?Not sold here/, 'the next Mk of a line not sold here');
+  assert.match(onStation(), /Pulse laserMk IIBlueprint needed/, 'the next Mk, not made without its blueprint');
   game(`StationMenu.showTab('trade')`);
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
   // Components for a refit, put aboard.
@@ -651,23 +650,45 @@ test('buys, fits and sells gear from the outfitter, researches a hull refit, and
   // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
   assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
   assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
-  // Buy and fit it in the empty hardpoint, then swap out the old laser and sell it.
-  game('cargo.credits = 5000');
+  // Gear isn't sold: with its blueprint, an assembler makes a Mk II from parts.
+  assert.ok(!game(`outfitting.fit('weapon-2', 'pulse-laser-2')`), 'none to fit');
+  assert.ok(game(`lab.grant('bp.pulse-laser-2') && !lab.grant('bp.pulse-laser-2')`), 'a blueprint, as a schematic gives one');
+  game(`cargo.credits = 20000; cargo.items = [];
+    for (const [k, n] of Object.entries(Recipes.gearRecipe('pulse-laser-2').in)) for (let i = 0; i < n; i++) cargo.items.push({ kind: k, label: Goods.type(k).name, category: 'trade' });`);
+  game(`StationMenu.showTab('industry')`);
+  pressOnStation(/^Lease5,000 cr/);
+  pressOnStation('Store all');
+  game('StationMenu.showBay(0)');
+  assert.match(onStation(), /Assembler.*Pulse laser Mk II/, 'the blueprint\'s recipe is there');
+  game(`StationMenu.closeSheet(); industry.setJob(0, 'make.pulse-laser-2', 1)`);
+  game(`__T += Industry.runTime(industry.site(), industry.site().bays[0], industry.env(), __T); StationMenu.tick()`);
+  assert.match(onStation(), /Finished.*Warehouse.*Pulse laser Mk II/, 'made');
+  pressOnStation('Take');
+  assert.strictEqual(game(`cargo.gear['pulse-laser-2']`), 1, 'into the spare gear');
+  // Fitted through the Ship tab: the empty hardpoint's sheet, Fit on the Mk II.
   const fp = game('SHIP.firepower');
-  // Through the Ship tab: the empty hardpoint's sheet, Buy on the Mk II (Buy and its price).
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Open hardpoint/);
-  pressOnStation(`Buy${game(`Loadout.EQUIPMENT['pulse-laser-2'].price`)} cr`);
+  pressOnStation('Fit');
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'fitted, and the sheet closed');
   assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
-  assert.strictEqual(game('cargo.credits'), 5000 - game(`Loadout.EQUIPMENT['pulse-laser-2'].price`));
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
-  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-5', true)`), 'gear not sold here is not for sale');
-  // A schematic makes it buyable anywhere.
-  game(`cargo.credits = 50000; cargo.schematics = new Set(['pulse-laser-5'])`);
-  assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-5', true) && outfitting.unfit('weapon-1') && outfitting.sell('pulse-laser-5')`));
-  game(`cargo.schematics = new Set(); cargo.credits = 5000 - Loadout.EQUIPMENT['pulse-laser-2'].price`);
-  assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-2', true)`));
+  // A mod in the Mk II's slot: a spare one fitted from the slot's sheet, changing the ship.
+  game(`cargo.mods['mod.extended-barrel'] = 1`);
+  game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
+  assert.match(onStation(), /Mods · 0\/1.*Extended barrel.*Spare ×1/, 'the slot\'s mods');
+  const range = game('SHIP.weapons[1].range');
+  pressOnStation('Fit');
+  assert.ok(game(`cargo.loadout.mods['weapon-2'][0] === 'mod.extended-barrel' && !cargo.mods['mod.extended-barrel']`));
+  assert.ok(game('SHIP.weapons[1].range') > range, 'reaches further');
+  assert.match(onStation(), /Mods · 1\/1.*Extended barrel.*Remove/);
+  game('StationMenu.closeSheet()');
+  // Swapped in: the old laser is spare gear, sold for half.
+  game(`cargo.gear['pulse-laser-2'] = 1`);
+  assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-2')`));
+  // Gear out of a slot: its mods go back to the spare mods.
+  assert.ok(game(`outfitting.unfit('weapon-2') && cargo.mods['mod.extended-barrel'] === 1 && !cargo.loadout.mods['weapon-2']`), 'mods back');
+  assert.ok(game(`outfitting.fit('weapon-2', 'pulse-laser-2') && outfitting.fitMod('weapon-2', 'mod.extended-barrel')`));
   assert.strictEqual(game(`cargo.gear['pulse-laser-1']`), 1, 'the old laser is spare gear');
   const credits = game('cargo.credits');
   assert.ok(game(`outfitting.sell('pulse-laser-1')`));
@@ -704,9 +725,9 @@ test('buys, fits and sells gear from the outfitter, researches a hull refit, and
   assert.deepStrictEqual(game(`[SHIP.weaponsFitted, cargo.gear['pulse-laser-2']]`), [1, 1]);
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
-  const before = game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])');
+  const before = game('JSON.stringify([cargo.loadout, cargo.gear, cargo.mods, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo, SHIP.weapons])');
   game('saveCargoNow(); loadCargo(world.galaxy)');
-  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])'), before);
+  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.mods, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo, SHIP.weapons])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); Clock.now = () => Date.now(); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));
@@ -778,6 +799,39 @@ test('logic intents become orders: guard fires on the ward\'s attacker, retreat 
   assert.ok(!orders({ type: 'use', skill: 'x', target: 'e1' }).target, 'no abilities yet: keeps formation');
 });
 
+test('industry: leases a refinery, stores iron, sets a job, and finds steel pipe made while away', () => {
+  game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Industry.*Lease a bay.*Refinery.*Fabricator/, 'nothing leased: the leases on offer');
+  game('cargo.credits = 10000; cargo.items = []');
+  pressOnStation(/^Lease1,500 cr/);
+  assert.strictEqual(game('cargo.credits'), 8500, 'paid once');
+  assert.match(onStation(), /Bays.*Refinery.*No job.*Warehouse.*Empty/);
+  // Iron aboard, stored.
+  game(`for (let i = 0; i < 10; i++) cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' }); StationMenu.refresh()`);
+  pressOnStation('Store all');
+  assert.ok(game(`cargo.items.length === 0 && industry.site().storage.iron === 10`), 'from the hold into the warehouse');
+  // A job: steel pipe, as long as the iron lasts.
+  pressOnStation(/^Set job/);
+  assert.match(onStation(), /Recipe.*Steel pipe.*2 Iron → Steel pipe/, 'the bay\'s recipes');
+  pressOnStation(/^Choose/); // the first recipe: steel pipe
+  pressOnStation('Repeat');
+  pressOnStation('Start');
+  assert.ok(game(`industry.site().bays[0].job.recipe === 'make.steel-pipe' && industry.site().bays[0].job.next > __T`), 'working');
+  assert.match(onStation(), /Working.*2 Iron → Steel pipe.*left/);
+  // Away for an hour: on load, everything the iron makes is made.
+  game('launch(); saveCargoNow(); __T += 3600e3; loadCargo(world.galaxy)');
+  assert.ok(game(`cargo.industry.sites[__startStation().key].storage['steel-pipe'] === 5 && !cargo.industry.sites[__startStation().key].storage.iron`), 'made while away');
+  // Back at the station, taken aboard.
+  game(`{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Waiting.*5 made.*Warehouse.*Steel pipe/);
+  pressOnStation('Take');
+  assert.strictEqual(game(`hold.count('steel-pipe')`), 5);
+  game('Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
@@ -790,6 +844,18 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   const lab = game(`(() => { const d = { hullMods: ['armour-1', 'gone'], lab: { done: ['core.bool'], active: null, queue: [] } }; CARGO_MIGRATIONS[6](d); return d; })()`);
   assert.deepStrictEqual(lab, { lab: { done: ['core.bool', 'hull.armour-1'], doneAt: { 'hull.armour-1': 0 }, active: null, queue: [] } });
   assert.deepStrictEqual(game(`readLab(${JSON.stringify(lab.lab)}).doneAt`), { 'core.bool': 0, 'hull.armour-1': 0 });
+  // Industry starts empty; a damaged one keeps what makes sense.
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { sites: {} });
+  const ind = game(`readIndustry({ sites: { a: { name: 'A', type: 'minor', storage: { iron: 3.7, nope: 2, titanium: -1 },
+    bays: [{ type: 'refinery', job: { recipe: 'make.steel-pipe', left: null, made: 2, at: 5, next: 9 } }, { type: 'mint' },
+      { type: 'fabricator', job: { recipe: 'make.steel-pipe', left: 1, made: 0, at: null, next: null } }] }, b: 'x' } })`);
+  // Gear owned and schematics recovered become their blueprints.
+  const bps = game(`(() => { const d = { schematics: ['deflector-4'], loadout: { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-3', shield: 'deflector-1' } },
+    gear: { 'survey-scanner-2': 1 }, lab: { done: [], active: { id: 'bp.pulse-laser-3', start: 1, end: 2 }, queue: ['bp.deflector-4', 'core.bool'] } }; CARGO_MIGRATIONS[8](d); return d; })()`);
+  assert.deepStrictEqual(bps.lab, { done: ['bp.deflector-4', 'bp.pulse-laser-3', 'bp.survey-scanner-2'], doneAt: { 'bp.deflector-4': 0, 'bp.pulse-laser-3': 0, 'bp.survey-scanner-2': 0 }, active: null, queue: ['core.bool'] });
+  assert.strictEqual(bps.schematics, undefined);
+  assert.deepStrictEqual(ind, { sites: { a: { name: 'A', type: 'minor', storage: { iron: 3 },
+    bays: [{ type: 'refinery', job: { recipe: 'make.steel-pipe', left: null, made: 2, at: 5, next: 9 } }, { type: 'fabricator', job: null }] } } });
   assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
   assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
 });

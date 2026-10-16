@@ -10,6 +10,7 @@ import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { Scene } from '../flight/scene.js';
 import { Loadout } from '../rules/loadout.js';
+import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
@@ -18,6 +19,7 @@ import { actions, docked } from './docking.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
+import { lab } from './lab.js';
 import { burst, stopMining } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
@@ -192,7 +194,7 @@ export function explode(x, y, r) {
 }
 
 // An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
-// schematic).
+// schematic: the blueprint for that gear, researched at once).
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   cargo.removed.add(key);
@@ -203,12 +205,10 @@ export function shipDestroyed(key) {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
-  // A schematic in its computer: that gear is sold to you at every station from now on.
+  // A schematic in its computer: the blueprint for that gear, so an assembler can make it.
   const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
-  if (id && !cargo.schematics.has(id)) {
-    cargo.schematics = new Set([...cargo.schematics, id]);
-    notify(`Schematic recovered: ${Loadout.EQUIPMENT[id].name} · sold to you at any station`, 4);
-  }
+  const bp = id && Research.blueprintFor(id);
+  if (bp && lab.grant(bp)) notify(`Blueprint recovered: ${Loadout.EQUIPMENT[id].name} · assemble it at an assembler`, 4);
   saveCargo();
 }
 
