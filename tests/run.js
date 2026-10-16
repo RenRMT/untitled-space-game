@@ -62,9 +62,10 @@ function test(name, fn) {
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1).concat(['abc', 'Untitled']);
 const galaxies = new Map(SEEDS.map((s) => [s, Galaxy.generate(s, SYSTEM_CONFIG)]));
-// Each galaxy's first system (around the origin, as the seed alone would make it, plus its gate),
-// and its second, smaller one far off.
-const systems = new Map([...galaxies].map(([seed, g]) => [seed, g.systems[0]]));
+// A full-size system as the generator makes one from each seed on its own (the galaxy's first
+// system is the small tutorial system: see its own test), and each galaxy's second, smaller one.
+const systems = new Map(SEEDS.map((seed) => [seed, SolarSystem.generate(seed, { params: SYSTEM_CONFIG.params })]));
+const tutorials = new Map([...galaxies].map(([seed, g]) => [seed, g.systems[0]]));
 const outer = new Map([...galaxies].map(([seed, g]) => [seed, g.systems[1]]));
 // The flight view's scene of a galaxy, built once per seed.
 const scenes = new Map();
@@ -90,7 +91,7 @@ test('generation is deterministic', () => {
 
 // ---------- The galaxy ----------
 
-test('two systems far apart, the second half the size, joined by a pair of gates', () => {
+test('two systems far apart, the first the tutorial, the second half the usual size, joined by a pair of gates', () => {
   const gap = Galaxy.params.gap;
   // About five minutes' flight between the edges at the starter Courier's top speed.
   assert(Math.abs(gap / Loadout.stats(Loadout.starter('courier')).maxSpeed - 300) < 1, `gap ${gap}`);
@@ -99,7 +100,7 @@ test('two systems far apart, the second half the size, joined by a pair of gates
     const [a, b] = g.systems;
     assert.strictEqual(g.systems.length, 2, where);
     assert.deepStrictEqual([a.origin.x, a.origin.y, a.star.x, a.star.y], [0, 0, 0, 0], `${where}: the first system is at the origin`);
-    assert.strictEqual(b.radius, a.radius / 2, `${where}: the second is half the size`);
+    assert.strictEqual(b.radius, SolarSystem.params.radius / 2, `${where}: the second is half the usual size`);
     assert(Math.abs(dist(a.origin, b.origin) - a.radius - b.radius - gap) < 1e-6, `${where}: systems ${dist(a.origin, b.origin)} apart`);
     assert.strictEqual(g.systemAt(b.star.x, b.star.y), b);
     const mid = { x: (a.origin.x + b.origin.x) / 2, y: (a.origin.y + b.origin.y) / 2 };
@@ -131,6 +132,35 @@ test('two systems far apart, the second half the size, joined by a pair of gates
     for (const st of b.stations) if (st.planet !== undefined) assert.strictEqual(g.planets[st.planet].system, 1, `${where}: ${st.name}'s planet`);
     for (const c of b.contacts) if (c.pack !== undefined) assert.strictEqual(g.packs[c.pack].system, 1, `${where}: ${c.id}'s pack`);
     assert.strictEqual(g.stations.length, a.stations.length + b.stations.length);
+  }
+});
+
+test('the first system is the tutorial: one planet, a belt, a nebula, the waystation and the gate across from it, and no pirates', () => {
+  for (const [seed, s] of tutorials) {
+    const where = `seed ${seed}`, g = galaxies.get(seed);
+    assert.strictEqual(s.planets.length, 1, `${where}: planets`);
+    assert.strictEqual(s.belts.length, 1, `${where}: belts`);
+    assert.strictEqual(s.belts[0].kind, 'main');
+    assert.strictEqual(s.nebulae.length, 1, `${where}: nebulae`);
+    assert.strictEqual(s.fields.length, 0, `${where}: free fields`);
+    assert.deepStrictEqual(s.stations.map((st) => st.name), ['Waystation HD-1863'], `${where}: stations`);
+    assert.strictEqual(g.stations[g.startStation], s.stations[0], `${where}: the game starts at the waystation`);
+    assert.deepStrictEqual([s.packs.length, s.contacts.length, s.wrecks.length], [0, 0, 0], `${where}: no pirates, derelicts or wrecks`);
+    assert(s.asteroids.length > 100, `${where}: only ${s.asteroids.length} asteroids in the belt`);
+    assert(s.radius < SolarSystem.params.radius / 2, `${where}: radius ${s.radius}`);
+    // The waystation on one edge, the gate on the other.
+    const [gate] = s.gates, W = s.stations[0], O = s.origin;
+    const at = (o) => Math.atan2(o.y - O.y, o.x - O.x);
+    assert(Math.cos(at(W) - at(gate)) < -0.7, `${where}: the waystation isn't across from the gate`);
+    assert(dist(W, O) / s.radius > 0.85, `${where}: the waystation isn't on the edge`);
+    assert(dist(gate, O) / s.radius > 0.7, `${where}: the gate isn't on the edge`);
+    assert(dist(W, s.nebulae[0]) > s.nebulae[0].r + 6000, `${where}: the nebula crowds the waystation`);
+    // Safe throughout: high security, medium in the nebula only if anywhere.
+    for (let i = 0; i < 200; i++) {
+      const a = i * 2.39996, d = Math.sqrt(i / 200) * s.radius, x = O.x + Math.cos(a) * d, y = O.y + Math.sin(a) * d;
+      assert(s.securityAt(x, y) >= 2, `${where}: security ${s.securityAt(x, y)} at ${x.toFixed(0)},${y.toFixed(0)}`);
+    }
+    assert(g.pockets.filter((q) => q.system === 0).length >= 3, `${where}: gas pockets`);
   }
 });
 
@@ -174,7 +204,8 @@ test('stations orbit planets in all three cultures, with bases out in space; the
     assert(types.includes('major') && types.includes('mining camp'), `${where}: stations ${types}`);
     assert(s.stations.length >= 5, `${where}: only ${s.stations.length} stations`);
     assert.deepStrictEqual(s.cultures.map((c) => c.lineage), ['wedge', 'block', 'shard', 'android']);
-    for (const c of s.cultures) assert(s.stations.some((x) => x.culture === c.id), `${where}: no ${c.name} stations`);
+    // The three settled (human) cultures; only the tutorial system's waystation is android.
+    for (const c of s.cultures.filter((x) => x.id < SolarSystem.SETTLED)) assert(s.stations.some((x) => x.culture === c.id), `${where}: no ${c.name} stations`);
     assert.strictEqual(new Set(s.stations.map((x) => x.key)).size, s.stations.length, `${where}: station keys`);
     for (const st of s.stations) {
       if (st.market.kind === 'system') {
@@ -577,7 +608,7 @@ test('floating items are named by their type, with art made from their type and 
     assert.ok(e.art.id.startsWith(`item:${e.itemKind}:`));
     assert.ok(Number.isFinite(e.angle) && Number.isFinite(e.tumble) && Number.isFinite(e.x));
   }
-  assert.ok(n > 20, `${n} items`);
+  assert.ok(n > 10, `${n} items`);
   const d = Entities.item({ key: 'k', kind: 'platinum', seed: 3, x: 5, y: 6, angle: 1, tumble: 0.1 });
   assert.deepStrictEqual([d.kind, d.label, d.category, d.itemKind, d.x, d.y], ['item', 'Platinum', 'trade', 'platinum', 5, 6]);
 });
@@ -589,7 +620,7 @@ test('keys are unique across everything that can leave the world, and survive a 
   }
   const s = galaxies.get(1);
   const a = thingsOf(1, 'ship'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship');
-  assert(a.length > 40, `only ${a.length} ships`);
+  assert(a.length > 15, `only ${a.length} ships`);
   assert(a.every((e) => e.role === 'fighter' || e.role === 'freighter'), 'ship without a role');
   assert.deepStrictEqual(a.map((e) => [e.key, e.role]), b.map((e) => [e.key, e.role]));
 });
@@ -928,8 +959,10 @@ test('security falls from the stations to the outer system, and sets how dangero
 test('pirates come in packs that follow the security level and can be fought one at a time', () => {
   const packs = [[], [], [], []]; // pack sizes, by security level
   const { orbit: [, o1] } = Security.PACK;
-  for (const [seed, s] of [...systems, ...outer]) {
-    const ships = new Map(thingsOf(seed, 'ship').map((e) => [e.key, e]));
+  // Standalone systems (not in a scene) for the numbers; the galaxies' second systems, in their
+  // scenes, for the ships too.
+  for (const [seed, s, scened] of [...[...systems].map(([k, v]) => [k, v, false]), ...[...outer].map(([k, v]) => [k, v, true])]) {
+    const ships = new Map(scened ? thingsOf(seed, 'ship').map((e) => [e.key, e]) : []);
     const O = s.origin;
     for (const k of s.packs) {
       assert.strictEqual(k.level, s.securityAt(k.x, k.y));
@@ -941,7 +974,7 @@ test('pirates come in packs that follow the security level and can be fought one
         assert(P.size.some(([n]) => n === k.ships.length), `seed ${seed}: a pack of ${k.ships.length} at security ${k.level}`);
         packs[k.level].push(k.ships.length);
       }
-      for (const m of k.ships) {
+      for (const m of scened ? k.ships : []) {
         const e = ships.get(m.key);
         assert(e && e.tier === k.tier && e.pack === k.id, `seed ${seed}: ${m.key} isn't in its pack`);
         assert(e.motion.r <= o1 && Math.hypot(e.motion.cx - k.x, e.motion.cy - k.y) < 1e-6);

@@ -602,7 +602,9 @@ test('mines an asteroid and collects what it leaves', () => {
 });
 
 test('collects a gas pocket in a nebula and picks up its gas', () => {
-  game(`fight.grace = 1e9; globalThis.__gas = __find((e) => e.kind === 'gas' && !cargo.removed.has(e.key));`);
+  // (The opening missions may have used up the pockets within reach: put one back if so.)
+  game(`fight.grace = 1e9; if (!world.scene.entities.some((e) => e.kind === 'gas' && !cargo.removed.has(e.key))) cargo.removed.delete(world.scene.entities.find((e) => e.kind === 'gas').key);
+    globalThis.__gas = __find((e) => e.kind === 'gas' && !cargo.removed.has(e.key));`);
   assert.ok(game('!!__gas'), 'a gas pocket');
   game('placeShip(__gas.x, __gas.y + __gas.radius + 60)');
   browser.frames(1);
@@ -672,6 +674,9 @@ test('no edge: the ship flies on out of the system into deep space', () => {
 test('a jump gate is offline until the gates come online, then takes the ship to the other system', () => {
   game('globalThis.__gate = world.scene.gates.find((g) => g.gate.system === 0)');
   assert.ok(game('__gate'), 'the first system has a gate');
+  // Fresh charts (as for a new galaxy): an earlier test went to the second system for its derelicts.
+  game(`world.knowledge = Knowledge.create(world.galaxy, { fresh: true }); SystemMap.knowledge = world.knowledge;
+    world.travel = Travel.create(world.galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: ambushCleared }); SystemMap.trip = world.travel;`);
   assert.ok(!game('world.knowledge.visited(1)'), 'the second system is not charted yet');
   game('fight.grace = 1e9; select(null); placeShip(__gate.x, __gate.y + __gate.radius + 120)');
   browser.frames(2);

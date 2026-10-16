@@ -25,17 +25,31 @@ const Galaxy = (() => {
   const SS = isNode ? require('./solar-system.js') : SolarSystem;
 
   // Bump whenever a change here moves systems or gates for the same seed.
-  const VERSION = 1;
+  const VERSION = 2;
 
   const DEFAULTS = {
     // Space between the systems' edges: about five minutes' flight at the Courier's top speed
     // (650 units/s, loadout.js).
     gap: 195000,
     // Each system's generator settings (SolarSystem.params), merged over the config's own params.
-    // The second is half the size: fewer, closer planets, smaller nebulae, fewer stations and
-    // derelicts, and security falling off over shorter distances.
+    // The first is the tutorial: a small system with one planet, the main belt, one nebula, the
+    // android waystation on one edge and the jump gate on the other, and nothing else: no other
+    // stations, no derelicts, no pirates (the opening missions bring their own), high security
+    // throughout (medium in the nebula). The second is half the usual size: fewer, closer planets,
+    // smaller nebulae, fewer stations and derelicts, and security falling off over shorter
+    // distances.
     systems: [
-      {},
+      {
+        radius: 22000,
+        planets: { count: [1, 1], first: [5200, 6000], gap: [3800, 4800] },
+        belts: { outer: 0, width: [1400, 1900] },
+        fields: { count: [0, 0] },
+        nebulae: { count: [1, 1], r: [3500, 4500] },
+        stations: { capital: false, major: false, minor: [0, 0], miningCamps: [0, 0], yard: false },
+        security: { high: 1e9, medium: 2e9, low: 3e9 },
+        pirates: { density: 0, lawlessAmbushes: [0, 0], nebulaAmbushes: false },
+        derelicts: { count: [0, 0] },
+      },
       {
         radius: 24000,
         planets: { count: [3, 5], first: [2600, 3300], gap: [1900, 2800] },
@@ -49,8 +63,9 @@ const Galaxy = (() => {
       },
     ],
     links: [[0, 1]], // jump gate pairs, by system index
-    // The android-run waystation the game starts at, on the first system's outer edge.
-    waystation: { system: 0, name: 'Waystation HD-1863' },
+    // The android-run waystation the game starts at, on the first system's outer edge, across the
+    // system from its gate.
+    waystation: { system: 0, name: 'Waystation HD-1863', opposite: true },
   };
 
   // A copy of `base` with `over` merged in: plain objects merge, everything else replaces.
@@ -82,7 +97,7 @@ const Galaxy = (() => {
     const gatesOf = (i) => G.links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : []))
       .map((to) => ({ to, angle: Math.atan2(origins[to].y - origins[i].y, origins[to].x - origins[i].x) }));
     const systems = params.map((p, i) => {
-      const waystation = G.waystation && G.waystation.system === i ? { name: G.waystation.name } : null;
+      const waystation = G.waystation && G.waystation.system === i ? { name: G.waystation.name, opposite: !!G.waystation.opposite } : null;
       const s = SS.generate(i === 0 ? seed : hashInt(base, i, 0x5e57), { params: p, origin: origins[i], gates: gatesOf(i), waystation });
       s.index = i;
       return s;
@@ -124,7 +139,7 @@ const Galaxy = (() => {
 
     return {
       seed, name: systems[0].name, cultures: SS.CULTURES, systems, links: G.links, ...all,
-      startStation: 0, // the first system's capital
+      startStation: 0, // the first system's first station: the waystation in the tutorial system
       waystation: all.stations.findIndex((st) => st.waystation), // its id, or -1 without one
       systemAt, nearestSystem,
       securityAt: (x, y) => { const s = systemAt(x, y); return s ? s.securityAt(x, y) : 0; },

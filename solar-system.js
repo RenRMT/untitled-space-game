@@ -13,7 +13,8 @@
 // - stations orbiting planets (a capital and a major station, both with shipyards, and minor
 //   ones) and bases out in space (mining camps in a belt or field, a salvage yard among wrecks),
 //   each built in one of three cultures (art only: how it looks and its colour, art/culture.js),
-//   and, with overrides.waystation ({ name }), an android-run waystation on the outer edge,
+//   and, with overrides.waystation ({ name, opposite? }), an android-run waystation on the outer
+//   edge (opposite: across the system from its first gate, and the nebulae kept clear of it),
 // - security by distance to the nearest station, a level lower inside a nebula away from the
 //   stations (security.js says what each level means),
 // - pirates in packs by security, and ambushes lying in wait in nebulae and lawless space,
@@ -21,6 +22,8 @@
 // - gas pockets in the nebulae: dense knots of gas to collect, like mining an asteroid,
 // - jump gates (overrides.gates: [{ angle, to }]) out toward the systems they lead to (galaxy.js).
 // Derelicts and ambushes are the system's contacts: what sensors ping and map travel runs into.
+// Every part can be left out by its params (the galaxy's first system, the tutorial, is a star,
+// one planet, a belt, a nebula, the waystation and a gate).
 // Positions are world units: from the star, or from overrides.origin when given (where the star
 // sits in a galaxy of several systems; the query functions take those positions). Every tuning value lives in SolarSystem.params; pass
 // `overrides.params` to generate() to change any of them (nested objects merge, arrays and
@@ -53,7 +56,8 @@ const SolarSystem = (() => {
     belts: { at: 0.3, width: [1800, 2600], outer: 0.55, clump: 2600, rocks: [6, 13], fill: { main: 0.85, outer: 0.4 } },
     fields: { count: [2, 4], rocks: [18, 32], spread: [1100, 1600] },
     nebulae: { count: [1, 3], r: [4500, 7500] },
-    stations: { minor: [2, 3], miningCamps: [1, 2] },
+    // capital, major, yard: whether the system has its capital, its major hub and a salvage yard.
+    stations: { capital: true, major: true, minor: [2, 3], miningCamps: [1, 2], yard: true },
     // Security by distance (world units) to the nearest station: at most `high` away is high
     // security, then medium, then low; further than `low` is lawless. A nebula takes a level off,
     // except right by a station.
@@ -61,7 +65,8 @@ const SolarSystem = (() => {
     // Pirates: the system is split into cells this big, each rolling for packs as security.js
     // says for the security at its centre, scaled by `density`. Plus ambushes: one per nebula
     // and a few in lawless space.
-    pirates: { cell: 13000, density: 0.5, lawlessAmbushes: [1, 2] },
+    // nebulaAmbushes: whether every nebula hides an ambush.
+    pirates: { cell: 13000, density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true },
     derelicts: { count: [6, 9], spacing: 6000 },
     // Gas pockets per nebula (by its radius: `per` units of radius each, within count), at least
     // `spacing` apart and `clear` from the pirates lying in wait there; r: their size.
@@ -205,6 +210,10 @@ const SolarSystem = (() => {
     const beltAt = (x, y, pad = 0) => belts.find((b) => Math.abs(Math.hypot(x, y) - b.r) < b.width / 2 + pad) || null;
 
     // ---------- Nebulae ----------
+    // Where an `opposite` waystation will go (across from the first gate), for the nebulae to keep
+    // clear of.
+    const wayOpposite = overrides.waystation && overrides.waystation.opposite && overrides.gates && overrides.gates.length;
+    const waySpot = wayOpposite ? polar(overrides.gates[0].angle + Math.PI, R * 0.9) : null;
     const rn = stream(0x7eb1);
     const nebulae = [];
     for (let i = 0, n = count(rn, P.nebulae.count), tries = 0; nebulae.length < n && tries < 200; tries++) {
@@ -213,6 +222,7 @@ const SolarSystem = (() => {
       if (hi <= lo) continue;
       const at = polar(rn() * TAU, between(rn, [lo, hi]));
       if (nebulae.some((o) => dist(o, at) < o.r + r + 2500)) continue;
+      if (waySpot && dist(waySpot, at) < r + 8000) continue; // leave room for the waystation
       // Overlapping blobs, all inside r of the centre: one big core and a few around it.
       const blobs = [{ dx: 0, dy: 0, r: r * between(rn, [0.55, 0.68]) }];
       for (let k = count(rn, [4, 7]); k > 0; k--) {
@@ -253,11 +263,13 @@ const SolarSystem = (() => {
     const take = (p) => { free.delete(p.id); return p; };
     const temperate = planets.filter((p) => p.orbit / R > PLANET_ZONES[0].upTo && p.orbit / R <= PLANET_ZONES[1].upTo);
     const nearest = (list, d) => [...list].sort((a, b) => Math.abs(a.orbit - d) - Math.abs(b.orbit - d))[0];
-    const capitalAt = take(temperate.find((p) => p.type === 'terran') || nearest(temperate.length ? temperate : planets, R * 0.3));
-    addStation({ name: `${makeName()} Station`, size: 'major', planet: capitalAt.id, ...besidePlanet(capitalAt, 'major'), market: { kind: 'system', type: 'capital' } });
+    if (P.stations.capital) {
+      const capitalAt = take(temperate.find((p) => p.type === 'terran') || nearest(temperate.length ? temperate : planets, R * 0.3));
+      addStation({ name: `${makeName()} Station`, size: 'major', planet: capitalAt.id, ...besidePlanet(capitalAt, 'major'), market: { kind: 'system', type: 'capital' } });
+    }
     const giants = planets.filter((p) => free.has(p.id) && (p.type === 'gas' || p.type === 'blue') && p.orbit < R * 0.7);
     const majorAt = giants.length ? giants[0] : planets.filter((p) => free.has(p.id)).sort((a, b) => a.orbit - b.orbit)[0];
-    if (majorAt) addStation({ name: `${makeName()} Hub`, size: 'major', planet: take(majorAt).id, ...besidePlanet(majorAt, 'major'), market: { kind: 'system', type: 'major' } });
+    if (P.stations.major && majorAt) addStation({ name: `${makeName()} Hub`, size: 'major', planet: take(majorAt).id, ...besidePlanet(majorAt, 'major'), market: { kind: 'system', type: 'major' } });
     const rest = planets.filter((p) => free.has(p.id));
     for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(rs() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
     for (const p of rest.slice(0, count(rs, P.stations.minor))) {
@@ -311,7 +323,7 @@ const SolarSystem = (() => {
       if (site.spread) site.camp = camp.id;
     }
     let yard = null;
-    for (let tries = 0; tries < 200 && !yard; tries++) {
+    for (let tries = 0; P.stations.yard && tries < 200 && !yard; tries++) {
       const at = polar(rs() * TAU, between(rs, [R * 0.45, R * 0.8]));
       if (!clear(at, 3500) || nebulaAt(at.x, at.y) || beltAt(at.x, at.y, 1500) || stations.some((s) => dist(s, at) < 6000)) continue;
       yard = addStation({ name: `${makeName()} Yard`, size: 'minor', ...at, market: { kind: 'outpost', type: 'salvage yard' } });
@@ -330,10 +342,12 @@ const SolarSystem = (() => {
       const rw = stream(0x3a75);
       let at = null;
       for (let tries = 0; tries < 300 && !at; tries++) {
-        const c = polar(rw() * TAU, R * between(rw, [0.88, 0.93]));
+        // Opposite: near the far side from the first gate, straying further the longer it looks.
+        const a = wayOpposite ? Math.atan2(gates[0].y, gates[0].x) + Math.PI + (rw() - 0.5) * Math.min(Math.PI, 0.3 + tries * 0.02) : rw() * TAU;
+        const c = polar(a, R * between(rw, [0.88, 0.93]));
         if (clear(c, 3000) && nebulae.every((n) => dist(n, c) > n.r + 6000) && !beltAt(c.x, c.y, 2000) && stations.every((o) => dist(o, c) > 7000) && gates.every((g) => dist(g, c) > 7000)) at = c;
       }
-      at = at || polar(rw() * TAU, R * 0.9);
+      at = at || (waySpot ? { ...waySpot } : polar(rw() * TAU, R * 0.9));
       addStation({ name: overrides.waystation.name, size: 'minor', ...at, culture: ANDROID, waystation: true, market: { kind: 'outpost', type: 'waystation' } });
     }
 
@@ -406,7 +420,7 @@ const SolarSystem = (() => {
       const b = n.blobs[Math.floor(rk() * n.blobs.length)], a = rk() * TAU, d = Math.sqrt(rk()) * b.r * 0.7;
       return { x: n.x + b.dx + Math.cos(a) * d, y: n.y + b.dy + Math.sin(a) * d };
     };
-    for (const n of nebulae) {
+    for (const n of P.pirates.nebulaAmbushes ? nebulae : []) {
       for (let tries = 0; tries < 60; tries++) {
         const at = inside(n);
         if (nebulaAt(at.x, at.y) && packFits(at)) { addAmbush(at); break; }
