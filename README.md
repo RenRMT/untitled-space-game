@@ -77,4 +77,5 @@ browser (`tests/browser-stub.js`) and checks it through `G`, the game's state an
 which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
 
 Design notes live in `notes/`: `archived-systems.md` lists systems taken out of the game and how to
-bring each back; `combat-alternatives.md` records the combat designs considered.
+bring each back; `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
+records how squad programs and logic research work, and the plan for abilities.

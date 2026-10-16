@@ -21,9 +21,10 @@
 //   start(rng, player, enemies, { target, ambushed, allies }) -> s
 //       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
 //       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
-//   setOrders(s, id, { target, station })   what an ally does now (game/squad.js decides, from its
-//                                      logic programs): fire on `target` (an enemy id), or with
-//                                      none hold `station` (its place in formation, in real time)
+//   setOrders(s, id, { target, keep, station })   what an ally does now (game/squad.js
+//                                      decides, from its logic program): fire on `target` (an enemy
+//                                      id; keep: from as far off as its guns reach, in real time),
+//                                      or with none fly to `station` (in real time) and hold fire
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
 //   setFocus(s, id)                    the player picks a target
 //   press?(s, id)                      a combat panel button (Flee)
@@ -138,7 +139,7 @@ const CombatCore = (() => {
     return ids.length ? ids[Math.floor(r() * ids.length)] : null;
   }
 
-  // What an ally does now, in either mode ({ target } or { station }: the modes' setOrders).
+  // What an ally does now, in either mode ({ target, keep } or { station }: the modes' setOrders).
   function setOrders(s, id, order) {
     const a = s.allies.find((x) => x.id === id);
     if (a) a.order = order || {};

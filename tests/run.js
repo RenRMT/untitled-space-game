@@ -1866,6 +1866,29 @@ test('real time: an ally attacks its target, holds formation without one, and ca
   assert.strictEqual(CombatCore.aimAt(s, s.enemies[0]), s.player, 'and the enemy turns on the player');
 });
 
+test('real time: an ally told to keep its distance stays out near gun range, and still hits', () => {
+  const me = () => RealtimeCombat.ship('player', 'Me', COURIER, { x: -3000, radius: 16 });
+  const foe = () => RealtimeCombat.ship('f1', 'Fighter', FIGHTER, { x: 1200, y: 0, angle: Math.PI, radius: 18 });
+  const ally = () => RealtimeCombat.ship('w1', 'Cipher-07', wingman(), { x: 0, y: 0, radius: 18 });
+  const run = (keep) => {
+    const s = RealtimeCombat.create(mulberry32(4), me(), [foe()], { allies: [ally()] });
+    s.enemies[0].aim = 'player'; // it goes for the player; the ally hunts it
+    s.enemies[0].hull = s.enemies[0].shield = 1e6;
+    RealtimeCombat.setOrders(s, 'w1', { target: 'f1', keep });
+    let closest = Infinity, hits = 0;
+    for (let i = 0; i < 30 * 20; i++) {
+      hits += RealtimeCombat.step(s, 1 / 30).filter((e) => e.type === 'shot' && e.from === 'w1' && e.hits).length;
+      if (i > 30 * 4) closest = Math.min(closest, Math.hypot(s.allies[0].x - s.enemies[0].x, s.allies[0].y - s.enemies[0].y));
+    }
+    return { closest, hits };
+  };
+  const close = run(false), far = run(true);
+  const range = Math.max(...wingman().weapons.map((w) => w.range));
+  assert(far.closest > range * 0.4, `kept ${far.closest.toFixed(0)} away (range ${range})`);
+  assert(far.closest > close.closest + 100, `further than an attack run (${far.closest.toFixed(0)} vs ${close.closest.toFixed(0)})`);
+  assert(far.hits > 0, 'and it still hits');
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

@@ -224,6 +224,16 @@ const RealtimeCombat = (() => {
     return { angle: toward + (e.ai.side * Math.PI) / 2, speed: top * 0.4 };
   }
 
+  // Keeping its distance (an ally told to keepRange): closes to most of gun range, holds there with
+  // its guns on the target, and backs off when the target comes close. Turrets circle as usual.
+  function holdRange(s, e, t, d, range) {
+    if (e.stats.weapons.some((w) => w.arc >= 360)) return standOff(s, e, t, d, range);
+    const top = e.stats.maxSpeed, toward = Math.atan2(t.y - e.y, t.x - e.x);
+    if (d > range * 0.85) return { angle: toward, speed: d > range + 300 ? top * config.chaseSpeed : top * 0.6 };
+    if (d < range * 0.5) return { angle: toward + Math.PI, speed: top };
+    return { angle: toward, speed: Math.min(top * config.creep, Math.hypot(t.vx || 0, t.vy || 0)) };
+  }
+
   // Push a wanted velocity away from the others on the same side, then fly it, turning before
   // speeding off.
   function fly(e, c, side, dt) {
@@ -256,12 +266,13 @@ const RealtimeCombat = (() => {
     fly(e, c, s.enemies, dt);
   }
 
-  // An ally: after its target if it has one, else back to its station, arriving at the leader's
-  // speed so it keeps formation.
+  // An ally: after its target if it has one (standing off at gun range if its orders say keep),
+  // else back to its station, arriving at the leader's speed so it keeps formation.
   function steerAlly(s, a, dt) {
     const t = byId(s, a.order.target), st = a.order.station;
     let c;
-    if (t) c = engageWith(s, a, t, dt);
+    if (t && a.order.keep) c = holdRange(s, a, t, dist(a, t), reach(a));
+    else if (t) c = engageWith(s, a, t, dt);
     else if (st) {
       const d = dist(a, st), lead = Math.hypot(s.player.vx, s.player.vy);
       c = d < 30 ? { angle: s.player.angle, speed: lead } : { angle: Math.atan2(st.y - a.y, st.x - a.x), speed: Math.min(a.stats.maxSpeed, lead + d * 1.5) };

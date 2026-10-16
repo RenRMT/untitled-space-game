@@ -103,6 +103,34 @@ export function logicContext(s, a) {
   };
 }
 
+// What an intent (rules/logic.js) means as orders for a combat mode (combat/combat-core.js setOrders):
+// - attack: fire on the target (keep: from as far as the guns reach),
+// - guard: fire on whoever is shooting at the ward (the nearest such to it), else stay beside it,
+// - retreat: fall back to the leader's far side from the enemies (with no target, holding fire),
+// - follow (and use, until ships have abilities): keep formation.
+export const GUARD_OFFSET = 110, RETREAT_OFFSET = 140;
+export function ordersFor(s, a, intent, i) {
+  const formation = Squad.formation(ship, i);
+  if (intent.type === 'attack') return { target: intent.target, keep: !!intent.keep };
+  if (intent.type === 'guard') {
+    const ward = [s.player, ...CombatCore.allies(s)].find((c) => c.id === intent.ward);
+    if (!ward) return { station: formation };
+    const attackers = CombatCore.alive(s).filter((e) => CombatCore.aimAt(s, e).id === ward.id);
+    if (attackers.length) return { target: attackers.reduce((b, e) => (distance(e, ward) < distance(b, ward) ? e : b)).id };
+    if (ward === s.player) return { station: formation };
+    const w = posOf(ward), back = (w.angle ?? 0) + Math.PI;
+    return { station: { x: w.x + Math.cos(back) * GUARD_OFFSET, y: w.y + Math.sin(back) * GUARD_OFFSET } };
+  }
+  if (intent.type === 'retreat') {
+    const enemies = CombatCore.alive(s).map(posOf), p = posOf(s.player);
+    if (!enemies.length) return { station: formation };
+    const cx = enemies.reduce((n, e) => n + e.x, 0) / enemies.length, cy = enemies.reduce((n, e) => n + e.y, 0) / enemies.length;
+    const away = Math.atan2(p.y - cy, p.x - cx);
+    return { station: { x: p.x + Math.cos(away) * RETREAT_OFFSET, y: p.y + Math.sin(away) * RETREAT_OFFSET } };
+  }
+  return { station: formation };
+}
+
 // Each ally's orders for this frame, from its program: the line that ran (a.line, -1 for none)
 // and what it says to do, else keep formation.
 export function orderSquad(s) {
@@ -112,7 +140,7 @@ export function orderSquad(s) {
     if (!member) return;
     const { line, intent } = Logic.decide(member.program, logicContext(s, a), limit);
     a.line = line;
-    m.setOrders(s, a.id, intent.type === 'attack' ? { target: intent.target } : { station: Squad.formation(ship, i) });
+    m.setOrders(s, a.id, ordersFor(s, a, intent, i));
   });
 }
 

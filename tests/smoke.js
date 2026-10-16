@@ -737,6 +737,23 @@ test('researches a logic package: paid up front, built on the real clock, and th
   browser.frames(2);
 });
 
+test('logic intents become orders: guard fires on the ward\'s attacker, retreat falls back behind the leader', () => {
+  const orders = (intent) => game(`(() => {
+    const c = (id, x, y, o = {}) => ({ id, x, y, angle: 0, hull: 10, shield: 0, stats: { hull: 10, shield: 0 }, ...o });
+    const s = { player: c('player', 0, 0), allies: [c('w1', -100, 0), c('w2', -100, 100)],
+      enemies: [c('e1', 800, 0, { aim: 'w2' }), c('e2', 600, 300, { aim: 'w2' }), c('e3', 900, -50, { aim: 'player' })] };
+    return ordersFor(s, s.allies[0], ${JSON.stringify(intent)}, 0);
+  })()`);
+  assert.deepStrictEqual(orders({ type: 'attack', target: 'e1' }), { target: 'e1', keep: false });
+  assert.deepStrictEqual(orders({ type: 'attack', target: 'e1', keep: true }), { target: 'e1', keep: true });
+  assert.deepStrictEqual(orders({ type: 'guard', ward: 'w2' }), { target: 'e2' }, 'the nearest of those shooting at it');
+  assert.deepStrictEqual(orders({ type: 'guard', ward: 'player' }), { target: 'e3' });
+  const st = orders({ type: 'retreat' }).station;
+  assert.ok(st.x < -100, `behind the leader, away from the enemies (${st.x.toFixed(0)}, ${st.y.toFixed(0)})`);
+  assert.ok(orders({ type: 'follow' }).station && !orders({ type: 'follow' }).target);
+  assert.ok(!orders({ type: 'use', skill: 'x', target: 'e1' }).target, 'no abilities yet: keeps formation');
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
