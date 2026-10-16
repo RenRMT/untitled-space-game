@@ -1,7 +1,7 @@
 # Untitled Space Game
 
 A browser space game: fly a ship through a procedurally generated galaxy, trade and mine for credits,
-fight pirates for salvaged components, research better gear and take it into more dangerous space.
+fight pirates for salvaged components, buy better gear and take it into more dangerous space.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 ## Running it

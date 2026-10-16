@@ -1,26 +1,28 @@
-// Outfitting and research as the station menu sees them, sensors (sense), and placing the ship
+// Outfitting and hull refits as the station menu sees them, sensors (sense), and placing the ship
 // (placeShip, placeBeside: a teleport, a launch, a jump).
 // Part of the flight view; src/main.js starts it.
 
-import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
-import { Research } from '../rules/research.js';
+import { HullMods } from '../rules/hullmods.js';
 import { SolarSystem } from '../world/solar-system.js';
-import { addTo, applyShip, cargo, hold, saveCargo } from './cargo.js';
+import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
 import { stopMining } from './mining.js';
 import { snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
 import { world } from './world.js';
 
-// Equipment: what's fitted, spare gear (bought or taken out), buying what research has unlocked,
+// Equipment: what's fitted, spare gear (bought or taken out), buying what this station's outfitter
+// sells (sells: set on docking, rules/economy.js outfitter) or a schematic has unlocked,
 // selling spare gear for half its price, and the shipyard's hulls (the current one traded in for
 // half its price; the gear moves across, what doesn't fit goes to the spare gear).
 export const SELL_BACK = 0.5;
 export const outfitting = {
   get loadout() { return cargo.loadout; },
-  get upgrades() { return Research.upgrades(cargo.research); },
+  sells: new Set(),
+  get upgrades() { return HullMods.upgrades(cargo.hullMods); },
   get gear() { return cargo.gear; },
-  get known() { return Research.known(cargo.research); },
+  get schematics() { return cargo.schematics; },
+  get known() { return new Set([...Loadout.STARTER_GEAR, ...outfitting.sells, ...cargo.schematics]); },
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
   tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
   hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
@@ -70,21 +72,20 @@ export const outfitting = {
     return true;
   },
 };
-// Research: components and trade goods in, unlocks out (rules/research.js).
-export const lab = {
-  get researched() { return cargo.research; },
+// Hull refits at a shipyard: credits and hull components in, an upgrade on every hull out
+// (rules/hullmods.js).
+export const hullmods = {
+  get owned() { return cargo.hullMods; },
   get components() { return cargo.components; },
-  have: (kind) => (Goods.isSalvage(kind) ? cargo.components[kind] || 0 : hold.count(kind)),
-  status: (id) => Research.status(id, cargo.research, lab.have),
-  research(id) {
-    const st = lab.status(id);
+  have: (kind) => cargo.components[kind] || 0,
+  status: (id) => HullMods.status(id, cargo.hullMods, cargo.credits, hullmods.have),
+  buy(id) {
+    const st = hullmods.status(id);
     if (!st.ok) return false;
-    for (const { kind, need } of st.cost) {
-      if (Goods.isSalvage(kind)) addTo(cargo.components, kind, -need);
-      else for (let i = 0; i < need; i++) cargo.items.splice(cargo.items.findIndex((it) => it.kind === kind), 1);
-    }
-    cargo.research = new Set([...cargo.research, id]);
-    return changedShip(); // a hull upgrade changes the ship at once
+    for (const { kind, need } of st.cost) addTo(cargo.components, kind, -need);
+    cargo.credits -= st.credits;
+    cargo.hullMods = new Set([...cargo.hullMods, id]);
+    return changedShip(); // more armour or cargo at once
   },
 };
 export function changedShip() {

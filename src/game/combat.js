@@ -191,7 +191,8 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was.
+// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
+// schematic).
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   cargo.removed.add(key);
@@ -202,6 +203,12 @@ export function shipDestroyed(key) {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
+  // A schematic in its computer: that gear is sold to you at every station from now on.
+  const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
+  if (id && !cargo.schematics.has(id)) {
+    cargo.schematics = new Set([...cargo.schematics, id]);
+    notify(`Schematic recovered: ${Loadout.EQUIPMENT[id].name} · sold to you at any station`, 4);
+  }
   saveCargo();
 }
 

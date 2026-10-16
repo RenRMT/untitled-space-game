@@ -600,32 +600,23 @@ test('trades and launches', () => {
   browser.frames(3);
 });
 
-test('researches with components and goods, then buys, fits and sells gear, and buys a hull', () => {
+test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys a hull', () => {
   game(`fight.grace = 1e9; globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
     placeShip(__cap.x, __cap.y + __cap.radius + 150);`);
   browser.frames(1);
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
+  assert.ok(game(`outfitting.known.has('pulse-laser-2') && !outfitting.known.has('pulse-laser-5')`), 'a capital sells Mk II, never Mk V');
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
   assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
-  assert.match(onStation(), /Heavy cannonMk IIResearch/, 'the next Mk to research');
+  assert.match(onStation(), /Mk I*V?Not sold here/, 'the next Mk of a line not sold here');
   game(`StationMenu.showTab('trade')`);
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
-  // What Pulse laser Mk II costs, put aboard: components to their store, goods to the hold.
-  const give = (id) => game(`for (const c of lab.status('${id}').cost) {
-    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
-    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
-  }`);
-  assert.strictEqual(game(`lab.status('pulse-laser-2').ok`), false, 'nothing to research with yet');
-  give('pulse-laser-2');
-  const held = game('cargo.items.length');
-  assert.ok(game(`lab.research('pulse-laser-2')`));
-  assert.ok(game(`cargo.research.has('pulse-laser-2') && !cargo.components['weapon-simple']`), 'researched, components used up');
-  assert.strictEqual(game('cargo.items.length'), held - game(`Research.NODES['pulse-laser-2'].cost.titanium`), 'the trade goods were used up');
-  game(`StationMenu.showTab('research')`);
+  // Components for a refit, put aboard.
+  const give = (id) => game(`for (const c of hullmods.status('${id}').cost) cargo.components[c.kind] = c.need`);
   // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
   assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
   assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
@@ -640,17 +631,24 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
   assert.strictEqual(game('cargo.credits'), 5000 - game(`Loadout.EQUIPMENT['pulse-laser-2'].price`));
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
-  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-3', true)`), 'unresearched gear is not for sale');
+  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-5', true)`), 'gear not sold here is not for sale');
+  // A schematic makes it buyable anywhere.
+  game(`cargo.credits = 50000; cargo.schematics = new Set(['pulse-laser-5'])`);
+  assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-5', true) && outfitting.unfit('weapon-1') && outfitting.sell('pulse-laser-5')`));
+  game(`cargo.schematics = new Set(); cargo.credits = 5000 - Loadout.EQUIPMENT['pulse-laser-2'].price`);
   assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-2', true)`));
   assert.strictEqual(game(`cargo.gear['pulse-laser-1']`), 1, 'the old laser is spare gear');
   const credits = game('cargo.credits');
   assert.ok(game(`outfitting.sell('pulse-laser-1')`));
   assert.strictEqual(game('cargo.credits'), credits + game(`outfitting.sellPrice('pulse-laser-1')`));
-  // A hull upgrade raises the hull at once, damage and all.
+  // A hull refit raises the hull at once, damage and all; it costs credits and components.
   give('armour-1');
-  game('cargo.hull = SHIP.hull - 30');
+  game('cargo.hull = SHIP.hull - 30; cargo.credits = 3000');
   const maxHull = game('SHIP.hull');
-  assert.ok(game(`lab.research('armour-1')`));
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Hull refits.*Armour plating/, 'refits are on the Ship tab at a shipyard');
+  assert.ok(game(`hullmods.buy('armour-1')`));
+  assert.ok(game(`cargo.hullMods.has('armour-1') && cargo.credits === 0 && !cargo.components['hull-simple']`), 'paid for');
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -667,13 +665,19 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.deepStrictEqual(game(`[SHIP.weaponsFitted, cargo.gear['pulse-laser-2']]`), [1, 1]);
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
-  const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])');
+  const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])');
   game('saveCargoNow(); loadCargo(world.galaxy)');
-  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])'), before);
+  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));
   browser.frames(3);
+});
+
+test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
+  const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
+  assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
+  assert.strictEqual(game('CARGO_MIGRATIONS.length'), 4);
 });
 
 test('components go to their own store, even with a full hold, and stay when the ship is lost', () => {

@@ -25,7 +25,7 @@ import { Mining } from '../src/rules/mining.js';
 import { Loadout } from '../src/rules/loadout.js';
 import { Logic } from '../src/rules/logic.js';
 import { Squad } from '../src/rules/squad.js';
-import { Research } from '../src/rules/research.js';
+import { HullMods } from '../src/rules/hullmods.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -1037,39 +1037,57 @@ test('hulls: handling, hull upgrades and moving gear to another hull', () => {
   for (const id of Loadout.FOR_SALE) assert(Loadout.HULLS[id].price > 0 && !Loadout.HULLS[id].npc);
 });
 
-test('research: every node costs components of its kind plus goods, and builds on the Mk before', () => {
-  const kindOf = { weapons: ['weapon'], shields: ['hull'], computers: ['computer'], scanners: ['computer'], engines: ['drive'], hull: ['hull', 'weapon'] };
-  for (const n of Object.values(Research.NODES)) {
-    const kinds = Object.keys(n.cost);
-    for (const k of kinds) assert(Goods.type(k), `${n.id}: unknown cost ${k}`);
-    const comps = kinds.filter((k) => Goods.isSalvage(k)), goods = kinds.filter((k) => !Goods.isSalvage(k));
-    assert(comps.length && goods.length, `${n.id} needs both components and trade goods`);
-    for (const k of comps) assert(kindOf[n.group].includes(Goods.type(k).category), `${n.id} uses ${k}`);
-    for (const k of goods) assert(Goods.type(k).rarity < 5, `${n.id} needs exotic ${k}, which no station sells`);
-    if (n.equipment && n.tier === 5) assert(comps.some((k) => Goods.type(k).tier === 5), `${n.id} needs an exotic component`);
-    for (const r of n.requires) assert(Research.NODES[r], `${n.id} requires unknown ${r}`);
-    if (n.equipment) assert(Loadout.EQUIPMENT[n.equipment] && !Loadout.EQUIPMENT[n.equipment].npc);
+test('hull refits: each costs credits and hull components, and builds on the step before', () => {
+  for (const n of HullMods.LIST) {
+    assert(n.credits > 0, `${n.id} costs credits`);
+    for (const k of Object.keys(n.cost)) assert(Goods.isSalvage(k), `${n.id}: ${k} is not a component`);
+    for (const r of n.requires) assert(HullMods.NODES[r], `${n.id} requires unknown ${r}`);
   }
-  // Every buyable piece of equipment is either starter gear or researched.
-  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(Loadout.STARTER_GEAR.includes(id) || Research.NODES[id], `${id} can never be had`);
-  // Status, upgrades and what's known.
-  const done = new Set(), stock = {};
+  const owned = new Set(), stock = {};
   const have = (k) => stock[k] || 0;
-  assert.strictEqual(Research.status('pulse-laser-3', done, have).state, 'locked');
-  assert.deepStrictEqual(Research.status('pulse-laser-3', done, have).needs, ['pulse-laser-2']);
-  const st = Research.status('pulse-laser-2', done, have);
-  assert.strictEqual(st.state, 'available');
-  assert.strictEqual(st.ok, false);
+  assert.strictEqual(HullMods.status('armour-2', owned, 1e6, have).state, 'locked');
+  assert.deepStrictEqual(HullMods.status('armour-2', owned, 1e6, have).needs, ['armour-1']);
+  const st = HullMods.status('armour-1', owned, 0, have);
+  assert(st.state === 'available' && !st.ok);
   for (const c of st.cost) stock[c.kind] = c.need;
-  assert.strictEqual(Research.status('pulse-laser-2', done, have).ok, true);
-  done.add('pulse-laser-2');
-  assert.strictEqual(Research.status('pulse-laser-2', done, have).state, 'done');
-  assert.strictEqual(Research.status('heavy-cannon-2', done, have).state, 'available', 'the cannon branches off Mk II');
-  assert(Research.known(done).has('pulse-laser-2') && Research.known(done).has('pulse-laser-1') && !Research.known(done).has('pulse-laser-3'));
-  for (const id of ['armour-1', 'armour-2', 'cargo-racks-1', 'hardpoint-retrofit']) done.add(id);
-  const u = Research.upgrades(done);
+  assert.strictEqual(HullMods.status('armour-1', owned, st.credits - 1, have).ok, false, 'short of credits');
+  assert.strictEqual(HullMods.status('armour-1', owned, st.credits, have).ok, true);
+  for (const id of ['armour-1', 'armour-2', 'cargo-racks-1', 'hardpoint-retrofit']) owned.add(id);
+  assert.strictEqual(HullMods.status('armour-1', owned, 0, have).state, 'done');
+  const u = HullMods.upgrades(owned);
   assert.strictEqual(u.weapons, 1);
   assert(Math.abs(u.hull - 0.3) < 1e-9 && Math.abs(u.cargo - 0.2) < 1e-9);
+});
+
+test('outfitters: Mk I everywhere, better gear at bigger stations, Mk V never; schematics fill the gap', () => {
+  const stations = SEEDS.flatMap((seed) => thingsOf(seed, 'station').map((st) => [seed, st]));
+  const sold = new Set();
+  for (const [seed, st] of stations) {
+    const sells = Economy.outfitter(seed, st);
+    assert.deepStrictEqual([...sells], [...Economy.outfitter(seed, st)], 'seeded: the same every time');
+    for (const id of Loadout.STARTER_GEAR) assert(sells.has(id), `${st.name} sells ${id}`);
+    const top = Economy.OUTFITTER[st.market.type] || 1;
+    for (const id of sells) {
+      assert(!Loadout.EQUIPMENT[id].npc, `${id} is NPC gear`);
+      assert(Loadout.EQUIPMENT[id].tier <= top, `${st.market.type} sells ${id}`);
+      sold.add(id);
+    }
+  }
+  assert(sold.has('pulse-laser-4'), 'capitals sell Mk IV');
+  // Schematics: only from armed pirates, and every piece of player gear can come from one.
+  const fromSchematic = new Set();
+  for (let i = 0; i < 6000; i++) {
+    assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'fighter', 1), null, 'tier 1 pirates carry none');
+    assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'freighter', 4), null, 'freighters carry none');
+    for (const tier of [2, 3, 4]) {
+      const id = CombatCore.schematic(1, `p${i}`, 'fighter', tier);
+      if (!id) continue;
+      assert(!Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier >= tier && Loadout.EQUIPMENT[id].tier <= tier + 1);
+      fromSchematic.add(id);
+    }
+  }
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(sold.has(id) || fromSchematic.has(id), `${id} can never be had`);
+  for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc && e.tier === 5) assert(!sold.has(id) && fromSchematic.has(id), `${id}: schematics only`);
 });
 
 test('each step up the gear ladder takes on the next pirate band', () => {

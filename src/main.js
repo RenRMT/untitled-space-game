@@ -11,7 +11,7 @@
 //   combat/       combat rules: round-based and real time
 //   flight/       things in space: entities, the scene, flying, map travel
 //   art/          procedural art in four styles
-//   rules/        items, markets, ships, research, the squad, fog of war
+//   rules/        items, markets, ships, refits, research, the squad, fog of war
 //   world/        galaxy generation
 //   core/         maths, randomness, saved data, display, colours
 
@@ -23,7 +23,7 @@ import { Goods } from './rules/goods.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
 import { Mining } from './rules/mining.js';
-import { Research } from './rules/research.js';
+import { HullMods } from './rules/hullmods.js';
 import { Squad } from './rules/squad.js';
 import { Missions } from './story/missions.js';
 import { Scene } from './flight/scene.js';
@@ -65,8 +65,8 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Art, ArtBodies, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, Knowledge, Loadout,
-  Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+  Art, ArtBodies, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Knowledge, Loadout,
+  Mining, Missions, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

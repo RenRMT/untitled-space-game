@@ -3,14 +3,15 @@
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there;
 // the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
-//                    outfitting, lab, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
+//                    outfitting, hullmods, lab, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, known, sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
 //               fit(slot, id, buy?), unfit(slot), sell(id), buyHull(id) }: the ship's equipment,
-//               spare gear, buying what research unlocked, and the shipyard (game/outfitting.js).
-// lab: { researched, components, have(kind), status(id), research(id) }: the research tree (rules/research.js).
+//               spare gear, buying what this station sells (or a schematic unlocked), and the
+//               shipyard (game/outfitting.js).
+// hullmods: { owned, components, status(id), buy(id) }: hull refits at a shipyard (rules/hullmods.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // squad: { members }: the squad (rules/squad.js), each member with its logic modules (rules/logic.js).
@@ -30,7 +31,7 @@ import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Mining } from '../rules/mining.js';
-import { Research } from '../rules/research.js';
+import { HullMods } from '../rules/hullmods.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
 import { UI } from './ui.js';
@@ -50,7 +51,7 @@ const StationMenu = (() => {
   let openSlot = null; // the loadout slot whose sheet is open, if any
   let openMission = null; // the mission whose sheet is open, if any
   let sheet = null; // the open sheet (Kit.sheet)
-  let openOption = null, openStat = null, openHold = null, openNode = null, openHull = null; // expanded rows, chips, tiles
+  let openOption = null, openStat = null, openHold = null, openHull = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
@@ -127,7 +128,7 @@ const StationMenu = (() => {
   }
 
   // Trade: the hold, what this station stocks by category, and anything else you're carrying, with
-  // what it fetches here. (Components aren't traded: they go to research.)
+  // what it fetches here. (Components aren't traded: they go to refits and research.)
   function renderTrade() {
     const { market, hold } = ctx;
     const full = hold.free < 1;
@@ -228,8 +229,13 @@ const StationMenu = (() => {
     }));
   }
 
-  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), researched gear (Buy) and
-  // the next of each line still to research, each with its stat changes against what's fitted.
+  // Where gear of a Mk is sold (rules/economy.js outfitter), for gear this station doesn't sell.
+  const WHERE = [null, 'every station', 'system stations', 'major stations and salvage yards', 'capitals'];
+  const whereSold = (item) => (item.tier >= 5 ? 'Never sold: only from schematics recovered from pirates.'
+    : `Sold at ${WHERE[item.tier]} (not all of them stock every line), or from a schematic recovered from pirates.`);
+
+  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), gear sold here (Buy) and
+  // the next of each line not sold here, each with its stat changes against what's fitted.
   function slotSheet(id) {
     const { outfitting: o, hold } = ctx;
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
@@ -237,7 +243,7 @@ const StationMenu = (() => {
     const cur = s.item;
     const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && !Loadout.EQUIPMENT[e].npc && e !== cur?.id);
     const rank = (e) => (o.gear[e] ? 0 : o.known.has(e) ? 1 : 2);
-    // Of the gear still to research, only the next Mk of each line.
+    // Of the gear not sold here, only the next Mk of each line.
     const next = new Set();
     for (const e of ids) {
       const item = Loadout.EQUIPMENT[e];
@@ -256,11 +262,11 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : kind === 'locked' ? 'Research' : '', tagTone: kind === 'fit' ? 'good' : null,
+          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : kind === 'locked' ? 'Not sold here' : '', tagTone: kind === 'fit' ? 'good' : null,
           locked: kind === 'locked',
           note: kind === 'fit' ? `Spare gear aboard. Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : kind === 'buy' ? [Loadout.STARTER_GEAR.includes(e) ? 'Sold at every station.' : 'Unlocked by research.', short ? `You need ${(item.price - hold.credits).toLocaleString('en-US')} cr more.` : '', cur ? 'The current one goes to spare gear.' : ''].filter(Boolean).join(' ')
-              : `Research ${item.name} to buy it.`,
+            : kind === 'buy' ? [Loadout.STARTER_GEAR.includes(e) ? 'Sold at every station.' : o.schematics.has(e) ? 'Yours by schematic: sold to you everywhere.' : 'Sold here.', short ? `You need ${(item.price - hold.credits).toLocaleString('en-US')} cr more.` : '', cur ? 'The current one goes to spare gear.' : ''].filter(Boolean).join(' ')
+              : whereSold(item),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
           action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` })
             : kind === 'buy' ? Kit.button('Buy', act(() => o.fit(s.id, e, true), fitted), { price: item.price, disabled: short, aria: `Buy and fit ${item.name} for ${item.price} credits` })
@@ -276,7 +282,7 @@ const StationMenu = (() => {
           action: Kit.button('Remove', act(() => o.unfit(s.id), () => Kit.toast(`${cur.name} moved to spare gear`)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
         h('span', { class: 'ui-label' }, 'Options'),
-        options.length ? options : h('p', { class: 'ui-note' }, 'Research unlocks more equipment for this slot.'),
+        options.length ? options : h('p', { class: 'ui-note' }, 'Bigger stations sell better equipment for this slot.'),
       ],
     };
   }
@@ -374,55 +380,59 @@ const StationMenu = (() => {
           : h('p', { class: 'ui-empty' }, 'Empty. Buy goods at Trade or pick up cargo in space.')),
       renderGear(),
       renderShipyard(),
+      renderRefits(),
     ];
   }
 
-  // ---------- Research ----------
+  // ---------- Components and costs ----------
 
-  const NODE_CODE = { weapons: 'WPN', shields: 'SHD', computers: 'CPU', engines: 'ENG', scanners: 'SCN', hull: 'HUL' };
   const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 
-  // Research: the components in store, then the tree by group (rules/research.js). Each node shows
-  // its cost (with how much of each you have) and Research; tap it for what it gives.
-  function renderResearch() {
-    const { lab } = ctx;
-    const grid = h('table', { class: 'st-components' },
+  // The salvaged components in store, by kind and tier.
+  function componentsGrid(components) {
+    return h('table', { class: 'st-components' },
       h('thead', {}, h('tr', {}, h('th', {}, ''), [1, 2, 3, 4, 5].map((t) => h('th', { scope: 'col', title: Goods.TIERS[t], style: { color: Kit.TIER[t] } }, ROMAN[t])))),
       h('tbody', {}, Goods.categories('salvage').map((cat) => h('tr', {},
         h('th', { scope: 'row' }, Goods.CATEGORIES[cat].label.replace(' components', '')),
         [1, 2, 3, 4, 5].map((tier) => {
-          const n = lab.components[Goods.component(cat, tier)] || 0;
+          const n = components[Goods.component(cat, tier)] || 0;
           return h('td', { class: n ? 'has num' : 'num', style: n ? { color: Kit.TIER[tier] } : undefined }, n ? String(n) : '·');
         })))));
-    const nameOf = (id) => Research.NODES[id].name;
-    const node = (n) => {
-      const st = lab.status(n.id);
-      const item = n.equipment ? { id: n.equipment, ...Loadout.EQUIPMENT[n.equipment] } : null;
-      const prevId = item ? `${item.line}-${item.tier - 1}` : null;
-      const prev = prevId && Loadout.EQUIPMENT[prevId] ? { id: prevId, ...Loadout.EQUIPMENT[prevId] } : null;
-      const done = st.state === 'done';
-      const costs = done ? null : h('span', { class: 'st-costs' }, st.cost.map((c) => h('span', {
-        class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name,
-      }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)));
-      return Kit.optionRow({
-        code: NODE_CODE[n.group], name: item ? lineName(item) : n.name.replace(/ Mk [IV]+$/, ''), tier: / Mk [IV]+$/.test(n.name) ? n.tier : null,
-        tag: done ? 'Researched' : '', tagTone: 'good',
-        rows: item && prev ? Kit.compare(prev, item, METRICS[item.slot]) : null,
-        extra: costs,
-        note: [done && item ? `${n.note}. Buy it in the Ship tab.` : n.note, st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}` : ''].filter(Boolean).join(' · '),
-        open: openNode === n.id, onToggle: () => { openNode = openNode === n.id ? null : n.id; refresh(); },
-        locked: st.state === 'locked', lockLabel: 'Locked',
-        action: st.state === 'available' ? Kit.button('Research', act(() => lab.research(n.id), () => Kit.toast(`${n.name} researched`)), {
-          kind: st.ok ? 'primary' : '', disabled: !st.ok, aria: `Research ${n.name}`,
-        }) : null,
-      });
-    };
+  }
+  // What something costs in components (and credits), with how much of each you have.
+  const costChips = (cost, credits) => h('span', { class: 'st-costs' },
+    credits ? h('span', { class: `cost num${ctx.hold.credits < credits ? ' short' : ''}`, title: 'Credits' }, `${credits.toLocaleString('en-US')} cr`) : null,
+    cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)));
+
+  // Hull refits (at a shipyard): upgrades for every hull, for credits and hull components.
+  function renderRefits() {
+    const { hullmods: hm } = ctx;
+    if (!ctx.shipyard || !hm) return null;
+    const nameOf = (id) => HullMods.NODES[id].name;
+    return section('Hull refits', Kit.head('Hull refits', h('span', { class: 'aside num' }, `${hm.owned.size}/${HullMods.LIST.length} fitted`)),
+      h('div', { class: 'ui-list' }, HullMods.LIST.map((n) => {
+        const st = hm.status(n.id);
+        const done = st.state === 'done';
+        return Kit.optionRow({
+          code: 'HUL', name: n.name.replace(/ Mk [IV]+$/, ''), tier: / Mk [IV]+$/.test(n.name) ? n.tier : null,
+          tag: done ? 'Fitted' : '', tagTone: 'good',
+          extra: done ? null : costChips(st.cost, st.credits),
+          note: [n.note, st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}` : ''].filter(Boolean).join(' · '),
+          locked: st.state === 'locked', lockLabel: 'Locked',
+          action: st.state === 'available' ? Kit.button('Fit', act(() => hm.buy(n.id), () => Kit.toast(`${n.name} fitted`)), {
+            kind: st.ok ? 'primary' : '', disabled: !st.ok, aria: `Fit ${n.name}`,
+          }) : null,
+        });
+      })));
+  }
+
+  // ---------- Research ----------
+
+  function renderResearch() {
     return [
-      titleRow('Research', `${lab.researched.size}/${Object.keys(Research.NODES).length} done`),
-      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), grid),
-      ...Research.LINES.map((line) => section(line.label,
-        Kit.head(line.label, h('span', { class: 'aside num' }, `${line.nodes.filter((n) => lab.researched.has(n.id)).length}/${line.nodes.length}`)),
-        h('div', { class: 'ui-list' }, line.nodes.map(node)))),
+      titleRow('Research'),
+      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), componentsGrid(ctx.hullmods ? ctx.hullmods.components : {})),
+      h('p', { class: 'ui-note' }, 'Equipment is sold at stations now, and hull refits at shipyards.'),
     ];
   }
 
@@ -616,7 +626,7 @@ const StationMenu = (() => {
     if (isLocked(name)) return;
     closeSheet();
     tab = name;
-    openStat = openHold = openNode = openHull = null;
+    openStat = openHold = openHull = null;
     body.scrollTop = 0;
     refresh();
   }
@@ -642,7 +652,7 @@ const StationMenu = (() => {
       ctx = options;
       tab = options.tab || 'trade';
       closeSheet();
-      openStat = openHold = openNode = openHull = null;
+      openStat = openHold = openHull = null;
       doneOpen = false;
       root.hidden = false;
       body.scrollTop = 0;
