@@ -1,27 +1,27 @@
-'use strict';
-
-// Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
-// index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
+// Smoke test for the whole game in Node: `node tests/smoke.js`. Starts the game (src/main.js and
+// everything it imports) in a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
-// flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. It opens on the introduction and the waystation's three
-// missions, which the first four tests play through. Each step checks its effect; at the end nothing may have
-// been drawn at a non-finite position. The steps share one game, in order, as a player would
-// play them.
+// flying into a nebula and to the system's edge, map travel, a fight in each combat mode and the
+// settings. It opens on the introduction and the waystation's three missions, which the first four
+// tests play through. Each step checks its effect; at the end nothing may have been drawn at a
+// non-finite position. The steps share one game, in order, as a player would play them.
 
-const fs = require('fs');
-const vm = require('vm');
-const path = require('path');
-const assert = require('assert');
-const { install } = require('./browser-stub.js');
+import assert from 'node:assert';
+import { install } from './browser-stub.js';
 
-const ROOT = path.join(__dirname, '..');
+// The stand-in browser first: the game's modules use the DOM as they load.
 const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1' });
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-for (const file of scripts) vm.runInThisContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), { filename: file });
-// Evaluate in the game's own global scope (its top-level consts aren't properties of globalThis).
-const game = (src) => vm.runInThisContext(src);
+const { G } = await import('../src/main.js');
+const { ItemIcons } = await import('../src/art/icons.js');
+const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
+const { UI } = await import('../src/ui/ui.js');
+
+// game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
+// function, for `with`.
+const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG });
+const { ArtBodies, Galaxy } = G; // the tests use them too
+const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
+const game = (src) => inGame(scope, src);
 
 let failed = 0;
 function test(name, fn) {
@@ -294,7 +294,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
     browser.frames(1);
     game('startMining(__gas); mining.t = mineTime() - 0.05');
     assert.ok(until('cargo.removed.has(__gas.key)', 60 * 4), 'collected');
-    game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+    game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   }
   assert.strictEqual(game('cargo.missions.count(SALVAGE, "gas")'), 3);
   // The squad member picks up the signal.
@@ -366,6 +366,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   game('saveCargoNow()');
   const key = game('cargo.key'), saved = JSON.parse(browser.storage.get(key));
   delete saved.missions.salvage;
+  delete saved.version; // saves of that time had none
   delete saved.missionsVersion;
   browser.storage.set(key, JSON.stringify(saved));
   game('loadCargo(world.galaxy)');
@@ -707,7 +708,7 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   assert.match(game('toast.text'), /^Gas pocket collected · \d × /);
   assert.ok(game('!frameList.includes(__gas)'), 'and gone');
   const n = game('Mining.gasOf(world.galaxy.seed, __gas).length'), held = game('cargo.items.length');
-  game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+  game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   browser.frames(2);
   assert.strictEqual(game('cargo.items.length'), held + n, 'its gas is in the hold');
   assert.ok(game(`cargo.items.slice(-${n}).every((it) => Goods.type(it.kind).category === 'gas')`));
@@ -732,9 +733,8 @@ test('sensors find a hidden derelict, and the radar shows it once found', () => 
 test('a nebula dampens the sensors and lowers security', () => {
   game(`fight.grace = 1e9; globalThis.__neb = world.galaxy.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
   browser.frames(2);
-  // Fly in, toward the nebula's core.
-  game('placeShip(__neb.x + __neb.blobs[0].dx, __neb.y + __neb.blobs[0].dy)');
-  game('lastRegion = { level: 3, nebula: null, system: world.galaxy.systems[0] }');
+  // Into the nebula's core (moved there, not placed: placing forgets where the ship was).
+  game('ship.x = __neb.x + __neb.blobs[0].dx; ship.y = __neb.y + __neb.blobs[0].dy');
   browser.frames(2);
   assert.match(game('toast.text'), /Entering the .* Nebula/);
   assert.ok(game('frameList.some((e) => e.kind === "nebula")'), 'the nebula is drawn');
@@ -887,7 +887,20 @@ test('fights in real time, then gets away', () => {
   assert.strictEqual(game('fight.mode'), 'realtime');
   // Fly at the target for a while (the guns fire on their own), then break away.
   const chase = `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5; } }`;
-  until('!inFight()', 30 * 60, chase);
+  // Meanwhile the panel's first row (the player's) shows the hull and shield every frame, as they
+  // change between the log's lines (the shield recharging, from half).
+  const shown = () => textOf(browser.document.getElementById('combat').querySelector('.cb-rows').children[0].children[2]);
+  const actual = '`${Math.ceil(fight.s.player.hull)} · ${Math.floor(fight.s.player.shield)}`';
+  const readings = new Set();
+  game('fight.s.player.shield = Math.floor(fight.s.player.stats.shield / 2)'); // so it recharges, hit or not
+  for (let i = 0; i < 30 * 60 && game('!!fight.s'); i++) {
+    game(chase);
+    browser.frames(1);
+    if (!game('!!fight.s')) break;
+    assert.strictEqual(shown(), game(actual), 'the panel shows the player\'s hull and shield');
+    readings.add(shown());
+  }
+  assert.ok(readings.size > 1, 'the readings changed during the fight');
   const away = `{ const a = fight.s ? Math.atan2(ship.y - fight.s.anchor.y, ship.x - fight.s.anchor.x) : 0; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`;
   assert.ok(until('!inFight()', 120 * 60, away), 'the fight ends');
   game('ship.targetSpeed = 0');
@@ -943,6 +956,11 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');
 });
 
+test('text with **bold** runs becomes text and <strong> elements', () => {
+  const parts = UI.rich('It has been **793** solar cycles');
+  assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
+});
+
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
@@ -950,6 +968,18 @@ test('settings open and close', () => {
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
   browser.frames(3);
+
+  // Paused behind the menu, the ship parked on a loose item doesn't pick it up; once the menu
+  // closes, it does.
+  const item = `world.scene.entities.find((e) => e.kind === 'item' && !e.mission && !cargo.removed.has(e.key))`;
+  assert.ok(game(`!!(globalThis.__item = ${item})`), 'a loose item');
+  game('fight.grace = 1e9; placeShip(__item.x, __item.y); cargo.credits += 0');
+  game('Settings.open()');
+  browser.frames(5);
+  assert.ok(!game('cargo.removed.has(__item.key)'), 'nothing is picked up while paused');
+  browser.key('Escape');
+  browser.frames(2);
+  assert.ok(game('cargo.removed.has(__item.key)'), 'picked up once flight resumes');
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {
@@ -967,6 +997,7 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   const old = JSON.parse(saved());
   const [a, b, ...rest] = old.removed;
   delete old.removed;
+  delete old.version;
   Object.assign(old, { collected: [a], mined: [b], destroyed: rest });
   const comps = game(`cargo.components['weapon-standard'] || 0`);
   old.items.push({ kind: 'weapon-standard', label: 'Standard weapon components', category: 'loot' });

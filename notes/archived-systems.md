@@ -11,6 +11,10 @@ back" first: some of these were never finished.
 
 Each entry: what it did, how it worked, where the code lived, and what it would need to return.
 
+File paths are as they were on that branch, with every script at the repository root. The scripts
+have since moved into folders under `src/` (`src/rules/goods.js`, `src/ui/map.js`, ...), and
+`art/` is now `src/art/`.
+
 ## Missions tab
 
 **What it was.** A third tab on the station screen (after Trade and Ship, later Research) with

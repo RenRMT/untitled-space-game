@@ -32,7 +32,7 @@
   .btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
   .btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
-  /* Sits under the minimap, which game.js draws clamp(90, 28vw, 150) px wide at 12 px from the corner. */
+  /* Sits under the minimap, which game/hud.js draws clamp(90, 28vw, 150) px wide at 12 px from the corner. */
   #map-btn {
     position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 8px);
     width: clamp(90px, 28vw, 150px);
@@ -266,7 +266,7 @@
   .cost.short { color: var(--wanted); }
   .cost .icon { margin: -2px 0; }
 
-  /* Components in store: a row per kind, a column per tier (rarity colours, as in goods.js). */
+  /* Components in store: a row per kind, a column per tier (rarity colours, as in rules/goods.js). */
   .components { width: 100%; border-collapse: collapse; font-size: 12px; }
   .components th { font-weight: normal; color: var(--dim); text-align: center; padding: 4px 2px; font-size: 11px; }
   .components tbody th { text-align: left; }
@@ -299,7 +299,7 @@
   .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
 
   /* Item types: the item's icon (its own art, in the current style; art/icons.js), and a tag for
-     anything rarer than common (colours as Goods.RARITY in goods.js). Trade lists are grouped
+     anything rarer than common (colours as Goods.RARITY in rules/goods.js). Trade lists are grouped
      by category. In a trade row the icon sits to the left of the name, count and gauge. */
   #station .icon { display: block; flex: none; } /* sized by its width/height attributes */
   .good .what.with-icon { display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 10px; align-items: center; }
@@ -525,49 +525,8 @@
   </div>
 </div>
 
-<script src="math.js"></script>
-<script src="rng.js"></script>
-<script src="store.js"></script>
-<script src="theme.js"></script>
-<script src="ui.js"></script>
-<script src="goods.js"></script>
-<script src="security.js"></script>
-<script src="data/system-config.js"></script>
-<script src="solar-system.js"></script>
-<script src="galaxy.js"></script>
-<script src="map.js"></script>
-<script src="art/util.js"></script>
-<script src="art/sprite-cache.js"></script>
-<script src="art/culture.js"></script>
-<script src="art/blueprints.js"></script>
-<script src="art/items.js"></script>
-<script src="art/render.js"></script>
-<script src="art/bodies.js"></script>
-<script src="art/icons.js"></script>
-<script src="art/portraits.js"></script>
-<script src="art/androids.js"></script>
-<script src="entities.js"></script>
-<script src="scene.js"></script>
-<script src="interactions.js"></script>
-<script src="knowledge.js"></script>
-<script src="economy.js"></script>
-<script src="mining.js"></script>
-<script src="loadout.js"></script>
-<script src="logic.js"></script>
-<script src="squad.js"></script>
-<script src="missions.js"></script>
-<script src="research.js"></script>
-<script src="flight.js"></script>
-<script src="combat-core.js"></script>
-<script src="combat.js"></script>
-<script src="combat-realtime.js"></script>
-<script src="station.js"></script>
-<script src="context.js"></script>
-<script src="combat-panel.js"></script>
-<script src="settings.js"></script>
-<script src="travel.js"></script>
-<script src="intro.js"></script>
-<script src="comms.js"></script>
-<script src="game.js"></script>
+<!-- The game is ES modules: src/main.js imports the rest (layer by layer: core, world, rules, art,
+     flight, combat, story, ui). Modules need the page served over http, not opened as a file. -->
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

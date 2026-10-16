@@ -1,7 +1,16 @@
 {
   "name": "untitled-space-game",
   "private": true,
+  "type": "module",
   "scripts": {
-    "test": "node tests/run.js && node tests/smoke.js"
+    "start": "npx --yes serve -l 8000 .",
+    "test": "node tests/run.js && node tests/smoke.js",
+    "lint": "eslint .",
+    "perf": "node tests/perf.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
   }
 }

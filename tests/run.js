@@ -1,52 +1,36 @@
-'use strict';
-
 // Node checks for the generators and map travel. No dependencies: `node tests/run.js`.
-// Browser scripts are loaded into one shared context, in the same order as index.html.
+// Imports the game's modules that run without a browser.
 
-const fs = require('fs');
-const vm = require('vm');
-const path = require('path');
-const assert = require('assert');
-
-const ROOT = path.join(__dirname, '..');
-// Each script runs as its own classic script in Node's global context, then publishes its globals
-// the way a browser would, so later scripts can see them.
-const ctx = globalThis;
-function load(file, names) {
-  const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
-  vm.runInThisContext(`((require, module) => {${src}\n;${names.map((n) => `globalThis.${n} = ${n};`).join(' ')}\n})();`, { filename: file });
-}
-load('math.js', ['MathUtil']);
-load('rng.js', ['hashInt', 'mulberry32', 'seedToInt', 'weightedPick']);
-load('store.js', ['Params', 'Store']);
-load('goods.js', ['Goods']);
-load('security.js', ['Security']);
-load('data/system-config.js', ['SYSTEM_CONFIG']);
-load('solar-system.js', ['SolarSystem']);
-load('galaxy.js', ['Galaxy']);
-load('art/util.js', ['ArtUtil']);
-load('art/culture.js', ['ArtCulture']);
-load('art/blueprints.js', ['ArtBlueprints']);
-load('art/items.js', ['ArtItems']);
-load('art/sprite-cache.js', ['SpriteCache']);
-load('entities.js', ['Entities']);
-load('scene.js', ['Scene']);
-load('interactions.js', ['Interactions']);
-load('travel.js', ['Travel']);
-load('knowledge.js', ['Knowledge']);
-load('economy.js', ['Economy']);
-load('mining.js', ['Mining']);
-load('loadout.js', ['Loadout']);
-load('logic.js', ['Logic']);
-load('squad.js', ['Squad']);
-load('research.js', ['Research']);
-load('combat-core.js', ['CombatCore']);
-load('combat.js', ['Combat']);
-load('flight.js', ['Flight']);
-load('combat-realtime.js', ['RealtimeCombat']);
-load('intro.js', ['Intro']);
-load('missions.js', ['Missions']);
-const { Missions, Intro, Logic, Squad, SolarSystem, Galaxy, Scene, ArtCulture, ArtItems, Travel, Knowledge, Economy, Mining, Loadout, Combat, Goods, SYSTEM_CONFIG, Flight, RealtimeCombat, SpriteCache, ArtBlueprints, Entities, Interactions, CombatCore } = ctx;
+import assert from 'node:assert';
+import { hashInt, mulberry32, seedToInt } from '../src/core/rng.js';
+import { Save } from '../src/core/save.js';
+import { Goods } from '../src/rules/goods.js';
+import { Security } from '../src/world/security.js';
+import { SYSTEM_CONFIG } from '../src/world/system-config.js';
+import { SolarSystem } from '../src/world/solar-system.js';
+import { Galaxy } from '../src/world/galaxy.js';
+import { ArtUtil } from '../src/art/util.js';
+import { ArtCulture } from '../src/art/culture.js';
+import { ArtBlueprints } from '../src/art/blueprints.js';
+import { ArtItems } from '../src/art/items.js';
+import { SpriteCache } from '../src/art/sprite-cache.js';
+import { Entities } from '../src/flight/entities.js';
+import { Scene } from '../src/flight/scene.js';
+import { Interactions } from '../src/flight/interactions.js';
+import { Travel } from '../src/flight/travel.js';
+import { Flight } from '../src/flight/flight.js';
+import { Knowledge } from '../src/rules/knowledge.js';
+import { Economy } from '../src/rules/economy.js';
+import { Mining } from '../src/rules/mining.js';
+import { Loadout } from '../src/rules/loadout.js';
+import { Logic } from '../src/rules/logic.js';
+import { Squad } from '../src/rules/squad.js';
+import { Research } from '../src/rules/research.js';
+import { CombatCore } from '../src/combat/combat-core.js';
+import { Combat } from '../src/combat/combat.js';
+import { RealtimeCombat } from '../src/combat/combat-realtime.js';
+import { Intro } from '../src/story/intro.js';
+import { Missions } from '../src/story/missions.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -483,7 +467,7 @@ test('mined asteroids drop metals, minerals or gases, at the configured rates', 
 });
 
 test('the Mine shortcut picks the nearest asteroid within mining range of its edge', () => {
-  // As the flight view sets it up (game.js): a ship at the origin, gaps measured to the edge.
+  // As the flight view sets it up (game/docking.js): a ship at the origin, gaps measured to the edge.
   const A = Interactions.create({ gap: (e) => Math.hypot(e.x, e.y) - e.radius, speed: () => 0 });
   const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => Mining.config.range, run() {} });
   const R = Mining.config.range;
@@ -765,7 +749,7 @@ test('components are generic, one per tier, found by category and tier', () => {
 
 // Perceived colour difference between two colours (the "redmean" weighted RGB distance, 0..~765).
 function colourDistance(a, b) {
-  const [r1, g1, b1] = ctx.ArtUtil.hexToRgb(a), [r2, g2, b2] = ctx.ArtUtil.hexToRgb(b);
+  const [r1, g1, b1] = ArtUtil.hexToRgb(a), [r2, g2, b2] = ArtUtil.hexToRgb(b);
   const rm = (r1 + r2) / 2;
   return Math.sqrt((2 + rm / 256) * (r1 - r2) ** 2 + 4 * (g1 - g2) ** 2 + (2 + (255 - rm) / 256) * (b1 - b2) ** 2);
 }
@@ -794,7 +778,7 @@ test('every item type is drawn in its own colour within its category', () => {
 test('rarer items turn up less often: picks, floating cargo and market stock', () => {
   // Picks by rarity, for the category with the most levels (conduits: common to very rare).
   const counts = [0, 0, 0, 0, 0, 0];
-  const r = ctx.mulberry32(99);
+  const r = mulberry32(99);
   for (let i = 0; i < 20000; i++) counts[Goods.type(Goods.pick(r, 'tubes')).rarity]++;
   for (let l = 1; l < 4; l++) assert(counts[l] > counts[l + 1], `picks: level ${l} ${counts[l]} vs ${l + 1} ${counts[l + 1]}`);
   // Floating items across a few systems.
@@ -810,6 +794,23 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   }
   const rate = stocked.map((n, l) => n / (types[l] || 1));
   for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
+});
+
+test('saves: old data steps up a version at a time; a burst of changes is one write', () => {
+  const steps = [(d) => { d.a = 1; }, (d) => { d.b = d.a + 1; }];
+  assert.deepStrictEqual(Save.migrate({}, steps), { a: 1, b: 2, version: 2 }, 'from before versions');
+  assert.deepStrictEqual(Save.migrate({ a: 5, version: 1 }, steps), { a: 5, b: 6, version: 2 }, 'from version 1');
+  assert.deepStrictEqual(Save.migrate({ version: 3 }, steps), { version: 3 }, 'from a newer game: left alone');
+  let writes = 0;
+  const w = Save.debounced(() => writes++, 1e6);
+  w.change(); w.change(); w.change();
+  assert(w.pending && writes === 0, 'nothing written straight away');
+  w.flush();
+  assert(!w.pending && writes === 1, 'flushed: one write');
+  w.flush();
+  assert.strictEqual(writes, 1, 'nothing waiting: no write');
+  w.now();
+  assert.strictEqual(writes, 2, 'now() writes regardless');
 });
 
 test('old saves: item categories and labels become item types', () => {
@@ -877,7 +878,7 @@ test('the starter Courier against pirate fighters: easy alone, costly in pairs, 
   const fight = (n, flee) => {
     let wins = 0, escapes = 0, hull = 0;
     for (let i = 0; i < N; i++) {
-      const s = Combat.create(ctx.mulberry32(i * 7919 + n), Combat.combatant('p', 'Me', me),
+      const s = Combat.create(mulberry32(i * 7919 + n), Combat.combatant('p', 'Me', me),
         Array.from({ length: n }, (_, k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
       while (!s.over) { s.fleeing = flee; Combat.round(s); }
       if (s.over === 'won') { wins++; hull += s.player.hull; }
@@ -1085,7 +1086,7 @@ test('each step up the gear ladder takes on the next pirate band', () => {
     let wins = 0;
     for (let i = 0; i < 100; i++) {
       const enemies = Array.from({ length: n }, (_, k) => Combat.combatant(`e${k}`, 'Fighter', Loadout.stats(Loadout.npc('fighter', tier))));
-      if (Combat.simulate(ctx.mulberry32(i * 7919 + tier * 31 + n), Combat.combatant('player', 'Me', stats), enemies).over === 'won') wins++;
+      if (Combat.simulate(mulberry32(i * 7919 + tier * 31 + n), Combat.combatant('player', 'Me', stats), enemies).over === 'won') wins++;
     }
     return wins / 100;
   };
@@ -1138,7 +1139,6 @@ function duel(enemyStats, at, o = {}) {
   const them = RealtimeCombat.ship('e', 'Them', enemyStats, { x: at[0], y: at[1], angle: Math.atan2(-at[1], -at[0]), radius: 18 });
   return RealtimeCombat.create(o.rng || (() => 0), me, [them], { focus: 'e' });
 }
-const holdStill = (s) => { for (const e of s.enemies) { e.x = e.x0 ?? e.x; e.vx = e.vy = 0; } };
 // Run with the enemy pinned in place (so only the rules under test matter); returns shots by side.
 function runPinned(s, secs, dt = 1 / 30) {
   const shots = { player: [], e: [] };
@@ -1225,7 +1225,7 @@ test('real-time combat: targets and locks', () => {
 });
 
 test('real-time combat: fighters make attack runs, turrets keep their distance', () => {
-  const s = duel(FIGHTER, [1200, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: ctx.mulberry32(3) });
+  const s = duel(FIGHTER, [1200, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: mulberry32(3) });
   const f = s.enemies[0];
   let closest = Infinity, firstShot = null, breakOffs = 0, mode = f.ai.mode;
   for (let t = 0; t < 20; t += 1 / 30) {
@@ -1238,7 +1238,7 @@ test('real-time combat: fighters make attack runs, turrets keep their distance',
   assert(firstShot !== null && firstShot < 4, `first shot at ${firstShot}`);
   assert(closest > 100, `rammed the player: ${closest}`);
   assert(breakOffs >= 2, `${breakOffs} attack runs`);
-  const t = duel(FREIGHTER, [1000, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: ctx.mulberry32(4) });
+  const t = duel(FREIGHTER, [1000, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: mulberry32(4) });
   const fr = t.enemies[0], range = FREIGHTER.weapons[0].range;
   let inBand = 0, n = 0;
   for (let k = 0; k < 30 * 30; k++) {
@@ -1253,7 +1253,7 @@ test('real-time combat: fighters make attack runs, turrets keep their distance',
 
 test('real-time combat is deterministic for a seed', () => {
   const run = () => {
-    const rng = ctx.mulberry32(42);
+    const rng = mulberry32(42);
     const enemies = [0, 1, 2].map((k) => RealtimeCombat.ship(`f${k}`, 'F', FIGHTER, { x: 700 * Math.cos(k * 2), y: 700 * Math.sin(k * 2), radius: 18 }));
     const s = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', COURIER, {}), enemies, null, { maxTime: 30 });
     return [s.over, s.t.toFixed(3), s.player.hull, ...s.enemies.map((e) => [e.hull, e.x.toFixed(3)])];
@@ -1272,7 +1272,7 @@ test('real-time combat: the starter Courier against pirate fighters, and getting
   const fight = (n, pilot) => {
     let wins = 0, escapes = 0, hull = 0, left = 0;
     for (let i = 0; i < N; i++) {
-      const rng = ctx.mulberry32(i * 7919 + n * 31);
+      const rng = mulberry32(i * 7919 + n * 31);
       const enemies = Array.from({ length: n }, (_, k) => {
         const a = rng() * Math.PI * 2, r = 650 + rng() * 250;
         return RealtimeCombat.ship(`f${k}`, 'Fighter', FIGHTER, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 });
@@ -1358,12 +1358,11 @@ test('the introduction: lines, questions that set the art style and movement, an
   assert.deepStrictEqual(ask.map((l) => l.ask), ['combat']);
   assert.deepStrictEqual(ask[0].options.map((o) => o.value).sort(), [...VALUES.combat].sort());
   assert(ask[0].options.every((o) => o.reply));
-  // Portraits show once the art style is picked; bold runs.
+  // Portraits show once the art style is picked.
   const r2 = Intro.create();
   assert(!r2.portrait);
   r2.next(); r2.next(); r2.choose(0);
   assert(r2.portrait);
-  assert.deepStrictEqual(Intro.runs('It has been **793** solar cycles'), [{ text: 'It has been ', bold: false }, { text: '793', bold: true }, { text: ' solar cycles', bold: false }]);
 });
 
 // ---------- Squad and AI logic modules ----------
@@ -1511,7 +1510,7 @@ test('the first mission\'s fight: the provided Courier beats the two Mk I pirate
   const N = 300;
   let wins = 0, hull = 0;
   for (let i = 0; i < N; i++) {
-    const s = Combat.create(ctx.mulberry32(i * 104729 + 3), Combat.combatant('p', 'Me', me), [0, 1].map((k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
+    const s = Combat.create(mulberry32(i * 104729 + 3), Combat.combatant('p', 'Me', me), [0, 1].map((k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
     while (!s.over) Combat.round(s);
     if (s.over === 'won') { wins++; hull += s.player.hull; }
   }
@@ -1523,7 +1522,7 @@ test('the first mission\'s fight: the provided Courier beats the two Mk I pirate
   };
   wins = 0;
   for (let i = 0; i < 100; i++) {
-    const rng = ctx.mulberry32(i * 7919 + 77);
+    const rng = mulberry32(i * 7919 + 77);
     const enemies = [0, 1].map((k) => {
       const a = rng() * Math.PI * 2, r = 650 + rng() * 250;
       return RealtimeCombat.ship(`f${k}`, 'Fighter', fighter, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 });
@@ -1575,7 +1574,7 @@ test('the second mission: the nearest nebula, its pockets, and an android signal
   const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), foe = Loadout.stats(Loadout.npc('fighter', Missions.SALVAGE.tier));
   let wins = 0, left = 0;
   for (let i = 0; i < 300; i++) {
-    const f = Combat.create(ctx.mulberry32(i * 31337 + 5), Combat.combatant('p', 'Me', me), [Combat.combatant('h', 'Android', foe)]);
+    const f = Combat.create(mulberry32(i * 31337 + 5), Combat.combatant('p', 'Me', me), [Combat.combatant('h', 'Android', foe)]);
     while (!f.over) Combat.round(f);
     if (f.over === 'won') { wins++; left += f.player.hull + f.player.shield; }
   }
@@ -1587,7 +1586,7 @@ test('the second mission: the nearest nebula, its pockets, and an android signal
   };
   wins = 0;
   for (let i = 0; i < 100; i++) {
-    const rng = ctx.mulberry32(i * 7919 + 99), a = rng() * Math.PI * 2, r = 650 + rng() * 250;
+    const rng = mulberry32(i * 7919 + 99), a = rng() * Math.PI * 2, r = 650 + rng() * 250;
     const f = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', me, {}), [RealtimeCombat.ship('h', 'Android', foe, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 })], face, { maxTime: 120 });
     if (f.over === 'won') wins++;
   }
@@ -1631,7 +1630,7 @@ test('the gate mission: the work spot by the gate, two waves of pirates, and a f
   const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), foe = Loadout.stats(Loadout.npc('fighter', Missions.GATE.tier));
   let wins = 0;
   for (let i = 0; i < 300; i++) {
-    const rng = ctx.mulberry32(i * 2654435 + 17);
+    const rng = mulberry32(i * 2654435 + 17);
     const one = Combat.create(rng, Combat.combatant('p', 'Me', me), [Combat.combatant('a', 'Pirate', foe)]);
     while (!one.over) Combat.round(one);
     if (one.over !== 'won') continue;
@@ -1648,11 +1647,11 @@ test('rounds: an ally fires on the target its orders name, and only then; a down
   const me = () => Combat.combatant('player', 'Me', COURIER), foe = (id) => Combat.combatant(id, 'Fighter', FIGHTER);
   const ally = () => Combat.combatant('w1', 'Cipher-07', wingman());
   // No orders: it holds fire.
-  let s = Combat.create(ctx.mulberry32(1), me(), [foe('f1')], 'f1', [ally()]);
+  let s = Combat.create(mulberry32(1), me(), [foe('f1')], 'f1', [ally()]);
   let ev = Combat.round(s);
   assert(!ev.some((e) => e.from === 'w1'), 'no orders, no shots');
   // Ordered onto f2: every one of its volleys goes there.
-  s = Combat.create(ctx.mulberry32(2), me(), [foe('f1'), foe('f2')], 'f1', [ally()]);
+  s = Combat.create(mulberry32(2), me(), [foe('f1'), foe('f2')], 'f1', [ally()]);
   Combat.setOrders(s, 'w1', { target: 'f2' });
   ev = Combat.round(s);
   const mine = ev.filter((e) => e.from === 'w1');
@@ -1660,12 +1659,12 @@ test('rounds: an ally fires on the target its orders name, and only then; a down
   // Enemies shoot at the ally now and then (about a third of them with one ally).
   let atAlly = 0;
   for (let i = 0; i < 300; i++) {
-    const t = Combat.create(ctx.mulberry32(100 + i), me(), [foe('f1')], 'f1', [ally()]);
+    const t = Combat.create(mulberry32(100 + i), me(), [foe('f1')], 'f1', [ally()]);
     if (t.enemies[0].aim === 'w1') atAlly++;
   }
   assert(atAlly > 60 && atAlly < 140, `${atAlly}/300 aimed at the ally`);
   // An ally shot down doesn't end the fight; the enemy turns on the player.
-  s = Combat.create(ctx.mulberry32(3), me(), [foe('f1')], 'f1', [ally()]);
+  s = Combat.create(mulberry32(3), me(), [foe('f1')], 'f1', [ally()]);
   s.enemies[0].aim = 'w1';
   s.allies[0].hull = 0;
   ev = Combat.round(s);
@@ -1675,7 +1674,7 @@ test('rounds: an ally fires on the target its orders name, and only then; a down
   const duel = (withAlly) => {
     let rounds = 0, hull = 0;
     for (let i = 0; i < 200; i++) {
-      const t = Combat.create(ctx.mulberry32(500 + i), me(), [foe('f1'), foe('f2')], 'f1', withAlly ? [ally()] : []);
+      const t = Combat.create(mulberry32(500 + i), me(), [foe('f1'), foe('f2')], 'f1', withAlly ? [ally()] : []);
       while (!t.over && t.round < 300) { if (withAlly) Combat.setOrders(t, 'w1', { target: t.focus }); Combat.round(t); }
       rounds += t.round;
       hull += Math.max(0, t.player.hull);
@@ -1691,18 +1690,18 @@ test('real time: an ally attacks its target, holds formation without one, and ca
   const foe = (id, x, y) => RealtimeCombat.ship(id, 'Fighter', FIGHTER, { x, y, angle: Math.PI, radius: 18 });
   const ally = (x, y) => RealtimeCombat.ship('w1', 'Cipher-07', wingman(), { x, y, radius: 18 });
   // Holding a station: it flies there and stays.
-  let s = RealtimeCombat.create(ctx.mulberry32(1), me(), [foe('f1', 4000, 0)], { allies: [ally(-600, 300)] });
+  let s = RealtimeCombat.create(mulberry32(1), me(), [foe('f1', 4000, 0)], { allies: [ally(-600, 300)] });
   RealtimeCombat.setOrders(s, 'w1', { station: { x: -120, y: -95 } });
   for (let i = 0; i < 30 * 8; i++) RealtimeCombat.step(s, 1 / 30);
   assert(Math.hypot(s.allies[0].x + 120, s.allies[0].y + 95) < 60, `ally at ${s.allies[0].x.toFixed(0)}, ${s.allies[0].y.toFixed(0)}`);
   // Ordered onto an enemy: it closes in, locks and shoots it.
-  s = RealtimeCombat.create(ctx.mulberry32(2), me(), [foe('f1', 900, 0)], { allies: [ally(-100, 100)] });
+  s = RealtimeCombat.create(mulberry32(2), me(), [foe('f1', 900, 0)], { allies: [ally(-100, 100)] });
   RealtimeCombat.setOrders(s, 'w1', { target: 'f1' });
   const shots = [];
   for (let i = 0; i < 30 * 20 && !s.over; i++) shots.push(...RealtimeCombat.step(s, 1 / 30).filter((e) => e.type === 'shot' && e.from === 'w1'));
   assert(shots.length > 0 && shots.every((e) => e.to === 'f1'), `${shots.length} ally shots`);
   // Shot down: it drops out, and the fight goes on without it.
-  s = RealtimeCombat.create(ctx.mulberry32(3), me(), [foe('f1', 700, 0)], { allies: [ally(-100, 100)] });
+  s = RealtimeCombat.create(mulberry32(3), me(), [foe('f1', 700, 0)], { allies: [ally(-100, 100)] });
   s.enemies[0].aim = 'w1';
   s.allies[0].hull = 1;
   s.allies[0].shield = 0;

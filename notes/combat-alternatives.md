@@ -1,10 +1,10 @@
 # Combat: the alternatives
 
 **Decision (October 2026):** combat started as pure round-based, stats-driven ("RPG") combat
-(`combat.js`). You engage an enemy, then both sides trade attacks in rounds, resolved from the
+(`combat/combat.js`). You engage an enemy, then both sides trade attacks in rounds, resolved from the
 loadout's numbers. Flying matters only before a fight: which fights to take and which to avoid.
 
-**Update (October 2026):** Idea B below is now built as an alternative, `combat-realtime.js`. The
+**Update (October 2026):** Idea B below is now built as an alternative, `combat/combat-realtime.js`. The
 **Combat** setting chooses between **Rounds** (the default) and **Real-time**. Idea A stays parked.
 The Direct-mode fixes from "Cruise vs Direct movement" are done too, for all flying.
 
@@ -13,8 +13,8 @@ The Direct-mode fixes from "Cruise vs Direct movement" are done too, for all fly
 Combat still resolves in rounds using the same formulas, but the player keeps flying between them.
 At each round, the geometry between the two ships modifies the result:
 
-- **Distance** decides which weapons reach. Each weapon already has a `range` in `loadout.js`.
-- **Angle** decides which weapons can fire. Weapons now have a firing arc (`arc` in `loadout.js`):
+- **Distance** decides which weapons reach. Each weapon already has a `range` in `rules/loadout.js`.
+- **Angle** decides which weapons can fire. Weapons now have a firing arc (`arc` in `rules/loadout.js`):
   forward guns hit hard but only with the target ahead, turrets fire all around but are weaker.
   That makes the 1–4 weapon slots a real choice.
 - **Relative speed** lowers the hit chance, offset by the ship computer's accuracy.
@@ -32,7 +32,7 @@ Why it's attractive:
 What it costs:
 
 - Enemy ships need light steering while engaged. The real-time mode's steering
-  (`combat-realtime.js`) could be reused.
+  (`combat/combat-realtime.js`) could be reused.
 - The player needs to see what is in range and in arc. The real-time mode's field-of-fire wedge
   could be reused.
 
@@ -80,7 +80,7 @@ is entirely positioning. As built:
 These mattered once flying counts in combat. All of them are now in place, for all flying:
 
 - **Direct mode respects the engine.** It used to ease to the set speed at a fixed rate and turn
-  three times faster than Cruise. Both modes now share `flight.js`: speed changes at the engine's
+  three times faster than Cruise. Both modes now share `flight/flight.js`: speed changes at the engine's
   acceleration and turning at its turn rate. Direct stays snappier only by having no drift.
 - **An idle ship faces its target in a fight.** In a real-time fight, a ship that isn't steering
   turns to face its target, as mining does for asteroids. Direct plays as "drag to reposition, let
@@ -96,4 +96,4 @@ Both modes share:
 - Hull points per ship class, shields and repair costs.
 - Stable keys for NPC ships, destroyed ships as wrecks with loot, and saving which ships were destroyed.
 - What happens when the player's ship is lost.
-- Faction hostility and reputation, through `canDock` in game.js.
+- Faction hostility and reputation, through `canDock` in game/docking.js.

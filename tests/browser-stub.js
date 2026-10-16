@@ -112,6 +112,9 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
       Object.assign(this, { hidden: false, textContent: '', innerHTML: '', className: '', disabled: false, title: '', type: '', tabIndex: 0, scrollTop: 0 });
       this.parts = new Map(); // querySelector results, made on first use
     }
+    // As in a browser, setting the text replaces the element's children.
+    get textContent() { return this.text; }
+    set textContent(v) { this.text = String(v); this.children = []; }
     addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
     removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== fn); }
     dispatch(type, props = {}) {
@@ -227,4 +230,4 @@ function install(options) {
   return rt;
 }
 
-module.exports = { install };
+export { install };
