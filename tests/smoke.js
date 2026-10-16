@@ -50,6 +50,17 @@ function clickCard(id) {
   const button = { disabled: false, dataset: { id } };
   browser.document.getElementById('context').querySelector('.cx-actions').dispatch('click', { target: { closest: () => button } });
 }
+// A tap on the map, at screen px [x, y]; a press of one of its callout's buttons, by its id.
+function tapMap([x, y]) {
+  const map = browser.document.getElementById('map-canvas');
+  map.dispatch('pointerdown', { pointerId: 9, pointerType: 'touch', clientX: x, clientY: y });
+  map.dispatch('pointerup', { pointerId: 9, pointerType: 'touch', clientX: x, clientY: y });
+}
+function pressCallout(id) {
+  const root = browser.document.getElementById('map-overlay').children.find((el) => el.className === 'callout');
+  const button = { disabled: false, dataset: { id } };
+  root.children[1].dispatch('click', { target: { closest: () => button } });
+}
 // All the text under an element of the DOM stub.
 const textOf = (el) => (el === null || el === undefined ? '' : typeof el !== 'object' ? String(el) : (el.textContent || '') + (el.children || []).map(textOf).join(''));
 // Every element under one (itself included), depth first.
@@ -889,7 +900,7 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   assert.match(game('describe(__gate).subtitle'), /^Offline/);
   game('SystemMap.open(); SystemMap.setMode("galaxy")');
   browser.frames(2);
-  assert.match(textOf(browser.document.getElementById('map-stats')), /1 system charted · 0 gate links/);
+  assert.strictEqual(game('world.galaxy.systems.filter((s) => world.knowledge.visited(s.index)).length'), 1, 'one system charted');
   game('SystemMap.setMode("local"); SystemMap.close()');
   game('cargo.story.add("gates"); showGates()');
   assert.match(game('__gate.name'), /Gate$/);
@@ -909,8 +920,12 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   browser.document.getElementById('map-view-galaxy').dispatch('click', {});
   browser.frames(2);
   assert.strictEqual(game('SystemMap.mode'), 'galaxy');
-  assert.match(browser.document.getElementById('map-stats').textContent, /2 systems charted · 1 gate link/);
-  assert.ok(browser.document.getElementById('map-travel').disabled, 'no map travel from the galaxy view');
+  assert.strictEqual(game('world.galaxy.systems.filter((s) => world.knowledge.visited(s.index)).length'), 2, 'two systems charted');
+  // The ship's own system, tapped: no map travel to where it already is.
+  tapMap(game('SystemMap.toScreen(world.galaxy.systems[1].origin.x, world.galaxy.systems[1].origin.y)'));
+  const c = game('SystemMap.callout.content');
+  assert.strictEqual(c.lines[0].text, `${game('world.galaxy.systems[1].name')} system`);
+  assert.deepStrictEqual(c.actions.map((a) => [a.id, a.enabled]), [['travel', false]]);
   browser.document.getElementById('map-view-local').dispatch('click', {});
   game('SystemMap.close()');
   // And back through the same pair of gates.
@@ -959,18 +974,68 @@ test('travels on the system map', () => {
   assert.ok(game('SystemMap.stats.frames') > frames, 'the map redraws as it moves');
   browser.document.getElementById('map-reset').dispatch('click', {});
   browser.frames(1);
-  // To the station furthest from the one we're at: the trip ends there, or at a contact on the way.
-  game(`{
-    const s = world.galaxy.systems[0].stations.slice().sort((a, b) => Math.hypot(b.x - ship.x, b.y - ship.y) - Math.hypot(a.x - ship.x, a.y - ship.y))[0];
-    globalThis.__dest = s;
-    SystemMap.hooks.travel({ kind: 'station', id: s.id, x: s.x, y: s.y, name: s.name });
-    SystemMap.hooks.fast();
-  }`);
+  // Local view. Tap a station: its callout shows its name and security above it, and Set marker below.
+  const st = game('__startStation()');
+  tapMap(game(`SystemMap.toScreen(${st.x}, ${st.y})`));
+  let c = game('SystemMap.callout.content');
+  assert.ok(c, 'a callout for the station');
+  assert.strictEqual(c.lines[0].text, st.name);
+  assert.match(c.lines[1].text, /^Security: /);
+  assert.deepStrictEqual(c.actions.map((a) => a.id), ['mark']);
+  pressCallout('mark');
+  assert.strictEqual(game('SystemMap.marker.name'), st.name, 'the station is marked');
+  assert.ok(!game('SystemMap.callout.isShown'), 'and let go');
+  // Tapped again, it offers to clear the marker.
+  tapMap(game(`SystemMap.toScreen(${st.x}, ${st.y})`));
+  assert.deepStrictEqual(game('SystemMap.callout.content').actions.map((a) => a.id), ['unmark']);
+  pressCallout('unmark');
+  assert.strictEqual(game('SystemMap.marker'), null, 'cleared');
+  // Tap empty space inside the system: only its security, and Set marker.
+  const o = game('SystemMap.system.origin'), R = game('SystemMap.system.radius');
+  const spot = game(`SystemMap.toScreen(${o.x + R * 0.37}, ${o.y + R * 0.61})`);
+  tapMap(spot);
+  c = game('SystemMap.callout.content');
+  assert.ok(c, 'a callout for the point');
+  assert.strictEqual(c.lines.length, 1);
+  assert.match(c.lines[0].text, /^Security: /);
+  assert.deepStrictEqual(c.actions.map((a) => a.id), ['mark']);
+  // Tapping it again lets go.
+  tapMap(spot);
+  assert.ok(!game('SystemMap.callout.isShown'), 'deselected');
+  // Marked, then reached in flight: the marker clears.
+  tapMap(spot);
+  pressCallout('mark');
+  const mk = game('SystemMap.marker');
+  assert.ok(mk && mk.name === null, 'a point is marked');
+  game('SystemMap.close()');
+  browser.frames(2);
+  assert.ok(game('!!SystemMap.marker'), 'still marked while far away');
+  game(`fight.grace = 1e9; placeShip(${mk.x}, ${mk.y})`);
+  browser.frames(2);
+  assert.strictEqual(game('SystemMap.marker'), null, 'reached');
+  assert.match(game('toast.text'), /^Reached your marker/);
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
+  browser.frames(2);
+
+  // Galaxy view: map travel to the other system. The trip ends at its edge, or at a contact on the way.
+  game('SystemMap.open(); SystemMap.setMode("galaxy")');
+  browser.frames(2);
+  const far = game('world.galaxy.systems[1]');
+  tapMap(game(`SystemMap.toScreen(${far.origin.x}, ${far.origin.y})`));
+  c = game('SystemMap.callout.content');
+  assert.ok(c, 'a callout for the system');
+  assert.deepStrictEqual(c.actions.map((a) => [a.id, a.enabled]), [['travel', true]]);
+  pressCallout('travel');
   assert.ok(game('world.travel.active'));
-  assert.ok(until('!world.travel.active', 3000, 'if (world.travel.prompt) SystemMap.hooks.ignore();'), 'the trip ends');
+  assert.strictEqual(game('world.travel.dest.kind'), 'system');
+  assert.ok(game('world.travel.eta') > 60, `slower than the gates: ${game('world.travel.eta')} s`);
+  assert.ok(game('world.travel.eta') < 240, 'but not useless');
+  game('SystemMap.hooks.fast()');
+  assert.ok(until('!world.travel.active', 4000, 'if (world.travel.prompt) SystemMap.hooks.ignore();'), 'the trip ends');
   assert.ok(!game('SystemMap.isOpen'), 'the map closes on arrival');
   assert.match(game('toast.text'), /^(Arrived at|Interdicted)/);
-  if (/^Arrived/.test(game('toast.text'))) assert.ok(game('Math.hypot(ship.x - __dest.x, ship.y - __dest.y) < 800'), 'beside the station');
+  if (/^Arrived/.test(game('toast.text'))) assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 1, 'at the edge of the other system');
+  game('fight.grace = 1e9; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(5);
   // A trip to a point, stopped halfway: the ship drops out of cruise where the trip had got to.
   game(`fight.grace = 1e9; SystemMap.open(); SystemMap.hooks.travel({ kind: 'point', x: 0, y: -world.galaxy.systems[0].radius * 0.8, name: 'the marked point' });`);
@@ -1100,6 +1165,8 @@ test('text with **bold** runs becomes text and <strong> elements', () => {
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
+  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'Re-roll');
+  assert.ok(reroll && !reroll.disabled, 'Re-roll is in the menu');
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');

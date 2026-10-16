@@ -1,5 +1,5 @@
-// Map travel: plot a course on the system map and watch the ship cruise there in a straight
-// line, far faster than it flies. On the way:
+// Map travel: plot a course on the galaxy map and watch the ship cruise there in a straight
+// line, faster than it flies but slower than the jump gates. On the way:
 // - contacts the route passes within ping range of are pinged (Knowledge.pass),
 // - an ambush the route runs into interdicts the trip and drops the ship into the flight view,
 // - an unidentified derelict the route passes pauses the trip with a prompt: investigate (drop
@@ -10,7 +10,9 @@
 // (`Travel`); also runs in Node (the tests).
 
 const Travel = (() => {
-  const config = { speed: 5000, fastForward: 4 }; // world units per second
+  // World units per second: a trip between neighbouring systems (~240,000 apart) takes about two
+  // minutes (half a minute fast-forwarded), so a jump gate stays the quicker way when there is one.
+  const config = { speed: 2000, fastForward: 4 };
   const INTERDICT = 1500; // an ambush catches a route this far beyond its reach
   const PING_RANGE = 7000; // when no scanner range is given
 
@@ -56,7 +58,7 @@ const Travel = (() => {
     };
     const pingRange = () => (options.pingRange ? options.pingRange() : PING_RANGE);
 
-    // dest: { kind: 'station' | 'planet' | 'contact' | 'point', id?, x, y, name }
+    // dest: { kind: 'system' | 'point' (from the galaxy map) | 'station' | 'planet' | 'contact' | 'objective', id?, x, y, name }
     function start(from, dest) {
       const dist = Math.hypot(dest.x - from.x, dest.y - from.y);
       trip = {

@@ -11,7 +11,7 @@ import { collectItems } from './cargo.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
 import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
-import { drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
+import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
 import { drawTractorBeam } from './intro.js';
 import { drawDebris, drawMining, drawMiningCountdown } from './mining.js';
 import { drawGateWork, objective } from './missions.js';
@@ -25,12 +25,13 @@ import { world } from './world.js';
 // ---------- Main loop ----------
 
 // What follows from where things are after a step: pickups, the selection, pirates noticing the
-// ship, and the objective shown on the map. Not while paused, so nothing is picked up behind the
+// ship, reaching the player's marker, and the objective shown on the map. Not while paused, so nothing is picked up behind the
 // settings menu.
 export function react(list) {
   collectItems(list);
   updateSelection(list);
   checkAggro(list);
+  checkMarker();
   const obj = here.objective = objective();
   SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
 }

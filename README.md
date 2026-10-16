@@ -17,7 +17,7 @@ URL parameters:
 
 | Parameter | What it does |
 | --- | --- |
-| `?seed=123` | another galaxy (the map's Re-roll picks one at random) |
+| `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?skipintro` | skip the introduction and the opening missions |
 | `?dev` | every system and contact on the map, the testing buttons and the performance overlay |

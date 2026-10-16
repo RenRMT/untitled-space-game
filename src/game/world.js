@@ -1,5 +1,5 @@
 // The world: the galaxy (generated from world/system-config.js, or ?seed=), its scene, fog of war
-// and map travel; loadGalaxy() swaps them all, as the map's Reroll does. Saves on leaving the page.
+// and map travel; loadGalaxy() swaps them all, as Settings' Re-roll does. Saves on leaving the page.
 // Part of the flight view; src/main.js starts it.
 
 import { ArtAndroids } from '../art/androids.js';
@@ -11,6 +11,7 @@ import { Scene } from '../flight/scene.js';
 import { Travel } from '../flight/travel.js';
 import { Knowledge } from '../rules/knowledge.js';
 import { SystemMap } from '../ui/map.js';
+import { Settings } from '../ui/settings.js';
 import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
 import { GATE_JOB, OPENING, SALVAGE, cargo, loadCargo, opening, saveCargoNow } from './cargo.js';
@@ -70,7 +71,15 @@ export function saveAll() {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
-  SystemMap.onReroll = (seed) => { Params.set('seed', seed); newGalaxy(seed); };
+  Settings.add({
+    id: 'galaxy', label: 'Galaxy',
+    action: {
+      label: 'Re-roll',
+      hint: 'Generate a new galaxy from a random seed.',
+      run: () => { const seed = 1 + Math.floor(Math.random() * 999999); Params.set('seed', seed); newGalaxy(seed); },
+    },
+    locked: () => (world.travel && world.travel.active ? 'Not during map travel.' : null),
+  });
   window.addEventListener('pagehide', saveAll);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveAll(); });
   SystemMap.onJump = (dest) => arriveAt(dest);

@@ -1,9 +1,11 @@
 // The settings menu: one panel for the game's options, opened with the Settings button in flight.
 // Each option registers itself with add() and shows as a row of choices, with a line explaining
-// the selected one. Options keep their own state; this only draws them and passes clicks on.
+// the selected one, or as one action button (which closes the menu once run). Options keep their
+// own state; this only draws them and passes clicks on.
 //
 //   Settings.add({ id, label, shortcut?, choices: [{ value, label, hint }], get(), set(value),
 //                  note?, locked?() -> reason string | null })
+//   Settings.add({ id, label, action: { label, hint?, run() }, note?, locked?() })
 //   Settings.open(), Settings.close(), Settings.isOpen
 //   Settings.onToggle = (open) => ...   called when the panel opens or closes
 // ES module (`Settings`); needs a browser.
@@ -26,9 +28,24 @@ const Settings = (() => {
     render(o.id);
   }
 
+  // An action: its label, its button and what it does (or why it can't be done right now).
+  function actionGroup(o) {
+    const locked = o.locked ? o.locked() : null;
+    const labelId = `set-${o.id}-label`;
+    const run = () => { if (o.locked && o.locked()) return; close(); o.action.run(); };
+    return h('section', { class: 'set-group' },
+      h('div', { class: 'set-label' }, h('span', { id: labelId }, o.label)),
+      h('div', { class: 'seg' }, h('button', {
+        class: 'btn', type: 'button', 'aria-describedby': labelId, disabled: !!locked, 'data-option': o.id, onclick: run,
+      }, o.action.label)),
+      o.action.hint ? h('p', { class: 'set-hint' }, o.action.hint) : null,
+      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, o.note) : null);
+  }
+
   // One option: its label, the choices as a radio group, the selected choice's hint, and a note
   // (or why it can't be changed right now).
   function group(o) {
+    if (o.action) return actionGroup(o);
     const current = o.get();
     const locked = o.locked ? o.locked() : null;
     const labelId = `set-${o.id}-label`;
