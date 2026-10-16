@@ -7,7 +7,7 @@
 //   draws in another: safe space has a few lone pirates to pick off one at a time, lawless space
 //   several larger, better-armed packs,
 // - loot: the tier of the components (rules/goods.js) pirates and wrecks leave. Higher-tier components
-//   pay for hull refits and research (rules/hullmods.js, rules/research.js), and better-armed pirates
+//   pay for research and hull refits (rules/research.js), and better-armed pirates
 //   carry schematics for better gear (combat/combat-core.js), so the best gear needs the most dangerous space.
 //
 //   Security.LEVELS[level] -> { level, key, label, color }

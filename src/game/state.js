@@ -23,7 +23,7 @@ export const NEAR = 9000;
 export const NAV_RANGE = 18000; // off-screen stations and gates this close get an edge marker
 
 // What the ship can do: its class and fitted equipment (rules/loadout.js, saved with the cargo as
-// cargo.loadout) with the hull refits fitted (rules/hullmods.js) added up: handling, hold, sensor
+// cargo.loadout) with the hull refits researched (rules/research.js) added up: handling, hold, sensor
 // ranges, mining speed, combat stats. Kept up to date in place by applyShip().
 export const SHIP = Loadout.stats(Loadout.starter('courier'));
 

@@ -9,7 +9,11 @@
 // fewer stations (exotics never) and are worth more. Each type within a category has its own
 // colour, used for its art (art/items.js) and on the station screen.
 //
-//   Goods.type(id)              -> { id, name, category, rarity, price, color: [h, s, l], shape?, tier? }
+// Each trade good also has a stage in the production chain (notes/industry.md): raw (mined or
+// collected), refined, advanced (refined further) or part (fabricated); components are salvage.
+//
+//   Goods.type(id)              -> { id, name, category, rarity, price, stage, color: [h, s, l], shape?, tier? }
+//   Goods.STAGES                -> the stages in chain order, salvage beside raw
 //   Goods.component(cat, tier)  -> the component type id of a category at a tier (1–5)
 //   Goods.ofCategory(cat)       -> types of a category, commonest first
 //   Goods.categories(group)     -> category ids of 'trade' or 'salvage'
@@ -103,11 +107,22 @@ const Goods = (() => {
     ]);
   }
 
+  // Production stages, in chain order (rules/recipes.js makes each from earlier ones).
+  const STAGES = ['raw', 'salvage', 'refined', 'advanced', 'part'];
+  const STAGE_OF = {
+    raw: ['iron', 'titanium', 'platinum', 'corundum', 'diamond', 'deuterium', 'helium-3'],
+    refined: ['steel-pipe', 'copper-cable', 'carbon-fibre', 'hydrazine'],
+    advanced: ['graphene', 'aerogel', 'superconductor', 'optical-fibre', 'metamaterial'],
+    part: ['electronics', 'robotics', 'ai-cores', 'plasma-conduit', 'nanite-suspension'],
+  };
+  const stageOf = (id, category) => (CATEGORIES[category].group === 'salvage' ? 'salvage'
+    : Object.keys(STAGE_OF).find((st) => STAGE_OF[st].includes(id)));
+
   const TYPES = {};
   const BY_CATEGORY = {};
   for (const [category, rows] of Object.entries(TABLE)) {
     BY_CATEGORY[category] = rows.map(([id, name, rarity, price, color, shape]) => {
-      const t = { id, name, category, rarity, price, color, ...(shape !== undefined ? { shape, tier: rarity } : {}) };
+      const t = { id, name, category, rarity, price, stage: stageOf(id, category), color, ...(shape !== undefined ? { shape, tier: rarity } : {}) };
       TYPES[id] = t;
       return t;
     });
@@ -149,7 +164,7 @@ const Goods = (() => {
     return cat && ofCategory(cat).length ? ofCategory(cat)[0].id : null;
   }
 
-  return { RARITY, CATEGORIES, TIERS, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
+  return { RARITY, CATEGORIES, TIERS, STAGES, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
 })();
 
 export { Goods };

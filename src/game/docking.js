@@ -13,7 +13,7 @@ import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
 import { artStyle } from './options.js';
 import { lab } from './lab.js';
-import { hullmods, outfitting, placeShip } from './outfitting.js';
+import { outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship, whiteOut } from './state.js';
@@ -64,7 +64,6 @@ export function dock(station) {
     hold,
     ship: SHIP,
     outfitting,
-    hullmods,
     lab,
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,

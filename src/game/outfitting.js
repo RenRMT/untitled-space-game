@@ -1,9 +1,9 @@
-// Outfitting and hull refits as the station menu sees them, sensors (sense), and placing the ship
+// Outfitting as the station menu sees it, sensors (sense), and placing the ship
 // (placeShip, placeBeside: a teleport, a launch, a jump).
 // Part of the flight view; src/main.js starts it.
 
 import { Loadout } from '../rules/loadout.js';
-import { HullMods } from '../rules/hullmods.js';
+import { Research } from '../rules/research.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
 import { stopMining } from './mining.js';
@@ -19,7 +19,7 @@ export const SELL_BACK = 0.5;
 export const outfitting = {
   get loadout() { return cargo.loadout; },
   sells: new Set(),
-  get upgrades() { return HullMods.upgrades(cargo.hullMods); },
+  get upgrades() { return Research.upgrades(cargo.lab.done); },
   get gear() { return cargo.gear; },
   get schematics() { return cargo.schematics; },
   get known() { return new Set([...Loadout.STARTER_GEAR, ...outfitting.sells, ...cargo.schematics]); },
@@ -70,22 +70,6 @@ export const outfitting = {
     cargo.hull = SHIP.hull; // a new ship, undamaged
     saveCargo();
     return true;
-  },
-};
-// Hull refits at a shipyard: credits and hull components in, an upgrade on every hull out
-// (rules/hullmods.js).
-export const hullmods = {
-  get owned() { return cargo.hullMods; },
-  get components() { return cargo.components; },
-  have: (kind) => cargo.components[kind] || 0,
-  status: (id) => HullMods.status(id, cargo.hullMods, cargo.credits, hullmods.have),
-  buy(id) {
-    const st = hullmods.status(id);
-    if (!st.ok) return false;
-    for (const { kind, need } of st.cost) addTo(cargo.components, kind, -need);
-    cargo.credits -= st.credits;
-    cargo.hullMods = new Set([...cargo.hullMods, id]);
-    return changedShip(); // more armour or cargo at once
   },
 };
 export function changedShip() {

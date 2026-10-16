@@ -12,8 +12,9 @@
 // (rules/economy.js outfitter), Mk V only from schematics pirates carry (combat/combat-core.js).
 // NPC ships (fighters, freighters) fit their own lines, by tier: pirates in more dangerous space
 // fly better gear (world/security.js). Hulls marked with a price are sold at shipyards.
-// Hull refits (rules/hullmods.js: more cargo, more hull, an extra hardpoint) come in as `upgrades`:
-// { cargo, hull } as fractions added, { weapons } as extra weapon slots.
+// Research (rules/research.js upgrades: hull refits, refinements) comes in as `upgrades`:
+// { cargo, hull } as fractions added, { weapons } as extra weapon slots, and { lines: { [line]:
+// { [stat]: fraction } } } added to the stats of that line's gear (tuned), within LIMITS.
 // A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null } }.
 // ES module (`Loadout`); also runs in Node (the tests).
 
@@ -74,6 +75,19 @@ const Loadout = (() => {
   const STARTER_GEAR = Object.keys(EQUIPMENT).filter((id) => !EQUIPMENT[id].npc && EQUIPMENT[id].tier === 1);
   // Without a ship computer or a scanner, a lock is slow and short-ranged.
   const NO_LOCK = { lockTime: 2.5, lockRange: 600 };
+  // How far bonuses may take a stat: [lowest, highest].
+  const LIMITS = { accuracy: [0, 0.99], evasion: [0, 0.6], lockTime: [0.2, Infinity], fireRate: [0.5, Infinity], arc: [0, 360] };
+
+  // A piece of gear's stats with fractions added ({ damage: 0.08 } is 8% more damage), kept in LIMITS.
+  function tuned(base, bonus = {}) {
+    const out = { ...base };
+    for (const [k, f] of Object.entries(bonus)) {
+      if (!(k in out) || !f) continue;
+      const [lo, hi] = LIMITS[k] || [0, Infinity];
+      out[k] = clamp(out[k] * (1 + f), lo, hi);
+    }
+    return out;
+  }
 
   // Ship classes. radius is the hull's collision size in world units, cargo its hold in units,
   // hull its hit points in combat, handling a factor on the engine's acceleration and turn rate.
@@ -173,7 +187,7 @@ const Loadout = (() => {
     };
     for (const { type, item } of slots(loadout, upgrades)) {
       if (!item) continue;
-      const s = item.stats;
+      const s = tuned(item.stats, upgrades.lines?.[item.line]);
       if (type === 'engine') Object.assign(out, { maxSpeed: s.maxSpeed, accel: s.accel * handling, turnRate: s.turnRate * handling, evasion: s.evasion || 0 });
       else if (type === 'scanner') Object.assign(out, { sensorRange: s.sensorRange, pingRange: s.pingRange, initiative: s.sensorRange + s.pingRange, lockRange: s.lockRange });
       else if (type === 'computer') Object.assign(out, { miningRate: s.miningRate, accuracy: s.accuracy || 0, lockTime: s.lockTime });
@@ -203,7 +217,7 @@ const Loadout = (() => {
     }
   }
 
-  return { MAX_WEAPONS, MK, SLOT_TYPES, LINES, EQUIPMENT, STARTER_GEAR, HULLS, FOR_SALE, slotsOf, starter, npc, slots, refit, stats, summary };
+  return { MAX_WEAPONS, MK, SLOT_TYPES, LINES, EQUIPMENT, STARTER_GEAR, HULLS, FOR_SALE, LIMITS, slotsOf, starter, npc, slots, refit, tuned, stats, summary };
 })();
 
 export { Loadout };

@@ -1,4 +1,4 @@
-// Logic research as the station menu sees it (rules/research.js): queueing a package (paying for
+// Research as the station menu sees it (rules/research.js): queueing a package (paying for
 // it up front), cancelling one (a refund), and packages finishing on the real-world clock, checked
 // on load, on docking, every second on the Research tab and every few seconds in flight.
 // Part of the flight view; src/main.js starts it.
@@ -7,13 +7,13 @@ import { Clock } from '../core/clock.js';
 import { Params } from '../core/store.js';
 import { Goods } from '../rules/goods.js';
 import { Research } from '../rules/research.js';
-import { addTo, cargo, hold, saveCargo } from './cargo.js';
+import { addTo, applyShip, buildDone, cargo, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
 
 const FLIGHT_CHECK = 5000; // ms between checks in flight
 let lastCheck = 0;
 
-const label = (id) => `${Research.PACKAGES[id].name}@${Research.PACKAGES[id].ver}`;
+const label = (id) => Research.title(id);
 
 export const lab = {
   get state() { return cargo.lab; },
@@ -50,11 +50,12 @@ export const lab = {
     if (out.length) saveCargo();
     return out.map((x) => x.id);
   },
-  // Packages finished by now: into what's known, each announced.
+  // Packages finished by now: into what's known, each announced; refits apply to the ship at once.
   settle({ quiet = false } = {}) {
     const done = Research.settle(cargo.lab, Clock.now());
     if (!done.length) return done;
-    if (!quiet) for (const id of done) notify(`Build ok · import ${label(id)}`, 3.5);
+    if (!quiet) for (const id of done) notify(buildDone(id), 3.5);
+    if (done.some((id) => Research.PACKAGES[id].kind !== 'logic')) applyShip();
     saveCargo();
     return done;
   },

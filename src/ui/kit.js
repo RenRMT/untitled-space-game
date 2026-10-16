@@ -14,6 +14,9 @@
 //     metrics: [{ code, label, get(item), fmt(v), fmtDiff(|d|), dir (1: higher is better, -1: lower), none }]
 //   Kit.deltas(rows), Kit.compareTable(rows)  'DPS ▲8  RNG ▲50' / the current → new table
 //   Kit.slotNode({ x, y, label, code, item, open, onclick })   a slot button on the ship schematic
+//   Kit.techNode({ x, y, w, h, label, code, state, tier, mark, progress, open, aria, onclick })   a package
+//     on a research tree; state: 'done' | 'active' | 'queued' | 'available' | 'locked'; mark: a corner
+//     note ('✓', 'Q2'); progress (0..1): a meter for the one building; tier: Mk pips
 //   Kit.statChips(stats, openId, onToggle) -> [grid, detail?]   stats: [{ id, code, label, value, detail, from }]
 //   Kit.itemTiles(items, openId, onToggle) -> [grid, detail?]   items: [{ id, icon, name, count, tier, rarity, units }]
 //   Kit.optionRow({ code, icon, name, tier, tag, tagTone, sub, rows, vals, extra, note, open, onToggle,
@@ -103,6 +106,15 @@ const Kit = (() => {
       class: `ui-slot${item ? '' : ' empty'}`, type: 'button', 'aria-expanded': String(!!open), 'aria-haspopup': 'dialog',
       'aria-label': `${label}: ${item ? item.name : 'empty'}`, style: { left: `${x}px`, top: `${y}px`, ...tierVar(item?.tier) }, onclick,
     }, icon(code, 32, { code: item ? code : '+', tier: item?.tier }), h('span', { class: 'lbl' }, label), pips(item ? item.tier : 0));
+  }
+
+  function techNode({ x, y, w, h: ht, label, code, state, tier, mark, progress, open, aria, onclick }) {
+    return h('button', {
+      class: `ui-tnode ${state}`, type: 'button', 'aria-expanded': String(!!open), 'aria-haspopup': 'dialog', 'aria-label': aria,
+      style: { left: `${x}px`, top: `${y}px`, width: `${w}px`, height: `${ht}px`, ...tierVar(tier) }, onclick,
+    }, h('span', { class: 'top' }, icon(code, 20, { code, tier }), mark ? h('span', { class: 'mark' }, mark) : null),
+    h('span', { class: 'lbl' }, label),
+    progress !== null && progress !== undefined ? meter(progress, { thin: true, color: 'var(--good)' }) : tier ? pips(tier) : null);
   }
 
   function statChips(stats, openId, onToggle) {
@@ -290,7 +302,7 @@ const Kit = (() => {
 
   return {
     TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
-    slotNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
+    slotNode, techNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
     code, codeLine, choices, instruction,
   };
 })();
