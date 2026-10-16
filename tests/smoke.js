@@ -630,8 +630,9 @@ test('trades and launches', () => {
   browser.frames(3);
 });
 
-test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys a hull', () => {
-  game(`fight.grace = 1e9; globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
+test('buys, fits and sells gear from the outfitter, researches a hull refit, and buys a hull', () => {
+  game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
+    globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
     placeShip(__cap.x, __cap.y + __cap.radius + 150);`);
   browser.frames(1);
   game('dock(__cap)');
@@ -646,7 +647,7 @@ test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys 
   game(`StationMenu.showTab('trade')`);
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
   // Components for a refit, put aboard.
-  const give = (id) => game(`for (const c of hullmods.status('${id}').cost) cargo.components[c.kind] = c.need`);
+  const give = (id) => game(`for (const c of lab.status('${id}').cost) cargo.components[c.kind] = c.need`);
   // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
   assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
   assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
@@ -671,14 +672,17 @@ test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys 
   const credits = game('cargo.credits');
   assert.ok(game(`outfitting.sell('pulse-laser-1')`));
   assert.strictEqual(game('cargo.credits'), credits + game(`outfitting.sellPrice('pulse-laser-1')`));
-  // A hull refit raises the hull at once, damage and all; it costs credits and components.
-  give('armour-1');
+  // A hull refit is researched: paid up front, and once built it raises the hull, damage and all.
+  give('hull.armour-1');
   game('cargo.hull = SHIP.hull - 30; cargo.credits = 3000');
   const maxHull = game('SHIP.hull');
-  game(`StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Hull refits.*Armour plating/, 'refits are on the Ship tab at a shipyard');
-  assert.ok(game(`hullmods.buy('armour-1')`));
-  assert.ok(game(`cargo.hullMods.has('armour-1') && cargo.credits === 0 && !cargo.components['hull-simple']`), 'paid for');
+  game(`StationMenu.showTab('research')`);
+  assert.match(onStation(), /Hull refits.*Armour plating/, 'refits are researched');
+  assert.ok(game(`lab.enqueue('hull.armour-1')`));
+  assert.ok(game(`cargo.credits === 0 && !cargo.components['hull-simple']`), 'paid for');
+  assert.strictEqual(game('SHIP.hull'), maxHull, 'not until it is built');
+  game(`__T += Research.timeOf('hull.armour-1'); StationMenu.tick()`);
+  assert.ok(game(`cargo.lab.done.includes('hull.armour-1')`));
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -695,11 +699,11 @@ test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys 
   assert.deepStrictEqual(game(`[SHIP.weaponsFitted, cargo.gear['pulse-laser-2']]`), [1, 1]);
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
-  const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])');
+  const before = game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])');
   game('saveCargoNow(); loadCargo(world.galaxy)');
-  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])'), before);
+  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])'), before);
   // Back to a Courier for the rest of the run.
-  game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); launch()`);
+  game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); Clock.now = () => Date.now(); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));
   browser.frames(3);
 });
@@ -773,7 +777,11 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   const sq = game(`(() => { const d = { squad: [{ seed: 1, modules: ['assist-leader', null, 'gone', null] }, { seed: 2 }] }; CARGO_MIGRATIONS[4](d); return d.squad; })()`);
   assert.deepStrictEqual(sq, [{ seed: 1, program: [game(`Logic.PRESETS['assist.leader']`)] }, { seed: 2 }]);
   // Logic research starts empty; a damaged lab reads as what can be made of it.
-  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[5](d); return d.lab; })()`), { done: [], active: null, queue: [] });
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[5](d); return d.lab; })()`), { done: [], doneAt: {}, active: null, queue: [] });
+  // Hull refits fitted become hull research done.
+  const lab = game(`(() => { const d = { hullMods: ['armour-1', 'gone'], lab: { done: ['core.bool'], active: null, queue: [] } }; CARGO_MIGRATIONS[6](d); return d; })()`);
+  assert.deepStrictEqual(lab, { lab: { done: ['core.bool', 'hull.armour-1'], doneAt: { 'hull.armour-1': 0 }, active: null, queue: [] } });
+  assert.deepStrictEqual(game(`readLab(${JSON.stringify(lab.lab)}).doneAt`), { 'core.bool': 0, 'hull.armour-1': 0 });
   assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
   assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
 });

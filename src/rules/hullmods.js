@@ -1,16 +1,12 @@
-// Hull refits: improvements fitted at a shipyard that apply to every hull you fly. Cargo racks
-// and armour plating come in three steps each (each step needs the one before); the hardpoint
-// retrofit adds a weapon slot and needs armour II. Each costs credits and salvaged hull
-// components (rules/goods.js).
+// Hull refits: improvements researched (rules/research.js, the Hull group, as `hull.<id>`) that
+// apply to every hull you fly. Cargo racks and armour plating come in three steps each (each step
+// needs the one before); the hardpoint retrofit adds a weapon slot and needs armour II. Each costs
+// credits and salvaged hull components (rules/goods.js). This is the data; research builds them.
 //
 //   HullMods.NODES[id]            { id, line, tier, name, requires: [id], credits, cost: { [component kind]: n },
 //                                   upgrade: { cargo?, hull?, weapons? }, note }
 //   HullMods.LIST                 the nodes in display order
-//   HullMods.status(id, owned, credits, have(kind) -> n)
-//                                 -> { state: 'done' | 'available' | 'locked', ok, needs: [id], credits,
-//                                      cost: [{ kind, need, have }] }
-//   HullMods.upgrades(owned)      -> { cargo, hull, weapons }   (rules/loadout.js `upgrades`)
-// owned: a Set of node ids. ES module (`HullMods`); also runs in Node (the tests).
+// ES module (`HullMods`); also runs in Node (the tests).
 
 import { Goods } from './goods.js';
 import { Loadout } from './loadout.js';
@@ -47,26 +43,7 @@ const HullMods = (() => {
   };
   const LIST = Object.values(NODES);
 
-  function status(id, owned, credits, have) {
-    const node = NODES[id];
-    const cost = Object.entries(node.cost).map(([kind, need]) => ({ kind, need, have: have(kind) }));
-    if (owned.has(id)) return { state: 'done', ok: false, needs: [], credits: node.credits, cost };
-    const needs = node.requires.filter((r) => !owned.has(r));
-    const ok = !needs.length && credits >= node.credits && cost.every((c) => c.have >= c.need);
-    return { state: needs.length ? 'locked' : 'available', ok, needs, credits: node.credits, cost };
-  }
-
-  function upgrades(owned) {
-    const out = { cargo: 0, hull: 0, weapons: 0 };
-    for (const id of owned) {
-      const u = NODES[id]?.upgrade;
-      if (!u) continue;
-      for (const k of Object.keys(out)) out[k] += u[k] || 0;
-    }
-    return out;
-  }
-
-  return { NODES, LIST, status, upgrades };
+  return { NODES, LIST };
 })();
 
 export { HullMods };

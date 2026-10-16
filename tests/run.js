@@ -1038,26 +1038,50 @@ test('hulls: handling, hull upgrades and moving gear to another hull', () => {
   for (const id of Loadout.FOR_SALE) assert(Loadout.HULLS[id].price > 0 && !Loadout.HULLS[id].npc);
 });
 
-test('hull refits: each costs credits and hull components, and builds on the step before', () => {
+test('hull refits are researched: each costs credits and hull components, and builds on the step before', () => {
   for (const n of HullMods.LIST) {
-    assert(n.credits > 0, `${n.id} costs credits`);
-    for (const k of Object.keys(n.cost)) assert(Goods.isSalvage(k), `${n.id}: ${k} is not a component`);
-    for (const r of n.requires) assert(HullMods.NODES[r], `${n.id} requires unknown ${r}`);
+    const p = Research.PACKAGES[`hull.${n.id}`];
+    assert(p && p.kind === 'hull' && p.cat === 'hull', `${n.id} is researched`);
+    assert(p.cost.credits === n.credits && n.credits > 0, `${n.id} costs credits`);
+    for (const k of Object.keys(n.cost)) assert(Goods.isSalvage(k) && p.cost[k] === n.cost[k], `${n.id}: ${k} is a component`);
+    assert.deepStrictEqual(p.requires, n.requires.map((r) => `hull.${r}`));
+    assert(Research.gives(p.id).some((g) => g.kind === 'upgrade'));
   }
-  const owned = new Set(), stock = {};
+  const lab = Research.empty(), stock = {};
   const have = (k) => stock[k] || 0;
-  assert.strictEqual(HullMods.status('armour-2', owned, 1e6, have).state, 'locked');
-  assert.deepStrictEqual(HullMods.status('armour-2', owned, 1e6, have).needs, ['armour-1']);
-  const st = HullMods.status('armour-1', owned, 0, have);
+  assert.strictEqual(Research.status('hull.armour-2', lab, 1e6, have).state, 'locked');
+  assert.deepStrictEqual(Research.status('hull.armour-2', lab, 1e6, have).needs, ['hull.armour-1']);
+  const st = Research.status('hull.armour-1', lab, 0, have);
   assert(st.state === 'available' && !st.ok);
   for (const c of st.cost) stock[c.kind] = c.need;
-  assert.strictEqual(HullMods.status('armour-1', owned, st.credits - 1, have).ok, false, 'short of credits');
-  assert.strictEqual(HullMods.status('armour-1', owned, st.credits, have).ok, true);
-  for (const id of ['armour-1', 'armour-2', 'cargo-racks-1', 'hardpoint-retrofit']) owned.add(id);
-  assert.strictEqual(HullMods.status('armour-1', owned, 0, have).state, 'done');
-  const u = HullMods.upgrades(owned);
+  assert.strictEqual(Research.status('hull.armour-1', lab, st.credits - 1, have).ok, false, 'short of credits');
+  assert.strictEqual(Research.status('hull.armour-1', lab, st.credits, have).ok, true);
+  const u = Research.upgrades(['hull.armour-1', 'hull.armour-2', 'hull.cargo-racks-1', 'hull.hardpoint-retrofit', 'core.bool']);
   assert.strictEqual(u.weapons, 1);
   assert(Math.abs(u.hull - 0.3) < 1e-9 && Math.abs(u.cargo - 0.2) < 1e-9);
+  assert.deepStrictEqual(Research.upgrades([]), { cargo: 0, hull: 0, weapons: 0, lines: {} });
+});
+
+test('research records when each package finished, and bonuses count from then', () => {
+  const lab = Research.empty(), T = 1e12;
+  Research.enqueue(lab, 'hull.armour-1', T);
+  Research.settle(lab, T + 1e9);
+  assert.strictEqual(lab.doneAt['hull.armour-1'], T + Research.timeOf('hull.armour-1'));
+  Research.PACKAGES['hull.armour-1'].industry = { speed: 0.15 }; // as an industry package would
+  try {
+    assert.strictEqual(Research.bonusAt(lab, T, 'speed'), 0);
+    assert.strictEqual(Research.bonusAt(lab, T + Research.timeOf('hull.armour-1'), 'speed'), 0.15);
+  } finally { delete Research.PACKAGES['hull.armour-1'].industry; }
+});
+
+test('gear tuned by research: fractions added to its line, kept within limits, none for other lines', () => {
+  const plain = Loadout.stats(Loadout.starter('courier'));
+  assert.deepStrictEqual(Loadout.stats(Loadout.starter('courier'), { lines: {} }), plain, 'no bonus, no change');
+  const up = Loadout.stats(Loadout.starter('courier'), { lines: { 'pulse-laser': { damage: 0.5 }, 'flight-computer': { accuracy: 1 }, autocannon: { damage: 1 } } });
+  assert.strictEqual(up.weapons[0].damage, plain.weapons[0].damage * 1.5);
+  assert.strictEqual(up.accuracy, Loadout.LIMITS.accuracy[1], 'accuracy stops short of certain');
+  assert.strictEqual(up.maxSpeed, plain.maxSpeed);
+  assert.deepStrictEqual(Loadout.tuned({ lockTime: 0.4 }, { lockTime: -0.9 }), { lockTime: 0.2 });
 });
 
 test('outfitters: Mk I everywhere, better gear at bigger stations, Mk V never; schematics fill the gap', () => {

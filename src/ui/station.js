@@ -11,7 +11,6 @@
 //               fit(slot, id, buy?), unfit(slot), sell(id), buyHull(id) }: the ship's equipment,
 //               spare gear, buying what this station sells (or a schematic unlocked), and the
 //               shipyard (game/outfitting.js).
-// hullmods: { owned, components, status(id), buy(id) }: hull refits at a shipyard (rules/hullmods.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   logic research on the real-world clock (rules/research.js, game/lab.js).
 // shipyard: whether this station sells hulls (capital and major stations).
@@ -35,7 +34,6 @@ import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Mining } from '../rules/mining.js';
-import { HullMods } from '../rules/hullmods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
@@ -386,7 +384,6 @@ const StationMenu = (() => {
           : h('p', { class: 'ui-empty' }, 'Empty. Buy goods at Trade or pick up cargo in space.')),
       renderGear(),
       renderShipyard(),
-      renderRefits(),
     ];
   }
 
@@ -410,31 +407,9 @@ const StationMenu = (() => {
     credits ? h('span', { class: `cost num${ctx.hold.credits < credits ? ' short' : ''}`, title: 'Credits' }, `${credits.toLocaleString('en-US')} cr`) : null,
     cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)), more);
 
-  // Hull refits (at a shipyard): upgrades for every hull, for credits and hull components.
-  function renderRefits() {
-    const { hullmods: hm } = ctx;
-    if (!ctx.shipyard || !hm) return null;
-    const nameOf = (id) => HullMods.NODES[id].name;
-    return section('Hull refits', Kit.head('Hull refits', h('span', { class: 'aside num' }, `${hm.owned.size}/${HullMods.LIST.length} fitted`)),
-      h('div', { class: 'ui-list' }, HullMods.LIST.map((n) => {
-        const st = hm.status(n.id);
-        const done = st.state === 'done';
-        return Kit.optionRow({
-          code: 'HUL', name: n.name.replace(/ Mk [IV]+$/, ''), tier: / Mk [IV]+$/.test(n.name) ? n.tier : null,
-          tag: done ? 'Fitted' : '', tagTone: 'good',
-          extra: done ? null : costChips(st.cost, st.credits),
-          note: [n.note, st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}` : ''].filter(Boolean).join(' · '),
-          locked: st.state === 'locked', lockLabel: 'Locked',
-          action: st.state === 'available' ? Kit.button('Fit', act(() => hm.buy(n.id), () => Kit.toast(`${n.name} fitted`)), {
-            kind: st.ok ? 'primary' : '', disabled: !st.ok, aria: `Fit ${n.name}`,
-          }) : null,
-        });
-      })));
-  }
-
   // ---------- Research ----------
 
-  const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT' };
+  const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
   // A duration: '45s', '20m', '1h 30m'.
   function duration(ms) {
     const sec = Math.max(0, Math.ceil(ms / 1000));
@@ -442,7 +417,7 @@ const StationMenu = (() => {
     const m = Math.ceil(sec / 60), hrs = Math.floor(m / 60);
     return hrs ? `${hrs}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`;
   }
-  const pkgName = (p) => `${p.name}@${p.ver}`;
+  const pkgName = (p) => Research.title(p.id);
   let live = null; // the build card's meter and time left, updated every second (see tick)
 
   // What's building: a progress bar and the time left, Cancel (half back); then the queue.
@@ -486,7 +461,7 @@ const StationMenu = (() => {
     const [tag, tone] = TAG[st.state] || ['', null];
     const idle = !lab.state.active;
     return Kit.optionRow({
-      code: CAT_CODE[p.cat], name: `import ${p.name}@${p.ver}`, tag, tagTone: tone,
+      code: CAT_CODE[p.cat], name: p.kind === 'logic' ? `import ${pkgName(p)}` : p.name, tag, tagTone: tone,
       sub: `// ${p.note}`,
       extra: st.state === 'available' || st.state === 'locked' ? costChips(st.cost, st.credits, h('span', { class: 'cost num', title: 'Build time' }, `⏱ ${duration(Research.timeOf(p.id))}`)) : null,
       note: [gives && `Adds ${gives}.`, p.example ? `e.g. ${Logic.say(p.example)}` : '', st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}.` : ''].filter(Boolean).join(' '),
@@ -877,7 +852,8 @@ const StationMenu = (() => {
     const done = ctx.lab.settle({ quiet: true });
     if (done.length) {
       refresh();
-      Kit.toast(`Build ok · import ${done.map((id) => pkgName(Research.PACKAGES[id])).join(', ')}`);
+      const logic = done.every((id) => Research.PACKAGES[id].kind === 'logic');
+      Kit.toast(`${logic ? 'Build ok · import' : 'Research done ·'} ${done.map((id) => pkgName(Research.PACKAGES[id])).join(', ')}`);
     } else if (tab === 'research') tickBuild();
   }
 

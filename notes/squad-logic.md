@@ -18,11 +18,12 @@ In combat, wingmen still show the line they are running as code, for flavour
 Both views come from the same line data: `Logic.rows`/`Logic.say` for the cards,
 `Logic.tokens`/`Logic.text` for the code.
 
-The Research tab no longer unlocks gear. It builds **logic packages** (`rules/research.js`), shown
+The Research tab no longer unlocks gear. Its Logic group builds **logic packages** (`rules/research.js`), shown
 as imports (`import combat.select@1.0`). Each package unlocks building blocks (subjects, picks,
 conditions, keywords, actions) or more program lines (`mem.ext`). Packages are paid for when
 queued and take real time, which keeps running while the game is closed. Gear is now sold by
-station outfitters and found as schematics on pirates; hull upgrades are shipyard refits.
+station outfitters and found as schematics on pirates. Hull refits are researched in the same lab
+(the Hull group; see `industry.md`).
 
 ## Categories
 

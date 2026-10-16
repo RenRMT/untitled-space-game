@@ -6,8 +6,8 @@
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
 //   often where the category is produced); exotics are never sold, only found.
-// Salvaged components aren't traded at all: they're used for hull refits (rules/hullmods.js) and
-// logic research (rules/research.js).
+// Salvaged components aren't traded at all: they're used for research (rules/research.js), hull
+// refits among it.
 // Equipment (rules/loadout.js) is sold by each station's outfitter (outfitter()): Mk I everywhere,
 // better gear at bigger stations, Mk V never (only from schematics pirates leave).
 // Each station adds a little seeded jitter, so neighbouring markets differ.

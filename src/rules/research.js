@@ -1,22 +1,31 @@
-// Logic research: the packages that unlock building blocks for squad programs (rules/logic.js),
+// Research: the packages that unlock building blocks for squad programs (rules/logic.js),
 // shown as code libraries to import (`import combat.select`). Research costs credits, salvaged
 // components and trade goods (rules/goods.js), all paid when a package is queued, and takes time:
 // real time, which goes on while the game is closed. One package builds at a time; up to
 // QUEUE_MAX more wait their turn, each starting the moment the one before it finishes (so a
 // queue left overnight is worked through overnight).
-// Packages only ever unlock decisions (subjects, conditions, keywords, actions, more lines); the
-// abilities a `use` line runs come from elsewhere, so the packages for it are hidden until then.
+// Logic packages only ever unlock decisions (subjects, conditions, keywords, actions, more lines);
+// the abilities a `use` line runs come from elsewhere, so the packages for it are hidden until then.
+// The same lab also researches the ship: hull refits (rules/hullmods.js) for every hull you fly.
+// Each package is of a kind: 'logic' (a code library, `name@ver`) or 'hull' (an upgrade).
 //
-//   Research.CATEGORIES               [{ id, label, note }] in display order
-//   Research.PACKAGES[id]             { id, name, ver, cat, requires: [id], cost: { credits, [goods kind]: n },
-//                                       time (s), lines?, hidden?, note, example? (a line) }
+//   Research.GROUPS                   [{ id, label }]: the Research tab's groups, in order
+//   Research.CATEGORIES               [{ id, group, label, note }] in display order
+//   Research.PACKAGES[id]             { id, kind, name, ver?, cat, requires: [id], cost: { credits, [goods kind]: n },
+//                                       time (s), lines?, hidden?, note, example? (a line),
+//                                       upgrade? { cargo?, hull?, weapons? }, refine? { line, stats: { [stat]: fraction } },
+//                                       industry? { [bonus]: n } }
 //   Research.LIST                     the packages that show, in display order
 //   Research.config.speed             time runs this many times faster (?fastresearch)
+//   Research.title(id)                its name as shown: `name@ver` for logic, the name otherwise
 //   Research.timeOf(id) -> s          how long it takes to build
-//   Research.gives(id) -> [{ kind, id, label }]   the blocks it unlocks (Logic.blocks), and lines
+//   Research.gives(id) -> [{ kind, id, label }]   the blocks it unlocks (Logic.blocks), lines, upgrades
 //   Research.known(done) -> Set       the packages known, for Logic.check (core is always known)
 //   Research.lineBonus(done) -> n     program lines added (rules/squad.js lineLimit)
-//   Research.empty() -> lab           { done: [id], active: { id, start, end } | null, queue: [id] }
+//   Research.upgrades(done)           -> { cargo, hull, weapons, lines: { [line]: { [stat]: fraction } } }:
+//                                     what's done adds to every ship (rules/loadout.js stats)
+//   Research.bonusAt(lab, t, key) -> n   an industry bonus from what was done by time t
+//   Research.empty() -> lab           { done: [id], doneAt: { [id]: ms }, active: { id, start, end } | null, queue: [id] }
 //   Research.status(id, lab, credits, have(kind) -> n)
 //                -> { state: 'done' | 'active' | 'queued' | 'available' | 'locked', ok, needs: [id],
 //                     credits, cost: [{ kind, need, have }] }
@@ -29,6 +38,7 @@
 // undoes progress or makes it negative. ES module (`Research`); also runs in Node (the tests).
 
 import { Goods } from './goods.js';
+import { HullMods } from './hullmods.js';
 import { Logic } from './logic.js';
 
 const Research = (() => {
@@ -37,11 +47,16 @@ const Research = (() => {
   const M = 60, H = 3600;
   const c = (category, tier) => Goods.component(category, tier);
 
+  const GROUPS = [
+    { id: 'logic', label: 'Logic' },
+    { id: 'hull', label: 'Hull' },
+  ];
   const CATEGORIES = [
-    { id: 'core', label: 'Core', note: 'the language itself: keywords and memory' },
-    { id: 'combat', label: 'Combat', note: 'who to target and how to engage' },
-    { id: 'tactics', label: 'Tactics', note: 'reading the fight' },
-    { id: 'maint', label: 'Maintenance', note: 'keeping self and the squad flying' },
+    { id: 'core', group: 'logic', label: 'Core', note: 'the language itself: keywords and memory' },
+    { id: 'combat', group: 'logic', label: 'Combat', note: 'who to target and how to engage' },
+    { id: 'tactics', group: 'logic', label: 'Tactics', note: 'reading the fight' },
+    { id: 'maint', group: 'logic', label: 'Maintenance', note: 'keeping self and the squad flying' },
+    { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
   ];
 
   const L = (o) => ({ ...Logic.blank(), ...o, when: (o.when || []).map((x) => Logic.clause(x)) });
@@ -116,17 +131,45 @@ const Research = (() => {
       example: L({ subject: 'leader', act: 'guard' }),
     },
   };
-  for (const [id, p] of Object.entries(PACKAGES)) p.id = id;
+  for (const [id, p] of Object.entries(PACKAGES)) Object.assign(p, { id, kind: 'logic' });
+  // Hull refits: each step of a line takes longer than the one before, the hardpoint longest.
+  const HULL_TIME = [0, 20 * M, H, 3 * H];
+  for (const n of HullMods.LIST) {
+    const id = `hull.${n.id}`;
+    PACKAGES[id] = {
+      id, kind: 'hull', name: n.name, cat: 'hull', line: n.line, tier: n.tier, requires: n.requires.map((r) => `hull.${r}`),
+      time: n.upgrade.weapons ? 4 * H : HULL_TIME[n.tier], cost: { credits: n.credits, ...n.cost }, upgrade: n.upgrade, note: n.note,
+    };
+  }
   const LIST = CATEGORIES.flatMap((cat) => Object.values(PACKAGES).filter((p) => p.cat === cat.id && !p.hidden));
 
+  const title = (id) => (PACKAGES[id].kind === 'logic' ? `${PACKAGES[id].name}@${PACKAGES[id].ver}` : PACKAGES[id].name);
   const timeOf = (id) => (PACKAGES[id].time * 1000) / config.speed;
-  const gives = (id) => [
-    ...Logic.blocks(id),
-    ...(PACKAGES[id].lines ? [{ kind: 'lines', id: 'lines', label: `+${PACKAGES[id].lines} line${PACKAGES[id].lines === 1 ? '' : 's'}` }] : []),
-  ];
+  const gives = (id) => {
+    const p = PACKAGES[id];
+    return [
+      ...Logic.blocks(id),
+      ...(p.lines ? [{ kind: 'lines', id: 'lines', label: `+${p.lines} line${p.lines === 1 ? '' : 's'}` }] : []),
+      ...(p.upgrade || p.refine || p.industry ? [{ kind: 'upgrade', id: 'upgrade', label: p.note }] : []),
+    ];
+  };
   const known = (done) => new Set(done);
   const lineBonus = (done) => done.reduce((n, id) => n + (PACKAGES[id]?.lines || 0), 0);
-  const empty = () => ({ done: [], active: null, queue: [] });
+  function upgrades(done) {
+    const out = { cargo: 0, hull: 0, weapons: 0, lines: {} };
+    for (const id of done) {
+      const p = PACKAGES[id];
+      if (p?.upgrade) for (const k of ['cargo', 'hull', 'weapons']) out[k] += p.upgrade[k] || 0;
+      if (p?.refine) {
+        const line = (out.lines[p.refine.line] ||= {});
+        for (const [stat, f] of Object.entries(p.refine.stats)) line[stat] = (line[stat] || 0) + f;
+      }
+    }
+    return out;
+  }
+  // Industry bonuses count from when their package finished, so work done offline gets them on time.
+  const bonusAt = (lab, t, key) => lab.done.reduce((n, id) => n + ((lab.doneAt?.[id] ?? 0) <= t ? PACKAGES[id]?.industry?.[key] || 0 : 0), 0);
+  const empty = () => ({ done: [], doneAt: {}, active: null, queue: [] });
   const pending = (lab) => [...(lab.active ? [lab.active.id] : []), ...lab.queue];
 
   function status(id, lab, credits, have) {
@@ -156,6 +199,7 @@ const Research = (() => {
     while (lab.active && lab.active.end <= now) {
       const { id, end } = lab.active;
       lab.done.push(id);
+      (lab.doneAt ||= {})[id] = end;
       finished.push(id);
       const next = lab.queue.shift();
       lab.active = next ? { id: next, start: end, end: end + timeOf(next) } : null;
@@ -194,7 +238,7 @@ const Research = (() => {
     return Math.max(0, Math.min(1, (now - a.start) / Math.max(1, a.end - a.start)));
   }
 
-  return { QUEUE_MAX, config, CATEGORIES, PACKAGES, LIST, timeOf, gives, known, lineBonus, empty, status, enqueue, cancel, settle, progress };
+  return { QUEUE_MAX, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, empty, status, enqueue, cancel, settle, progress };
 })();
 
 export { Research };
