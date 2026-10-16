@@ -1,8 +1,9 @@
 // Cargo hold and credits: items collected or bought, saved per galaxy (with the loadout, schematics,
-// hull refits, squad and missions), and the ship's stats from its loadout (applyShip).
+// hull refits, logic research, squad and missions), and the ship's stats from its loadout (applyShip).
 // Part of the flight view; src/main.js starts it.
 
 import { mulberry32 } from '../core/rng.js';
+import { Clock } from '../core/clock.js';
 import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
@@ -11,6 +12,7 @@ import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { HullMods } from '../rules/hullmods.js';
 import { Logic } from '../rules/logic.js';
+import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
@@ -29,13 +31,13 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // loadout: the ship's class and fitted equipment; gear: spare equipment bought or taken out
 // ({ [equipment id]: count }); schematics: equipment recovered from pirates (rules/loadout.js ids, a
 // Set), which every station then sells; hullMods: the hull refits fitted (rules/hullmods.js ids, a
-// Set); squad: the
+// Set); lab: logic research (rules/research.js: what's done, building and queued); squad: the
 // squad members (rules/squad.js), with their programs and hull. story: what has happened so far
 // (a Set of STORY flags). missions: the mission log (story/missions.js): what's been accepted, done
 // and handed in.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
-  loadout: Loadout.starter('courier'), gear: {}, schematics: new Set(), hullMods: new Set(), squad: [], story: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, schematics: new Set(), hullMods: new Set(), lab: Research.empty(), squad: [], story: new Set(),
   missions: Missions.create(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
@@ -99,6 +101,7 @@ export function loadCargo(galaxy) {
   cargo.gear = {};
   cargo.schematics = new Set();
   cargo.hullMods = new Set();
+  cargo.lab = Research.empty();
   cargo.squad = []; // the first member joins at the end of the first mission
   cargo.story = new Set();
   cargo.missions = Missions.create();
@@ -110,6 +113,8 @@ export function loadCargo(galaxy) {
   } catch (e) { /* a damaged save: keep what was read before the error */ }
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
+  // Research that finished while the game was closed.
+  for (const id of Research.settle(cargo.lab, Clock.now())) notify(`Build ok · import ${Research.PACKAGES[id].name}@${Research.PACKAGES[id].ver}`, 4);
 }
 // How a save from an older version of the game becomes the current form: step i takes a save of
 // version i to i + 1 (Save.migrate, core/save.js; saves from before versions are version 0). A
@@ -161,14 +166,32 @@ export const CARGO_MIGRATIONS = [
       delete m.modules;
     }
   },
+  // 6. Logic research: nothing done yet.
+  (d) => {
+    if (!d.lab) d.lab = Research.empty();
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
-export const logicKnown = () => new Set();
-export const logicLines = () => Squad.lineLimit(0);
+export const logicKnown = () => Research.known(cargo.lab.done);
+export const logicLines = () => Squad.lineLimit(Research.lineBonus(cargo.lab.done));
+
+// A saved lab, checked: known packages only; one building with a time that makes no sense is dropped.
+export function readLab(d) {
+  const lab = Research.empty();
+  if (!d || typeof d !== 'object') return lab;
+  const ok = (id) => typeof id === 'string' && !!Research.PACKAGES[id];
+  if (Array.isArray(d.done)) lab.done = [...new Set(d.done.filter(ok))];
+  const a = d.active;
+  if (a && ok(a.id) && !lab.done.includes(a.id) && Number.isFinite(a.start) && Number.isFinite(a.end) && a.end >= a.start) lab.active = { id: a.id, start: a.start, end: a.end };
+  if (Array.isArray(d.queue)) lab.queue = [...new Set(d.queue.filter((id) => ok(id) && !lab.done.includes(id) && id !== lab.active?.id))].slice(0, Research.QUEUE_MAX);
+  if (!lab.active && lab.queue.length) Research.enqueue(lab, lab.queue.shift(), Clock.now());
+  return lab;
+}
 
 // The parts of a save (in the current form), each checked.
 export function readCargo(d) {
+  cargo.lab = readLab(d.lab); // before the squad: what its programs may use
   if (Array.isArray(d.schematics)) cargo.schematics = new Set(d.schematics.filter((id) => Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc));
   if (Array.isArray(d.hullMods)) cargo.hullMods = new Set(d.hullMods.filter((id) => HullMods.NODES[id]));
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
@@ -194,7 +217,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-  loadout: cargo.loadout, gear: cargo.gear, schematics: [...cargo.schematics], hullMods: [...cargo.hullMods], squad: cargo.squad,
+  loadout: cargo.loadout, gear: cargo.gear, schematics: [...cargo.schematics], hullMods: [...cargo.hullMods], lab: cargo.lab, squad: cargo.squad,
   story: [...cargo.story], missions: cargo.missions.save(),
 }), 1000);
 export const saveCargo = () => cargoSave.change();

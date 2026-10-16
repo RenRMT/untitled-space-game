@@ -692,12 +692,61 @@ test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys 
   browser.frames(3);
 });
 
+test('researches a logic package: paid up front, built on the real clock, and then usable', () => {
+  game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.ok(game('!!docked'));
+  game(`StationMenu.showTab('research')`);
+  assert.match(onStation(), /import core\.bool/);
+  assert.match(onStation(), /idle: queue a package below/);
+  // What core.bool costs, put aboard.
+  game(`for (const c of lab.status('core.bool').cost) {
+    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
+    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
+  } cargo.credits = 1000; StationMenu.refresh()`);
+  const held = game('cargo.items.length');
+  pressOnStation(/^Build/);
+  assert.ok(game(`cargo.lab.active.id === 'core.bool' && cargo.credits === 700 && !cargo.components['computer-simple']`), 'paid up front');
+  assert.strictEqual(game('cargo.items.length'), held - 1, 'the goods went too');
+  assert.match(onStation(), /compiling core\.bool@1\.0/);
+  // Not done yet: and isn't known.
+  assert.ok(!game(`programs.set(firstMember().id, 0, { ...Logic.blank(), when: [Logic.clause(), Logic.clause({ join: 'and' })] })`), 'and needs core.bool');
+  // Half way, then done: the timer tick sees it.
+  game(`__T += Research.timeOf('core.bool') / 2; StationMenu.tick()`);
+  assert.match(onStation(), /50% · 3m left/);
+  game(`__T += Research.timeOf('core.bool'); StationMenu.tick()`);
+  assert.ok(game(`cargo.lab.done.includes('core.bool') && !cargo.lab.active`), 'built');
+  assert.match(textOf(browser.document.body), /Build ok · import core\.bool@1\.0/);
+  assert.ok(game(`programs.set(firstMember().id, 0, { ...Logic.blank(), when: [Logic.clause(), Logic.clause({ join: 'and', not: true })] })`), 'and, not are known now');
+  game('firstMember().program.splice(0, 1)');
+  // Queued, then the game closed for an hour: done on load, and the next one has started.
+  game(`cargo.credits = 1e5; for (const id of ['maint.sense', 'squad.link']) for (const c of lab.status(id).cost) {
+    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = (cargo.components[c.kind] || 0) + c.need;
+    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
+  }`);
+  assert.ok(game(`lab.enqueue('maint.sense') && lab.enqueue('squad.link')`));
+  game(`StationMenu.refresh()`);
+  assert.match(onStation(), /queued squad\.link@1\.0/);
+  game(`saveCargoNow(); __T += Research.timeOf('maint.sense') + 1000; loadCargo(world.galaxy)`);
+  assert.ok(game(`cargo.lab.done.includes('maint.sense') && cargo.lab.active.id === 'squad.link'`), 'finished while away');
+  // Cancelled while building: half back.
+  const credits = game('cargo.credits');
+  assert.deepStrictEqual(game(`lab.cancel('squad.link')`), ['squad.link']);
+  assert.strictEqual(game('cargo.credits'), credits + Math.floor(game(`Research.PACKAGES['squad.link'].cost.credits`) / 2));
+  game('Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
   // Logic modules in slots become program lines.
   const sq = game(`(() => { const d = { squad: [{ seed: 1, modules: ['assist-leader', null, 'gone', null] }, { seed: 2 }] }; CARGO_MIGRATIONS[4](d); return d.squad; })()`);
   assert.deepStrictEqual(sq, [{ seed: 1, program: [game(`Logic.PRESETS['assist.leader']`)] }, { seed: 2 }]);
+  // Logic research starts empty; a damaged lab reads as what can be made of it.
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[5](d); return d.lab; })()`), { done: [], active: null, queue: [] });
+  assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
+  assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
 });
 
 test('components go to their own store, even with a full hold, and stay when the ship is lost', () => {

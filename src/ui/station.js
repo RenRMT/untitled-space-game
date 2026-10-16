@@ -12,6 +12,8 @@
 //               spare gear, buying what this station sells (or a schematic unlocked), and the
 //               shipyard (game/outfitting.js).
 // hullmods: { owned, components, status(id), buy(id) }: hull refits at a shipyard (rules/hullmods.js).
+// lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
+//   logic research on the real-world clock (rules/research.js, game/lab.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // squad: { members, known, limit, set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
@@ -34,6 +36,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Mining } from '../rules/mining.js';
 import { HullMods } from '../rules/hullmods.js';
+import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
 import { UI } from './ui.js';
@@ -54,7 +57,7 @@ const StationMenu = (() => {
   let openMission = null; // the mission whose sheet is open, if any
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let sheet = null; // the open sheet (Kit.sheet)
-  let openOption = null, openStat = null, openHold = null, openHull = null; // expanded rows, chips, tiles
+  let openOption = null, openStat = null, openHold = null, openHull = null, openPkg = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
@@ -403,9 +406,9 @@ const StationMenu = (() => {
         })))));
   }
   // What something costs in components (and credits), with how much of each you have.
-  const costChips = (cost, credits) => h('span', { class: 'st-costs' },
+  const costChips = (cost, credits, ...more) => h('span', { class: 'st-costs' },
     credits ? h('span', { class: `cost num${ctx.hold.credits < credits ? ' short' : ''}`, title: 'Credits' }, `${credits.toLocaleString('en-US')} cr`) : null,
-    cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)));
+    cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)), more);
 
   // Hull refits (at a shipyard): upgrades for every hull, for credits and hull components.
   function renderRefits() {
@@ -431,11 +434,86 @@ const StationMenu = (() => {
 
   // ---------- Research ----------
 
+  const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT' };
+  // A duration: '45s', '20m', '1h 30m'.
+  function duration(ms) {
+    const sec = Math.max(0, Math.ceil(ms / 1000));
+    if (sec < 60) return `${sec}s`;
+    const m = Math.ceil(sec / 60), hrs = Math.floor(m / 60);
+    return hrs ? `${hrs}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`;
+  }
+  const pkgName = (p) => `${p.name}@${p.ver}`;
+  let live = null; // the build card's meter and time left, updated every second (see tick)
+
+  // What's building: a progress bar and the time left, Cancel (half back); then the queue.
+  function buildCard() {
+    const { lab } = ctx;
+    const st = lab.state, now = lab.now();
+    const a = st.active;
+    const out = [Kit.head('Build', h('span', { class: 'aside num' }, `queue ${st.queue.length}/${Research.QUEUE_MAX}`))];
+    if (!a) {
+      live = null;
+      out.push(Kit.code([Kit.codeLine({ n: '$', tokens: [{ t: 'cmt', text: '// idle: queue a package below' }] })], { label: 'Build' }));
+      return out;
+    }
+    const p = Research.PACKAGES[a.id], k = lab.progress();
+    const bar = Kit.meter(k, { color: 'var(--good)' }), left = h('span', { class: 'num' }, `${Math.floor(k * 100)}% · ${duration(a.end - now)} left`);
+    live = { bar, left, end: a.end };
+    out.push(h('div', { class: 'st-build' },
+      h('div', { class: 'top' }, h('span', { class: 'cmd' }, h('span', { class: 'tk-op' }, '$ '), h('span', { class: 'tk-fn' }, 'compiling '), h('span', { class: 'tk-subj' }, pkgName(p))), left),
+      bar,
+      st.queue.map((id) => h('div', { class: 'queued' }, h('span', { class: 'cmd' }, h('span', { class: 'tk-cmt' }, 'queued '), h('span', { class: 'tk-subj' }, pkgName(Research.PACKAGES[id]))),
+        h('span', { class: 'num' }, duration(Research.timeOf(id))),
+        h('button', { class: 'ui-link', type: 'button', 'aria-label': `Cancel ${pkgName(Research.PACKAGES[id])}`, onclick: act(() => lab.cancel(id), () => Kit.toast('Cancelled · refunded', 'warn')) }, 'Cancel'))),
+      Kit.button('Cancel build · half back', act(() => lab.cancel(a.id), () => Kit.toast(`${pkgName(p)} cancelled · half refunded`, 'warn')), { kind: 'ghost', wide: true })));
+    return out;
+  }
+  // The build card's numbers, without drawing the screen again (so focus and scroll stay put).
+  function tickBuild() {
+    if (!live) return;
+    const k = ctx.lab.progress();
+    live.bar.children[0].style.setProperty('--pct', `${k * 100}%`);
+    live.left.textContent = `${Math.floor(k * 100)}% · ${duration(live.end - ctx.lab.now())} left`;
+  }
+
+  // One package: import name and version, what it gives, its cost and build time, and Queue.
+  function packageRow(p) {
+    const { lab } = ctx;
+    const st = lab.status(p.id);
+    const gives = Research.gives(p.id).map((g) => g.label).join(', ');
+    const nameOf = (id) => pkgName(Research.PACKAGES[id]);
+    const TAG = { done: ['Imported', 'good'], active: ['Building', 'cyan'], queued: ['Queued', 'cyan'] };
+    const [tag, tone] = TAG[st.state] || ['', null];
+    const idle = !lab.state.active;
+    return Kit.optionRow({
+      code: CAT_CODE[p.cat], name: `import ${p.name}@${p.ver}`, tag, tagTone: tone,
+      sub: `// ${p.note}`,
+      extra: st.state === 'available' || st.state === 'locked' ? costChips(st.cost, st.credits, h('span', { class: 'cost num', title: 'Build time' }, `⏱ ${duration(Research.timeOf(p.id))}`)) : null,
+      note: [gives && `Adds ${gives}.`, p.example ? `e.g. ${Logic.text(p.example)}` : '', st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}.` : ''].filter(Boolean).join(' '),
+      open: openPkg === p.id, onToggle: () => { openPkg = openPkg === p.id ? null : p.id; refresh(); },
+      locked: st.state === 'locked', lockLabel: 'Locked',
+      action: st.state === 'available' ? Kit.button(idle ? 'Build' : 'Queue', act(() => lab.enqueue(p.id), () => Kit.toast(idle ? `Compiling ${pkgName(p)}` : `${pkgName(p)} queued`)), {
+        kind: st.ok ? 'primary' : '', disabled: !st.ok, title: st.full ? 'The queue is full' : undefined, aria: `${idle ? 'Build' : 'Queue'} ${pkgName(p)}`,
+      }) : null,
+    });
+  }
+
+  // Research: logic packages for the squad's programs, by category, with what's building on top.
   function renderResearch() {
+    const { lab } = ctx;
+    const done = Research.LIST.filter((p) => lab.state.done.includes(p.id)).length;
     return [
-      titleRow('Research'),
-      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), componentsGrid(ctx.hullmods ? ctx.hullmods.components : {})),
-      h('p', { class: 'ui-note' }, 'Equipment is sold at stations now, and hull refits at shipyards.'),
+      titleRow('Research', `${done}/${Research.LIST.length} imported`),
+      h('p', { class: 'ui-note' }, 'Logic packages for your squad\'s programs. Each is paid for when queued and builds in real time, even while you\'re away.'),
+      section('Build', buildCard()),
+      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), componentsGrid(lab.components)),
+      Research.CATEGORIES.map((cat) => {
+        const list = Research.LIST.filter((p) => p.cat === cat.id);
+        return section(cat.label,
+          Kit.head(cat.label, h('span', { class: 'aside num' }, `${list.filter((p) => lab.state.done.includes(p.id)).length}/${list.length}`)),
+          h('p', { class: 'ui-note' }, cat.note),
+          h('div', { class: 'ui-list st-pkgs' }, list.map(packageRow)));
+      }),
     ];
   }
 
@@ -745,7 +823,7 @@ const StationMenu = (() => {
     if (isLocked(name)) return;
     closeSheet();
     tab = name;
-    openStat = openHold = openHull = null;
+    openStat = openHold = openHull = openPkg = null;
     body.scrollTop = 0;
     refresh();
   }
@@ -765,20 +843,38 @@ const StationMenu = (() => {
   }
   el('st-launch').addEventListener('click', () => ctx && !locks().launch && ctx.onLaunch());
 
+  // Every second while docked: research that finished (announced, and the screen drawn again, since
+  // what's known changed), else the build card's numbers.
+  let ticker = null;
+  function tick() {
+    if (!ctx || !ctx.lab) return;
+    const done = ctx.lab.settle({ quiet: true });
+    if (done.length) {
+      refresh();
+      Kit.toast(`Build ok · import ${done.map((id) => pkgName(Research.PACKAGES[id])).join(', ')}`);
+    } else if (tab === 'research') tickBuild();
+  }
+
   return {
     // options.tab: the tab to open on (Trade if not given, or the first that isn't locked).
     open(options) {
       ctx = options;
       tab = options.tab || 'trade';
       closeSheet();
-      openStat = openHold = openHull = null;
+      openStat = openHold = openHull = openPkg = null;
       doneOpen = false;
       root.hidden = false;
       body.scrollTop = 0;
       refresh();
       ((locks().launch && tabs.find((t) => t.dataset.tab === tab)) || el('st-launch')).focus({ preventScroll: true });
+      clearInterval(ticker);
+      ticker = setInterval(tick, 1000);
+      ticker.unref?.(); // (in Node, the tests: don't keep the process alive)
     },
     close() {
+      clearInterval(ticker);
+      ticker = null;
+      live = null;
       closeSheet();
       ctx = null;
       root.hidden = true;
@@ -790,6 +886,7 @@ const StationMenu = (() => {
     showTab: pick,
     get tab() { return tab; },
     refresh,
+    tick, // what the once-a-second timer does (the tests call it)
     // Open or close the sheet for a loadout slot on the Ship tab.
     toggleSlot(id) { if (openSlot === id) { closeSheet(); refresh(); } else showSlot(id); },
     // Open the sheet for a mission on the Missions tab; closeSheet() closes whichever is open.

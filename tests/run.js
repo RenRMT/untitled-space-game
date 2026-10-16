@@ -26,6 +26,7 @@ import { Loadout } from '../src/rules/loadout.js';
 import { Logic } from '../src/rules/logic.js';
 import { Squad } from '../src/rules/squad.js';
 import { HullMods } from '../src/rules/hullmods.js';
+import { Research } from '../src/rules/research.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -1469,6 +1470,77 @@ test('logic: lines check against what research has unlocked, and read back from 
   for (const t of Logic.tokens(L({ act: 'use', skill: 'emp' }))) assert(['kw', 'subj', 'prop', 'op', 'num', 'fn', 'punc', 'ws', 'err'].includes(t.t));
   // Every block has a package, and every package's blocks are found.
   for (const B of [Logic.SUBJECTS, Logic.PICKS, Logic.PROPS, Logic.KEYWORDS, Logic.ACTIONS]) for (const b of Object.values(B)) assert(typeof b.pkg === 'string' && Logic.blocks(b.pkg).some((x) => x.id === b.id), b.id);
+});
+
+test('research: logic packages unlock every block, cost components and goods, and form no loops', () => {
+  for (const p of Object.values(Research.PACKAGES)) {
+    assert(Research.CATEGORIES.some((c) => c.id === p.cat), `${p.id}: category`);
+    assert(p.time > 0 && p.cost.credits > 0, `${p.id}: time and credits`);
+    for (const k of Object.keys(p.cost)) if (k !== 'credits') assert(Goods.type(k) && Goods.type(k).rarity < 5 || Goods.isSalvage(k), `${p.id}: ${k}`);
+    assert(Object.keys(p.cost).some((k) => Goods.isSalvage(k)), `${p.id} needs components`);
+    for (const r of p.requires) assert(Research.PACKAGES[r], `${p.id} requires unknown ${r}`);
+    assert(Research.gives(p.id).length, `${p.id} gives something`);
+    if (p.example) assert(Logic.check(p.example, new Set([...p.requires, p.id, ...Object.values(Research.PACKAGES).filter((q) => p.requires.includes(q.id)).flatMap((q) => q.requires)])).ok, `${p.id}: its example uses only what it and its requirements give`);
+  }
+  // No loops: every package can be reached in some order.
+  const done = new Set();
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const p of Object.values(Research.PACKAGES)) if (!done.has(p.id) && p.requires.every((r) => done.has(r))) { done.add(p.id); changed = true; }
+  }
+  assert.strictEqual(done.size, Object.keys(Research.PACKAGES).length);
+  // Every building block outside core comes from some package.
+  for (const B of [Logic.SUBJECTS, Logic.PICKS, Logic.PROPS, Logic.KEYWORDS, Logic.ACTIONS]) {
+    for (const b of Object.values(B)) assert(b.pkg === 'core' || Research.PACKAGES[b.pkg], `${b.id}: ${b.pkg}`);
+  }
+  // Memory: up to the most lines a program holds.
+  assert.strictEqual(Squad.lineLimit(Research.lineBonus(Object.keys(Research.PACKAGES))), Squad.MAX_LINES);
+  // use() waits for abilities: its package is hidden.
+  assert(Research.PACKAGES['tactics.use'].hidden && !Research.LIST.includes(Research.PACKAGES['tactics.use']));
+});
+
+test('research: queued and paid up front, built on the real clock, offline too, and cancelled for a refund', () => {
+  const lab = Research.empty(), rich = () => 99, T = 1e12;
+  const t = (id) => Research.timeOf(id);
+  // Status: what it needs, and whether it can be paid for.
+  assert.strictEqual(Research.status('core.bool.or', lab, 1e9, rich).state, 'locked');
+  assert.strictEqual(Research.status('core.bool', lab, 0, rich).ok, false, 'short of credits');
+  assert.strictEqual(Research.status('core.bool', lab, 1e9, () => 0).ok, false, 'short of components');
+  assert.strictEqual(Research.status('core.bool', lab, 1e9, rich).ok, true);
+  // One builds, the rest wait; a requirement ahead in the queue is enough to queue.
+  assert(Research.enqueue(lab, 'core.bool', T));
+  assert.deepStrictEqual(lab.active, { id: 'core.bool', start: T, end: T + t('core.bool') });
+  assert.strictEqual(Research.status('core.bool', lab, 1e9, rich).state, 'active');
+  assert.strictEqual(Research.status('core.bool.or', lab, 1e9, rich).ok, true, 'its requirement is building');
+  assert(Research.enqueue(lab, 'core.bool.or', T) && Research.enqueue(lab, 'tactics.count', T) && Research.enqueue(lab, 'maint.sense', T));
+  assert(!Research.enqueue(lab, 'squad.link', T), 'the queue is full');
+  assert(!Research.status('squad.link', lab, 1e9, rich).ok);
+  assert(!Research.enqueue(lab, 'core.bool', T), 'already building');
+  // Progress, and nothing done early.
+  assert.strictEqual(Research.progress(lab, T + t('core.bool') / 2), 0.5);
+  assert.deepStrictEqual(Research.settle(lab, T + t('core.bool') - 1), []);
+  // A clock set back undoes nothing and never goes negative.
+  assert.strictEqual(Research.progress(lab, T - 1e6), 0);
+  assert.deepStrictEqual(Research.settle(lab, T - 1e6), []);
+  // Away long enough for two: they finish in order, the next one starting when the one before ended.
+  const later = T + t('core.bool') + t('core.bool.or') + 1000;
+  assert.deepStrictEqual(Research.settle(lab, later), ['core.bool', 'core.bool.or']);
+  assert.deepStrictEqual(lab.active, { id: 'tactics.count', start: T + t('core.bool') + t('core.bool.or'), end: T + t('core.bool') + t('core.bool.or') + t('tactics.count') });
+  assert.deepStrictEqual([...Research.known(lab.done)], ['core.bool', 'core.bool.or']);
+  // Cancelled while waiting: all back; while building: half back, and the next starts now.
+  assert.deepStrictEqual(Research.cancel(lab, 'maint.sense', later), [{ id: 'maint.sense', refund: 1 }]);
+  assert(Research.enqueue(lab, 'maint.sense', later));
+  assert.deepStrictEqual(Research.cancel(lab, 'tactics.count', later), [{ id: 'tactics.count', refund: 0.5 }]);
+  assert.deepStrictEqual(lab.active, { id: 'maint.sense', start: later, end: later + t('maint.sense') });
+  assert.deepStrictEqual(Research.cancel(lab, 'nothing', later), []);
+  // Cancelling a requirement takes what was queued on it too.
+  assert(Research.enqueue(lab, 'maint.retreat', later) && Research.enqueue(lab, 'squad.link', later));
+  assert.deepStrictEqual(Research.cancel(lab, 'maint.sense', later), [{ id: 'maint.sense', refund: 0.5 }, { id: 'maint.retreat', refund: 1 }]);
+  assert.strictEqual(lab.active.id, 'squad.link');
+  assert.deepStrictEqual(lab.queue, []);
+  // Faster for testing by hand.
+  Research.config.speed = 60;
+  try { assert.strictEqual(Research.timeOf('core.bool'), Research.PACKAGES['core.bool'].time * 1000 / 60); } finally { Research.config.speed = 1; }
 });
 
 test('squad: an android wingman, in formation behind the leader, saved and restored', () => {

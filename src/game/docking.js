@@ -12,6 +12,7 @@ import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
 import { artStyle } from './options.js';
+import { lab } from './lab.js';
 import { hullmods, outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
@@ -55,6 +56,7 @@ export function dock(station) {
   drag.active = false;
   particles.length = 0;
   outfitting.sells = Economy.outfitter(world.galaxy.seed, station);
+  lab.settle();
   setMode('docked', true);
   StationMenu.open({
     station: { name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color },
@@ -63,6 +65,7 @@ export function dock(station) {
     ship: SHIP,
     outfitting,
     hullmods,
+    lab,
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
     squad: programs,
