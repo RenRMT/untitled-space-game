@@ -399,7 +399,7 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   assert.deepStrictEqual(game('stationLocks().tabs'), []);
   assert.ok(!game('stationLocks().launch'), 'Launch is open');
   game(`StationMenu.showTab('missions')`);
-  assert.match(tab(), /Gate blocks/);
+  assert.match(tab(), /Gated community/);
   assert.match(tab(), /Optional/);
   assert.match(tab(), /We deactivated it as a security measure/);
   assert.match(tab(), /Waystation HD-1908/);
@@ -446,7 +446,7 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'done');
   assert.match(tab(), /Jump gate activated/);
-  assert.match(tab(), /written recently, by someone who is not one of us/);
+  assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
   assert.match(tab(), /share our findings with Waystation HD-1908/);
   assert.deepStrictEqual(game('Squad.modulesOf(firstMember())'), ['assist-leader'], 'its first combat logic module');
   assert.ok(game('gatesOnline() && !world.scene.gates[mission.gate.gate].offline'), 'the gate is online');

@@ -5,7 +5,7 @@
 // waystation's. Two pay off the player's debt after the introduction (intro.js): "Payment in
 // kind", which brings their first squad member (squad.js), then "The remaining balance", which
 // teaches mining and gas collecting and ends on a hostile android and the AI logic module it
-// carried. The third, "Gate blocks", is optional: the squad member unblocks the system's jump
+// carried. The third, "Gated community", is optional: the squad member unblocks the system's jump
 // gate under pirate attack, and the reward is its first combat logic module and the gate.
 //
 // A mission is data (LIST):
@@ -37,7 +37,7 @@
 //   log.save()                             plain data, for the cargo save
 //   Missions.site(galaxy)                  where "Payment in kind" happens (see below)
 //   Missions.salvageSite(galaxy, site)     where "The remaining balance" goes (see below)
-//   Missions.gateSite(galaxy)              where "Gate blocks" happens (see below)
+//   Missions.gateSite(galaxy)              where "Gated community" happens (see below)
 //   Missions.fill(text, vars), Missions.lines(list, log, id)
 // Works as a classic browser script (global `Missions`) and as a Node module.
 
@@ -170,7 +170,7 @@ const Missions = (() => {
     // first combat logic module, made from its study of the AI logic module.
     gate: {
       id: 'gate',
-      title: 'Gate blocks',
+      title: 'Gated community',
       giver: 'waystation',
       briefing: [
         'We wish to share our findings on the hostile android with **Waystation HD-1908**, the nearest waystation. Our study of the AI logic module is nearly complete.',
@@ -180,7 +180,7 @@ const Missions = (() => {
         'Pirates have been active near the gate. Station personnel will not go there. {ship} is not station personnel.',
         'Please escort {ship} to the gate and protect it while it disables the blocks. We will then activate the gate remotely.',
       ],
-      reward: 'The jump gate activated, and the results of our study',
+      reward: 'The jump gate activated, and something we do not want',
       objectives: [
         { id: 'reach', label: 'Escort {ship} to the jump gate' },
         { id: 'work', label: 'Protect {ship} while it disables the gate blocks', need: 100, percent: true },
@@ -210,9 +210,9 @@ const Missions = (() => {
       ],
       debrief: [
         'Jump gate activated. The route to the **{next}** system is open.',
-        'Our study of the AI logic module is complete. It contained combat logic, written recently, by someone who is not one of us.',
-        'We have made a restricted copy: a **combat logic module** that only lets its owner assist its leader. It has been installed in {ship}.',
-        '{ship} can now fight beside you. We would prefer it did not enjoy it.',
+        'Our study of the AI logic module is complete. It contains a **combat logic module**.',
+        'We do not want it. We do not need it. You may have it.',
+        'It has been installed in {ship}. Returns are not accepted.',
         'Please share our findings with **Waystation HD-1908**. It lies two systems from here, through the gates.',
         'Thank you for your business.',
       ],
@@ -418,7 +418,7 @@ const Missions = (() => {
     };
   }
 
-  // ---------- Where "Gate blocks" happens ----------
+  // ---------- Where "Gated community" happens ----------
   //
   // The first system's jump gate: the squad member works from a spot beside it, on its side
   // toward the star; the pirates come in from two points further out, on either side, and circle
