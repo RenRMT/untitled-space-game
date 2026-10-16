@@ -25,6 +25,13 @@ function seedToInt(seed) {
   return h >>> 0;
 }
 
+// The random stream for one thing in a galaxy: the galaxy's seed, the thing's key (or seed) and a salt
+// for what the numbers are for, so the same thing always gets the same numbers.
+const seeded = (galaxySeed, key, salt) => mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(key), salt));
+
+// A fresh 32-bit seed, from a random stream.
+const nextSeed = (r) => Math.floor(r() * 4294967295);
+
 // Pick from [[item, weight], ...] with a random number r in [0, 1).
 function weightedPick(list, r) {
   const total = list.reduce((sum, [, w]) => sum + w, 0);
@@ -33,4 +40,4 @@ function weightedPick(list, r) {
   return list[list.length - 1][0];
 }
 
-export { hashInt, mulberry32, seedToInt, weightedPick };
+export { hashInt, mulberry32, seedToInt, seeded, nextSeed, weightedPick };

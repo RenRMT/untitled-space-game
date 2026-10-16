@@ -18,6 +18,7 @@
 //   Squad.read(saved) -> [members]          a save, checked (unknown modules are dropped)
 // ES module (`Squad`); also runs in Node (the tests).
 
+import { clamp } from '../core/math.js';
 import { mulberry32 } from '../core/rng.js';
 import { Loadout } from './loadout.js';
 import { Logic } from './logic.js';
@@ -76,7 +77,7 @@ const Squad = (() => {
     if (!Array.isArray(saved)) return null;
     return saved.filter((d) => d && Number.isFinite(d.seed) && Load.HULLS[d.hull]?.npc).map((d) => {
       const m = member(d.seed, { modules: Array.isArray(d.modules) ? d.modules : [], hull: d.hull, tier: Number.isInteger(d.tier) ? d.tier : 1, id: String(d.id) });
-      if (Number.isFinite(d.hullPoints)) m.hullPoints = Math.max(0, Math.min(stats(m).hull, d.hullPoints));
+      if (Number.isFinite(d.hullPoints)) m.hullPoints = clamp(d.hullPoints, 0, stats(m).hull);
       m.disabled = !!d.disabled;
       return m;
     });

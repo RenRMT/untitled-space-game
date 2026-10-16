@@ -43,7 +43,7 @@
 // ES module (`CombatCore`); also runs in Node (the tests).
 
 import { MathUtil } from '../core/math.js';
-import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { nextSeed, seeded, weightedPick } from '../core/rng.js';
 import { Goods } from '../rules/goods.js';
 import { Security } from '../world/security.js';
 
@@ -97,8 +97,8 @@ const CombatCore = (() => {
   const GOODS = G.categories('trade');
   const chance = { component: 0.85, second: 0.35, cargo: 0.45 };
   function loot(galaxySeed, key, role, tier = 1) {
-    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(key), 0x1007));
-    const seed = () => Math.floor(r() * 4294967295);
+    const r = seeded(galaxySeed, key, 0x1007);
+    const seed = () => nextSeed(r);
     const out = [];
     const component = () => ({ kind: G.component(weightedPick(SALVAGE, r()), Sec.componentTier(r, tier)), seed: seed() });
     // A trade good; well-armed pirates keep the better of two.
@@ -122,7 +122,13 @@ const CombatCore = (() => {
     return out;
   }
 
-  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot };
+  // What an ally does now, in either mode ({ target } or { station }: the modes' setOrders).
+  function setOrders(s, id, order) {
+    const a = s.allies.find((x) => x.id === id);
+    if (a) a.order = order || {};
+  }
+
+  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot, setOrders };
 })();
 
 export { CombatCore };

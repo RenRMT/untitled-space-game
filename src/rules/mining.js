@@ -10,7 +10,7 @@
 //   Mining.duration(e) -> seconds to mine or collect it with a Mk I computer
 // ES module (`Mining`); also runs in Node (the tests).
 
-import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { nextSeed, seeded, weightedPick } from '../core/rng.js';
 import { Goods } from './goods.js';
 
 const Mining = (() => {
@@ -37,18 +37,18 @@ const Mining = (() => {
   function yieldOf(galaxySeed, asteroid) {
     const y = YIELD[asteroid.ast.type];
     if (!y) return null;
-    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(asteroid.key), 0x313e));
+    const r = seeded(galaxySeed, asteroid.key, 0x313e);
     if (r() >= y.chance) return null;
     const category = weightedPick(y.items, r());
-    return { kind: G.pick(r, category), seed: Math.floor(r() * 4294967295) };
+    return { kind: G.pick(r, category), seed: nextSeed(r) };
   }
 
   // What a collected gas pocket leaves: its size sets how much (1–3 units), each a gas picked by
   // rarity, from the pocket's own stream.
   function gasOf(galaxySeed, pocket) {
-    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(pocket.key), 0x6a5));
+    const r = seeded(galaxySeed, pocket.key, 0x6a5);
     const n = 1 + Math.floor((pocket.pocket ? pocket.pocket.r : pocket.r || 60) / 45 + r() * 0.8);
-    return Array.from({ length: Math.min(3, n) }, () => ({ kind: G.pick(r, 'gas'), seed: Math.floor(r() * 4294967295) }));
+    return Array.from({ length: Math.min(3, n) }, () => ({ kind: G.pick(r, 'gas'), seed: nextSeed(r) }));
   }
   const duration = (e) => (e.kind === 'gas' ? config.gasDuration : config.duration);
 

@@ -39,12 +39,12 @@
 //   Missions.fill(text, vars), Missions.lines(list, log, id)
 // ES module (`Missions`); also runs in Node (the tests).
 
-import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { TAU, clamp, dist } from '../core/math.js';
+import { hashInt, mulberry32, nextSeed, seedToInt, weightedPick } from '../core/rng.js';
 import { Squad } from '../rules/squad.js';
 
 const Missions = (() => {
   const SquadRef = Squad;
-  const TAU = Math.PI * 2;
 
   const LIST = {
     repayment: {
@@ -244,7 +244,7 @@ const Missions = (() => {
     function set(id, o, n) {
       const obj = LIST[id] && LIST[id].byId[o];
       if (!obj || status(id) !== 'active') return false;
-      const v = Math.max(0, Math.min(need(obj), Math.floor(n)));
+      const v = clamp(Math.floor(n), 0, need(obj));
       if (v === count(id, o)) return false;
       state[id].progress[o] = v;
       if (LIST[id].objectives.every((x) => done(id, x.id))) state[id].status = 'ready';
@@ -307,18 +307,17 @@ const Missions = (() => {
     const sys = galaxy.systems[W.system];
     const base = seedToInt(galaxy.seed);
     const r = mulberry32(hashInt(base, 7, 0x3155));
-    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     // Each check by name, so later passes can drop the ones that matter least.
     const CHECKS = {
-      inside: (p) => d(p, sys.origin) <= sys.radius - 2000,
-      planets: (p) => galaxy.planets.every((pl) => d(pl, p) >= pl.extent + 2500),
-      stations: (p) => galaxy.stations.every((st) => st === W || d(st, p) >= 7000),
-      gates: (p) => galaxy.gates.every((g) => d(g, p) >= 4000),
-      nebulae: (p) => galaxy.nebulae.every((n) => d(n, p) >= n.r + 1500),
-      packs: (p) => galaxy.packs.every((k) => d(k, p) >= 4500),
+      inside: (p) => dist(p, sys.origin) <= sys.radius - 2000,
+      planets: (p) => galaxy.planets.every((pl) => dist(pl, p) >= pl.extent + 2500),
+      stations: (p) => galaxy.stations.every((st) => st === W || dist(st, p) >= 7000),
+      gates: (p) => galaxy.gates.every((g) => dist(g, p) >= 4000),
+      nebulae: (p) => galaxy.nebulae.every((n) => dist(n, p) >= n.r + 1500),
+      packs: (p) => galaxy.packs.every((k) => dist(k, p) >= 4500),
       belts: (p) => galaxy.belts.every((b) => Math.abs(Math.hypot(p.x - b.cx, p.y - b.cy) - b.r) >= b.width / 2 + 1500),
-      fields: (p) => galaxy.fields.every((f) => d(f, p) >= f.spread + SITE.spread + 1500),
-      contacts: (p) => galaxy.contacts.every((c) => d(c, p) >= c.r + 2500),
+      fields: (p) => galaxy.fields.every((f) => dist(f, p) >= f.spread + SITE.spread + 1500),
+      contacts: (p) => galaxy.contacts.every((c) => dist(c, p) >= c.r + 2500),
     };
     // Passes: everything at the usual distance; then inside a belt or by other rocks and wrecks
     // will do; then a little nearer or further.
@@ -347,20 +346,20 @@ const Missions = (() => {
       const a = r() * TAU, dist = 260 + Math.sqrt(r()) * (SITE.spread - 260);
       rocks.push({
         key: `${pre}a${i}`, x: at.x + Math.cos(a) * dist, y: at.y + Math.sin(a) * dist, type: weightedPick(FIELD_TYPES, r()),
-        r: 8 + r() ** 2.2 * 44, seed: Math.floor(r() * 4294967295), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
+        r: 8 + r() ** 2.2 * 44, seed: nextSeed(r), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
       });
     }
     const pirates = [];
     for (let i = 0; i < SITE.pirates; i++) {
       const orbit = SITE.orbit[0] + r() * (SITE.orbit[1] - SITE.orbit[0]);
       const speed = (i % 2 ? -1 : 1) * (SITE.speed[0] + r() * (SITE.speed[1] - SITE.speed[0]));
-      pirates.push({ key: `${pre}s${i}`, orbit, speed, a0: (i / SITE.pirates) * TAU + r(), seed: Math.floor(r() * 4294967295) });
+      pirates.push({ key: `${pre}s${i}`, orbit, speed, a0: (i / SITE.pirates) * TAU + r(), seed: nextSeed(r) });
     }
     const angle = r() * TAU, ca = angle + Math.PI / 2 + (r() - 0.5);
     return {
       id: 'repayment', x: at.x, y: at.y, spread: SITE.spread, tier: SITE.tier, rocks, pirates,
       android: { key: `${pre}android`, seed: hashInt(base, 1, 0x5a0d), angle },
-      cargo: { key: `${pre}regulator`, kind: 'electronics', seed: Math.floor(r() * 4294967295), x: at.x + Math.cos(ca) * 170, y: at.y + Math.sin(ca) * 170 },
+      cargo: { key: `${pre}regulator`, kind: 'electronics', seed: nextSeed(r), x: at.x + Math.cos(ca) * 170, y: at.y + Math.sin(ca) * 170 },
     };
   }
 
@@ -389,13 +388,12 @@ const Missions = (() => {
   function salvageSite(galaxy, first) {
     const W = galaxy.stations[galaxy.waystation];
     if (!W) return null;
-    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
     const own = galaxy.nebulae.map((n, i) => ({ n, i })).filter(({ n }) => n.system === W.system);
     if (!own.length) return null;
-    const { n, i: index } = own.reduce((b, c) => (d(c.n, W) - c.n.r < d(b.n, W) - b.n.r ? c : b));
+    const { n, i: index } = own.reduce((b, c) => (dist(c.n, W) - c.n.r < dist(b.n, W) - b.n.r ? c : b));
     const base = seedToInt(galaxy.seed), r = mulberry32(hashInt(base, 9, 0x5a17));
     const pockets = galaxy.pockets.filter((q) => q.nebula === index);
-    const packDist = (p) => Math.min(Infinity, ...galaxy.packs.map((k) => d(k, p)));
+    const packDist = (p) => Math.min(Infinity, ...galaxy.packs.map((k) => dist(k, p)));
     // Candidates inside the nebula, clear of its pockets and the first field; then the furthest
     // from the waystation clear of the pirates by packClear, or failing that by the least that
     // keeps them out of the fight (minClear), or failing that the one furthest from them.
@@ -403,8 +401,8 @@ const Missions = (() => {
     for (let tries = 0; tries < 600; tries++) {
       const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * TAU, rr = Math.sqrt(r()) * b.r * 0.8;
       const p = { x: n.x + b.dx + Math.cos(a) * rr, y: n.y + b.dy + Math.sin(a) * rr };
-      if (galaxy.nebulaAt(p.x, p.y) !== n || pockets.some((q) => d(q, p) < SALVAGE.pocketClear) || (first && d(first, p) < first.spread + 3000)) continue;
-      spots.push({ ...p, pack: packDist(p), far: d(p, W) });
+      if (galaxy.nebulaAt(p.x, p.y) !== n || pockets.some((q) => dist(q, p) < SALVAGE.pocketClear) || (first && dist(first, p) < first.spread + 3000)) continue;
+      spots.push({ ...p, pack: packDist(p), far: dist(p, W) });
     }
     const pick = (clear) => spots.filter((p) => p.pack >= clear).sort((a, b) => b.far - a.far)[0];
     const best = pick(SALVAGE.packClear) || pick(SALVAGE.minClear) || spots.sort((a, b) => b.pack - a.pack)[0] || { x: n.x, y: n.y };
@@ -413,7 +411,7 @@ const Missions = (() => {
     return {
       id: 'salvage', nebula: index, pockets: pockets.map((q) => q.key), safe, x: Math.round(best.x), y: Math.round(best.y), tier: SALVAGE.tier,
       hostile: { key: `${pre}hostile`, seed: hostileSeed(base, first), orbit: SALVAGE.orbit, speed: SALVAGE.speed, a0: r() * TAU },
-      module: { key: `${pre}module`, kind: 'ai-cores', seed: Math.floor(r() * 4294967295), x: Math.round(best.x), y: Math.round(best.y) },
+      module: { key: `${pre}module`, kind: 'ai-cores', seed: nextSeed(r), x: Math.round(best.x), y: Math.round(best.y) },
     };
   }
 
@@ -437,7 +435,7 @@ const Missions = (() => {
     const wave = (w, n, side) => {
       const a = out + side * (0.9 + r() * 0.4), cx = Math.round(g.x + Math.cos(a) * GATE.arrive), cy = Math.round(g.y + Math.sin(a) * GATE.arrive);
       return Array.from({ length: n }, (_, i) => ({
-        key: `${pre}w${w}${'ab'[i]}`, cx, cy, orbit: GATE.orbit + i * 90, speed: (i % 2 ? -1 : 1) * (170 + r() * 20), a0: r() * TAU, seed: Math.floor(r() * 4294967295),
+        key: `${pre}w${w}${'ab'[i]}`, cx, cy, orbit: GATE.orbit + i * 90, speed: (i % 2 ? -1 : 1) * (170 + r() * 20), a0: r() * TAU, seed: nextSeed(r),
       }));
     };
     return { id: 'gate', gate: g.id, x: g.x, y: g.y, work, tier: GATE.tier, waves: [wave(1, 1, 1), wave(2, 2, -1)] };

@@ -11,7 +11,7 @@
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // ES module (`Economy`); also runs in Node (the tests).
 
-import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
+import { seeded } from '../core/rng.js';
 import { Goods } from './goods.js';
 
 const Economy = (() => {
@@ -63,7 +63,7 @@ const Economy = (() => {
   // The market at a station: { goods }, every trade good as { kind, category, rarity, buy, sell,
   // produced, consumed }; buy is null where the station doesn't stock it.
   function market(galaxySeed, station) {
-    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(station.key), 0xec0));
+    const r = seeded(galaxySeed, station.key, 0xec0);
     const P = profileOf(station, r);
     const jitter = () => 1 + (r() * 2 - 1) * config.jitter;
     const forSale = new Set(P.produces);

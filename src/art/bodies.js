@@ -18,6 +18,7 @@
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
 // ES module (`ArtBodies`); needs a browser.
 
+import { smoothstep } from '../core/math.js';
 import { Art } from './render.js';
 import { SpriteCache } from './sprite-cache.js';
 import { ArtUtil } from './util.js';
@@ -29,7 +30,7 @@ const ArtBodies = (() => {
   const { LIGHT, BAYER, norm, dot, sub, cross, hash3, noise3, fbm, icosphere, ramp, level, quant, dprOf, canvas, idOf, budget } = Art.kit;
   const conf = () => Art.config;
   const L2 = [LIGHT[0], LIGHT[1]].map((v) => v / Math.hypot(LIGHT[0], LIGHT[1]));
-  const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+  const smooth = smoothstep;
   const pathOf = (pts, dx = 0, dy = 0) => { const p = new Path2D(); pts.forEach(([x, y], i) => (i ? p.lineTo(x + dx, y + dy) : p.moveTo(x + dx, y + dy))); p.closePath(); return p; };
   const cache = SpriteCache.create({ budget, get maxPixels() { return conf().maxBodyPixels; }, get maxEntries() { return conf().maxBodySprites; } });
 

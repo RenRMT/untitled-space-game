@@ -28,12 +28,12 @@
 // numbers replace).
 // ES module (`SolarSystem`); also runs in Node (the tests).
 
-import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { TAU, clamp, dist } from '../core/math.js';
+import { hashInt, mulberry32, nextSeed, seedToInt, weightedPick } from '../core/rng.js';
 import { Security } from './security.js';
 
 const SolarSystem = (() => {
   const Sec = Security;
-  const TAU = Math.PI * 2;
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
@@ -116,7 +116,6 @@ const SolarSystem = (() => {
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
-  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
   // Defaults with overrides merged in: plain objects merge, everything else replaces.
   function mergeParams(base, over) {
@@ -138,7 +137,6 @@ const SolarSystem = (() => {
     const rnd = stream(0x5017);
     const between = (r, [lo, hi]) => lo + r() * (hi - lo);
     const count = (r, [lo, hi]) => lo + Math.floor(r() * (hi - lo + 1));
-    const nextSeed = (r) => Math.floor(r() * 4294967295);
     const polar = (a, d) => ({ x: Math.cos(a) * d, y: Math.sin(a) * d });
 
     const usedNames = new Set();
@@ -486,7 +484,7 @@ const SolarSystem = (() => {
       if (rockBlock.some((b) => dist(b, at) < b.r + 120)) return;
       asteroids.push({
         key: `a${asteroids.length}`, x, y, type: weightedPick(types, r()), r: 8 + r() ** 2.2 * 44,
-        seed: Math.floor(r() * 4294967295), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
+        seed: nextSeed(r), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
       });
     }
     function cluster(r, cx, cy, n, spread, types) {
@@ -520,7 +518,7 @@ const SolarSystem = (() => {
     const pockets = [];
     nebulae.forEach((n) => {
       const r = stream(0x6a55, n.id), G = P.gas;
-      const want = Math.max(G.count[0], Math.min(G.count[1], Math.round(n.r / G.per)));
+      const want = clamp(Math.round(n.r / G.per), G.count[0], G.count[1]);
       for (let made = 0, tries = 0; made < want && tries < 300; tries++) {
         const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * TAU, d = Math.sqrt(r()) * b.r * 0.75;
         const at = { x: n.x + b.dx + Math.cos(a) * d, y: n.y + b.dy + Math.sin(a) * d };

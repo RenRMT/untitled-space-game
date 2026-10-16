@@ -16,6 +16,9 @@
 // A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null } }.
 // ES module (`Loadout`); also runs in Node (the tests).
 
+import { Format } from '../core/format.js';
+import { clamp } from '../core/math.js';
+
 const Loadout = (() => {
   const MAX_WEAPONS = 4;
   const MK = [null, 'Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'];
@@ -131,7 +134,7 @@ const Loadout = (() => {
 
   // An NPC ship of a class with its gear at a tier (1–5), and a hull reinforced to match.
   function npc(hullId, tier = 1) {
-    const t = Math.max(1, Math.min(5, tier));
+    const t = clamp(tier, 1, 5);
     const fitted = {};
     for (const s of slotsOf(hullId)) fitted[s.id] = HULLS[hullId].npc[s.id] ? `${HULLS[hullId].npc[s.id]}-${t}` : null;
     return { hull: hullId, fitted, armour: NPC_ARMOUR * (t - 1) };
@@ -184,7 +187,7 @@ const Loadout = (() => {
   }
 
   const degrees = (rad) => Math.round((rad * 180) / Math.PI);
-  const k = (units) => `${(units / 1000).toFixed(1)}k`;
+  const k = Format.dist;
 
   // One line of what a piece of equipment does, for the Ship and Research tabs.
   function summary(item) {

@@ -12,7 +12,6 @@
 //   Comms.onSkip = fn    shows a Skip button that calls it (null hides it)
 // ES module (`Comms`); needs a browser.
 
-import { Display } from '../core/display.js';
 import { UI } from './ui.js';
 
 const Comms = (() => {
@@ -31,16 +30,7 @@ const Comms = (() => {
   let current = null; // what's showing: the options given to show() or hint()
   let skip = null;
 
-  // A portrait into a canvas, sharp at the screen's pixel density.
-  function paint(canvas, face, size) {
-    const dpr = Display.uiDpr();
-    canvas.width = Math.round(size * dpr);
-    canvas.height = Math.round(size * dpr);
-    const ctx = canvas.getContext('2d');
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, size, size);
-    face(ctx, size);
-  }
+  const paint = UI.paint; // a portrait into a canvas (ui/ui.js)
 
   function render(o, waits) {
     current = { ...o, waits };

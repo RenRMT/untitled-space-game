@@ -15,6 +15,7 @@
 //   CombatPanel.top   its top edge on screen, null while hidden (UI.topEdge)
 // ES module (`CombatPanel`); needs a browser.
 
+import { clamp } from '../core/math.js';
 import { UI } from './ui.js';
 
 const CombatPanel = (() => {
@@ -40,7 +41,7 @@ const CombatPanel = (() => {
   rowsEl.addEventListener('click', (e) => { if (e.detail === 0) focusFrom(e); });
   btn.addEventListener('click', () => onButton && !btn.disabled && onButton(btn.dataset.id));
 
-  const pct = (v, max) => `${max > 0 ? Math.max(0, Math.min(100, (v / max) * 100)).toFixed(1) : 0}%`;
+  const pct = (v, max) => `${max > 0 ? clamp((v / max) * 100, 0, 100).toFixed(1) : 0}%`;
 
   // An enemy still flying is a button (focus fire on it); you, your squad and the destroyed are
   // plain rows. A squad member shot down is disabled, not destroyed.
@@ -88,7 +89,7 @@ const CombatPanel = (() => {
     } else if (values.changed(readings)) {
       d.rows.forEach((r, i) => setReadings(bars[i], r));
     }
-    const width = `${(Math.max(0, Math.min(1, d.progress || 0)) * 100).toFixed(1)}%`;
+    const width = `${(clamp(d.progress || 0, 0, 1) * 100).toFixed(1)}%`;
     if (width !== timerWidth) timer.style.width = timerWidth = width;
   }
 

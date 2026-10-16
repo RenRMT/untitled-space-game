@@ -14,7 +14,7 @@
 
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtUtil } from '../art/util.js';
-import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { hashInt, mulberry32, nextSeed, seedToInt, weightedPick } from '../core/rng.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
 import { Security } from '../world/security.js';
@@ -104,7 +104,7 @@ const Scene = (() => {
     // ones less likely (rules/goods.js); components: a tier by the security there (world/security.js), better
     // in dangerous space.
     function item(r, categories, x, y, lootTier) {
-      const category = categories[Math.floor(r() * categories.length)], seed = Math.floor(r() * 4294967295);
+      const category = categories[Math.floor(r() * categories.length)], seed = nextSeed(r);
       const rng = mulberry32(seed ^ 0x6e7);
       const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category, Security.componentTier(rng, lootTier)) : Goods.pick(rng, category);
       const angle = r() * TAU, tumble = (r() - 0.5) * 0.3;

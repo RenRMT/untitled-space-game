@@ -2,6 +2,8 @@
 // to it and stop beside it).
 // Part of the flight view; src/main.js starts it.
 
+import { Format } from '../core/format.js';
+import { clamp } from '../core/math.js';
 import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
@@ -60,7 +62,7 @@ export function select(e) {
 }
 
 export const isHostile = (e) => Entities.isHostile(e);
-export const fmtDist = (d) => `${(Math.max(0, d) / 1000).toFixed(1)}k`;
+export const fmtDist = Format.dist; // core/format.js
 
 // An action's button on the context card, from its state.
 export function primary(id, state) {
@@ -130,7 +132,7 @@ export function tickAutopilot() {
   ship.targetAngle = Math.atan2(dy, dx);
   const facing = Math.cos(ship.targetAngle - ship.angle);
   const braking = Math.sqrt(2 * SHIP.accel * 0.7 * left);
-  ship.targetSpeed = Math.max(40, Math.min(SHIP.maxSpeed, braking)) * (facing > 0.8 ? 1 : 0.35);
+  ship.targetSpeed = clamp(braking, 40, SHIP.maxSpeed) * (facing > 0.8 ? 1 : 0.35);
 }
 
 // Corner brackets around the selected object, and a dashed line to the approach target.

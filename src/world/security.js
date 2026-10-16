@@ -17,6 +17,8 @@
 //   Security.componentTier(rng, lootTier) -> a component tier (1–5) for something at that loot tier
 // ES module (`Security`); also runs in Node (the tests).
 
+import { clamp } from '../core/math.js';
+
 const Security = (() => {
   const LEVELS = [
     { level: 0, key: 'none', label: 'None', color: '#ff5a6e' },
@@ -59,8 +61,8 @@ const Security = (() => {
     for (const [v, w] of table) if ((x -= w) < 0) return v;
     return table[table.length - 1][0];
   }
-  const lootTier = (level) => 4 - Math.max(0, Math.min(3, level));
-  const componentTier = (rng, tier) => pick(rng, COMPONENT_TIERS[Math.max(1, Math.min(4, tier))]);
+  const lootTier = (level) => 4 - clamp(level, 0, 3);
+  const componentTier = (rng, tier) => pick(rng, COMPONENT_TIERS[clamp(tier, 1, 4)]);
 
   return { LEVELS, PIRATES, PACK, COMPONENT_TIERS, pirates, pick, lootTier, componentTier };
 })();

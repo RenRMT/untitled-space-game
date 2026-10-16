@@ -13,6 +13,8 @@
 // contact, the objective or any point) and press Travel; the flight view runs the trip (flight/travel.js) and the map
 // shows the route, progress, signal prompts, Stop and fast-forward.
 
+import { ArtUtil } from '../art/util.js';
+import { Format } from '../core/format.js';
 import { Display } from '../core/display.js';
 import { MathUtil } from '../core/math.js';
 import { Params } from '../core/store.js';
@@ -93,10 +95,7 @@ const SystemMap = (() => {
   const toScreen = (x, y) => [(x - view.ox) * view.scale, (y - view.oy) * view.scale];
   const toWorld = (sx, sy) => [sx / view.scale + view.ox, sy / view.scale + view.oy];
 
-  function hexToRgba(hex, a) {
-    const n = parseInt(hex.slice(1), 16);
-    return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
-  }
+  const hexToRgba = ArtUtil.rgba; // art/util.js
 
   // ---------- Galaxy and the local system ----------
 
@@ -304,7 +303,7 @@ const SystemMap = (() => {
       ctx.beginPath(); ctx.arc(cx, cy, b.r * scale, 0, Math.PI * 2); ctx.stroke();
     }
     ctx.fillStyle = 'rgba(178, 157, 132, 0.4)';
-    const speck = Math.max(1, Math.min(2.5, 30 * scale));
+    const speck = clamp(30 * scale, 1, 2.5);
     for (const a of system.asteroids) {
       const [ax, ay] = toScreen(a.x, a.y);
       if (ax < -4 || ay < -4 || ax > w + 4 || ay > h + 4) continue;
@@ -555,7 +554,7 @@ const SystemMap = (() => {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
   const row = (label, value) => `<div class="row"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
   const swatchHead = (color, title) => `<div class="head"><span class="swatch" style="background:${esc(color)}"></span>${esc(title)}</div>`;
-  const km = (d) => (d >= 100000 ? `${Math.round(d / 1000)}k` : `${(d / 1000).toFixed(1)}k`);
+  const km = Format.dist;
   const securityRow = (x, y) => {
     const s = Security.LEVELS[galaxy.securityAt(x, y)];
     return `<div class="row"><span>security</span><span style="color:${s.color}">${esc(s.label)}</span></div>`;

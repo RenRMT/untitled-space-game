@@ -45,10 +45,7 @@ const Combat = (() => {
     return s;
   }
 
-  function setOrders(s, id, order) {
-    const a = s.allies.find((x) => x.id === id);
-    if (a) a.order = order || {};
-  }
+  const { setOrders } = core; // combat/combat-core.js
 
   function setFocus(s, id) {
     if (s.enemies.some((e) => e.id === id && e.hull > 0)) s.focus = id;

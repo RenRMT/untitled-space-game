@@ -47,9 +47,7 @@ const RealtimeCombat = (() => {
     spacing: 120, // enemies keep about this far apart
   };
 
-  const { TAU, clamp, lerp } = MathUtil;
-  const angleDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+  const { TAU, clamp, lerp, angleDiff, dist } = MathUtil;
 
   // A ship in a fight. stats: Loadout.stats(); body: { x, y, vx, vy, angle, radius } (radius
   // defaults to the hull's); hull: current hull points (defaults to full).
@@ -90,10 +88,7 @@ const RealtimeCombat = (() => {
   }
 
   // What an ally does now: fire on `target` (an enemy id), or with none hold `station` ({ x, y }).
-  function setOrders(s, id, order) {
-    const a = s.allies.find((x) => x.id === id);
-    if (a) a.order = order || {};
-  }
+  const { setOrders } = core; // combat/combat-core.js
 
   // Another ship joins the fight (a pirate flying into range).
   function join(s, e) {

@@ -6,6 +6,8 @@
 //     nodes, text (always set as text, never parsed as HTML) or arrays of them; null, undefined
 //     and false are skipped.
 //   UI.rich('Dock at **the waystation**') -> children for UI.h: the text, its **bold** runs in <strong>
+//   UI.paint(canvas, draw, size)    sizes a canvas to size × size CSS px, sharp at the screen's pixel
+//     density, clears it and calls draw(ctx, size) (portraits)
 //   UI.keyed() -> { changed(parts), reset(), shown }
 //     remembers what a panel last showed (parts, compared as JSON), so it is rebuilt only when
 //     something visible changes. changed() records the new parts and says whether they differ.
@@ -15,6 +17,8 @@
 //     forcing a layout straight after the panels were written (without ResizeObserver it is
 //     measured on each read).
 // ES module (`UI`); needs a browser.
+
+import { Display } from '../core/display.js';
 
 const UI = (() => {
   function h(tag, attrs = {}, ...children) {
@@ -61,7 +65,17 @@ const UI = (() => {
   const rich = (text) => text.split(/\*\*/).map((t, k) => [t, k % 2 === 1]).filter(([t]) => t)
     .map(([t, bold]) => (bold ? h('strong', {}, t) : t));
 
-  return { h, rich, keyed, topEdge };
+  function paint(canvas, draw, size) {
+    const dpr = Display.uiDpr();
+    canvas.width = Math.round(size * dpr);
+    canvas.height = Math.round(size * dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    draw(ctx, size);
+  }
+
+  return { h, rich, paint, keyed, topEdge };
 })();
 
 export { UI };

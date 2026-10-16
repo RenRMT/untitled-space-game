@@ -20,8 +20,9 @@
 //   Launch can't be pressed yet (null when it can). Asked again after every change.
 // ES module (`StationMenu`); needs a browser.
 
+import { Format } from '../core/format.js';
+import { clamp } from '../core/math.js';
 import { ItemIcons } from '../art/icons.js';
-import { Display } from '../core/display.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
@@ -57,7 +58,7 @@ const StationMenu = (() => {
 
   // Where a price sits between cheap and dear, as a marker on a slim track.
   function gauge(price, base) {
-    const k = Math.max(0, Math.min(1, (price / base - GAUGE[0]) / (GAUGE[1] - GAUGE[0])));
+    const k = clamp((price / base - GAUGE[0]) / (GAUGE[1] - GAUGE[0]), 0, 1);
     const tone = price / base < 0.88 ? 'cheap' : price / base > 1.12 ? 'dear' : '';
     return h('span', { class: 'gauge', 'aria-hidden': 'true' }, h('span', { class: `mark ${tone}`, style: { left: `${k * 100}%` } }));
   }
@@ -210,7 +211,7 @@ const StationMenu = (() => {
     const { repairs, hold } = ctx;
     const damaged = repairs.hull < repairs.max;
     const affordable = Math.min(repairs.cost, Math.floor(hold.credits / repairs.price) * repairs.price);
-    const pct = Math.max(0, Math.min(100, (repairs.hull / repairs.max) * 100));
+    const pct = clamp((repairs.hull / repairs.max) * 100, 0, 100);
     return h('section', { 'aria-label': 'Hull' },
       h('h2', {}, 'Hull', h('span', { class: 'count' }, `${Math.ceil(repairs.hull)}/${repairs.max}`)),
       h('div', { class: `hull-row${damaged ? ' damaged' : ''}` },
@@ -228,7 +229,7 @@ const StationMenu = (() => {
     const { ship, hold, outfitting } = ctx;
     const stat = (label, value) => h('div', { class: 'stat' }, h('dt', {}, label), h('dd', {}, value));
     const slots = Loadout.slots(outfitting.loadout, outfitting.upgrades);
-    const k = (units) => `${(units / 1000).toFixed(1)}k`;
+    const k = Format.dist;
     const groups = new Map(); // item type -> count
     for (const it of hold.items) groups.set(it.kind, (groups.get(it.kind) || 0) + 1);
     return [
@@ -302,12 +303,7 @@ const StationMenu = (() => {
   // A portrait (a face(ctx, size) drawer) in a canvas, sharp at the screen's pixel density.
   function portrait(face, size) {
     const c = h('canvas', { class: 'ms-face', 'aria-hidden': 'true', style: { width: `${size}px`, height: `${size}px` } });
-    const dpr = Display.uiDpr();
-    c.width = Math.round(size * dpr);
-    c.height = Math.round(size * dpr);
-    const g = c.getContext('2d');
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    face(g, size);
+    UI.paint(c, face, size);
     return c;
   }
   // A line with its **bold** runs (UI.rich).
