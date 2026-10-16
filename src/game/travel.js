@@ -34,7 +34,7 @@ export function finishTrip(ev) {
   if (ev.type === 'arrive') {
     if (dest.kind === 'contact') dropNearContact(world.galaxy.contacts.find((c) => c.id === dest.id), ev.dir);
     else if (dest.kind === 'objective') dropNearContact({ x: dest.x, y: dest.y, r: OBJECTIVE_STOP }, ev.dir);
-    else if (dest.kind === 'point') placeShip(ev.pos.x, ev.pos.y, ev.dir);
+    else if (dest.kind === 'point' || dest.kind === 'system') placeShip(ev.pos.x, ev.pos.y, ev.dir);
     else arriveAt(dest);
     text = `Arrived at ${dest.name}`;
   } else if (ev.type === 'interdict' || ev.type === 'investigate') {

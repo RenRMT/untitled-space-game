@@ -4,6 +4,7 @@
 
 import { COLORS, Theme } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
+import { SystemMap } from '../ui/map.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { visible } from './draw-world.js';
@@ -11,7 +12,7 @@ import { DEADZONE, drag, interacted, maxDrag, steady } from './input.js';
 import { mission } from './missions.js';
 import { moveMode } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, intro, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, intro, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -135,9 +136,39 @@ export function drawNavMarkers() {
     const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(d - (obj.station ? R : 0))}`;
     stations.push({ ref: obj.station, x: obj.x, y: obj.y, d, color: COLORS.amber, ring: COLORS.amber, alpha: markerFade(d, NAV_RANGE * 2, 0.4), label });
   }
+  // The player's marker (set on the map): an edge marker at any distance while off screen, else a
+  // pin where it is.
+  const mk = SystemMap.marker;
+  if (mk) {
+    const d = Math.hypot(mk.x - ship.x, mk.y - ship.y);
+    if (!visible({ x: mk.x, y: mk.y, radius: 0 })) {
+      stations.push({ ref: null, x: mk.x, y: mk.y, d, color: COLORS.marker, ring: COLORS.marker, alpha: markerFade(d, NAV_RANGE * 2, 0.5), label: `${(mk.name || 'Marker').toUpperCase()} · ${fmtDist(d)}` });
+    } else drawMarkerPin(...worldToScreen(mk.x, mk.y));
+  }
   stations.sort((a, b) => a.d - b.d); // the nearest keep their place at the edge when labels collide
   const top = ContextCard.isOpen ? ContextCard.top : null;
   navHits = edgeMarkers(stations, steady('nav', top === null ? 64 : Math.max(64, view.h - top + 16)), 0.95);
+}
+
+// A pin standing on (x, y), screen px: the player's marker, as the map draws it.
+function drawMarkerPin(x, y) {
+  ctx.save();
+  ctx.fillStyle = ctx.strokeStyle = COLORS.marker;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y - 18, 6, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x, y - 12); ctx.lineTo(x, y - 2); ctx.stroke();
+  ctx.globalAlpha = 0.5;
+  ctx.beginPath(); ctx.arc(x, y, 4, 0, TAU); ctx.stroke();
+  ctx.restore();
+}
+
+// The marker clears once the ship gets this close to it (plus a planet's or contact's size).
+export const MARKER_REACH = 800;
+export function checkMarker() {
+  const m = SystemMap.marker;
+  if (!m || Math.hypot(m.x - ship.x, m.y - ship.y) > MARKER_REACH + ((m.ref && m.ref.r) || 0)) return;
+  SystemMap.marker = null;
+  notify(m.name ? `Reached your marker: ${m.name}` : 'Reached your marker', 3);
 }
 
 // The station whose edge marker is under a tap, if any.
@@ -231,6 +262,15 @@ export function drawMinimap(list) {
       ctx.fillStyle = m.color;
       ctx.fill();
     }
+  }
+
+  // The player's marker.
+  const mk = SystemMap.marker;
+  if (mk) {
+    ctx.fillStyle = COLORS.marker;
+    ctx.beginPath();
+    ctx.arc(x0 + clamp((mk.x - ox) * s, 3, size - 3), y0 + clamp((mk.y - oy) * s, 3, size - 3), 3, 0, TAU); // pinned to the edge when beyond
+    ctx.fill();
   }
 
   // Camera viewport.

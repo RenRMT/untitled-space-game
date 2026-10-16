@@ -1,5 +1,5 @@
 // The world: the galaxy (generated from world/system-config.js, or ?seed=), its scene, fog of war
-// and map travel; loadGalaxy() swaps them all, as the map's Reroll does. Saves on leaving the page.
+// and map travel; loadGalaxy() swaps them all, as Settings' Re-roll does. Saves on leaving the page.
 // Part of the flight view; src/main.js starts it.
 
 import { ArtAndroids } from '../art/androids.js';

@@ -22,6 +22,7 @@ const Theme = (() => {
     busy: '#ff9d5c', // --busy: mining
     flash: '#fff1d0', // explosions, sparks, the mining beam's tip
     star: '#ffd27a',
+    marker: '#d49bff', // the player's own marker (set on the map)
     planet: '#8ab4ff',
   };
   const mono = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"; // --mono
