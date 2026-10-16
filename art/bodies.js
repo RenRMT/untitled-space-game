@@ -15,7 +15,8 @@
 //   chunks, so any size works, and without blobs resizing the rect leaves its interior unchanged.
 //   ArtBodies.drawNebula(ctx, nebula, style, { view: [x0, y0, x1, y1], texel, force })
 //   ctx must map world units; `view` culls to the visible world rect (without it the whole nebula
-//   is drawn). A chunk that isn't built yet is left out while the frame's budget is spent.
+//   is drawn). It's drawn in tiles built once in world units and drawn at any zoom (see Tiles
+//   below); a tile that isn't built yet is left out while the frame's budget is spent.
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
 // Browser only (global `ArtBodies`). Load after art/render.js.
 
@@ -320,71 +321,97 @@ const ArtBodies = (() => {
     return T._tab || (T._tab = T.c.map((c) => [0, 1, 2, 3].map((q) => U.mix(c, T.alt, (q / 3) * 0.55))));
   }
 
-  // Raster bands (flat and pixel): one sample per output pixel, exactly the chunk's area.
-  function nebRaster(neb, G, T, x0, y0, CH, px, pixel) {
-    const N = Math.max(1, Math.round(CH / px)), cv = canvas(N, N), ctx = cv.getContext('2d'), img = ctx.createImageData(N, N), D = img.data;
-    const tab = nebTable(T).map((r) => r.map(U.hexToRgb)), A = ALPHA[T.dark ? 'dark' : 'normal'];
-    for (let py = 0; py < N; py++) for (let qx = 0; qx < N; qx++) {
-      const [d, m] = nebSample(neb, G, x0 + (qx + 0.5) * px, y0 + (py + 0.5) * px);
-      const lv = band(pixel ? d + (BAYER[py & 3][qx & 3] - 0.5) * 0.1 : d);
-      if (lv < 0) continue;
-      const c = tab[lv][Math.min(3, Math.floor(m * 4))], i = (py * N + qx) * 4;
-      D[i] = c[0]; D[i + 1] = c[1]; D[i + 2] = c[2]; D[i + 3] = Math.round(A[lv] * 255);
+  // ---------- Tiles ----------
+  // A nebula is drawn from tiles of TILE × TILE lattice cells, built once in world units and drawn
+  // at any zoom, so zooming never rebuilds them. A tile holds a raster of the bands (RES_WU world
+  // units per pixel, or the texel in pixel art), drawn without smoothing, and for the line style
+  // the isolines, for low-poly the facets, as vector paths. A tile is built from the density on
+  // its lattice points, not by sampling the noise per pixel, so it takes a millisecond or two;
+  // the tiles just outside the view are built ahead while the frame has budget left. (Nebulae
+  // used to be chunks rasterised per pixel at the screen's scale: slow to build, rebuilt at every
+  // zoom step, and in low-poly so padded that the cache couldn't hold them.)
+  const TILE = 8; // lattice cells per tile side
+  const RES_WU = 2; // world units per raster pixel (pixel art: its texel)
+
+  // Density and hue on the tile's lattice points, with a ring of one more cell all round.
+  function tileField(neb, G, ti, tj) {
+    const n = TILE + 3, i0 = ti * TILE - 1, j0 = tj * TILE - 1, d = new Float32Array(n * n), m = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const [a, b] = nebSample(neb, G, (i0 + i) * G.g, (j0 + j) * G.g);
+      d[j * n + i] = a;
+      m[j * n + i] = b;
     }
-    ctx.putImageData(img, 0, 0);
-    return { canvas: cv, x: x0, y: y0, w: CH, h: CH };
+    return { n, i0, j0, d, m };
   }
 
-  // Line: faint band fill inside the chunk, plus opaque marching-squares isolines on the global
-  // lattice drawn into a padded canvas (neighbouring chunks overlap identically, so no seams).
-  function nebLine(neb, G, T, x0, y0, CH, ppu) {
-    const P = Math.ceil(4 * ppu), inner = Math.max(1, Math.ceil(CH * ppu)), Sp = inner + P * 2, k = inner / CH, pad = P / k;
-    const cv = canvas(Sp, Sp), c = cv.getContext('2d'), img = c.createImageData(Sp, Sp), D = img.data, lc = U.hexToRgb(T.line);
-    const FA = [0.04, 0.07, 0.1, 0.14];
-    for (let py = P; py < P + inner; py++) for (let qx = P; qx < P + inner; qx++) {
-      const lv = band(nebSample(neb, G, x0 + (qx - P + 0.5) / k, y0 + (py - P + 0.5) / k)[0]);
-      if (lv < 0) continue;
-      const i = (py * Sp + qx) * 4;
-      D[i] = lc[0]; D[i + 1] = lc[1]; D[i + 2] = lc[2]; D[i + 3] = Math.round(FA[lv] * 255);
+  // The bands as a raster, one pixel of padding all round so smoothing doesn't seam between tiles.
+  // colour(lv, hue) -> [r, g, b, a], or null to leave it clear.
+  // px: world units per pixel; dither: pixel art's ordered dither on the bands.
+  function tileRaster(F, G, px, colour, dither = false) {
+    const res = G.g / px, N = Math.max(1, Math.round(TILE * res)) + 2, cv = canvas(N, N), c = cv.getContext('2d'), img = c.createImageData(N, N), D = img.data;
+    const r = (N - 2) / TILE; // pixels per cell, exactly
+    for (let py = 0; py < N; py++) {
+      const fy = (py - 1 + 0.5) / r + 1, j = Math.floor(fy), ty = fy - j;
+      for (let qx = 0; qx < N; qx++) {
+        const fx = (qx - 1 + 0.5) / r + 1, i = Math.floor(fx), tx = fx - i, k = j * F.n + i;
+        const d = lerp(lerp(F.d[k], F.d[k + 1], tx), lerp(F.d[k + F.n], F.d[k + F.n + 1], tx), ty);
+        const lv = band(dither ? d + (BAYER[py & 3][qx & 3] - 0.5) * 0.1 : d);
+        if (lv < 0) continue;
+        const m = lerp(lerp(F.m[k], F.m[k + 1], tx), lerp(F.m[k + F.n], F.m[k + F.n + 1], tx), ty);
+        const col = colour(lv, Math.min(3, Math.floor(m * 4)));
+        const o = (py * N + qx) * 4;
+        D[o] = col[0]; D[o + 1] = col[1]; D[o + 2] = col[2]; D[o + 3] = col[3];
+      }
     }
     c.putImageData(img, 0, 0);
-    const g = G.g, i0 = Math.floor(x0 / g) - 1, j0 = Math.floor(y0 / g) - 1, nx = Math.ceil((x0 + CH) / g) + 2 - i0, ny = Math.ceil((y0 + CH) / g) + 2 - j0;
-    const V = new Float32Array(nx * ny);
-    for (let jj = 0; jj < ny; jj++) for (let ii = 0; ii < nx; ii++) V[jj * nx + ii] = nebSample(neb, G, (i0 + ii) * g, (j0 + jj) * g)[0];
-    c.setTransform(k, 0, 0, k, (pad - x0) * k, (pad - y0) * k);
-    c.lineCap = c.lineJoin = 'round';
-    const lw = Math.max(1, Math.min(1.5 * k, 2 * dprOf())) / k;
-    LEVELS.forEach((L, li) => {
-      c.strokeStyle = U.mix(conf().bg, T.line, [0.3, 0.5, 0.75, 1][li]);
-      c.lineWidth = lw * [0.6, 0.75, 0.9, 1][li];
-      c.beginPath();
-      for (let jj = 0; jj < ny - 1; jj++) for (let ii = 0; ii < nx - 1; ii++) {
-        const a = V[jj * nx + ii], b = V[jj * nx + ii + 1], cc = V[(jj + 1) * nx + ii + 1], d = V[(jj + 1) * nx + ii];
+    return cv;
+  }
+
+  // Flat: the bands in the type's colours.
+  function tileFlat(neb, G, T, ti, tj) {
+    const F = tileField(neb, G, ti, tj), A = ALPHA[T.dark ? 'dark' : 'normal'];
+    const tab = nebTable(T).map((r, lv) => r.map((h) => [...U.hexToRgb(h), Math.round(A[lv] * 255)]));
+    return { canvas: tileRaster(F, G, RES_WU, (lv, q) => tab[lv][q]) };
+  }
+
+  // Pixel: the same bands at the art's texel size, dithered.
+  function tilePixel(neb, G, T, ti, tj, texel) {
+    const F = tileField(neb, G, ti, tj), A = ALPHA[T.dark ? 'dark' : 'normal'];
+    const tab = nebTable(T).map((r, lv) => r.map((h) => [...U.hexToRgb(h), Math.round(A[lv] * 255)]));
+    return { canvas: tileRaster(F, G, texel, (lv, q) => tab[lv][q], true) };
+  }
+
+  // Line: a faint fill in the line colour, and the band edges as isolines (marching squares on the
+  // lattice), each tile tracing only its own cells.
+  function tileLine(neb, G, T, ti, tj) {
+    const F = tileField(neb, G, ti, tj), lc = U.hexToRgb(T.line);
+    const fill = [0.04, 0.07, 0.1, 0.14].map((a) => [...lc, Math.round(a * 255)]);
+    const g = G.g, paths = LEVELS.map((L) => {
+      const p = new Path2D();
+      for (let jj = 1; jj <= TILE; jj++) for (let ii = 1; ii <= TILE; ii++) {
+        const k = jj * F.n + ii, a = F.d[k], b = F.d[k + 1], cc = F.d[k + F.n + 1], d = F.d[k + F.n];
         if ((a >= L) === (b >= L) && (b >= L) === (cc >= L) && (cc >= L) === (d >= L)) continue;
-        const x = (i0 + ii) * g, y = (j0 + jj) * g;
+        const x = (F.i0 + ii) * g, y = (F.j0 + jj) * g;
         const at = (va, vb, ax, ay, bx, by) => { if ((va >= L) === (vb >= L)) return null; const t = (L - va) / (vb - va); return [lerp(ax, bx, t), lerp(ay, by, t)]; };
         const e = [at(a, b, x, y, x + g, y), at(b, cc, x + g, y, x + g, y + g), at(d, cc, x, y + g, x + g, y + g), at(a, d, x, y, x, y + g)];
-        const seg = (p, q) => { c.moveTo(p[0], p[1]); c.lineTo(q[0], q[1]); };
+        const seg = (u, v) => { p.moveTo(u[0], u[1]); p.lineTo(v[0], v[1]); };
         const pts = e.filter(Boolean);
         if (pts.length === 2) seg(pts[0], pts[1]);
         else if (pts.length === 4) {
           if (((a + b + cc + d) / 4 >= L) === (a >= L)) { seg(e[0], e[1]); seg(e[2], e[3]); } else { seg(e[0], e[3]); seg(e[1], e[2]); }
         }
       }
-      c.stroke();
+      return p;
     });
-    return { canvas: cv, x: x0 - pad, y: y0 - pad, w: CH + pad * 2, h: CH + pad * 2 };
+    return { canvas: tileRaster(F, G, RES_WU, (lv) => fill[lv]), paths, colors: LEVELS.map((_, li) => U.mix(conf().bg, T.line, [0.3, 0.5, 0.75, 1][li])) };
   }
 
-  // Low-poly: a jittered world lattice; density is height. Each cell belongs to the chunk holding
-  // its origin. Facets are opaque, pre-mixed with the background by their band opacity.
-  function nebLow(neb, G, T, x0, y0, CH, ppu) {
-    const L = G.s / 5, S = G.S, P = Math.ceil(L * 1.5 * ppu), inner = Math.max(1, Math.ceil(CH * ppu)), Sp = inner + P * 2, k = inner / CH, pad = P / k;
-    const cv = canvas(Sp, Sp), c = cv.getContext('2d');
-    c.setTransform(k, 0, 0, k, (pad - x0) * k, (pad - y0) * k);
-    c.lineWidth = 0.6 / k;
-    c.lineJoin = 'round';
-    const tab = nebTable(T), A = ALPHA[T.dark ? 'dark' : 'normal'], bg = conf().bg, verts = new Map();
+  // Low-poly: a jittered world lattice; density is height. Each cell belongs to the tile holding
+  // its origin. Facets are opaque, pre-mixed with the background by their band opacity, their
+  // shading in steps so that facets of one colour share a path (a few dozen fills per tile).
+  function tileLow(neb, G, T, ti, tj) {
+    const L = G.s / 5, S = G.S, x0 = ti * TILE * G.g, y0 = tj * TILE * G.g, W = TILE * G.g;
+    const tab = nebTable(T), A = ALPHA[T.dark ? 'dark' : 'normal'], bg = conf().bg, verts = new Map(), groups = new Map();
     const vert = (i, j) => {
       const key = i * 1048576 + j;
       let v = verts.get(key);
@@ -396,47 +423,70 @@ const ArtBodies = (() => {
       }
       return v;
     };
-    const ia = Math.ceil(x0 / L), ib = Math.ceil((x0 + CH) / L), ja = Math.ceil(y0 / L), jb = Math.ceil((y0 + CH) / L);
+    const ia = Math.ceil(x0 / L), ib = Math.ceil((x0 + W) / L), ja = Math.ceil(y0 / L), jb = Math.ceil((y0 + W) / L);
     for (let j = ja; j < jb; j++) for (let i = ia; i < ib; i++) {
       const v00 = vert(i, j), v10 = vert(i + 1, j), v01 = vert(i, j + 1), v11 = vert(i + 1, j + 1);
       const tris = hash3(i, j, 3, S + 11) < 0.5 ? [[v00, v10, v11], [v00, v11, v01]] : [[v00, v10, v01], [v10, v11, v01]];
       for (const [a, b, q] of tris) {
-        const d = (a[3] + b[3] + q[3]) / 3, lv = band(d);
+        const lv = band((a[3] + b[3] + q[3]) / 3);
         if (lv < 0) continue;
         let n = norm(cross(sub(b, a), sub(q, a)));
         if (n[2] < 0) n = n.map((x) => -x);
         const m = (a[4] + b[4] + q[4]) / 3, jit = 0.95 + 0.1 * hash3(i, j, lv + 5, S);
-        const col = U.shade(U.mix(bg, tab[lv][Math.min(3, Math.floor(m * 4))], A[lv]), (0.35 + 0.85 * Math.max(0, dot(n, LIGHT))) * jit);
-        c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.lineTo(q[0], q[1]); c.closePath();
-        c.fillStyle = c.strokeStyle = col; c.fill(); c.stroke();
+        const lit = Math.round(((0.35 + 0.85 * Math.max(0, dot(n, LIGHT))) * jit) / 0.04) * 0.04;
+        const col = U.shade(U.mix(bg, tab[lv][Math.min(3, Math.floor(m * 4))], A[lv]), lit);
+        let p = groups.get(col);
+        if (!p) groups.set(col, (p = new Path2D()));
+        p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]); p.lineTo(q[0], q[1]); p.closePath();
       }
     }
-    return { canvas: cv, x: x0 - pad, y: y0 - pad, w: CH + pad * 2, h: CH + pad * 2 };
+    return { facets: [...groups], px: 20000 };
   }
+
+  // A tile's place in the world, drawn: the raster over its square, then the paths.
+  function drawTile(ctx, t, x0, y0, W, ppu) {
+    if (t.canvas) {
+      const N = t.canvas.width;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(t.canvas, 1, 1, N - 2, N - 2, x0, y0, W, W);
+    }
+    if (t.facets) {
+      ctx.lineWidth = 0.75 / ppu;
+      ctx.lineJoin = 'round';
+      for (const [col, p] of t.facets) { ctx.fillStyle = ctx.strokeStyle = col; ctx.fill(p); ctx.stroke(p); }
+    }
+    if (t.paths) {
+      const lw = Math.max(1, Math.min(1.5 * ppu, 2 * dprOf())) / ppu;
+      ctx.lineCap = ctx.lineJoin = 'round';
+      t.paths.forEach((p, li) => { ctx.strokeStyle = t.colors[li]; ctx.lineWidth = lw * [0.6, 0.75, 0.9, 1][li]; ctx.stroke(p); });
+    }
+  }
+
+  const TILE_MAKERS = { line: tileLine, flat: tileFlat, lowpoly: tileLow };
 
   function drawNebula(ctx, neb, style, o = {}) {
     const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb);
-    const mt = ctx.getTransform(), ppu = quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel;
-    const CH = style === 'pixel' ? texel * Math.max(8, Math.round(128 / texel)) : 128;
+    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b), texel = o.texel || conf().texel;
     const v = o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h];
     const vx0 = Math.max(v[0], neb.x), vy0 = Math.max(v[1], neb.y), vx1 = Math.min(v[2], neb.x + neb.w), vy1 = Math.min(v[3], neb.y + neb.h);
     if (vx0 >= vx1 || vy0 >= vy1) return;
-    // Chunks well inside the rect don't depend on its edges, so they survive resizes. With blobs
-    // every chunk depends on the shape, so all are keyed by it.
-    const inset = nebMargin(neb, G) * 1.7 + G.s * 0.4;
     const shape = neb.blobs ? idOf(neb) : `${neb.x},${neb.y},${neb.w},${neb.h}`;
-    const base = `nebula|${G.key}|${neb.type}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`;
     ctx.save();
-    ctx.imageSmoothingEnabled = false;
-    for (let cj = Math.floor(vy0 / CH); cj * CH < vy1; cj++) for (let ci = Math.floor(vx0 / CH); ci * CH < vx1; ci++) {
-      const x0 = ci * CH, y0 = cj * CH;
-      const interior = !neb.blobs && x0 - inset > neb.x && y0 - inset > neb.y && x0 + CH + inset < neb.x + neb.w && y0 + CH + inset < neb.y + neb.h;
-      const key = `${base}|${interior ? 'in' : shape}|${ci},${cj}`;
+    const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat, W = TILE * G.g;
+    const base = `nebtile|${G.key}|${neb.type}|${style}|${style === 'pixel' ? texel : 0}|${shape}`;
+    const ti0 = Math.floor(vx0 / W), ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W), tj1 = Math.floor((vy1 - 1e-6) / W);
+    const inside = (ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+    for (let tj = tj0; tj <= tj1; tj++) for (let ti = ti0; ti <= ti1; ti++) {
+      const key = `${base}|${ti},${tj}`;
       if (!o.force && budget.over && !cache.has(key)) continue; // built in a later frame
-      const spr = cache.get(key, () => (style === 'pixel' ? nebRaster(neb, G, T, x0, y0, CH, texel, true)
-        : style === 'flat' ? nebRaster(neb, G, T, x0, y0, CH, 1 / ppu, false)
-          : style === 'line' ? nebLine(neb, G, T, x0, y0, CH, ppu) : nebLow(neb, G, T, x0, y0, CH, ppu)), { force: true });
-      ctx.drawImage(spr.canvas, spr.x, spr.y, spr.w, spr.h);
+      drawTile(ctx, cache.get(key, () => make(neb, G, T, ti, tj), { force: true }), ti * W, tj * W, W, ppu);
+    }
+    // Build ahead: the ring of tiles just outside the view, while the frame has budget to spare.
+    if (!o.force) {
+      for (let tj = tj0 - 1; tj <= tj1 + 1 && !budget.over; tj++) for (let ti = ti0 - 1; ti <= ti1 + 1 && !budget.over; ti++) {
+        const key = `${base}|${ti},${tj}`;
+        if (inside(ti, tj) && !cache.has(key)) cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+      }
     }
     ctx.restore();
   }
