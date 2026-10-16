@@ -16,7 +16,8 @@
 //
 //   const budget = SpriteCache.budget({ ms })                 ms may be a getter
 //   const cache = SpriteCache.create({ maxPixels, maxEntries, budget })   limits may be getters
-//   cache.get(key, make, { fallback, force }) -> sprite   make() returns { canvas, ... }; the
+//   cache.get(key, make, { fallback, force }) -> sprite   make() returns { canvas, px?, ... }
+//                                                          (px: extra cost in pixels); the
 //                                                          sprite gets its `key`
 //   cache.has(key), cache.clear(), cache.stats() -> { sprites, pixels, builds, deferred, dropped }
 // Works as a classic browser script (global `SpriteCache`) and as a Node module.
@@ -45,7 +46,8 @@ const SpriteCache = (() => {
     const entries = new Map(); // key -> { sprite, px, frame }, oldest first
     let pixels = 0;
     const counters = { builds: 0, deferred: 0, dropped: 0 };
-    const pixelsOf = (s) => (s && s.canvas ? s.canvas.width * s.canvas.height : 0);
+    // What a sprite costs: its canvas's pixels, plus `px` for what it keeps besides (paths).
+    const pixelsOf = (s) => (s && s.canvas ? s.canvas.width * s.canvas.height : 0) + ((s && s.px) || 0);
 
     function use(key, e) {
       entries.delete(key);
