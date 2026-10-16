@@ -674,6 +674,43 @@ const ArtBlueprints = (() => {
     seed: 0, lineage: 'natural', label: 'Natural',
     pal: { hull: '#140c22', hull2: '#22163a', trim: '#6e5aa8', glass: '#cfc2f2', accent: '#3e2c6e', light: '#d8ccff', flame: '#8e78d0', panel: '#1c1430', line: '#a894e0', wing: '#2c1e4c', engine: '#05030a', strut: '#22163a' },
   };
+  // A gas pocket (solar-system.js): a knot of dense gas in a nebula, to collect. Soft lobes of gas
+  // in the nebula's colour around a bright core, with a few wisps curling round it, turning slowly.
+  // color: the nebula's line colour; r: its size in world units. No culture: it's natural, tinted
+  // per colour (the palette's seed keeps the sprites of different colours apart).
+  function gasCulture(color) {
+    const c = color, dark = U.mix('#05060a', c, 0.35);
+    return {
+      seed: parseInt(c.slice(1), 16), lineage: 'natural', label: 'Gas',
+      pal: { hull: U.mix('#05060a', c, 0.45), hull2: dark, trim: U.mix(c, '#ffffff', 0.25), glass: U.mix(c, '#ffffff', 0.7), accent: c, light: U.mix(c, '#ffffff', 0.5), flame: c, panel: dark, line: c, wing: U.mix('#05060a', c, 0.6), engine: '#05060a', strut: dark },
+    };
+  }
+  function gasPocket(color, seed, size = 80) {
+    const r = mulberry32(hashInt(seed, 8, 88));
+    const b = builder('gas-pocket', gasCulture(color), `${seed}:${size}`);
+    const S = { layer: 'spin' };
+    b.bp.layers = ['spin', 'fixed'];
+    b.bp.spinRate = (r() < 0.5 ? -1 : 1) * (0.08 + r() * 0.08);
+    b.bp.glow = true;
+    const R = size;
+    // Lobes: overlapping soft blobs, darker and larger outside, brighter toward the middle.
+    for (let i = 0, n = 5 + Math.floor(r() * 3); i < n; i++) {
+      const a = (i / n) * TAU + r() * 0.6, d = R * (0.3 + r() * 0.25), s = R * (0.32 + r() * 0.16);
+      b.poly(U.blob(Math.cos(a) * d, Math.sin(a) * d, s, s * (0.75 + r() * 0.25), r, 0.45, 8, a), i % 2 ? 'hull' : 'wing', { ...S, lvl: 0 + i * 0.01, h: R * 0.04, bevel: R * 0.05, roof: true });
+    }
+    b.poly(U.blob(0, 0, R * 0.42, R * 0.36, r, 0.35, 9), 'accent', { ...S, lvl: 1, h: R * 0.1, bevel: R * 0.08, roof: true });
+    b.circle(0, 0, R * 0.16, 'glass', { lvl: 2, h: R * 0.16, dome: true });
+    // Wisps: thin curls of gas round the edge.
+    for (let i = 0, n = 2 + Math.floor(r() * 2); i < n; i++) {
+      const a0 = r() * TAU, rad = R * (0.75 + r() * 0.2), len = 0.9 + r() * 0.8, pts = [];
+      for (let k = 0; k <= 12; k++) { const a = a0 + (k / 12) * len; const d = rad * (1 - (k / 12) * 0.25); pts.push([Math.cos(a) * d, Math.sin(a) * d]); }
+      b.poly(U.strip(pts, (u) => R * 0.07 * Math.sin(Math.PI * Math.min(1, Math.max(0.1, u)))), 'trim', { ...S, lvl: 0.5, h: R * 0.02 });
+    }
+    b.light(0, 0, R * 0.08, gasCulture(color).pal.light, { blink: 2.4 });
+    b.bp.label = 'Gas pocket';
+    return finish(b.bp);
+  }
+
   function wormhole(seed) {
     const r = mulberry32(hashInt(seed, 7, 77));
     const b = builder('wormhole', NATURAL, seed);
@@ -865,7 +902,7 @@ const ArtBlueprints = (() => {
     }
   }
 
-  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish, NATURAL };
+  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish, NATURAL, gasPocket };
 })();
 
 if (typeof module !== 'undefined') module.exports = ArtBlueprints;

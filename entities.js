@@ -50,6 +50,8 @@ const Entities = (() => {
   }
 
   const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };
+  // What a pocket's nebula type says about its gas (art/bodies.js NEBULAE).
+  const GAS_LABEL = { emission: 'Ionised hydrogen', reflection: 'Cold gas', ion: 'Charged gas', ember: 'Warm gas', dust: 'Dusty gas' };
   const asteroidSize = (r) => (r < 16 ? 'Small' : r < 32 ? 'Medium' : 'Large');
   const asset = (ctx, e, style, x, y, o) => Art.drawAsset(ctx, e.art, style, { x, y, ...o });
   const spinning = (e, t) => e.spin + t * e.art.spinRate;
@@ -97,6 +99,14 @@ const Entities = (() => {
         const pal = Art.ASTEROIDS[e.ast.type] || Art.ASTEROIDS.stony;
         return { title: `${pal.label} asteroid`, sub: asteroidSize(e.radius), color: pal.line };
       },
+    },
+    // A gas pocket in a nebula (scene.js): collected like an asteroid is mined (game.js).
+    gas: {
+      order: 1.6, selectable: true, hit: 0.8,
+      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
+      label: () => null,
+      mark: (e) => ({ color: e.color, r: 1.6 }),
+      card: (e) => ({ title: 'Gas pocket', sub: `${GAS_LABEL[e.pocket.type] || 'Nebula gas'} · ${e.pocket.r < 70 ? 'small' : e.pocket.r < 85 ? 'medium' : 'large'}`, color: e.color }),
     },
     station: {
       order: 2, selectable: true, hit: 0.75, // docking arms reach far: only the core counts

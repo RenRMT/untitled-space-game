@@ -160,9 +160,12 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
   if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
   if (e.key === 'Escape') select(null);
-  const a = actions.forKey(e.key);
-  const target = a && actions.target(a, selected && selected.e, frameList);
-  if (target) a.run(target);
+  // Several actions can share a key (E mines an asteroid or collects gas): the first that has a
+  // target acts.
+  for (const a of actions.forKeys(e.key)) {
+    const target = actions.target(a, selected && selected.e, frameList);
+    if (target) { a.run(target); break; }
+  }
 });
 
 // How each hull the player can fly is drawn: the Courier is the original ship; the others are
@@ -1240,13 +1243,18 @@ function repairSquad() {
 }
 
 // ---------- Mining: stop by an asteroid, mine it, collect what it leaves behind ----------
+//
+// Gas pockets in nebulae are collected the same way (Collect): the same countdown, beam and
+// range, a little slower, and they leave gas floating to pick up.
 
 const MINE_COLOR = COLORS.busy;
 
-// Seconds to mine an asteroid: the base time, sped up by the ship computer.
-function mineTime() {
-  return Mining.config.duration / (SHIP.miningRate || 1);
+// Seconds to mine an asteroid or collect a gas pocket: the base time, sped up by the ship computer.
+function mineTime(e = mining.target) {
+  return Mining.duration(e || { kind: 'asteroid' }) / (SHIP.miningRate || 1);
 }
+const isGas = (e) => e.kind === 'gas';
+const mineVerb = (e) => (isGas(e) ? ['Collect', 'Collecting'] : ['Mine', 'Mining']);
 
 // Called on teleports, docking and when the ship drifts away. Must not touch anything declared
 // below: placeShip runs it while the system first loads.
@@ -1261,15 +1269,15 @@ function stopMining(notice) {
 // and is busy on any other.
 function miningBusy(a) {
   if (!mining.target) return null;
-  if (mining.target.key !== a.key) return { ok: false, label: 'Mine · busy', inRange: true };
+  if (mining.target.key !== a.key) return { ok: false, label: `${mineVerb(a)[0]} · busy`, inRange: true };
   return {
     ok: false, busy: true, inRange: true, progress: mining.t / mineTime(),
-    label: `Mining · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`,
+    label: `${mineVerb(a)[1]} · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`,
   };
 }
 
 function startMining(a) {
-  if (docked || inFight() || !actions.state('mine', a).ok) return;
+  if (docked || inFight() || !actions.state(isGas(a) ? 'collect' : 'mine', a).ok) return;
   mining.target = a;
   mining.t = 0;
   autopilot.key = null;
@@ -1278,6 +1286,10 @@ function startMining(a) {
 
 actions.add({
   id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
+  busy: miningBusy, run: startMining,
+});
+actions.add({
+  id: 'collect', kind: 'gas', verb: 'Collect', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
   busy: miningBusy, run: startMining,
 });
 
@@ -1295,8 +1307,13 @@ function burst(x, y, n, { spread = 0, speed, life, size, colors }) {
   }
 }
 
-// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up.
+// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up. From a gas
+// pocket, slow puffs of its gas instead.
 function chips(a, n, speed) {
+  if (isGas(a)) {
+    burst(a.x, a.y, n, { spread: a.radius * 0.7, speed: [speed * 0.1, speed * 0.4], life: [0.8, 2], size: [2, 2 + Math.min(6, a.radius / 10)], colors: [a.color, COLORS.flash] });
+    return;
+  }
   const colors = (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
   burst(a.x, a.y, n, { spread: a.radius * 0.6, speed: [speed * 0.3, speed], life: [0.5, 1.4], size: [1.5, 1.5 + Math.min(5, a.radius / 8)], colors });
 }
@@ -1306,6 +1323,17 @@ function finishMining() {
   stopMining();
   cargo.removed.add(a.key);
   chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
+  if (isGas(a)) { // the pocket used up: its gas floats free, a canister per unit
+    const gas = Mining.gasOf(world.galaxy.seed, a);
+    gas.forEach((g, i) => {
+      const ang = (i / gas.length) * TAU, d = gas.length > 1 ? 40 : 0;
+      cargo.drops.push(dropEntity({ key: `drop:${a.key}:${i}`, kind: g.kind, seed: g.seed, x: a.x + Math.cos(ang) * d, y: a.y + Math.sin(ang) * d }));
+    });
+    const names = [...new Set(gas.map((g) => Goods.type(g.kind).name))].join(', ');
+    notify(`Gas pocket collected · ${gas.length} × ${names}`, 2.5);
+    saveCargo();
+    return;
+  }
   const found = Mining.yieldOf(world.galaxy.seed, a);
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
@@ -1322,7 +1350,7 @@ function tickMining(dt) {
   const a = mining.target;
   if (!a) return;
   if (Math.hypot(ship.x - a.x, ship.y - a.y) - a.radius > Mining.config.range + Mining.config.slack) {
-    stopMining('Mining interrupted');
+    stopMining(`${mineVerb(a)[1]} interrupted`);
     return;
   }
   // Hold station facing the rock, unless the player is steering.

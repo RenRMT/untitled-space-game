@@ -594,6 +594,41 @@ test('keys are unique across everything that can leave the world, and survive a 
   assert.deepStrictEqual(a.map((e) => [e.key, e.role]), b.map((e) => [e.key, e.role]));
 });
 
+test('gas pockets: a few inside every nebula, clear of its ambush, keyed for good, and the rest of the system unchanged', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`;
+    for (const [i, n] of g.nebulae.entries()) {
+      const own = g.pockets.filter((q) => q.nebula === i);
+      assert(own.length >= SolarSystem.params.gas.count[0], `${where}: ${n.name} has ${own.length} pockets`);
+      for (const q of own) {
+        assert.strictEqual(g.nebulaAt(q.x, q.y), n, `${where}: ${q.key} outside its nebula`);
+        assert.strictEqual(q.type, n.type);
+        for (const k of g.packs) assert(dist(k, q) >= SolarSystem.params.gas.clear, `${where}: ${q.key} in an ambush`);
+      }
+    }
+    const keys = g.pockets.map((q) => q.key);
+    assert.strictEqual(new Set(keys).size, keys.length, `${where}: duplicate pocket keys`);
+    assert.deepStrictEqual(Galaxy.generate(seed, SYSTEM_CONFIG).pockets, g.pockets, `${where}: the same every time`);
+  }
+  // In the scene, as things to collect, in their nebula's colour; each always yields gas.
+  const things = thingsOf(1, 'gas'), g = galaxies.get(1);
+  assert.strictEqual(things.length, g.pockets.length);
+  for (const e of things) {
+    assert.strictEqual(e.color, g.nebulae[e.pocket.nebula].color);
+    assert.ok(e.art.id.startsWith('gas-pocket:') && e.radius > 30);
+    const gas = Mining.gasOf(g.seed, e);
+    assert(gas.length >= 1 && gas.length <= 3, `${gas.length} units`);
+    assert(gas.every((x) => Goods.type(x.kind).category === 'gas'), 'gas only');
+    assert.deepStrictEqual(Mining.gasOf(g.seed, e), gas, 'the same every time');
+  }
+  assert(Mining.duration(things[0]) > Mining.duration({ kind: 'asteroid' }), 'slower than mining');
+  // E mines an asteroid or collects gas: both actions share the key, in order.
+  const A = Interactions.create({ gap: () => 0, speed: () => 0 });
+  A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: 100, run() {} });
+  A.add({ id: 'collect', kind: 'gas', verb: 'Collect', key: 'e', range: 100, run() {} });
+  assert.deepStrictEqual(A.forKeys('E').map((a) => a.id), ['mine', 'collect']);
+});
+
 test('the starter Courier flies, senses and mines as before', () => {
   const s = Loadout.stats(Loadout.starter('courier'));
   assert.deepStrictEqual(

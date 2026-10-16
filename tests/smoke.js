@@ -489,6 +489,30 @@ test('mines an asteroid and collects what it leaves', () => {
   assert.strictEqual(game('cargo.items.length'), held + 1, 'the drop was collected');
 });
 
+test('collects a gas pocket in a nebula and picks up its gas', () => {
+  game(`fight.grace = 1e9; globalThis.__gas = __find((e) => e.kind === 'gas' && !cargo.removed.has(e.key));`);
+  assert.ok(game('!!__gas'), 'a gas pocket');
+  game('placeShip(__gas.x, __gas.y + __gas.radius + 60)');
+  browser.frames(1);
+  assert.ok(game('frameList.includes(__gas)'), 'drawn in the nebula');
+  assert.match(game('describe(__gas).title'), /^Gas pocket$/);
+  // The E shortcut collects it (no asteroid near enough to mine instead).
+  game('select(null)');
+  browser.key('e');
+  assert.ok(game('mining.target === __gas'), `collecting: ${game(`actions.state('collect', __gas).label`)}`);
+  game('select(__gas)');
+  browser.frames(1);
+  assert.match(game('describe(__gas).actions[0].label'), /^Collecting · \d+ sec$/);
+  assert.ok(until('cargo.removed.has(__gas.key)', Math.ceil(game('mineTime(__gas)') * 60) + 30), 'the pocket is used up');
+  assert.match(game('toast.text'), /^Gas pocket collected · \d × /);
+  assert.ok(game('!frameList.includes(__gas)'), 'and gone');
+  const n = game('Mining.gasOf(world.galaxy.seed, __gas).length'), held = game('cargo.items.length');
+  game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+  browser.frames(2);
+  assert.strictEqual(game('cargo.items.length'), held + n, 'its gas is in the hold');
+  assert.ok(game(`cargo.items.slice(-${n}).every((it) => Goods.type(it.kind).category === 'gas')`));
+});
+
 test('sensors find a hidden derelict, and the radar shows it once found', () => {
   game(`fight.grace = 1e9; globalThis.__der = world.galaxy.contacts.find((c) => c.type === 'derelict' && !world.knowledge.contactState(c.id));`);
   assert.ok(game('!!__der'), 'an unfound derelict');

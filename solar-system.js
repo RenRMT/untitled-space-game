@@ -18,6 +18,7 @@
 //   stations (security.js says what each level means),
 // - pirates in packs by security, and ambushes lying in wait in nebulae and lawless space,
 // - hidden shipwrecks (derelicts) away from the stations, found with the ship's sensors,
+// - gas pockets in the nebulae: dense knots of gas to collect, like mining an asteroid,
 // - jump gates (overrides.gates: [{ angle, to }]) out toward the systems they lead to (galaxy.js).
 // Derelicts and ambushes are the system's contacts: what sensors ping and map travel runs into.
 // Positions are world units: from the star, or from overrides.origin when given (where the star
@@ -62,6 +63,9 @@ const SolarSystem = (() => {
     // and a few in lawless space.
     pirates: { cell: 13000, density: 0.5, lawlessAmbushes: [1, 2] },
     derelicts: { count: [6, 9], spacing: 6000 },
+    // Gas pockets per nebula (by its radius: `per` units of radius each, within count), at least
+    // `spacing` apart and `clear` from the pirates lying in wait there; r: their size.
+    gas: { count: [3, 7], per: 1100, spacing: 800, clear: 1500, r: [55, 100] },
   };
 
   // The cultures stations are built in (art/culture.js lineages), each with its colour on the map
@@ -497,11 +501,27 @@ const SolarSystem = (() => {
       cluster(stream(0xca4b, s.id), s.x, s.y, 25 + Math.floor(rs() * 16), 1500, b ? ASTEROIDS[b.kind] : ASTEROIDS.field);
     }
 
+    // ---------- Gas pockets: knots of dense gas inside the nebulae ----------
+    // From their own stream, after everything else, so adding them moved nothing. Each lies inside
+    // one of its nebula's blobs, clear of the ambush pack waiting there.
+    const pockets = [];
+    nebulae.forEach((n) => {
+      const r = stream(0x6a55, n.id), G = P.gas;
+      const want = Math.max(G.count[0], Math.min(G.count[1], Math.round(n.r / G.per)));
+      for (let made = 0, tries = 0; made < want && tries < 300; tries++) {
+        const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * TAU, d = Math.sqrt(r()) * b.r * 0.75;
+        const at = { x: n.x + b.dx + Math.cos(a) * d, y: n.y + b.dy + Math.sin(a) * d };
+        if (nebulaAt(at.x, at.y) !== n || packs.some((k) => dist(k, at) < G.clear) || pockets.some((q) => dist(q, at) < G.spacing)) continue;
+        pockets.push({ key: `gp${pockets.length}`, nebula: n.id, type: n.type, x: at.x, y: at.y, r: Math.round(between(r, G.r)), seed: nextSeed(r) });
+        made++;
+      }
+    });
+
     // ---------- Into place: everything moves with the star to the origin ----------
     // Generation above is around (0, 0); the query functions below and the ones above
     // (securityAt, nebulaAt, stationDist) take positions from here on.
     const O = { x: 0, y: 0, ...overrides.origin };
-    for (const o of [star, ...planets, ...moons, ...fields, ...nebulae, ...stations, ...wrecks, ...contacts, ...packs, ...asteroids, ...gates]) {
+    for (const o of [star, ...planets, ...moons, ...fields, ...nebulae, ...stations, ...wrecks, ...contacts, ...packs, ...asteroids, ...gates, ...pockets]) {
       o.x += O.x;
       o.y += O.y;
     }
@@ -519,7 +539,7 @@ const SolarSystem = (() => {
 
     return {
       seed, name, radius: R, origin: O, cultures: CULTURES, star, planets, moons, belts, fields, nebulae,
-      stations, wrecks, contacts, packs, asteroids, gates, startStation: 0,
+      stations, wrecks, contacts, packs, asteroids, gates, pockets, startStation: 0,
       securityAt, nebulaAt, regionAt, stationDist,
       cultureColor: (id) => (CULTURES[id] || CULTURES[0]).color,
     };

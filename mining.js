@@ -5,6 +5,11 @@
 // the asteroid breaks up and may drop one trade good to collect: a metal, mineral or gas, its
 // type picked by rarity (goods.js). Drops are seeded by the system and the asteroid, so an
 // asteroid always yields the same.
+// Gas pockets in nebulae (solar-system.js) are collected the same way, taking longer: they always
+// yield gas, one to three units by the pocket's size (gasOf).
+//   Mining.yieldOf(galaxySeed, asteroid) -> { kind, seed } | null
+//   Mining.gasOf(galaxySeed, pocket) -> [{ kind, seed }]
+//   Mining.duration(e) -> seconds to mine or collect it with a Mk I computer
 // Works as a classic browser script (global `Mining`) and as a Node module.
 
 const Mining = (() => {
@@ -13,6 +18,7 @@ const Mining = (() => {
 
   const config = {
     duration: 5, // seconds of mining before the asteroid breaks up
+    gasDuration: 8, // seconds of collecting before a gas pocket is used up
     range: 160, // world units beyond the asteroid's radius within which mining can start
     slack: 60, // ... and how much further the ship may drift before mining is interrupted
     maxSpeed: 150, // the ship must be this slow to start (it then stops), as for docking
@@ -37,7 +43,16 @@ const Mining = (() => {
     return { kind: G.pick(r, category), seed: Math.floor(r() * 4294967295) };
   }
 
-  return { config, YIELD, yieldOf };
+  // What a collected gas pocket leaves: its size sets how much (1–3 units), each a gas picked by
+  // rarity, from the pocket's own stream.
+  function gasOf(galaxySeed, pocket) {
+    const r = mulberry32(hashInt(seedToInt(galaxySeed), seedToInt(pocket.key), 0x6a5));
+    const n = 1 + Math.floor((pocket.pocket ? pocket.pocket.r : pocket.r || 60) / 45 + r() * 0.8);
+    return Array.from({ length: Math.min(3, n) }, () => ({ kind: G.pick(r, 'gas'), seed: Math.floor(r() * 4294967295) }));
+  }
+  const duration = (e) => (e.kind === 'gas' ? config.gasDuration : config.duration);
+
+  return { config, YIELD, yieldOf, gasOf, duration };
 })();
 
 if (typeof module !== 'undefined') module.exports = Mining;

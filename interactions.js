@@ -16,7 +16,7 @@
 //   actions.state(action | id, e) -> { ok, label, inRange, busy?, progress? }
 //     label as the button shows it: 'Dock', 'Dock · too far', 'Dock · slow down', ...
 //   actions.of(e)                    the actions that apply to e, in the order they were added
-//   actions.get(id), actions.forKey(key)
+//   actions.get(id), actions.forKey(key), actions.forKeys(key) (all with that key, in order)
 //   actions.target(action, selected, list)   what a shortcut acts on: the selected thing if the
 //                                            action applies to it, else the nearest one in reach
 // Works as a classic browser script (global `Interactions`) and as a Node module.
@@ -37,6 +37,7 @@ const Interactions = (() => {
     const applies = (a, e) => a.kind === e.kind && (!a.when || a.when(e));
     const of = (e) => list.filter((a) => applies(a, e));
     const forKey = (key) => list.find((a) => a.key && a.key === String(key).toLowerCase()) || null;
+    const forKeys = (key) => list.filter((a) => a.key && a.key === String(key).toLowerCase());
 
     function state(action, e) {
       const a = typeof action === 'string' ? get(action) : action;
@@ -60,7 +61,7 @@ const Interactions = (() => {
       return best;
     }
 
-    return { add, get, of, forKey, state, target, range: (a) => value(a.range) };
+    return { add, get, of, forKey, forKeys, state, target, range: (a) => value(a.range) };
   }
 
   return { create };
