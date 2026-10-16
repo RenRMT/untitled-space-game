@@ -1,5 +1,5 @@
 // The squad in flight: android wingmen in formation, given orders in a fight by their logic
-// modules (rules/squad.js, rules/logic.js), repaired at a dock.
+// programs (rules/squad.js, rules/logic.js), repaired at a dock.
 // Part of the flight view; src/main.js starts it.
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -7,7 +7,7 @@ import { CombatCore } from '../combat/combat-core.js';
 import { Flight } from '../flight/flight.js';
 import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
-import { cargo, saveCargo } from './cargo.js';
+import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode } from './combat.js';
 import { escorting, mission, workSpot } from './missions.js';
 import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
@@ -15,8 +15,8 @@ import { world } from './world.js';
 
 //
 // Squad members (rules/squad.js) fly in formation behind the ship. In a fight they join it as allies
-// (combat/combat-core.js): every frame each one's logic modules (rules/logic.js), checked in slot order, decide
-// what it does; the first that applies gives its orders, and with none it keeps formation. One
+// (combat/combat-core.js): every frame each one's program (rules/logic.js), run top down, decides
+// what it does; the first line that holds gives its orders, and with none it keeps formation. One
 // whose hull is shot down is disabled until the ship next docks, which repairs the whole squad.
 
 export const WING_SNAP = 4000; // a wingman this far from its place (after a jump or map travel) is put there
@@ -85,16 +85,81 @@ export function allySpecs() {
   });
 }
 
-// Each ally's orders for this frame, from its logic modules: attack what they name, or keep
-// formation.
+// Where a combatant is: its own position in real time; in a round-based fight, where its ship is
+// held (the player's ship, a wingman, an enemy).
+function posOf(c) {
+  if (Number.isFinite(c.x)) return c;
+  if (c.id === 'player') return ship;
+  return wings.get(c.id) || fight.ships.get(c.id) || ship;
+}
+const distance = (a, b) => { const p = posOf(a), q = posOf(b); return Math.hypot(p.x - q.x, p.y - q.y); };
+
+// What an ally knows when it decides (rules/logic.js ctx).
+export function logicContext(s, a) {
+  return {
+    self: a, leader: s.player, enemies: CombatCore.alive(s), allies: CombatCore.allies(s).filter((x) => x !== a),
+    leaderTarget: s.focus ?? null, dist: distance, targetOf: (e) => CombatCore.aimAt(s, e).id,
+    ready: () => false, // abilities come later (from gear); until then `use` lines never run
+  };
+}
+
+// What an intent (rules/logic.js) means as orders for a combat mode (combat/combat-core.js setOrders):
+// - attack: fire on the target (keep: from as far as the guns reach),
+// - guard: fire on whoever is shooting at the ward (the nearest such to it), else stay beside it,
+// - retreat: fall back to the leader's far side from the enemies (with no target, holding fire),
+// - follow (and use, until ships have abilities): keep formation.
+export const GUARD_OFFSET = 110, RETREAT_OFFSET = 140;
+export function ordersFor(s, a, intent, i) {
+  const formation = Squad.formation(ship, i);
+  if (intent.type === 'attack') return { target: intent.target, keep: !!intent.keep };
+  if (intent.type === 'guard') {
+    const ward = [s.player, ...CombatCore.allies(s)].find((c) => c.id === intent.ward);
+    if (!ward) return { station: formation };
+    const attackers = CombatCore.alive(s).filter((e) => CombatCore.aimAt(s, e).id === ward.id);
+    if (attackers.length) return { target: attackers.reduce((b, e) => (distance(e, ward) < distance(b, ward) ? e : b)).id };
+    if (ward === s.player) return { station: formation };
+    const w = posOf(ward), back = (w.angle ?? 0) + Math.PI;
+    return { station: { x: w.x + Math.cos(back) * GUARD_OFFSET, y: w.y + Math.sin(back) * GUARD_OFFSET } };
+  }
+  if (intent.type === 'retreat') {
+    const enemies = CombatCore.alive(s).map(posOf), p = posOf(s.player);
+    if (!enemies.length) return { station: formation };
+    const cx = enemies.reduce((n, e) => n + e.x, 0) / enemies.length, cy = enemies.reduce((n, e) => n + e.y, 0) / enemies.length;
+    const away = Math.atan2(p.y - cy, p.x - cx);
+    return { station: { x: p.x + Math.cos(away) * RETREAT_OFFSET, y: p.y + Math.sin(away) * RETREAT_OFFSET } };
+  }
+  return { station: formation };
+}
+
+// How often each line of each member's program took over in the last fight ({ [member id]: [count
+// per line] }); not saved, and cleared when a program changes (the lines move).
+export const lineRuns = new Map();
+let runsOf = null; // the fight lineRuns counts
+export const LINE_LABEL = 1.8; // seconds a line's label shows over a wingman when it takes over
+
+// Each ally's orders for this frame, from its program: the line that ran (a.line, -1 for none)
+// and what it says to do, else keep formation. When the line changes, it shows over the
+// wingman as code ('L2 › attack(weakest(enemy))') and counts as a run.
 export function orderSquad(s) {
-  const m = fightMode(), enemies = CombatCore.alive(s);
+  if (runsOf !== s) { runsOf = s; lineRuns.clear(); }
+  const m = fightMode(), limit = logicLines();
   CombatCore.allies(s).forEach((a, i) => {
     const member = memberOf(a.id);
     if (!member) return;
-    const facts = { self: a, leader: s.player, inFight: true, enemies, leaderTarget: s.focus ?? null };
-    const { intent } = Logic.decide(Squad.modulesOf(member), facts);
-    m.setOrders(s, a.id, intent.type === 'attack' ? { target: intent.target } : { station: Squad.formation(ship, i) });
+    const { line, intent } = Logic.decide(member.program, logicContext(s, a), limit);
+    if (line !== a.line) {
+      if (line >= 0) {
+        const runs = lineRuns.get(member.id) || [];
+        runs[line] = (runs[line] || 0) + 1;
+        lineRuns.set(member.id, runs);
+      }
+      const old = fight.fx.findIndex((f) => f.type === 'code' && f.at === a.id);
+      if (old >= 0) fight.fx.splice(old, 1);
+      const text = line >= 0 ? `L${line + 1} › ${Logic.actionText(member.program[line])}` : 'else › follow(leader)';
+      fight.fx.push({ type: 'code', delay: 0, t: LINE_LABEL, max: LINE_LABEL, at: a.id, text, idle: line < 0 });
+    }
+    a.line = line;
+    m.setOrders(s, a.id, ordersFor(s, a, intent, i));
   });
 }
 
@@ -126,4 +191,28 @@ export function repairSquad() {
     m.disabled = false;
     m.hullPoints = Squad.stats(m).hull;
   }
+}
+
+// Squad programs as the station menu sees them: the members, what research has unlocked, how
+// many lines run, and editing a member's lines (only lines that check go in).
+export const programs = {
+  get members() { return cargo.squad; },
+  get known() { return logicKnown(); },
+  get limit() { return logicLines(); },
+  // How often each line took over in the last fight: [count per line] (empty if none).
+  runs: (id) => lineRuns.get(id) || [],
+  set(id, i, line) {
+    const m = memberOf(id);
+    if (!m || !Logic.check(line, logicKnown()).ok || !Squad.setLine(m, i, Logic.copy(line))) return false;
+    return edited(id, true);
+  },
+  remove(id, i) { return edited(id, Squad.removeLine(memberOf(id) || { program: [] }, i) !== null); },
+  move(id, from, to) { return edited(id, Squad.moveLine(memberOf(id) || { program: [] }, from, to)); },
+  toggle(id, i) { return edited(id, Squad.toggleLine(memberOf(id) || { program: [] }, i)); },
+};
+function edited(id, ok) {
+  if (!ok) return false;
+  lineRuns.delete(id);
+  saveCargo();
+  return true;
 }

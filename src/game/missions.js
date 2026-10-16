@@ -9,6 +9,7 @@ import { ArtAndroids } from '../art/androids.js';
 import { ArtBlueprints } from '../art/blueprints.js';
 import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
+import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Comms } from '../ui/comms.js';
@@ -450,14 +451,15 @@ export function acceptMission(id = OPENING) {
 }
 // Handing in: the first brings the android into the squad; the second settles the debt (the AI
 // logic module stays with the station; it was never in the hold); the third installs the squad
-// member's first combat logic module and brings the gates online.
-export const FIRST_MODULE = 'assist-leader';
+// member's first combat logic module (its first program line) and brings the gates online.
+export const FIRST_MODULE = 'assist.leader';
 export function completeMission(id = OPENING) {
   if (!cargo.missions.complete(id)) return;
   if (id === OPENING) joinAndroid();
   if (id === GATE_JOB) {
     const m = firstMember();
-    if (m && !m.modules.includes(FIRST_MODULE)) Squad.install(m, FIRST_MODULE, Math.max(0, m.modules.indexOf(null)));
+    const line = Logic.PRESETS[FIRST_MODULE];
+    if (m && !m.program.some((l) => Logic.text(l) === Logic.text(line))) m.program.unshift(Logic.copy(line));
     cargo.story.add('gates');
     showGates();
   }
@@ -465,7 +467,7 @@ export function completeMission(id = OPENING) {
 }
 export function joinAndroid() {
   const seed = mission.site.android.seed;
-  // It joins with empty logic slots: its first modules are for a later mission.
+  // It joins with an empty program: its first line is for a later mission.
   if (!cargo.squad.some((m) => m.seed === seed)) cargo.squad.push(Squad.member(seed));
   buildWings();
 }

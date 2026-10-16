@@ -8,10 +8,11 @@
 //   initiative count there too. In real-time combat (combat/combat-realtime.js) a weapon also has a range
 //   and a firing arc, and the scanner sets how far away a target can be locked.
 // Equipment comes in lines of Mk I–V (tier 1–5). The player starts with the Mk I of each slot's
-// line; the rest are researched (rules/research.js) and then bought at stations for `price` credits.
+// line; the rest are bought at stations for `price` credits: better gear at bigger stations
+// (rules/economy.js outfitter), Mk V only from schematics pirates carry (combat/combat-core.js).
 // NPC ships (fighters, freighters) fit their own lines, by tier: pirates in more dangerous space
 // fly better gear (world/security.js). Hulls marked with a price are sold at shipyards.
-// Hull upgrades from research (more cargo, more hull, an extra hardpoint) come in as `upgrades`:
+// Hull refits (rules/hullmods.js: more cargo, more hull, an extra hardpoint) come in as `upgrades`:
 // { cargo, hull } as fractions added, { weapons } as extra weapon slots.
 // A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null } }.
 // ES module (`Loadout`); also runs in Node (the tests).
@@ -37,7 +38,7 @@ const Loadout = (() => {
   // Real-time combat only: a weapon's arc is the width of its field of fire in degrees, centred on
   // the ship's nose (360 for a turret); lockTime is the computer's seconds to lock on, lockRange
   // the scanner's reach for a lock, in world units. from: the first tier the line has (a branch
-  // that starts later); npc: fitted to NPC ships only, never researched or sold.
+  // that starts later); npc: fitted to NPC ships only, never sold.
   const at = (list, t) => list[t - 1];
   const LINES = {
     'pulse-laser': { slot: 'weapon', name: 'Pulse laser', stats: (t) => ({ damage: at([6, 8, 10, 13, 17], t), fireRate: 4, range: 650 + 50 * t, arc: 60 }) },
@@ -189,7 +190,7 @@ const Loadout = (() => {
   const degrees = (rad) => Math.round((rad * 180) / Math.PI);
   const k = Format.dist;
 
-  // One line of what a piece of equipment does, for the Ship and Research tabs.
+  // One line of what a piece of equipment does, for the Ship tab.
   function summary(item) {
     const s = item.stats;
     switch (item.slot) {

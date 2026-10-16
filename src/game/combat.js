@@ -191,7 +191,8 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was.
+// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
+// schematic).
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   cargo.removed.add(key);
@@ -202,6 +203,12 @@ export function shipDestroyed(key) {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
+  // A schematic in its computer: that gear is sold to you at every station from now on.
+  const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
+  if (id && !cargo.schematics.has(id)) {
+    cargo.schematics = new Set([...cargo.schematics, id]);
+    notify(`Schematic recovered: ${Loadout.EQUIPMENT[id].name} · sold to you at any station`, 4);
+  }
   saveCargo();
 }
 
@@ -349,6 +356,7 @@ export function updateCombatPanel() {
   const rows = [s.player, ...allies, ...s.enemies].map((c) => ({
     id: c.id, name: c.name, you: c === s.player, ally: allies.includes(c), hull: c.hull, maxHull: c.stats.hull,
     shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
+    run: !over && allies.includes(c) && c.hull > 0 && c.line !== undefined ? (c.line >= 0 ? `L${c.line + 1}` : 'else') : null,
   }));
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
   CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log });
@@ -486,6 +494,20 @@ export function drawFightOverlay() {
     ctx.globalAlpha = Math.min(1, k * 1.6);
     ctx.fillStyle = f.color;
     ctx.fillText(f.text, x + 14 + (f.jx || 0), y - 26 - (1 - k) * 26);
+  }
+  // A wingman's program line taking over (game/squad.js orderSquad), as code above its bars.
+  ctx.font = Theme.font(11);
+  for (const f of fight.fx) {
+    if (f.type !== 'code') continue;
+    const at = fxPos(f.at);
+    if (!at) continue;
+    const [x, y] = worldToScreen(at.x, at.y - at.radius);
+    const w = ctx.measureText(f.text).width + 10, top = y - 42;
+    ctx.globalAlpha = Math.min(1, (f.t / f.max) * 3);
+    ctx.fillStyle = 'rgba(11, 14, 23, 0.85)';
+    ctx.fillRect(x - w / 2, top - 11, w, 15);
+    ctx.fillStyle = f.idle ? COLORS.dim : COLORS.good;
+    ctx.fillText(f.text, x, top);
   }
   ctx.restore();
 }

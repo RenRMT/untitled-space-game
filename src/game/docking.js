@@ -12,9 +12,10 @@ import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
 import { artStyle } from './options.js';
-import { lab, outfitting, placeShip } from './outfitting.js';
+import { lab } from './lab.js';
+import { hullmods, outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
-import { repairSquad } from './squad.js';
+import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship, whiteOut } from './state.js';
 import { world } from './world.js';
 
@@ -54,6 +55,8 @@ export function dock(station) {
   ship.thrust = 0;
   drag.active = false;
   particles.length = 0;
+  outfitting.sells = Economy.outfitter(world.galaxy.seed, station);
+  lab.settle();
   setMode('docked', true);
   StationMenu.open({
     station: { name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color },
@@ -61,10 +64,11 @@ export function dock(station) {
     hold,
     ship: SHIP,
     outfitting,
+    hullmods,
     lab,
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
-    squad: { members: cargo.squad },
+    squad: programs,
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
     tab: opening() ? 'missions' : 'trade', // the opening missions are all there is to do at first

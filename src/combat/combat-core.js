@@ -13,15 +13,18 @@
 //   CombatCore.aim(rng, s) -> id       whom an enemy shoots at: the player, or now and then an ally
 //   CombatCore.aimAt(s, e)             that combatant while it flies, else the player
 //   CombatCore.loot(galaxySeed, key, role, tier) -> [{ kind, seed }]   what a destroyed ship leaves
+//   CombatCore.schematic(galaxySeed, key, role, tier) -> equipment id | null   a schematic recovered
+//                                      from a pirate's computer: the gear it unlocks for purchase
 //
 // A mode (each module's `mode`):
 //   id, flying               ships keep flying (real time), or are held in place (rounds)
 //   start(rng, player, enemies, { target, ambushed, allies }) -> s
 //       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
 //       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
-//   setOrders(s, id, { target, station })   what an ally does now (game/squad.js decides, from its
-//                                      logic modules): fire on `target` (an enemy id), or with
-//                                      none hold `station` (its place in formation, in real time)
+//   setOrders(s, id, { target, keep, station })   what an ally does now (game/squad.js
+//                                      decides, from its logic program): fire on `target` (an enemy
+//                                      id; keep: from as far off as its guns reach, in real time),
+//                                      or with none fly to `station` (in real time) and hold fire
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
 //   setFocus(s, id)                    the player picks a target
 //   press?(s, id)                      a combat panel button (Flee)
@@ -45,6 +48,7 @@
 import { MathUtil } from '../core/math.js';
 import { nextSeed, seeded, weightedPick } from '../core/rng.js';
 import { Goods } from '../rules/goods.js';
+import { Loadout } from '../rules/loadout.js';
 import { Security } from '../world/security.js';
 
 const CombatCore = (() => {
@@ -91,7 +95,7 @@ const CombatCore = (() => {
   //   own gear tier (world/security.js: better-armed pirates in more dangerous space carry better
   //   components), and often some of the cargo they took: trade goods, rarer ones from tier 3 up.
   // - Freighters spill trade goods, and now and then a component.
-  // Computer components research both computers and scanners (rules/research.js), so they turn up as
+  // Computer components go into logic research (rules/research.js) as well as refits, so they turn up as
   // often as hull and weapon components.
   const SALVAGE = [['hull', 3], ['weapon', 3], ['drive', 2], ['computer', 3]];
   const GOODS = G.categories('trade');
@@ -122,13 +126,26 @@ const CombatCore = (() => {
     return out;
   }
 
-  // What an ally does now, in either mode ({ target } or { station }: the modes' setOrders).
+  // Now and then a pirate's computer holds a schematic: a piece of player equipment (rules/loadout.js)
+  // of its own tier (or, a quarter of the time, one better), which every station then sells to you.
+  // Pirates of tier 2 up only; the only way to Mk V gear.
+  const SCHEMATIC = [0, 0, 0.08, 0.12, 0.16];
+  function schematic(galaxySeed, key, role, tier = 1) {
+    if (role === 'freighter' || !(SCHEMATIC[tier] > 0)) return null;
+    const r = seeded(galaxySeed, key, 0x5c4e);
+    if (r() >= SCHEMATIC[tier]) return null;
+    const t = Math.min(5, tier + (r() < 0.25 ? 1 : 0));
+    const ids = Object.keys(Loadout.EQUIPMENT).filter((id) => !Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier === t);
+    return ids.length ? ids[Math.floor(r() * ids.length)] : null;
+  }
+
+  // What an ally does now, in either mode ({ target, keep } or { station }: the modes' setOrders).
   function setOrders(s, id, order) {
     const a = s.allies.find((x) => x.id === id);
     if (a) a.order = order || {};
   }
 
-  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot, setOrders };
+  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot, schematic, setOrders };
 })();
 
 export { CombatCore };

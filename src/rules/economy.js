@@ -6,13 +6,17 @@
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
 //   often where the category is produced); exotics are never sold, only found.
-// Salvaged components aren't traded at all: they're used for research (rules/research.js).
+// Salvaged components aren't traded at all: they're used for hull refits (rules/hullmods.js) and
+// logic research (rules/research.js).
+// Equipment (rules/loadout.js) is sold by each station's outfitter (outfitter()): Mk I everywhere,
+// better gear at bigger stations, Mk V never (only from schematics pirates leave).
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
 // ES module (`Economy`); also runs in Node (the tests).
 
 import { seeded } from '../core/rng.js';
 import { Goods } from './goods.js';
+import { Loadout } from './loadout.js';
 
 const Economy = (() => {
   const G = Goods;
@@ -87,7 +91,23 @@ const Economy = (() => {
     return { goods };
   }
 
-  return { config, basePrice, market };
+  // The best Mk a station's outfitter sells, by station type; each equipment line is one Mk lower
+  // at about a third of stations (seeded), so neighbours differ. Mk I is sold everywhere.
+  const OUTFITTER = { capital: 4, major: 3, minor: 2, 'mining camp': 2, 'salvage yard': 3, waystation: 1 };
+  // The equipment ids a station sells: a Set.
+  function outfitter(galaxySeed, station) {
+    const r = seeded(galaxySeed, station.key, 0x0f17);
+    const top = OUTFITTER[station.market.type] || 1;
+    const out = new Set();
+    for (const [line, L] of Object.entries(Loadout.LINES)) {
+      if (L.npc) continue;
+      const best = Math.max(1, top - (r() < 0.35 ? 1 : 0));
+      for (let t = 1; t <= best; t++) if (Loadout.EQUIPMENT[`${line}-${t}`]) out.add(`${line}-${t}`);
+    }
+    return out;
+  }
+
+  return { config, basePrice, market, outfitter, OUTFITTER };
 })();
 
 export { Economy };

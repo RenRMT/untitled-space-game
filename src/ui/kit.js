@@ -31,6 +31,13 @@
 //     close it, Tab stays inside. One at a time. host: the element it is put in (default: a layer
 //     of its own at the end of <body>).
 //   Kit.toast(text, tone)                  'good' | 'warn' | 'hostile'; goes by itself
+//   Kit.code(lines, { label })             a block of code: Kit.codeLine rows (and anything else)
+//   Kit.codeLine({ n, tokens, off, dim, active, err, note, onclick, aria })   one numbered line;
+//     tokens: [{ t, text }] (t: kw | subj | prop | op | num | fn | punc | ws | err | cmt) coloured by
+//     kind; off: struck through; dim: greyed (not run); active: just ran; err / note: a comment under it;
+//     with onclick it is a button
+//   Kit.choices(items, onPick, { label })   a row of mono choice buttons, one of them on;
+//     items: [{ id, label, on, locked, title }]; locked ones are dashed and can't be picked
 // ES module (`Kit`); needs a browser.
 
 import { UI } from './ui.js';
@@ -249,9 +256,27 @@ const Kit = (() => {
     return toastEl;
   }
 
+  // ---------- Code ----------
+  const code = (lines, { label } = {}) => h('div', { class: 'ui-code', role: 'list', 'aria-label': label }, lines);
+  function codeLine({ n, tokens, off, dim, active, err, note, onclick, aria }) {
+    const src = h('span', { class: 'src' }, tokens.map((x) => (x.t === 'ws' ? x.text : h('span', { class: `tk-${x.t}` }, x.text))),
+      err ? h('span', { class: 'msg err' }, `// error: ${err}`) : null, note ? h('span', { class: 'msg' }, note) : null);
+    const cls = ['ui-code-line', off && 'off', dim && 'dim', active && 'active', err && 'bad'].filter(Boolean).join(' ');
+    const ln = h('span', { class: 'ln', 'aria-hidden': 'true' }, n === undefined ? '' : String(n).padStart(2, '0'));
+    return onclick
+      ? h('button', { class: cls, type: 'button', role: 'listitem', onclick, 'aria-label': aria }, ln, src)
+      : h('div', { class: cls, role: 'listitem' }, ln, src);
+  }
+  const choices = (items, onPick, { label } = {}) => h('div', { class: 'ui-choices', role: 'group', 'aria-label': label },
+    items.map((it) => h('button', {
+      class: ['ui-choice', it.on && 'on', it.locked && 'locked'].filter(Boolean).join(' '), type: 'button',
+      'aria-pressed': String(!!it.on), disabled: !!it.locked, title: it.title, onclick: () => onPick(it.id),
+    }, it.label)));
+
   return {
     TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
     slotNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
+    code, codeLine, choices,
   };
 })();
 

@@ -3,17 +3,22 @@
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there;
 // the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
-//                    outfitting, lab, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
+//                    outfitting, hullmods, lab, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, known, sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
 //               fit(slot, id, buy?), unfit(slot), sell(id), buyHull(id) }: the ship's equipment,
-//               spare gear, buying what research unlocked, and the shipyard (game/outfitting.js).
-// lab: { researched, components, have(kind), status(id), research(id) }: the research tree (rules/research.js).
+//               spare gear, buying what this station sells (or a schematic unlocked), and the
+//               shipyard (game/outfitting.js).
+// hullmods: { owned, components, status(id), buy(id) }: hull refits at a shipyard (rules/hullmods.js).
+// lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
+//   logic research on the real-world clock (rules/research.js, game/lab.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
-// squad: { members }: the squad (rules/squad.js), each member with its logic modules (rules/logic.js).
+// squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
+//   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
+//   (game/squad.js programs).
 // missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game/missions.js), each
 //   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (its
 //   giver is this station), lines: [what the giver says now], objectives: [{ label, count, need,
@@ -30,6 +35,7 @@ import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Mining } from '../rules/mining.js';
+import { HullMods } from '../rules/hullmods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
@@ -49,8 +55,9 @@ const StationMenu = (() => {
   let tab = 'trade';
   let openSlot = null; // the loadout slot whose sheet is open, if any
   let openMission = null; // the mission whose sheet is open, if any
+  let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let sheet = null; // the open sheet (Kit.sheet)
-  let openOption = null, openStat = null, openHold = null, openNode = null, openHull = null; // expanded rows, chips, tiles
+  let openOption = null, openStat = null, openHold = null, openHull = null, openPkg = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
@@ -127,7 +134,7 @@ const StationMenu = (() => {
   }
 
   // Trade: the hold, what this station stocks by category, and anything else you're carrying, with
-  // what it fetches here. (Components aren't traded: they go to research.)
+  // what it fetches here. (Components aren't traded: they go to refits and research.)
   function renderTrade() {
     const { market, hold } = ctx;
     const full = hold.free < 1;
@@ -228,8 +235,13 @@ const StationMenu = (() => {
     }));
   }
 
-  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), researched gear (Buy) and
-  // the next of each line still to research, each with its stat changes against what's fitted.
+  // Where gear of a Mk is sold (rules/economy.js outfitter), for gear this station doesn't sell.
+  const WHERE = [null, 'every station', 'system stations', 'major stations and salvage yards', 'capitals'];
+  const whereSold = (item) => (item.tier >= 5 ? 'Never sold: only from schematics recovered from pirates.'
+    : `Sold at ${WHERE[item.tier]} (not all of them stock every line), or from a schematic recovered from pirates.`);
+
+  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), gear sold here (Buy) and
+  // the next of each line not sold here, each with its stat changes against what's fitted.
   function slotSheet(id) {
     const { outfitting: o, hold } = ctx;
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
@@ -237,7 +249,7 @@ const StationMenu = (() => {
     const cur = s.item;
     const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && !Loadout.EQUIPMENT[e].npc && e !== cur?.id);
     const rank = (e) => (o.gear[e] ? 0 : o.known.has(e) ? 1 : 2);
-    // Of the gear still to research, only the next Mk of each line.
+    // Of the gear not sold here, only the next Mk of each line.
     const next = new Set();
     for (const e of ids) {
       const item = Loadout.EQUIPMENT[e];
@@ -256,11 +268,11 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : kind === 'locked' ? 'Research' : '', tagTone: kind === 'fit' ? 'good' : null,
+          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : kind === 'locked' ? 'Not sold here' : '', tagTone: kind === 'fit' ? 'good' : null,
           locked: kind === 'locked',
           note: kind === 'fit' ? `Spare gear aboard. Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : kind === 'buy' ? [Loadout.STARTER_GEAR.includes(e) ? 'Sold at every station.' : 'Unlocked by research.', short ? `You need ${(item.price - hold.credits).toLocaleString('en-US')} cr more.` : '', cur ? 'The current one goes to spare gear.' : ''].filter(Boolean).join(' ')
-              : `Research ${item.name} to buy it.`,
+            : kind === 'buy' ? [Loadout.STARTER_GEAR.includes(e) ? 'Sold at every station.' : o.schematics.has(e) ? 'Yours by schematic: sold to you everywhere.' : 'Sold here.', short ? `You need ${(item.price - hold.credits).toLocaleString('en-US')} cr more.` : '', cur ? 'The current one goes to spare gear.' : ''].filter(Boolean).join(' ')
+              : whereSold(item),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
           action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` })
             : kind === 'buy' ? Kit.button('Buy', act(() => o.fit(s.id, e, true), fitted), { price: item.price, disabled: short, aria: `Buy and fit ${item.name} for ${item.price} credits` })
@@ -276,7 +288,7 @@ const StationMenu = (() => {
           action: Kit.button('Remove', act(() => o.unfit(s.id), () => Kit.toast(`${cur.name} moved to spare gear`)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
         h('span', { class: 'ui-label' }, 'Options'),
-        options.length ? options : h('p', { class: 'ui-note' }, 'Research unlocks more equipment for this slot.'),
+        options.length ? options : h('p', { class: 'ui-note' }, 'Bigger stations sell better equipment for this slot.'),
       ],
     };
   }
@@ -374,55 +386,134 @@ const StationMenu = (() => {
           : h('p', { class: 'ui-empty' }, 'Empty. Buy goods at Trade or pick up cargo in space.')),
       renderGear(),
       renderShipyard(),
+      renderRefits(),
     ];
   }
 
-  // ---------- Research ----------
+  // ---------- Components and costs ----------
 
-  const NODE_CODE = { weapons: 'WPN', shields: 'SHD', computers: 'CPU', engines: 'ENG', scanners: 'SCN', hull: 'HUL' };
   const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
 
-  // Research: the components in store, then the tree by group (rules/research.js). Each node shows
-  // its cost (with how much of each you have) and Research; tap it for what it gives.
-  function renderResearch() {
-    const { lab } = ctx;
-    const grid = h('table', { class: 'st-components' },
+  // The salvaged components in store, by kind and tier.
+  function componentsGrid(components) {
+    return h('table', { class: 'st-components' },
       h('thead', {}, h('tr', {}, h('th', {}, ''), [1, 2, 3, 4, 5].map((t) => h('th', { scope: 'col', title: Goods.TIERS[t], style: { color: Kit.TIER[t] } }, ROMAN[t])))),
       h('tbody', {}, Goods.categories('salvage').map((cat) => h('tr', {},
         h('th', { scope: 'row' }, Goods.CATEGORIES[cat].label.replace(' components', '')),
         [1, 2, 3, 4, 5].map((tier) => {
-          const n = lab.components[Goods.component(cat, tier)] || 0;
+          const n = components[Goods.component(cat, tier)] || 0;
           return h('td', { class: n ? 'has num' : 'num', style: n ? { color: Kit.TIER[tier] } : undefined }, n ? String(n) : '·');
         })))));
-    const nameOf = (id) => Research.NODES[id].name;
-    const node = (n) => {
-      const st = lab.status(n.id);
-      const item = n.equipment ? { id: n.equipment, ...Loadout.EQUIPMENT[n.equipment] } : null;
-      const prevId = item ? `${item.line}-${item.tier - 1}` : null;
-      const prev = prevId && Loadout.EQUIPMENT[prevId] ? { id: prevId, ...Loadout.EQUIPMENT[prevId] } : null;
-      const done = st.state === 'done';
-      const costs = done ? null : h('span', { class: 'st-costs' }, st.cost.map((c) => h('span', {
-        class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name,
-      }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)));
-      return Kit.optionRow({
-        code: NODE_CODE[n.group], name: item ? lineName(item) : n.name.replace(/ Mk [IV]+$/, ''), tier: / Mk [IV]+$/.test(n.name) ? n.tier : null,
-        tag: done ? 'Researched' : '', tagTone: 'good',
-        rows: item && prev ? Kit.compare(prev, item, METRICS[item.slot]) : null,
-        extra: costs,
-        note: [done && item ? `${n.note}. Buy it in the Ship tab.` : n.note, st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}` : ''].filter(Boolean).join(' · '),
-        open: openNode === n.id, onToggle: () => { openNode = openNode === n.id ? null : n.id; refresh(); },
-        locked: st.state === 'locked', lockLabel: 'Locked',
-        action: st.state === 'available' ? Kit.button('Research', act(() => lab.research(n.id), () => Kit.toast(`${n.name} researched`)), {
-          kind: st.ok ? 'primary' : '', disabled: !st.ok, aria: `Research ${n.name}`,
-        }) : null,
-      });
-    };
+  }
+  // What something costs in components (and credits), with how much of each you have.
+  const costChips = (cost, credits, ...more) => h('span', { class: 'st-costs' },
+    credits ? h('span', { class: `cost num${ctx.hold.credits < credits ? ' short' : ''}`, title: 'Credits' }, `${credits.toLocaleString('en-US')} cr`) : null,
+    cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)), more);
+
+  // Hull refits (at a shipyard): upgrades for every hull, for credits and hull components.
+  function renderRefits() {
+    const { hullmods: hm } = ctx;
+    if (!ctx.shipyard || !hm) return null;
+    const nameOf = (id) => HullMods.NODES[id].name;
+    return section('Hull refits', Kit.head('Hull refits', h('span', { class: 'aside num' }, `${hm.owned.size}/${HullMods.LIST.length} fitted`)),
+      h('div', { class: 'ui-list' }, HullMods.LIST.map((n) => {
+        const st = hm.status(n.id);
+        const done = st.state === 'done';
+        return Kit.optionRow({
+          code: 'HUL', name: n.name.replace(/ Mk [IV]+$/, ''), tier: / Mk [IV]+$/.test(n.name) ? n.tier : null,
+          tag: done ? 'Fitted' : '', tagTone: 'good',
+          extra: done ? null : costChips(st.cost, st.credits),
+          note: [n.note, st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}` : ''].filter(Boolean).join(' · '),
+          locked: st.state === 'locked', lockLabel: 'Locked',
+          action: st.state === 'available' ? Kit.button('Fit', act(() => hm.buy(n.id), () => Kit.toast(`${n.name} fitted`)), {
+            kind: st.ok ? 'primary' : '', disabled: !st.ok, aria: `Fit ${n.name}`,
+          }) : null,
+        });
+      })));
+  }
+
+  // ---------- Research ----------
+
+  const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT' };
+  // A duration: '45s', '20m', '1h 30m'.
+  function duration(ms) {
+    const sec = Math.max(0, Math.ceil(ms / 1000));
+    if (sec < 60) return `${sec}s`;
+    const m = Math.ceil(sec / 60), hrs = Math.floor(m / 60);
+    return hrs ? `${hrs}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`;
+  }
+  const pkgName = (p) => `${p.name}@${p.ver}`;
+  let live = null; // the build card's meter and time left, updated every second (see tick)
+
+  // What's building: a progress bar and the time left, Cancel (half back); then the queue.
+  function buildCard() {
+    const { lab } = ctx;
+    const st = lab.state, now = lab.now();
+    const a = st.active;
+    const out = [Kit.head('Build', h('span', { class: 'aside num' }, `queue ${st.queue.length}/${Research.QUEUE_MAX}`))];
+    if (!a) {
+      live = null;
+      out.push(Kit.code([Kit.codeLine({ n: '$', tokens: [{ t: 'cmt', text: '// idle: queue a package below' }] })], { label: 'Build' }));
+      return out;
+    }
+    const p = Research.PACKAGES[a.id], k = lab.progress();
+    const bar = Kit.meter(k, { color: 'var(--good)' }), left = h('span', { class: 'num' }, `${Math.floor(k * 100)}% · ${duration(a.end - now)} left`);
+    live = { bar, left, end: a.end };
+    out.push(h('div', { class: 'st-build' },
+      h('div', { class: 'top' }, h('span', { class: 'cmd' }, h('span', { class: 'tk-op' }, '$ '), h('span', { class: 'tk-fn' }, 'compiling '), h('span', { class: 'tk-subj' }, pkgName(p))), left),
+      bar,
+      st.queue.map((id) => h('div', { class: 'queued' }, h('span', { class: 'cmd' }, h('span', { class: 'tk-cmt' }, 'queued '), h('span', { class: 'tk-subj' }, pkgName(Research.PACKAGES[id]))),
+        h('span', { class: 'num' }, duration(Research.timeOf(id))),
+        h('button', { class: 'ui-link', type: 'button', 'aria-label': `Cancel ${pkgName(Research.PACKAGES[id])}`, onclick: act(() => lab.cancel(id), () => Kit.toast('Cancelled · refunded', 'warn')) }, 'Cancel'))),
+      Kit.button('Cancel build · half back', act(() => lab.cancel(a.id), () => Kit.toast(`${pkgName(p)} cancelled · half refunded`, 'warn')), { kind: 'ghost', wide: true })));
+    return out;
+  }
+  // The build card's numbers, without drawing the screen again (so focus and scroll stay put).
+  function tickBuild() {
+    if (!live) return;
+    const k = ctx.lab.progress();
+    live.bar.children[0].style.setProperty('--pct', `${k * 100}%`);
+    live.left.textContent = `${Math.floor(k * 100)}% · ${duration(live.end - ctx.lab.now())} left`;
+  }
+
+  // One package: import name and version, what it gives, its cost and build time, and Queue.
+  function packageRow(p) {
+    const { lab } = ctx;
+    const st = lab.status(p.id);
+    const gives = Research.gives(p.id).map((g) => g.label).join(', ');
+    const nameOf = (id) => pkgName(Research.PACKAGES[id]);
+    const TAG = { done: ['Imported', 'good'], active: ['Building', 'cyan'], queued: ['Queued', 'cyan'] };
+    const [tag, tone] = TAG[st.state] || ['', null];
+    const idle = !lab.state.active;
+    return Kit.optionRow({
+      code: CAT_CODE[p.cat], name: `import ${p.name}@${p.ver}`, tag, tagTone: tone,
+      sub: `// ${p.note}`,
+      extra: st.state === 'available' || st.state === 'locked' ? costChips(st.cost, st.credits, h('span', { class: 'cost num', title: 'Build time' }, `⏱ ${duration(Research.timeOf(p.id))}`)) : null,
+      note: [gives && `Adds ${gives}.`, p.example ? `e.g. ${Logic.text(p.example)}` : '', st.state === 'locked' ? `Needs ${st.needs.map(nameOf).join(', ')}.` : ''].filter(Boolean).join(' '),
+      open: openPkg === p.id, onToggle: () => { openPkg = openPkg === p.id ? null : p.id; refresh(); },
+      locked: st.state === 'locked', lockLabel: 'Locked',
+      action: st.state === 'available' ? Kit.button(idle ? 'Build' : 'Queue', act(() => lab.enqueue(p.id), () => Kit.toast(idle ? `Compiling ${pkgName(p)}` : `${pkgName(p)} queued`)), {
+        kind: st.ok ? 'primary' : '', disabled: !st.ok, title: st.full ? 'The queue is full' : undefined, aria: `${idle ? 'Build' : 'Queue'} ${pkgName(p)}`,
+      }) : null,
+    });
+  }
+
+  // Research: logic packages for the squad's programs, by category, with what's building on top.
+  function renderResearch() {
+    const { lab } = ctx;
+    const done = Research.LIST.filter((p) => lab.state.done.includes(p.id)).length;
     return [
-      titleRow('Research', `${lab.researched.size}/${Object.keys(Research.NODES).length} done`),
-      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), grid),
-      ...Research.LINES.map((line) => section(line.label,
-        Kit.head(line.label, h('span', { class: 'aside num' }, `${line.nodes.filter((n) => lab.researched.has(n.id)).length}/${line.nodes.length}`)),
-        h('div', { class: 'ui-list' }, line.nodes.map(node)))),
+      titleRow('Research', `${done}/${Research.LIST.length} imported`),
+      h('p', { class: 'ui-note' }, 'Logic packages for your squad\'s programs. Each is paid for when queued and builds in real time, even while you\'re away.'),
+      section('Build', buildCard()),
+      section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), componentsGrid(lab.components)),
+      Research.CATEGORIES.map((cat) => {
+        const list = Research.LIST.filter((p) => p.cat === cat.id);
+        return section(cat.label,
+          Kit.head(cat.label, h('span', { class: 'aside num' }, `${list.filter((p) => lab.state.done.includes(p.id)).length}/${list.length}`)),
+          h('p', { class: 'ui-note' }, cat.note),
+          h('div', { class: 'ui-list st-pkgs' }, list.map(packageRow)));
+      }),
     ];
   }
 
@@ -530,14 +621,49 @@ const StationMenu = (() => {
 
   // ---------- Squad ----------
 
-  // The squad: each member, its hull, and its logic modules in the order they're checked.
+  const WS = { t: 'ws', text: ' ' };
+  const ELSE = [{ t: 'kw', text: 'else' }, WS, { t: 'op', text: '→' }, WS, { t: 'fn', text: 'follow' }, { t: 'punc', text: '(' }, { t: 'subj', text: 'leader' }, { t: 'punc', text: ')' }];
+
+  // Why a line won't run, if it won't: past what memory runs, after a line that always holds, or
+  // about squad members when there are none to be about.
+  function idleWhy(m, i) {
+    const { limit, members } = ctx.squad, line = m.program[i];
+    if (line.err) return null;
+    if (i >= limit) return '// not run: out of memory · import mem.ext';
+    const first = m.program.slice(0, i).findIndex(Logic.alwaysRuns);
+    if (first >= 0) return `// never runs: line ${first + 1} always holds first`;
+    if (line.subject === 'ally' && members.length < 2) return '// never true yet: no other squad member';
+    return null;
+  }
+  // A member's program as code: its lines (tap one to edit it), what it does when none holds, and
+  // a line to add one. Lines that won't run are greyed, with why; after a fight, how often each
+  // took over.
+  function programBlock(m) {
+    const { limit } = ctx.squad, runs = ctx.squad.runs ? ctx.squad.runs(m.id) : [];
+    const lines = m.program.map((line, i) => {
+      const why = idleWhy(m, i);
+      return Kit.codeLine({
+        n: i + 1, tokens: Logic.tokens(line), off: !line.on, dim: !!why, err: line.err, active: !!runs[i] && !why,
+        note: why || (runs[i] ? `// ran ×${runs[i]} last fight` : null),
+        onclick: () => showLine(m.id, i), aria: `Line ${i + 1}: ${Logic.text(line)}${line.on ? '' : ' (off)'}. Edit`,
+      });
+    });
+    const add = m.program.length < Squad.MAX_LINES
+      ? Kit.codeLine({ tokens: [{ t: 'cmt', text: '+ add line' }], onclick: () => showLine(m.id, m.program.length), aria: 'Add a line' }) : null;
+    return [
+      Kit.head('Program', h('span', { class: 'aside num' }, `${Math.min(m.program.length, limit)}/${limit} lines run`)),
+      Kit.code([...lines, add, Kit.codeLine({ tokens: ELSE, dim: true })], { label: `${m.name}'s program` }),
+    ];
+  }
+
+  // The squad: each member, its hull, and its program.
   function renderSquad() {
     const members = ctx.squad ? ctx.squad.members : [];
     return [
       titleRow('Squad', `${members.length} member${members.length === 1 ? '' : 's'}`),
-      members.length ? h('p', { class: 'ui-note' }, 'Each member runs its first logic module whose condition holds, top down. If none does, it keeps formation with you.') : null,
+      members.length ? h('p', { class: 'ui-note' }, 'Each member runs its program top down and does what the first line that holds says. If none holds, it keeps formation with you. Tap a line to edit it.') : null,
       members.length ? members.map((m) => {
-        const st = Squad.stats(m), n = Squad.modulesOf(m).length;
+        const st = Squad.stats(m);
         const k = m.disabled ? 0 : m.hullPoints / st.hull;
         return section(m.name,
           h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND', tier: m.tier }),
@@ -549,30 +675,126 @@ const StationMenu = (() => {
             h('div', { class: 'gauge' },
               h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
               Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' }))),
-          Kit.head('Logic', h('span', { class: 'aside' }, `${n} of ${Squad.SLOTS} logic slots in use`)),
-          h('div', { class: 'ui-list' }, m.modules.map((id, i) => Kit.optionRow({
-            code: `L${i + 1}`, name: id ? Logic.label(id) : 'Empty', sub: id ? Logic.rule(id) : 'No module installed', locked: !id, lockLabel: null,
-          }))));
+          programBlock(m));
       }) : h('p', { class: 'ui-empty' }, 'No squad members yet.'),
     ];
+  }
+
+  // The sheet for one program line: the line as it will read, then a row of choices for each
+  // part of it (subject, pick, each condition, action). Blocks not yet researched are dashed.
+  // Changes go to a draft; Save puts it in the program if it checks.
+  const ABOUT = ['self', 'leader', 'fight'];
+  const propsFor = (about) => Object.values(Logic.PROPS).filter((p) => p.of.includes(about));
+  function defaultValue(p) { return p.values ? p.values[Math.floor((p.values.length - 1) / 2)] : null; }
+  function setProp(c, p) { c.prop = p.id; c.rel = p.rels[0] || null; c.value = defaultValue(p); }
+  // A new condition: about the subject if anything known can be said of it, else self, the leader, the fight.
+  function newClause(line, known) {
+    for (const about of [line.subject, ...ABOUT]) {
+      const p = propsFor(about).find((x) => Logic.knows(known, x.pkg));
+      if (!p) continue;
+      const c = Logic.clause({ join: line.when.length ? 'and' : null, of: about === line.subject ? null : about });
+      setProp(c, p);
+      return c;
+    }
+    return null;
+  }
+  // After the subject changes: a pick and an action it can take.
+  function fitDraft(d, known) {
+    if (!Logic.SUBJECTS[d.subject].many) d.pick = 'any';
+    const cur = Logic.ACTIONS[d.act];
+    if (cur.on && !cur.on.includes(d.subject)) d.act = Object.values(Logic.ACTIONS).find((a) => (!a.on || a.on.includes(d.subject)) && a.id !== 'use' && Logic.knows(known, a.pkg)).id;
+  }
+
+  function lineSheet() {
+    const sq = ctx.squad, { id, i, draft: d } = openLine;
+    const m = sq && sq.members.find((x) => x.id === id);
+    if (!m) return null;
+    const known = sq.known, isNew = i >= m.program.length;
+    const has = (b) => Logic.knows(known, b.pkg);
+    const item = (b, label = b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs import ${b.pkg} (Research)` });
+    const edit = (fn) => (v) => { fn(v); fitDraft(d, known); refresh(); };
+    const check = Logic.check(d, known);
+    const field = (label, ...parts) => h('div', { class: 'st-field' }, h('span', { class: 'ui-label' }, label), parts);
+
+    const clauses = d.when.map((c, j) => {
+      const about = c.of || d.subject;
+      const p = Logic.PROPS[c.prop];
+      const aboutItems = [{ id: '', label: d.subject, on: !c.of }, ...ABOUT.filter((a) => a !== d.subject).map((a) => ({
+        id: a, label: a, on: c.of === a, locked: !propsFor(a).some(has), title: propsFor(a).some(has) ? undefined : 'Nothing known about it yet (Research)',
+      }))];
+      return h('div', { class: 'st-clause' },
+        h('div', { class: 'st-clause-head' }, h('span', { class: 'ui-label' }, `Condition ${j + 1}`),
+          h('button', { class: 'ui-link', type: 'button', onclick: () => { d.when.splice(j, 1); if (d.when[0]) d.when[0].join = null; refresh(); } }, 'Remove')),
+        j ? Kit.choices([item(Logic.KEYWORDS.and, 'and', c.join === 'and'), item(Logic.KEYWORDS.or, 'or', c.join === 'or')], edit((v) => { c.join = v; }), { label: 'Joined by' }) : null,
+        Kit.choices([item(Logic.KEYWORDS.not, 'not', c.not)], edit(() => { c.not = !c.not; }), { label: 'Negate' }),
+        Kit.choices(aboutItems, edit((v) => {
+          c.of = v || null;
+          const now = c.of || d.subject;
+          if (!Logic.PROPS[c.prop]?.of.includes(now)) { const q = propsFor(now).find(has); if (q) setProp(c, q); }
+        }), { label: 'About' }),
+        Kit.choices(propsFor(about).map((q) => item(q, `.${q.id}`, q.id === c.prop)), edit((v) => setProp(c, Logic.PROPS[v])), { label: 'Property' }),
+        p && p.rels.length ? Kit.choices(p.rels.map((r) => ({ id: r, label: r, on: c.rel === r })), edit((v) => { c.rel = v; }), { label: 'Operator' }) : null,
+        p && p.values ? Kit.choices(p.values.map((v) => ({ id: String(v), label: `${v}${p.unit || ''}`, on: c.value === v })),
+          edit((v) => { c.value = p.values.find((x) => String(x) === v); }), { label: 'Value' }) : null);
+    });
+    const canAdd = d.when.length < Logic.MAX_CLAUSES && (!d.when.length || has(Logic.KEYWORDS.and)) && newClause(d, known);
+    const actions = Object.values(Logic.ACTIONS).filter((a) => (!a.on || a.on.includes(d.subject)) && (a.id !== 'use' || has(a)));
+    const subj = Logic.SUBJECTS[d.subject];
+
+    const tools = isNew ? null : h('div', { class: 'st-line-tools' },
+      Kit.button('↑', act(() => sq.move(id, i, i - 1), closeSheet), { kind: 'ghost', disabled: i === 0, aria: 'Move the line up' }),
+      Kit.button('↓', act(() => sq.move(id, i, i + 1), closeSheet), { kind: 'ghost', disabled: i >= m.program.length - 1, aria: 'Move the line down' }),
+      Kit.button(m.program[i].on ? 'Off' : 'On', act(() => sq.toggle(id, i), closeSheet), { kind: 'ghost', disabled: !!m.program[i].err, aria: m.program[i].on ? 'Switch the line off' : 'Switch the line on' }),
+      Kit.button('Copy', act(() => sq.set(id, m.program.length, m.program[i]), closeSheet), { kind: 'ghost', disabled: m.program.length >= Squad.MAX_LINES || !!m.program[i].err, aria: 'Copy the line to the end' }),
+      Kit.button('Delete', act(() => sq.remove(id, i), () => { closeSheet(); Kit.toast(`Line ${i + 1} deleted`, 'warn'); }), { kind: 'warn', aria: 'Delete the line' }));
+
+    return {
+      title: isNew ? 'New line' : `Line ${i + 1}`, sub: m.name, code: 'LGC', tall: true,
+      body: [
+        Kit.code([Kit.codeLine({ n: i + 1, tokens: Logic.tokens(d), err: check.ok ? null : check.errors[0] })], { label: 'The line' }),
+        field('Subject', Kit.choices(Object.values(Logic.SUBJECTS).map((b) => item(b, b.id, d.subject === b.id)), edit((v) => { d.subject = v; }), { label: 'Subject' })),
+        subj.many ? field('Pick', Kit.choices(Object.values(Logic.PICKS).map((b) => item(b, b.id, d.pick === b.id)), edit((v) => { d.pick = v; }), { label: 'Pick' })) : null,
+        clauses,
+        canAdd ? Kit.button('+ Condition', () => { d.when.push(newClause(d, known)); refresh(); }, { kind: 'ghost', wide: true })
+          : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need and (import core.bool).') : null,
+        field('Action', Kit.choices(actions.map((a) => item(a, `${a.id}()`, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Action' }),
+          h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
+      ],
+      foot: [
+        Kit.button(isNew ? 'Add line' : 'Save line', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => { closeSheet(); Kit.toast(isNew ? 'Line added' : 'Line saved'); }), {
+          kind: 'primary', lg: true, wide: true, disabled: !check.ok,
+        }),
+        tools,
+      ],
+    };
   }
 
   // ---------- Sheets ----------
 
   function sheetOptions() {
-    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : null;
+    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = null; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = null; refresh(); } });
   }
   function closeSheet() {
-    openSlot = openMission = null;
+    openSlot = openMission = openLine = null;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
   function showMission(id) { closeSheet(); openMission = id; briefAll = false; refresh(); openSheet(); }
+  function showLine(id, i) {
+    const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
+    if (!m) return;
+    closeSheet();
+    const draft = i < m.program.length ? Logic.copy(m.program[i]) : Logic.blank();
+    if (draft.err) { delete draft.err; draft.on = true; }
+    openLine = { id, i, draft };
+    refresh();
+    openSheet();
+  }
 
   // ---------- Refresh ----------
 
@@ -616,7 +838,7 @@ const StationMenu = (() => {
     if (isLocked(name)) return;
     closeSheet();
     tab = name;
-    openStat = openHold = openNode = openHull = null;
+    openStat = openHold = openHull = openPkg = null;
     body.scrollTop = 0;
     refresh();
   }
@@ -636,20 +858,38 @@ const StationMenu = (() => {
   }
   el('st-launch').addEventListener('click', () => ctx && !locks().launch && ctx.onLaunch());
 
+  // Every second while docked: research that finished (announced, and the screen drawn again, since
+  // what's known changed), else the build card's numbers.
+  let ticker = null;
+  function tick() {
+    if (!ctx || !ctx.lab) return;
+    const done = ctx.lab.settle({ quiet: true });
+    if (done.length) {
+      refresh();
+      Kit.toast(`Build ok · import ${done.map((id) => pkgName(Research.PACKAGES[id])).join(', ')}`);
+    } else if (tab === 'research') tickBuild();
+  }
+
   return {
     // options.tab: the tab to open on (Trade if not given, or the first that isn't locked).
     open(options) {
       ctx = options;
       tab = options.tab || 'trade';
       closeSheet();
-      openStat = openHold = openNode = openHull = null;
+      openStat = openHold = openHull = openPkg = null;
       doneOpen = false;
       root.hidden = false;
       body.scrollTop = 0;
       refresh();
       ((locks().launch && tabs.find((t) => t.dataset.tab === tab)) || el('st-launch')).focus({ preventScroll: true });
+      clearInterval(ticker);
+      ticker = setInterval(tick, 1000);
+      ticker.unref?.(); // (in Node, the tests: don't keep the process alive)
     },
     close() {
+      clearInterval(ticker);
+      ticker = null;
+      live = null;
       closeSheet();
       ctx = null;
       root.hidden = true;
@@ -661,10 +901,13 @@ const StationMenu = (() => {
     showTab: pick,
     get tab() { return tab; },
     refresh,
+    tick, // what the once-a-second timer does (the tests call it)
     // Open or close the sheet for a loadout slot on the Ship tab.
     toggleSlot(id) { if (openSlot === id) { closeSheet(); refresh(); } else showSlot(id); },
     // Open the sheet for a mission on the Missions tab; closeSheet() closes whichever is open.
     showMission(id) { showMission(id); },
+    // Open the sheet for line i of a squad member's program (i = its length: a new line).
+    showLine(id, i) { showLine(id, i); },
     closeSheet() { closeSheet(); refresh(); },
   };
 })();

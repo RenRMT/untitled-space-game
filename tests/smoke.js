@@ -264,7 +264,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.ok(game('!!stationLocks().launch'), 'Launch waits for the second mission');
   assert.strictEqual(game('cargo.squad.length'), 1);
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
-  assert.deepStrictEqual(game('Squad.modulesOf(cargo.squad[0])'), [], 'with no logic modules yet');
+  assert.deepStrictEqual(game('cargo.squad[0].program'), [], 'with no program yet');
   game(`StationMenu.showTab('squad')`);
   assert.strictEqual(game('StationMenu.tab'), 'squad');
   assert.match(tab(), new RegExp(game('mission.vars.ship')));
@@ -463,15 +463,33 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   assert.match(tab(), /Jump gate activated/);
   assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
   assert.match(tab(), /share our findings with Waystation HD-1908/);
-  assert.deepStrictEqual(game('Squad.modulesOf(firstMember())'), ['assist-leader'], 'its first combat logic module');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)'], 'its first combat logic module');
   assert.ok(game('gatesOnline() && !world.scene.gates[mission.gate.gate].offline'), 'the gate is online');
   game(`StationMenu.showTab('squad')`);
-  assert.match(tab(), /Combat logic module · Assist leader/);
+  assert.match(tab(), /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'the program, as code');
+  // Editing it: a new line, through its sheet.
+  game(`StationMenu.showLine(firstMember().id, 1)`);
+  assert.match(onStation(), /New line/);
+  assert.match(onStation(), /if true → attack\(enemy\)/, 'a blank line to start from');
+  pressOnStation('Add line');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)', 'if true → attack(enemy)']);
+  // Moved up, switched off, then deleted.
+  game(`StationMenu.showLine(firstMember().id, 1)`);
+  pressOnStation('↑');
+  assert.strictEqual(game('Logic.text(firstMember().program[0])'), 'if true → attack(enemy)');
+  game(`StationMenu.showLine(firstMember().id, 0)`);
+  pressOnStation('Off');
+  assert.strictEqual(game('firstMember().program[0].on'), false);
+  game(`StationMenu.showLine(firstMember().id, 0)`);
+  pressOnStation('Delete');
+  assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)']);
+  // What research hasn't unlocked can't be picked.
+  assert.ok(!game(`programs.set(firstMember().id, 1, { ...Logic.blank(), pick: 'nearest' })`), 'nearest needs combat.select');
   game('launch()');
   browser.frames(3);
   assert.strictEqual(game('objective()'), null, 'nothing more to do');
   // The tests after this one start from offline gates and a fresh squad member.
-  game('cargo.story.delete("gates"); showGates(); Squad.remove(firstMember(), firstMember().modules.indexOf("assist-leader")); saveCargo()');
+  game('cargo.story.delete("gates"); showGates(); firstMember().program = []; saveCargo()');
   game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
 });
 
@@ -600,32 +618,23 @@ test('trades and launches', () => {
   browser.frames(3);
 });
 
-test('researches with components and goods, then buys, fits and sells gear, and buys a hull', () => {
+test('buys, fits and sells gear from the outfitter, fits a hull refit, and buys a hull', () => {
   game(`fight.grace = 1e9; globalThis.__cap = __find((e) => e.kind === 'station' && e.market.type === 'capital');
     placeShip(__cap.x, __cap.y + __cap.radius + 150);`);
   browser.frames(1);
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
+  assert.ok(game(`outfitting.known.has('pulse-laser-2') && !outfitting.known.has('pulse-laser-5')`), 'a capital sells Mk II, never Mk V');
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
   assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
-  assert.match(onStation(), /Heavy cannonMk IIResearch/, 'the next Mk to research');
+  assert.match(onStation(), /Mk I*V?Not sold here/, 'the next Mk of a line not sold here');
   game(`StationMenu.showTab('trade')`);
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
-  // What Pulse laser Mk II costs, put aboard: components to their store, goods to the hold.
-  const give = (id) => game(`for (const c of lab.status('${id}').cost) {
-    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
-    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
-  }`);
-  assert.strictEqual(game(`lab.status('pulse-laser-2').ok`), false, 'nothing to research with yet');
-  give('pulse-laser-2');
-  const held = game('cargo.items.length');
-  assert.ok(game(`lab.research('pulse-laser-2')`));
-  assert.ok(game(`cargo.research.has('pulse-laser-2') && !cargo.components['weapon-simple']`), 'researched, components used up');
-  assert.strictEqual(game('cargo.items.length'), held - game(`Research.NODES['pulse-laser-2'].cost.titanium`), 'the trade goods were used up');
-  game(`StationMenu.showTab('research')`);
+  // Components for a refit, put aboard.
+  const give = (id) => game(`for (const c of hullmods.status('${id}').cost) cargo.components[c.kind] = c.need`);
   // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
   assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
   assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
@@ -640,17 +649,24 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
   assert.strictEqual(game('cargo.credits'), 5000 - game(`Loadout.EQUIPMENT['pulse-laser-2'].price`));
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
-  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-3', true)`), 'unresearched gear is not for sale');
+  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-5', true)`), 'gear not sold here is not for sale');
+  // A schematic makes it buyable anywhere.
+  game(`cargo.credits = 50000; cargo.schematics = new Set(['pulse-laser-5'])`);
+  assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-5', true) && outfitting.unfit('weapon-1') && outfitting.sell('pulse-laser-5')`));
+  game(`cargo.schematics = new Set(); cargo.credits = 5000 - Loadout.EQUIPMENT['pulse-laser-2'].price`);
   assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-2', true)`));
   assert.strictEqual(game(`cargo.gear['pulse-laser-1']`), 1, 'the old laser is spare gear');
   const credits = game('cargo.credits');
   assert.ok(game(`outfitting.sell('pulse-laser-1')`));
   assert.strictEqual(game('cargo.credits'), credits + game(`outfitting.sellPrice('pulse-laser-1')`));
-  // A hull upgrade raises the hull at once, damage and all.
+  // A hull refit raises the hull at once, damage and all; it costs credits and components.
   give('armour-1');
-  game('cargo.hull = SHIP.hull - 30');
+  game('cargo.hull = SHIP.hull - 30; cargo.credits = 3000');
   const maxHull = game('SHIP.hull');
-  assert.ok(game(`lab.research('armour-1')`));
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Hull refits.*Armour plating/, 'refits are on the Ship tab at a shipyard');
+  assert.ok(game(`hullmods.buy('armour-1')`));
+  assert.ok(game(`cargo.hullMods.has('armour-1') && cargo.credits === 0 && !cargo.components['hull-simple']`), 'paid for');
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -667,13 +683,87 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.deepStrictEqual(game(`[SHIP.weaponsFitted, cargo.gear['pulse-laser-2']]`), [1, 1]);
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
-  const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])');
+  const before = game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])');
   game('saveCargoNow(); loadCargo(world.galaxy)');
-  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.research], cargo.components, SHIP.hull, SHIP.cargo])'), before);
+  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, [...cargo.hullMods], [...cargo.schematics], cargo.components, SHIP.hull, SHIP.cargo])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));
   browser.frames(3);
+});
+
+test('researches a logic package: paid up front, built on the real clock, and then usable', () => {
+  game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.ok(game('!!docked'));
+  game(`StationMenu.showTab('research')`);
+  assert.match(onStation(), /import core\.bool/);
+  assert.match(onStation(), /idle: queue a package below/);
+  // What core.bool costs, put aboard.
+  game(`for (const c of lab.status('core.bool').cost) {
+    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
+    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
+  } cargo.credits = 1000; StationMenu.refresh()`);
+  const held = game('cargo.items.length');
+  pressOnStation(/^Build/);
+  assert.ok(game(`cargo.lab.active.id === 'core.bool' && cargo.credits === 700 && !cargo.components['computer-simple']`), 'paid up front');
+  assert.strictEqual(game('cargo.items.length'), held - 1, 'the goods went too');
+  assert.match(onStation(), /compiling core\.bool@1\.0/);
+  // Not done yet: and isn't known.
+  assert.ok(!game(`programs.set(firstMember().id, 0, { ...Logic.blank(), when: [Logic.clause(), Logic.clause({ join: 'and' })] })`), 'and needs core.bool');
+  // Half way, then done: the timer tick sees it.
+  game(`__T += Research.timeOf('core.bool') / 2; StationMenu.tick()`);
+  assert.match(onStation(), /50% · 3m left/);
+  game(`__T += Research.timeOf('core.bool'); StationMenu.tick()`);
+  assert.ok(game(`cargo.lab.done.includes('core.bool') && !cargo.lab.active`), 'built');
+  assert.match(textOf(browser.document.body), /Build ok · import core\.bool@1\.0/);
+  assert.ok(game(`programs.set(firstMember().id, 0, { ...Logic.blank(), when: [Logic.clause(), Logic.clause({ join: 'and', not: true })] })`), 'and, not are known now');
+  game('firstMember().program.splice(0, 1)');
+  // Queued, then the game closed for an hour: done on load, and the next one has started.
+  game(`cargo.credits = 1e5; for (const id of ['maint.sense', 'squad.link']) for (const c of lab.status(id).cost) {
+    if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = (cargo.components[c.kind] || 0) + c.need;
+    else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
+  }`);
+  assert.ok(game(`lab.enqueue('maint.sense') && lab.enqueue('squad.link')`));
+  game(`StationMenu.refresh()`);
+  assert.match(onStation(), /queued squad\.link@1\.0/);
+  game(`saveCargoNow(); __T += Research.timeOf('maint.sense') + 1000; loadCargo(world.galaxy)`);
+  assert.ok(game(`cargo.lab.done.includes('maint.sense') && cargo.lab.active.id === 'squad.link'`), 'finished while away');
+  // Cancelled while building: half back.
+  const credits = game('cargo.credits');
+  assert.deepStrictEqual(game(`lab.cancel('squad.link')`), ['squad.link']);
+  assert.strictEqual(game('cargo.credits'), credits + Math.floor(game(`Research.PACKAGES['squad.link'].cost.credits`) / 2));
+  game('Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
+test('logic intents become orders: guard fires on the ward\'s attacker, retreat falls back behind the leader', () => {
+  const orders = (intent) => game(`(() => {
+    const c = (id, x, y, o = {}) => ({ id, x, y, angle: 0, hull: 10, shield: 0, stats: { hull: 10, shield: 0 }, ...o });
+    const s = { player: c('player', 0, 0), allies: [c('w1', -100, 0), c('w2', -100, 100)],
+      enemies: [c('e1', 800, 0, { aim: 'w2' }), c('e2', 600, 300, { aim: 'w2' }), c('e3', 900, -50, { aim: 'player' })] };
+    return ordersFor(s, s.allies[0], ${JSON.stringify(intent)}, 0);
+  })()`);
+  assert.deepStrictEqual(orders({ type: 'attack', target: 'e1' }), { target: 'e1', keep: false });
+  assert.deepStrictEqual(orders({ type: 'attack', target: 'e1', keep: true }), { target: 'e1', keep: true });
+  assert.deepStrictEqual(orders({ type: 'guard', ward: 'w2' }), { target: 'e2' }, 'the nearest of those shooting at it');
+  assert.deepStrictEqual(orders({ type: 'guard', ward: 'player' }), { target: 'e3' });
+  const st = orders({ type: 'retreat' }).station;
+  assert.ok(st.x < -100, `behind the leader, away from the enemies (${st.x.toFixed(0)}, ${st.y.toFixed(0)})`);
+  assert.ok(orders({ type: 'follow' }).station && !orders({ type: 'follow' }).target);
+  assert.ok(!orders({ type: 'use', skill: 'x', target: 'e1' }).target, 'no abilities yet: keeps formation');
+});
+
+test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
+  const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
+  assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
+  // Logic modules in slots become program lines.
+  const sq = game(`(() => { const d = { squad: [{ seed: 1, modules: ['assist-leader', null, 'gone', null] }, { seed: 2 }] }; CARGO_MIGRATIONS[4](d); return d.squad; })()`);
+  assert.deepStrictEqual(sq, [{ seed: 1, program: [game(`Logic.PRESETS['assist.leader']`)] }, { seed: 2 }]);
+  // Logic research starts empty; a damaged lab reads as what can be made of it.
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[5](d); return d.lab; })()`), { done: [], active: null, queue: [] });
+  assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
+  assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
 });
 
 test('components go to their own store, even with a full hold, and stay when the ship is lost', () => {
@@ -947,8 +1037,8 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   const id = game('cargo.squad[0].id');
   assert.match(game('cargo.squad[0].name'), /^[A-Z][a-z]+-\d\d$/);
   assert.strictEqual(game(`wings.get('${id}').art.culture.lineage`), 'android', 'built in the android culture');
-  // It joined with empty logic slots; give it the Assist leader module (a later mission's job).
-  assert.ok(game(`Squad.install(cargo.squad[0], 'assist-leader', 0)`));
+  // It joined with an empty program; give it the Assist leader line (a later mission's job).
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.PRESETS['assist.leader'])`));
   // It follows the ship around and settles into its place in formation.
   game(`fight.grace = 1e9; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 2500, Math.PI / 2); } ship.targetAngle = 0.4; ship.targetSpeed = SHIP.maxSpeed * 0.6;`);
   browser.frames(120);
@@ -959,16 +1049,20 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman' && e.key === '${id}' && visible(e))`), 'drawn beside the ship');
   game(`select(frameList.find((e) => e.kind === 'wingman'))`);
   browser.frames(1);
-  assert.match(game('describe(selected.e).subtitle'), /^Squad · android fighter · 1 logic module/);
+  assert.match(game('describe(selected.e).subtitle'), /^Squad · android fighter · 1 logic line/);
   game('select(null)');
   // In a fight it joins as an ally, and its combat logic module has it fire on the leader's target.
   for (const mode of ['rounds', 'realtime']) {
     game(`combatMode.set('${mode}'); repairSquad(); snapWings();`);
     meetPirate();
     assert.strictEqual(game('fight.s.allies.length'), 1, `${mode}: the wingman fights`);
+    browser.frames(1);
+    assert.ok(game(`fight.fx.some((f) => f.type === 'code' && f.at === '${id}' && f.text === 'L1 › attack(enemy)')`), `${mode}: the line it runs shows over it`);
     const chase = mode === 'realtime' ? `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.4; } }` : '';
     assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === '${id}')`, 60 * 40, chase), `${mode}: it opens fire`);
     if (game('!!fight.s')) assert.strictEqual(game(`fight.s.allies[0].order.target`), game('fight.s.focus'), `${mode}: on the leader's target`);
+    if (game('!!fight.s')) assert.match(textOf(browser.document.getElementById('combat').querySelector('.cb-rows')), /L1/, `${mode}: the panel shows the line it runs`);
+    assert.ok(game(`lineRuns.get('${id}')[0] >= 1`), `${mode}: line 1 ran`);
     game('fight.s && (fight.s.over = "fled")');
     browser.frames(2);
     game('ship.targetSpeed = 0');
@@ -983,9 +1077,15 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game('!cargo.squad[0].disabled && cargo.squad[0].hullPoints === Squad.stats(cargo.squad[0]).hull'), 'repaired');
   game(`StationMenu.showTab('squad')`);
   const tab = textOf(browser.document.getElementById('st-body'));
-  assert.match(tab, /Combat logic module · Assist leader/);
-  assert.match(tab, /If the leader is fighting a target, then attack it/);
-  assert.match(tab, /1 of 4 logic slots in use/);
+  assert.match(tab, /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'its program, as code');
+  assert.match(tab, /else → follow\(leader\)/, 'and what it does when no line holds');
+  assert.match(tab, /1\/3 lines run/);
+  assert.match(tab, /ran ×\d+ last fight/, 'how often the line took over');
+  // A line after one that always holds never runs, and says so.
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.blank()) && programs.set(cargo.squad[0].id, 1, Logic.PRESETS['assist.leader'])`));
+  game(`StationMenu.refresh()`);
+  assert.match(textOf(browser.document.getElementById('st-body')), /never runs: line 1 always holds first/);
+  assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.PRESETS['assist.leader']) && programs.remove(cargo.squad[0].id, 1)`));
   game('launch()');
   browser.frames(3);
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');
