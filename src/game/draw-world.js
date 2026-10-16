@@ -1,41 +1,26 @@
 // Drawing things in space (relative to `origin`, a grid point near the camera, for precision):
-// entities, the ship, particles, item halos; and the region notices.
+// entities, the ship, particles, item halos; and where the ship is (here.region).
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
 import { COLORS } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
-import { Security } from '../world/security.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS } from './selection.js';
-import { SHIP, TAU, cam, clamp, ctx, fight, here, notify, particles, ship, view } from './state.js';
+import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const origin = { x: 0, y: 0 };
 export const rx = (x) => x - origin.x;
 export const ry = (y) => y - origin.y;
 
-export const securityLabel = (level) => Security.LEVELS[level].label.toLowerCase();
-
-export let lastRegion; // the system, security level and nebula the ship was in last frame, for enter/leave notices
-export function forgetRegion() { lastRegion = undefined; }
-
-// A notice when the ship crosses into another system or out into deep space, into another
-// security level, or into or out of a nebula. Entering a system for the first time charts it
-// (rules/knowledge.js), so it shows on the galaxy map.
-// Also keeps here.region up to date for the HUD and minimap.
-export function updateRegionNotice() {
+// Keeps here.region (the system, security level and nebula the ship is in) up to date for the HUD
+// and minimap, which show it, so crossing into another one gets no notice of its own. Entering a
+// system for the first time charts it (rules/knowledge.js), so it shows on the galaxy map.
+export function updateRegion() {
   const r = here.region = world.galaxy.regionAt(ship.x, ship.y);
-  const { security: level, nebula, system } = r;
-  const now = { level, nebula, system };
-  const was = lastRegion;
-  lastRegion = now;
-  if (system) world.knowledge.visit(system.index);
-  if (!was) return;
-  if (system !== was.system) notify(system ? `Entering the ${system.name} system` : `Leaving the ${was.system.name} system · deep space`, 3);
-  else if (nebula !== was.nebula) notify(nebula ? `Entering the ${nebula.name} · sensors dampened` : `Leaving the ${was.nebula.name}`, 3);
-  else if (level !== was.level) notify(`Entering ${securityLabel(level)}-security space`, 2.5);
+  if (r.system) world.knowledge.visit(r.system.index);
 }
 
 // Pickup highlight: a soft glow, a steady ring and a ring pulsing outward, in the amber the minimap

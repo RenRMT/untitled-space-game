@@ -7,7 +7,6 @@ import { Loadout } from '../rules/loadout.js';
 import { Research } from '../rules/research.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, hold, saveCargo } from './cargo.js';
-import { forgetRegion } from './draw-world.js';
 import { stopMining } from './mining.js';
 import { snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
@@ -116,7 +115,6 @@ export function placeShip(x, y, angle = -Math.PI / 2) {
   debris.length = 0;
   stopMining();
   autopilot.key = null;
-  forgetRegion(); // no enter/leave notice for a teleport
   sense();
   snapWings();
 }

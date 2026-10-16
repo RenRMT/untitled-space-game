@@ -32,15 +32,15 @@
   .btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
   .btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
-  /* Sits under the minimap, which game/hud.js draws clamp(90, 28vw, 150) px wide at 12 px from the corner. */
-  #map-btn {
-    position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 8px);
-    width: clamp(90px, 28vw, 150px);
+  /* Map and settings: small icon buttons side by side in the bottom-right corner, level with the
+     speed bar and clear of the panels above it. */
+  .icon-btn {
+    position: absolute; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
   }
-  #settings-btn {
-    position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 48px);
-    width: clamp(90px, 28vw, 150px);
-  }
+  .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  #map-btn { right: calc(12px + 34px + 6px + env(safe-area-inset-right, 0px)); }
+  #settings-btn { right: calc(12px + env(safe-area-inset-right, 0px)); }
   .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
   #map-overlay { position: fixed; inset: 0; z-index: 2; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
@@ -435,14 +435,19 @@
   .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
   .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 2px; }
   body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
-  /* Someone talking on the comms during flight: the box takes the context card's place. */
-  body.talking #context { display: none; }
+  /* Someone talking on the comms during flight: the box takes the context card's place, and covers
+     the corner buttons on a narrow screen. */
+  body.talking #context, body.talking #map-btn, body.talking #settings-btn { display: none; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
-<button id="map-btn" class="btn" type="button">Map</button>
-<button id="settings-btn" class="btn" type="button" aria-haspopup="dialog">Settings</button>
+<button id="map-btn" class="btn icon-btn" type="button" aria-label="Map" title="Map">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
+</button>
+<button id="settings-btn" class="btn icon-btn" type="button" aria-haspopup="dialog" aria-label="Settings" title="Settings">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.9 10.2L20.5 10.5L20.5 13.5L17.9 13.8L17.5 14.9L19.0 17.0L17.0 19.0L14.9 17.5L13.8 17.9L13.5 20.5L10.5 20.5L10.2 17.9L9.1 17.5L7.0 19.0L5.0 17.0L6.5 14.9L6.1 13.8L3.5 13.5L3.5 10.5L6.1 10.2L6.5 9.1L5.0 7.0L7.0 5.0L9.1 6.5L10.2 6.1L10.5 3.5L13.5 3.5L13.8 6.1L14.9 6.5L17.0 5.0L19.0 7.0L17.5 9.1z"/><circle cx="12" cy="12" r="2.8"/></svg>
+</button>
 <div id="context" class="panel" role="region" aria-label="Selected object" aria-live="polite" hidden>
   <div class="cx-head">
     <span class="cx-title"></span>
