@@ -85,7 +85,6 @@ const Knowledge = (() => {
       get version() { return version; },
       sense, pass, save,
       // Public versions record the change (version bump and save), like sense() and pass() do.
-      reveal: (id) => { const c = byId.get(id); const any = !!c && identify(c); if (any) changed(); return any; },
       contactState: (id) => states.get(id) || null,
       // A system entered: true the first time.
       visit: (i) => { if (visited.has(i)) return false; visited.add(i); changed(); return true; },

@@ -67,7 +67,7 @@ const Art = (() => {
     return c;
   }
   // A stable id for a planet, star or asteroid body, from the fields it is drawn from (underscored
-  // fields are caches), so a sector rebuilt from its seed finds its sprites again. Blueprints get
+  // fields are caches), so a scene rebuilt from its seed finds its sprites again. Blueprints get
   // theirs from art/blueprints.js.
   const idOf = (o) => o._artId || (o._artId = JSON.stringify(o, (k, v) => (k[0] === '_' ? undefined : v)));
   const quant = (ppu) => 2 ** (Math.round(Math.log2(ppu) * 4) / 4);

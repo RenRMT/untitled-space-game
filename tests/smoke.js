@@ -3,11 +3,10 @@
 // Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
-// flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. It opens on the introduction and the waystation's three
-// missions, which the first four tests play through. Each step checks its effect; at the end nothing may have
-// been drawn at a non-finite position. The steps share one game, in order, as a player would
-// play them.
+// flying into a nebula and to the system's edge, map travel, a fight in each combat mode and the
+// settings. It opens on the introduction and the waystation's three missions, which the first four
+// tests play through. Each step checks its effect; at the end nothing may have been drawn at a
+// non-finite position. The steps share one game, in order, as a player would play them.
 
 const fs = require('fs');
 const vm = require('vm');
@@ -294,7 +293,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
     browser.frames(1);
     game('startMining(__gas); mining.t = mineTime() - 0.05');
     assert.ok(until('cargo.removed.has(__gas.key)', 60 * 4), 'collected');
-    game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+    game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   }
   assert.strictEqual(game('cargo.missions.count(SALVAGE, "gas")'), 3);
   // The squad member picks up the signal.
@@ -707,7 +706,7 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   assert.match(game('toast.text'), /^Gas pocket collected · \d × /);
   assert.ok(game('!frameList.includes(__gas)'), 'and gone');
   const n = game('Mining.gasOf(world.galaxy.seed, __gas).length'), held = game('cargo.items.length');
-  game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+  game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   browser.frames(2);
   assert.strictEqual(game('cargo.items.length'), held + n, 'its gas is in the hold');
   assert.ok(game(`cargo.items.slice(-${n}).every((it) => Goods.type(it.kind).category === 'gas')`));
@@ -950,6 +949,18 @@ test('settings open and close', () => {
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
   browser.frames(3);
+
+  // Paused behind the menu, the ship parked on a loose item doesn't pick it up; once the menu
+  // closes, it does.
+  const item = `world.scene.entities.find((e) => e.kind === 'item' && !e.mission && !cargo.removed.has(e.key))`;
+  assert.ok(game(`!!(globalThis.__item = ${item})`), 'a loose item');
+  game('fight.grace = 1e9; placeShip(__item.x, __item.y); cargo.credits += 0');
+  game('Settings.open()');
+  browser.frames(5);
+  assert.ok(!game('cargo.removed.has(__item.key)'), 'nothing is picked up while paused');
+  browser.key('Escape');
+  browser.frames(2);
+  assert.ok(game('cargo.removed.has(__item.key)'), 'picked up once flight resumes');
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {

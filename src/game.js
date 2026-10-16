@@ -61,7 +61,7 @@ const intro = { on: false, run: null, station: null, face: null, flying: false, 
 const inFight = () => !!fight.s || fight.wreckT > 0;
 const fightMode = () => COMBAT[fight.mode];
 const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
-let simTime = 0; // advances only while flying, so the map pause doesn't make traffic jump
+let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
 let flash = 0; // white-out when the wrecked ship is towed home or jumps through a gate, fading from 1
 const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
 // Show a notice for t seconds. once: leave the same notice alone while it's still showing, so
@@ -71,6 +71,16 @@ const notify = (text, t = 2, { once = false } = {}) => {
   toast.text = text;
   toast.t = t;
 };
+// What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'settings'. Each sets the
+// body class of the same name (index.html hides controls by it); the map can't open during any of
+// those in MAP_BLOCKERS. Several can hold at once, so each is switched on and off by name.
+const modes = new Set();
+const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'settings'];
+function setMode(name, on) {
+  if (on) modes.add(name); else modes.delete(name);
+  document.body.classList.toggle(name, on);
+  SystemMap.blocked = MAP_BLOCKERS.some((m) => modes.has(m));
+}
 let lastRegion; // the system, security level and nebula the ship was in last frame, for enter/leave notices
 let senseTimer = 0;
 
@@ -85,10 +95,10 @@ function resize() {
   view.base = clamp(Math.min(view.w, view.h) / 800, 0.55, 1.2);
   view.zoom = view.base * view.k;
 }
-window.addEventListener('resize', resize);
+window.addEventListener('resize', () => { resize(); invalidate(); });
 resize();
 
-// ---------- Settings: art style, movement, combat and map style (ui/settings.js menu) ----------
+// ---------- Settings: art style, movement and combat (ui/settings.js menu) ----------
 
 // A saved choice among `options` (core/store.js; a URL parameter of the same name overrides the saved
 // one); onChange runs after every change.
@@ -147,7 +157,8 @@ Settings.add({
 const settingsBtn = document.getElementById('settings-btn');
 settingsBtn.addEventListener('click', () => { if (!inFight() && !docked && !intro.on) Settings.open(); });
 Settings.onToggle = (open) => {
-  SystemMap.blocked = open; // no map on top of the menu
+  setMode('settings', open); // no map on top of the menu
+  invalidate(); // a changed setting shows behind the panel
   settingsBtn.setAttribute('aria-expanded', String(open));
   if (open) drag.active = false;
 };
@@ -611,8 +622,7 @@ function startIntro() {
   view.k = ARRIVE.zoom;
   view.zoom = view.base * view.k;
   fight.grace = Infinity;
-  document.body.classList.add('intro');
-  SystemMap.blocked = true;
+  setMode('intro', true);
   Comms.onSkip = skipIntro;
   Comms.hide(); // nothing is said until the pod has drifted in
 }
@@ -750,8 +760,7 @@ function endIntro({ played }) {
   Object.assign(intro, { on: false, run: null, flying: false, beam: null, arrive: null });
   Comms.onSkip = null;
   Comms.hide();
-  document.body.classList.remove('intro');
-  SystemMap.blocked = false;
+  setMode('intro', false);
   fight.grace = 0;
   applyShip();
   cargo.hull = SHIP.hull;
@@ -920,7 +929,7 @@ function missionThings() {
 // Lines on the comms box while flight goes on: each waits for a tap, then the next.
 function say(lines, { from, face = null, then = null }) {
   Object.assign(talk, { lines, i: 0, from, face, then });
-  document.body.classList.add('talking');
+  setMode('talking', true);
   showTalk();
 }
 function showTalk() {
@@ -948,7 +957,7 @@ function endTalk(keep = true) {
   if (!talk.lines) return;
   const then = keep ? talk.then : null;
   Object.assign(talk, { lines: null, i: 0, then: null });
-  document.body.classList.remove('talking');
+  setMode('talking', false);
   Comms.hide();
   if (then) then();
 }
@@ -1339,8 +1348,7 @@ function dock(station) {
   ship.thrust = 0;
   drag.active = false;
   particles.length = 0;
-  SystemMap.blocked = true;
-  document.body.classList.add('docked');
+  setMode('docked', true);
   StationMenu.open({
     station: { name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color },
     market: Economy.market(world.galaxy.seed, station),
@@ -1366,8 +1374,7 @@ function launch() {
   const st = docked.station;
   docked = null;
   StationMenu.close();
-  SystemMap.blocked = false;
-  document.body.classList.remove('docked');
+  setMode('docked', false);
   const a = Math.atan2(ship.y - st.y, ship.x - st.x);
   const d = st.radius + 180;
   placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
@@ -2043,8 +2050,7 @@ function engage(target, ambushed = false) {
   stopMining();
   autopilot.key = null;
   select(null);
-  SystemMap.blocked = true;
-  document.body.classList.add('in-combat');
+  setMode('in-combat', true);
   notify(ambushed ? attackers : 'Combat');
 }
 
@@ -2164,8 +2170,7 @@ function playerDestroyed() {
 function towHome() {
   cargo.hull = SHIP.hull; // patched up enough to fly
   fight.wrecked = false;
-  SystemMap.blocked = false;
-  document.body.classList.remove('in-combat');
+  setMode('in-combat', false);
   const home = cargo.home;
   if (home) placeShip(home.x, home.y + home.radius + 220);
   else placeBeside(startStation());
@@ -2193,8 +2198,7 @@ function endFight(result) {
     // Controls and the map stay locked until the wreck is towed home (towHome).
     fight.wreckT = 2.6;
   } else {
-    SystemMap.blocked = false;
-    document.body.classList.remove('in-combat');
+    setMode('in-combat', false);
   }
   if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5); }
   else if (result === 'won') notify('Victory', 2.5);
@@ -3096,13 +3100,20 @@ function drawHud() {
 
 // ---------- Main loop ----------
 
-function render() {
-  Art.beginFrame();
-  const t = simTime;
-  const list = nearbyEntities(t);
+// What follows from where things are after a step: pickups, the selection, pirates noticing the
+// ship, and the objective shown on the map. Not while paused, so nothing is picked up behind the
+// settings menu.
+function react(list) {
   collectItems(list);
   updateSelection(list);
   checkAggro(list);
+  const obj = objective();
+  SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
+}
+
+function render(list = nearbyEntities(simTime)) {
+  Art.beginFrame();
+  const t = simTime;
   updateCombatPanel();
   origin.x = Math.round(cam.x / 5000) * 5000;
   origin.y = Math.round(cam.y / 5000) * 5000;
@@ -3143,8 +3154,6 @@ function render() {
     ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
     ctx.restore();
   }
-  const obj = objective();
-  SystemMap.objective = obj && { x: obj.x, y: obj.y, label: obj.text, station: obj.station ? obj.station.station.id : null };
   if (hudShown()) drawNavMarkers(list);
   else navHits = [];
   drawFoeMarkers();
@@ -3203,6 +3212,11 @@ function drawPerf() {
   ctx.restore();
 }
 
+// While paused (the settings menu), the frame is drawn once and then left as it is until
+// something changes it (invalidate: a setting, a resize).
+let stillDrawn = false;
+function invalidate() { stillDrawn = false; }
+
 let last = performance.now();
 function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -3211,10 +3225,18 @@ function frame(now) {
   const t0 = performance.now();
   tickTravel(dt);
   if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
-
-    if (!Settings.isOpen) update(dt); // the settings menu pauses it too, but keeps it drawn
-    render();
-    recordFrame(performance.now() - t0, gap);
+    const paused = Settings.isOpen; // the settings menu pauses it too, but keeps it drawn
+    if (!paused) {
+      update(dt);
+      stillDrawn = false;
+    }
+    if (!stillDrawn) {
+      const list = nearbyEntities(simTime);
+      if (!paused) react(list);
+      render(list);
+      stillDrawn = paused;
+      recordFrame(performance.now() - t0, gap);
+    }
   }
   requestAnimationFrame(frame);
 }

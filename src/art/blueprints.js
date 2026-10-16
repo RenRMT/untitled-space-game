@@ -18,7 +18,7 @@ const ArtBlueprints = (() => {
   const { TAU, lerp, clamp } = U;
 
   // A blueprint's id names what it is built from (type, culture and seed), so building the same
-  // asset again (a sector rebuilt from its seed) finds the same cached sprites (art/render.js).
+  // asset again (a scene rebuilt from its seed) finds the same cached sprites (art/render.js).
   function builder(type, culture, seed) {
     const bp = {
       id: `${type}:${culture.seed ?? 0}:${seed}`, type, culture, seed, parts: [], lights: [], engines: [],
