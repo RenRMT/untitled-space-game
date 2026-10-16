@@ -18,7 +18,8 @@
 //     card(e, system) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a goods.js type
-//   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly)
+//   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly,
+//                                          except one marked a pirate too)
 //   Entities.stationSubtitle(station)
 // Works as a classic browser script (global `Entities`) and as a Node module. Drawing and the
 // colours need art/render.js, art/bodies.js and theme.js, so only the factories work in Node.
@@ -149,12 +150,14 @@ const Entities = (() => {
     ship: {
       order: 4, selectable: true, hit: 1, follow: 600,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),
-      label: (e) => (e.android ? [e.color, e.radius + 20] : named(e)),
+      label: (e) => (e.android ? [isHostile(e) ? color().hostile : e.color, e.radius + 20] : named(e)),
       mark: (e) => ({ color: isHostile(e) ? color().hostile : e.android ? e.color : color().neutral, r: 1.2 }),
       card(e) {
-        // An android ship that isn't in the squad yet (the first mission's): its note says how it is.
-        if (e.android) return { title: e.name, sub: e.note || 'Android', color: e.color, tag: 'Android' };
         const hostile = isHostile(e);
+        // An android ship: one not in the squad (yet), its note saying how it is; or the hostile one
+        // of the second mission, armed like a pirate.
+        if (e.android && hostile) return { title: e.name, sub: `Android · unregistered · ${Loadout.MK[e.tier]} gear`, color: color().hostile, tag: 'Hostile', tone: 'hostile' };
+        if (e.android) return { title: e.name, sub: e.note || 'Android', color: e.color, tag: 'Android' };
         // Pirates show their gear tier, so you can judge a fight before starting it.
         const gear = hostile && e.tier ? ` · ${Loadout.MK[e.tier]} gear` : '';
         return {

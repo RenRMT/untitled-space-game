@@ -1501,6 +1501,66 @@ test('the first mission\'s fight: the provided Courier beats the two Mk I pirate
   assert(wins > 97, `real time: won ${wins} of 100`);
 });
 
+test('the second mission: the nearest nebula, its pockets, and an android signal deep inside, clear of the pirates', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, first = Missions.site(g), S = Missions.salvageSite(g, first), W = g.stations[g.waystation];
+    assert.deepStrictEqual(Missions.salvageSite(g, first), S, `${where}: the same every time`);
+    const n = g.nebulae[S.nebula];
+    assert.strictEqual(n.system, W.system, `${where}: in the waystation's system`);
+    for (const o of g.nebulae) if (o.system === W.system) assert(dist(n, W) - n.r <= dist(o, W) - o.r + 1e-6, `${where}: not the nearest nebula`);
+    assert(S.pockets.length >= 3, `${where}: only ${S.pockets.length} pockets`);
+    assert(S.safe.every((k) => S.pockets.includes(k)));
+    assert.strictEqual(g.nebulaAt(S.x, S.y), n, `${where}: the signal is outside the nebula`);
+    for (const k of g.packs) assert(dist(k, S) >= Missions.SALVAGE.minClear, `${where}: pirates ${dist(k, S).toFixed(0)} from the signal`);
+    for (const q of g.pockets.filter((x) => x.nebula === S.nebula)) assert(dist(q, S) >= Missions.SALVAGE.pocketClear, `${where}: a pocket on the signal`);
+    assert(dist(S, first) > first.spread + 3000, `${where}: in the first mission's field`);
+    assert.deepStrictEqual([S.module.x, S.module.y], [S.x, S.y]);
+    assert.strictEqual(Goods.type(S.module.kind).name, 'AI cores', 'drawn as AI cores');
+    const sign = (seed) => Squad.designation(seed).split('-')[0];
+    assert.notStrictEqual(sign(S.hostile.seed), sign(first.android.seed), `${where}: the hostile shares the squad member's callsign`);
+  }
+  // Objectives: mining and gas in any order; the signal after the gas; then in turn.
+  const ID = 'salvage', log = Missions.create();
+  log.accept(ID);
+  assert.deepStrictEqual(log.objectives(ID).map((o) => o.id), ['mine', 'gas'], 'the twist stays secret');
+  log.set(ID, 'gas', 3);
+  assert(log.open(ID, 'signal') && !log.open(ID, 'investigate'));
+  assert.strictEqual(log.current(ID).id, 'mine');
+  log.set(ID, 'mine', 3);
+  for (const o of ['signal', 'investigate', 'hostile']) log.set(ID, o, 1);
+  assert(log.open(ID, 'puzzle') && log.open(ID, 'module') && !log.open(ID, 'return'));
+  assert(!Missions.lines(Missions.LIST[ID].puzzle, log, ID).some((l) => /You have recovered/.test(l)));
+  log.set(ID, 'module', 1);
+  assert(Missions.lines(Missions.LIST[ID].puzzle, log, ID).some((l) => /You have recovered/.test(l)));
+  assert.deepStrictEqual(log.objectives(ID).map((o) => o.id), ['mine', 'gas', 'investigate', 'hostile', 'module', 'return'], 'each listed once open');
+  log.set(ID, 'return', 1);
+  assert.strictEqual(log.status(ID), 'active', 'the squad member has yet to speak');
+  log.set(ID, 'puzzle', 1);
+  assert.strictEqual(log.status(ID), 'ready');
+  // The hostile android (Mk III) against the Courier the first mission provides: winnable alone,
+  // since the squad member has no combat logic yet, but it gets through the shield.
+  const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), foe = Loadout.stats(Loadout.npc('fighter', Missions.SALVAGE.tier));
+  let wins = 0, left = 0;
+  for (let i = 0; i < 300; i++) {
+    const f = Combat.create(ctx.mulberry32(i * 31337 + 5), Combat.combatant('p', 'Me', me), [Combat.combatant('h', 'Android', foe)]);
+    while (!f.over) Combat.round(f);
+    if (f.over === 'won') { wins++; left += f.player.hull + f.player.shield; }
+  }
+  assert(wins / 300 > 0.97, `rounds: won ${wins} of 300`);
+  assert(left / wins < me.hull + me.shield * 0.5, `rounds: ${(left / wins).toFixed(0)} hull and shield left on average`);
+  const face = (f, dt) => {
+    const p = f.player, t = f.enemies.find((e) => e.id === f.focus && e.hull > 0);
+    if (t) p.angle = Flight.turnToward(p.angle, Math.atan2(t.y - p.y, t.x - p.x), me.turnRate * dt);
+  };
+  wins = 0;
+  for (let i = 0; i < 100; i++) {
+    const rng = ctx.mulberry32(i * 7919 + 99), a = rng() * Math.PI * 2, r = 650 + rng() * 250;
+    const f = RealtimeCombat.simulate(rng, RealtimeCombat.ship('player', 'Me', me, {}), [RealtimeCombat.ship('h', 'Android', foe, { x: Math.cos(a) * r, y: Math.sin(a) * r, angle: a + Math.PI / 2, radius: 18 })], face, { maxTime: 120 });
+    if (f.over === 'won') wins++;
+  }
+  assert(wins > 95, `real time: won ${wins} of 100`);
+});
+
 const wingman = () => Squad.stats(Squad.member(3));
 
 test('rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {

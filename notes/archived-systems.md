@@ -26,8 +26,9 @@ tab lists the contracts on offer and the one you hold.
 
 **Since brought back, in part.** The Missions tab is back (`station.js`), with a mission system
 (`missions.js`: mission data, a saved log of what's accepted, done and handed in, objectives
-that unlock in order) and one handcrafted mission, "Payment in kind", which follows the
-introduction and brings the first squad member. Bounty contracts are still to come; a new
+that unlock in order) and two handcrafted missions after the introduction: "Payment in kind",
+which brings the first squad member, and "The remaining balance", which teaches mining and gas
+collecting and ends on a hostile android and an AI logic module. Bounty contracts are still to come; a new
 mission is a new `Missions.LIST` entry plus whatever it needs in flight (`game.js`).
 
 ## Distress signals, anomalies and the story signal
