@@ -7,12 +7,12 @@
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, known, sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
 //               fit(slot, id, buy?), unfit(slot), sell(id), buyHull(id) }: the ship's equipment,
-//               spare gear, buying what research unlocked, and the shipyard (game.js).
+//               spare gear, buying what research unlocked, and the shipyard (game/outfitting.js).
 // lab: { researched, components, have(kind), status(id), research(id) }: the research tree (rules/research.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // squad: { members }: the squad (rules/squad.js), each member with its logic modules (rules/logic.js).
-// missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game.js), each
+// missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game/missions.js), each
 //   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (its
 //   giver is this station), lines: [what the giver says now], objectives: [{ label, count, need,
 //   done, open, percent }], provided?, reward, note?, accept?(), complete?() }.

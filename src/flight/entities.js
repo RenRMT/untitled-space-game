@@ -1,7 +1,7 @@
 // What each kind of thing in space is, in one place: draw order and how it is drawn, how close a
 // tap must land to pick it, its name label and minimap mark, and how its context card describes
 // it. A new kind of object is a new entry here (plus its art and, if it does something, an action
-// in game.js). Also the one factory for floating items, which both the scene (flight/scene.js) and the
+// in game/). Also the one factory for floating items, which both the scene (flight/scene.js) and the
 // flight view (loot, mining drops, lost cargo) make.
 //
 //   Entities.KINDS[kind] = {
@@ -106,7 +106,7 @@ const Entities = (() => {
         return { title: `${pal.label} asteroid`, sub: asteroidSize(e.radius), color: pal.line };
       },
     },
-    // A gas pocket in a nebula (flight/scene.js): collected like an asteroid is mined (game.js).
+    // A gas pocket in a nebula (flight/scene.js): collected like an asteroid is mined (game/mining.js).
     gas: {
       order: 1.6, selectable: true, hit: 0.8,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
@@ -140,7 +140,7 @@ const Entities = (() => {
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
     },
-    // A squad member flying with you (rules/squad.js, game.js), named in its android culture's colour.
+    // A squad member flying with you (rules/squad.js, game/squad.js), named in its android culture's colour.
     wingman: {
       order: 4, selectable: true, hit: 1, follow: 300,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),

@@ -466,7 +466,7 @@ test('mined asteroids drop metals, minerals or gases, at the configured rates', 
 });
 
 test('the Mine shortcut picks the nearest asteroid within mining range of its edge', () => {
-  // As the flight view sets it up (game.js): a ship at the origin, gaps measured to the edge.
+  // As the flight view sets it up (game/docking.js): a ship at the origin, gaps measured to the edge.
   const A = Interactions.create({ gap: (e) => Math.hypot(e.x, e.y) - e.radius, speed: () => 0 });
   const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => Mining.config.range, run() {} });
   const R = Mining.config.range;

@@ -16,7 +16,7 @@
 // - Allies (squad members) fly the same way at the enemy their orders name, locking on and firing
 //   by the same rules; with no target they hold their place in formation (setOrders).
 // - Escape: stay clear of every enemy's guns for a few seconds.
-// The flight view (game.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
+// The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
 // the enemies and does the numbers. Deterministic for a given rng.
 // ES module (`RealtimeCombat`); also runs in Node (the tests).

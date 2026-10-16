@@ -27,7 +27,7 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 const SECONDS = 6;
 
 // Where each scenario puts the ship and how it flies: run in the page with the game's names (G,
-// src/game.js) in scope.
+// src/main.js) in scope.
 const SCENARIOS = [
   { name: 'nebula (line)', style: 'line', place: 'nebula' },
   { name: 'nebula (lowpoly)', style: 'lowpoly', place: 'nebula' },
@@ -91,16 +91,15 @@ async function run(browser, base, sc) {
   // The game's names in the page (the module the page loaded, imported again), and a way to run a
   // snippet with them in scope, as tests/smoke.js does.
   await page.evaluate(async () => {
-    window.__G = (await import('/src/game.js')).G;
+    window.__G = (await import('/src/main.js')).G;
     window.__inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
   });
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
   await page.evaluate((src) => __inGame(__G, src), PLACE[sc.place]);
-  // Record each frame's work from here on (frame() calls recordFrame by name).
+  // Record each frame's work from here on.
   await page.evaluate(() => {
     window.__work = [];
-    const record = __G.recordFrame;
-    __G.recordFrame = (work, gap) => { window.__work.push(work); record(work, gap); };
+    __G.perfStats.onFrame = (work) => window.__work.push(work);
   });
   const before = await page.evaluate(() => __G.Art.stats());
   await page.waitForTimeout(SECONDS * 1000);

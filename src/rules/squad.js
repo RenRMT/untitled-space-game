@@ -2,7 +2,7 @@
 // fight beside them. Every squad member is an android ship (art/culture.js xeno().android) with
 // an android designation for a name, and a row of logic slots holding AI logic modules
 // (rules/logic.js): its instructions, checked in slot order.
-// - A member is plain data, saved with the cargo (game.js): { id, name, seed, hull (a ship class,
+// - A member is plain data, saved with the cargo (game/cargo.js): { id, name, seed, hull (a ship class,
 //   rules/loadout.js), tier (its gear, Mk I–V), modules: [module id | null] (one per slot),
 //   hullPoints, disabled }.
 // - A member whose hull is shot down is disabled: it drops out of the fight and rejoins, repaired,

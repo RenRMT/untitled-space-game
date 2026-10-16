@@ -1,5 +1,5 @@
 // Asteroid mining: which asteroid the ship can mine, how long it takes and what it leaves behind.
-// The flight view (game.js) offers Mine for an asteroid; mining runs for `duration` seconds, then
+// The flight view (game/mining.js) offers Mine for an asteroid; mining runs for `duration` seconds, then
 // the asteroid breaks up and may drop one trade good to collect: a metal, mineral or gas, its
 // type picked by rarity (rules/goods.js). Drops are seeded by the system and the asteroid, so an
 // asteroid always yields the same.

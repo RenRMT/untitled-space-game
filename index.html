@@ -32,7 +32,7 @@
   .btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
   .btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
-  /* Sits under the minimap, which game.js draws clamp(90, 28vw, 150) px wide at 12 px from the corner. */
+  /* Sits under the minimap, which game/hud.js draws clamp(90, 28vw, 150) px wide at 12 px from the corner. */
   #map-btn {
     position: absolute; right: 12px; top: calc(12px + clamp(90px, 28vw, 150px) + 8px);
     width: clamp(90px, 28vw, 150px);
@@ -525,8 +525,8 @@
   </div>
 </div>
 
-<!-- The game is ES modules: src/game.js imports the rest (layer by layer: core, world, rules, art,
+<!-- The game is ES modules: src/main.js imports the rest (layer by layer: core, world, rules, art,
      flight, combat, story, ui). Modules need the page served over http, not opened as a file. -->
-<script type="module" src="src/game.js"></script>
+<script type="module" src="src/main.js"></script>
 </body>
 </html>

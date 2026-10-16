@@ -1,5 +1,5 @@
 // Missions: jobs a station gives the player, offered and handed in on the station screen's
-// Missions tab (ui/station.js), carried out in flight (game.js). There are three so far, all the
+// Missions tab (ui/station.js), carried out in flight (game/missions.js). There are three so far, all the
 // waystation's. Two pay off the player's debt after the introduction (story/intro.js): "Payment in
 // kind", which brings their first squad member (rules/squad.js), then "The remaining balance", which
 // teaches mining and gas collecting and ends on a hostile android and the AI logic module it
@@ -421,7 +421,7 @@ const Missions = (() => {
   //
   // The first system's jump gate: the squad member works from a spot beside it, on its side
   // toward the star; the pirates come in from two points further out, on either side, and circle
-  // there until the fight (game.js starts it as they arrive).
+  // there until the fight (game/missions.js starts it as they arrive).
   //   Missions.gateSite(galaxy) -> { gate (id), x, y (the gate), work: { x, y }, tier,
   //     waves: [[{ key, cx, cy, orbit, speed, a0, seed }], ...] }, or null without a gate
   const GATE = { workAt: 30, range: 3500, tier: 1, arrive: 1700, orbit: 260 };

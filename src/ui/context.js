@@ -1,5 +1,5 @@
 // The context card: tap something in space and this card shows what it is and what you can do
-// with it (Dock, Mine, Jump, Approach, ...). game.js decides the contents every frame and calls
+// with it (Dock, Mine, Jump, Approach, ...). game/selection.js decides the contents every frame and calls
 // show(); the DOM is only rebuilt when something visible changes, apart from progress bars.
 //
 //   ContextCard.show({ title, subtitle, tag, tone, color, actions: [{ id, label, enabled, busy, progress, title }] })

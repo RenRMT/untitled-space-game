@@ -10,7 +10,7 @@
 //   the ally it picked (CombatCore.aim) while that one is still flying.
 // - Fleeing: from then on the player stops firing, and at the end of each round gets away with a
 //   chance set by top speed against the fastest enemy.
-// The flight view (game.js) runs it as a combat mode (combat/combat-core.js says what a mode offers) and
+// The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers) and
 // draws it; this module only does the numbers.
 // ES module (`Combat`); also runs in Node (the tests).
 

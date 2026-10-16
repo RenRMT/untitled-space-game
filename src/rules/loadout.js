@@ -74,7 +74,7 @@ const Loadout = (() => {
   // Ship classes. radius is the hull's collision size in world units, cargo its hold in units,
   // hull its hit points in combat, handling a factor on the engine's acceleration and turn rate.
   // price: sold at shipyards for this many credits (a trade-in fetches half); art: which design
-  // it is drawn as (game.js). The player starts in a Courier; fighters and freighters are the NPC
+  // it is drawn as (game/options.js). The player starts in a Courier; fighters and freighters are the NPC
   // ships of the same names (flight/scene.js roles), fitted with their lines at a tier (npc()).
   const HULLS = {
     courier: {

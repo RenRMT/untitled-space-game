@@ -1,7 +1,7 @@
 // The play area: several solar systems (world/solar-system.js) far apart in one open space, joined by
 // jump gates. Galaxy.generate places each system, generates it there with a gate toward each
 // system it links to, and gathers everything into one object that reads like a single system:
-// the flight view (flight/scene.js, game.js), map travel (flight/travel.js) and fog of war (rules/knowledge.js) work
+// the flight view (flight/scene.js, game/), map travel (flight/travel.js) and fog of war (rules/knowledge.js) work
 // on all of it at once in world units, and the map (ui/map.js) shows one system at a time or the
 // galaxy.
 // - systems[i]: each system as SolarSystem.generate made it, already in place, plus `index`,

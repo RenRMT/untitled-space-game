@@ -28,5 +28,6 @@ const Theme = (() => {
   const font = (px) => `${px}px ${mono}`;
   return { color, mono, font };
 })();
+const COLORS = Theme.color; // the flight view's name for them
 
-export { Theme };
+export { Theme, COLORS };

@@ -96,4 +96,4 @@ Both modes share:
 - Hull points per ship class, shields and repair costs.
 - Stable keys for NPC ships, destroyed ships as wrecks with loot, and saving which ships were destroyed.
 - What happens when the player's ship is lost.
-- Faction hostility and reputation, through `canDock` in game.js.
+- Faction hostility and reputation, through `canDock` in game/docking.js.

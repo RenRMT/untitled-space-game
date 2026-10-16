@@ -4,7 +4,7 @@
 // real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
 // title shows progress: the round timer, or in real time the lock coming on ('lock') or getting
 // clear ('escape').
-// game.js describes it every frame; the DOM is rebuilt only when the rows, log or button change.
+// game/combat.js describes it every frame; the DOM is rebuilt only when the rows, log or button change.
 // Hull and shield readings update the bars in place, and the progress bar is set only when it moves.
 //
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus }],

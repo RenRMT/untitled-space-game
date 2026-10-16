@@ -1,4 +1,4 @@
-// Smoke test for the whole game in Node: `node tests/smoke.js`. Starts the game (src/game.js and
+// Smoke test for the whole game in Node: `node tests/smoke.js`. Starts the game (src/main.js and
 // everything it imports) in a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode and the
@@ -11,13 +11,13 @@ import { install } from './browser-stub.js';
 
 // The stand-in browser first: the game's modules use the DOM as they load.
 const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1' });
-const { G } = await import('../src/game.js');
+const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
 const { UI } = await import('../src/ui/ui.js');
 
-// game(src): run a snippet as if inside the game, its names (G, src/game.js) in scope. A sloppy-mode
-// function, for `with`; assignments to names G can set (lastRegion = ...) go through to the game.
+// game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
+// function, for `with`.
 const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG });
 const { Art, ArtBodies, Combat, Comms, ContextCard, Economy, Galaxy, Goods, Knowledge, Loadout, Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel } = G; // the tests use them too
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
@@ -732,9 +732,8 @@ test('sensors find a hidden derelict, and the radar shows it once found', () => 
 test('a nebula dampens the sensors and lowers security', () => {
   game(`fight.grace = 1e9; globalThis.__neb = world.galaxy.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
   browser.frames(2);
-  // Fly in, toward the nebula's core.
-  game('placeShip(__neb.x + __neb.blobs[0].dx, __neb.y + __neb.blobs[0].dy)');
-  game('lastRegion = { level: 3, nebula: null, system: world.galaxy.systems[0] }');
+  // Into the nebula's core (moved there, not placed: placing forgets where the ship was).
+  game('ship.x = __neb.x + __neb.blobs[0].dx; ship.y = __neb.y + __neb.blobs[0].dy');
   browser.frames(2);
   assert.match(game('toast.text'), /Entering the .* Nebula/);
   assert.ok(game('frameList.some((e) => e.kind === "nebula")'), 'the nebula is drawn');

@@ -7,7 +7,7 @@
 // - asteroid belts (a main belt between the inner and outer planets, often an outer one near the
 //   edge) and a few free-floating asteroid fields, every rock placed here with a stable key,
 // - nebulae in the outer system: clouds made of overlapping blobs. Inside one, security is a
-//   level lower (except right by a station) and sensors reach half as far (game.js),
+//   level lower (except right by a station) and sensors reach half as far (game/outfitting.js),
 // - stations orbiting planets (a capital and a major station, both with shipyards, and minor
 //   ones) and bases out in space (mining camps in a belt or field, a salvage yard among wrecks),
 //   each built in one of three cultures (art only: how it looks and its colour, art/culture.js),

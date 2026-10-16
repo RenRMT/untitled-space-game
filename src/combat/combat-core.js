@@ -1,6 +1,6 @@
 // What both combat modes share (rounds: combat/combat.js, real time: combat/combat-realtime.js), and the shape
-// every mode takes, so the flight view (game.js) runs any of them the same way and a new mode is a
-// new module rather than new branches in game.js.
+// every mode takes, so the flight view (game/combat.js) runs any of them the same way and a new mode is a
+// new module rather than new branches in game/combat.js.
 //
 // Shared:
 //   CombatCore.config                  hit chance limits, and the flight view's ranges: where Attack
@@ -19,7 +19,7 @@
 //   start(rng, player, enemies, { target, ambushed, allies }) -> s
 //       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
 //       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
-//   setOrders(s, id, { target, station })   what an ally does now (game.js decides, from its
+//   setOrders(s, id, { target, station })   what an ally does now (game/squad.js decides, from its
 //                                      logic modules): fire on `target` (an enemy id), or with
 //                                      none hold `station` (its place in formation, in real time)
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
@@ -29,7 +29,7 @@
 //   lock(s) -> 0..1                    how far the lock on the target has come (1: locked)
 //   panel(s) -> { title, button, bar?, progress }   the combat panel while the fight runs
 //   log(s, events, lines) -> lines     the panel's last lines after these events
-//   look                               how its events are shown (game.js): seconds a beam and a
+//   look                               how its events are shown (game/combat.js): seconds a beam and a
 //                                      shield flash last (beam, shield), the wait before hits
 //                                      show (after) and before a destroyed ship blows up
 //                                      (finish), sparks(ev) per hull hit, whether hits on a ship
