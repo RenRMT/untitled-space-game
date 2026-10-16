@@ -1,5 +1,3 @@
-'use strict';
-
 // The flight view's things in space, built once from a generated galaxy (world/galaxy.js: every solar
 // system in one space) and its cultures (art/culture.js):
 // - the stars, planets, moons, and the nebulae (drawn under everything),
@@ -12,8 +10,14 @@
 // - pirate ships circling their pack's centre.
 // near(x, y, range) finds what is around a point from a coarse grid, so a frame only poses and
 // draws what is close; stars and nebulae are too big for the grid and always checked.
-// Positions are world units. Browser script (global `Scene`); also loads in Node
-// for the tests.
+// Positions are world units. ES module (`Scene`); also runs in Node (the tests).
+
+import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtUtil } from '../art/util.js';
+import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { Entities } from './entities.js';
+import { Goods } from '../rules/goods.js';
+import { Security } from '../world/security.js';
 
 const Scene = (() => {
   const { TAU } = ArtUtil;
@@ -168,3 +172,5 @@ const Scene = (() => {
 
   return { create, pose };
 })();
+
+export { Scene };

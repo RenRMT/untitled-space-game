@@ -1,5 +1,3 @@
-'use strict';
-
 // What the player can do with a thing in space (dock at a station, mine an asteroid, attack a
 // pirate), as one registry. The flight view (game.js) adds each action once; the
 // context card's buttons, the keyboard shortcuts and how close an approach stops all come from it,
@@ -19,7 +17,7 @@
 //   actions.get(id), actions.forKey(key), actions.forKeys(key) (all with that key, in order)
 //   actions.target(action, selected, list)   what a shortcut acts on: the selected thing if the
 //                                            action applies to it, else the nearest one in reach
-// Works as a classic browser script (global `Interactions`) and as a Node module.
+// ES module (`Interactions`); also runs in Node (the tests).
 
 const Interactions = (() => {
   const value = (v) => (typeof v === 'function' ? v() : v);
@@ -67,4 +65,4 @@ const Interactions = (() => {
   return { create };
 })();
 
-if (typeof module !== 'undefined') module.exports = Interactions;
+export { Interactions };

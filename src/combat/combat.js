@@ -1,5 +1,3 @@
-'use strict';
-
 // Round-based combat, resolved from the ships' stats (rules/loadout.js). No aiming or flying: once a
 // fight starts, every `round` seconds each ship's weapons fire on their own.
 // - Order: highest initiative (scanner) fires first; the player wins ties, then the allies. A
@@ -14,12 +12,15 @@
 //   chance set by top speed against the fastest enemy.
 // The flight view (game.js) runs it as a combat mode (combat/combat-core.js says what a mode offers) and
 // draws it; this module only does the numbers.
-// Works as a classic browser script (global `Combat`) and as a Node module.
+// ES module (`Combat`); also runs in Node (the tests).
+
+import { CombatCore } from './combat-core.js';
+import { MathUtil } from '../core/math.js';
 
 const Combat = (() => {
-  const core = typeof require === 'function' ? require('./combat-core.js') : CombatCore;
+  const core = CombatCore;
   const { combatant, applyDamage, limitHit, alive, allies, aim, aimAt } = core;
-  const { clamp } = typeof require === 'function' ? require('../core/math.js') : MathUtil;
+  const { clamp } = MathUtil;
 
   const config = {
     round: 1.5, // seconds per round
@@ -186,4 +187,4 @@ const Combat = (() => {
   return { config, combatant, hitChance, shotsPerRound, create, setFocus, setOrders, round, fleeChance, simulate, alive, mode };
 })();
 
-if (typeof module !== 'undefined') module.exports = Combat;
+export { Combat };

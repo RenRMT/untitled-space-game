@@ -1,5 +1,3 @@
-'use strict';
-
 // Seeded solar system generator: the whole play area is one system around a star. It produces
 // plain data (no art), so the flight view (flight/scene.js), the system map (ui/map.js), map travel
 // (flight/travel.js) and the tests all read the same layout:
@@ -28,12 +26,13 @@
 // sits in a galaxy of several systems; the query functions take those positions). Every tuning value lives in SolarSystem.params; pass
 // `overrides.params` to generate() to change any of them (nested objects merge, arrays and
 // numbers replace).
-// Works as a classic browser script (global `SolarSystem`) and as a Node module.
+// ES module (`SolarSystem`); also runs in Node (the tests).
+
+import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { Security } from './security.js';
 
 const SolarSystem = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('../core/rng.js') : globalThis;
-  const Sec = isNode ? require('./security.js') : Security;
+  const Sec = Security;
   const TAU = Math.PI * 2;
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
@@ -570,4 +569,4 @@ const SolarSystem = (() => {
   return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES, CULTURES, SETTLED, ANDROID };
 })();
 
-if (typeof module !== 'undefined') module.exports = SolarSystem;
+export { SolarSystem };

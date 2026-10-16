@@ -1,5 +1,3 @@
-'use strict';
-
 // The context card: tap something in space and this card shows what it is and what you can do
 // with it (Dock, Mine, Jump, Approach, ...). game.js decides the contents every frame and calls
 // show(); the DOM is only rebuilt when something visible changes, apart from progress bars.
@@ -9,7 +7,9 @@
 //   ContextCard.onAction = (id) => ...   a button was pressed
 //   ContextCard.onClose = () => ...      the close button was pressed
 //   ContextCard.top                      its top edge on screen, null while hidden (UI.topEdge)
-// Browser script (global `ContextCard`).
+// ES module (`ContextCard`); needs a browser.
+
+import { UI } from './ui.js';
 
 const ContextCard = (() => {
   const root = document.getElementById('context');
@@ -79,3 +79,5 @@ const ContextCard = (() => {
     set onClose(f) { onClose = f; },
   };
 })();
+
+export { ContextCard };

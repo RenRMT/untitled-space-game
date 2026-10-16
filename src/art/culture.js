@@ -1,5 +1,3 @@
-'use strict';
-
 // Design cultures for the procedural art.
 //
 // A culture is a small set of design-language parameters that every asset generator reads:
@@ -10,12 +8,13 @@
 //   (organic) and android (machine) are non-human cultures, made with xeno(seed),
 // - kitbash: pirates assemble each asset from parts of the three.
 // The culture's map colour becomes the accent (markings, line art).
-// Works as a classic browser script (global `ArtCulture`) and as a Node module.
+// ES module (`ArtCulture`); also runs in Node (the tests).
+
+import { ArtUtil } from './util.js';
+import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
 
 const ArtCulture = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const U = isNode ? require('./util.js') : ArtUtil;
-  const { mulberry32, hashInt, seedToInt } = isNode ? require('../core/rng.js') : globalThis;
+  const U = ArtUtil;
 
   // Numeric fields are [min, max] ranges; arrays of strings are options picked per culture.
   const LINEAGES = {
@@ -140,4 +139,4 @@ const ArtCulture = (() => {
   return { LINEAGES, HUMAN, create, kitbash, forGalaxy, xeno, legacy };
 })();
 
-if (typeof module !== 'undefined') module.exports = ArtCulture;
+export { ArtCulture };

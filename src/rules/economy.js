@@ -1,5 +1,3 @@
-'use strict';
-
 // Station markets, recreated on demand from the system seed and the station (no saved state).
 // Prices start from each item type's base price (rules/goods.js). Every station buys every trade good;
 // what it sells, and at what price, depends on what kind of place it is:
@@ -11,11 +9,13 @@
 // Salvaged components aren't traded at all: they're used for research (rules/research.js).
 // Each station adds a little seeded jitter, so neighbouring markets differ.
 // Prices are whole credits. `buy` is what the player pays, `sell` what the player gets.
-// Works as a classic browser script (global `Economy`) and as a Node module.
+// ES module (`Economy`); also runs in Node (the tests).
+
+import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
+import { Goods } from './goods.js';
 
 const Economy = (() => {
-  const { hashInt, mulberry32, seedToInt } = typeof require === 'function' ? require('../core/rng.js') : globalThis;
-  const G = typeof require === 'function' ? require('./goods.js') : Goods;
+  const G = Goods;
   const CATEGORIES = G.categories('trade');
 
   const config = {
@@ -90,4 +90,4 @@ const Economy = (() => {
   return { config, basePrice, market };
 })();
 
-if (typeof module !== 'undefined') module.exports = Economy;
+export { Economy };

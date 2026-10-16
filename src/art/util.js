@@ -1,12 +1,11 @@
-'use strict';
-
 // Shared helpers for the procedural art: colours and 2D polygon geometry (TAU, clamp and lerp
 // come from core/math.js and are passed on).
-// Works as a classic browser script (global `ArtUtil`) and as a Node module.
+// ES module (`ArtUtil`); also runs in Node (the tests).
+
+import { MathUtil } from '../core/math.js';
 
 const ArtUtil = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const { TAU, clamp, lerp } = isNode ? require('../core/math.js') : MathUtil;
+  const { TAU, clamp, lerp } = MathUtil;
 
   // ---------- Colours (hex strings in, hex strings out) ----------
 
@@ -202,4 +201,4 @@ const ArtUtil = (() => {
   };
 })();
 
-if (typeof module !== 'undefined') module.exports = ArtUtil;
+export { ArtUtil };

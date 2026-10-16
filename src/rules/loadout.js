@@ -1,5 +1,3 @@
-'use strict';
-
 // Ship classes (hulls), their equipment slots and the equipment fitted in them.
 // A hull has 1–4 weapon slots and one each of shield, ship computer, engine and scanner. What is
 // fitted decides how the ship flies and senses:
@@ -16,7 +14,7 @@
 // Hull upgrades from research (more cargo, more hull, an extra hardpoint) come in as `upgrades`:
 // { cargo, hull } as fractions added, { weapons } as extra weapon slots.
 // A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null } }.
-// Works as a classic browser script (global `Loadout`) and as a Node module.
+// ES module (`Loadout`); also runs in Node (the tests).
 
 const Loadout = (() => {
   const MAX_WEAPONS = 4;
@@ -204,4 +202,4 @@ const Loadout = (() => {
   return { MAX_WEAPONS, MK, SLOT_TYPES, LINES, EQUIPMENT, STARTER_GEAR, HULLS, FOR_SALE, slotsOf, starter, npc, slots, refit, stats, summary };
 })();
 
-if (typeof module !== 'undefined') module.exports = Loadout;
+export { Loadout };

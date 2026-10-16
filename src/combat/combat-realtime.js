@@ -1,5 +1,3 @@
-'use strict';
-
 // Real-time combat: the alternative to round-based combat (combat/combat.js), chosen in Settings.
 // Everyone keeps flying. Weapons fire on their own at a locked target whenever it is in range and
 // in the weapon's arc (rules/loadout.js), so the player's skill is positioning.
@@ -21,12 +19,15 @@
 // The flight view (game.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
 // the enemies and does the numbers. Deterministic for a given rng.
-// Works as a classic browser script (global `RealtimeCombat`) and as a Node module.
+// ES module (`RealtimeCombat`); also runs in Node (the tests).
+
+import { CombatCore } from './combat-core.js';
+import { MathUtil } from '../core/math.js';
+import { Flight } from '../flight/flight.js';
 
 const RealtimeCombat = (() => {
-  const isNode = typeof require === 'function';
-  const F = isNode ? require('../flight/flight.js') : Flight;
-  const core = isNode ? require('./combat-core.js') : CombatCore;
+  const F = Flight;
+  const core = CombatCore;
   const { combatant, applyDamage, limitHit, alive, allies, aim, aimAt } = core;
 
   const config = {
@@ -46,7 +47,7 @@ const RealtimeCombat = (() => {
     spacing: 120, // enemies keep about this far apart
   };
 
-  const { TAU, clamp, lerp } = typeof require === 'function' ? require('../core/math.js') : MathUtil;
+  const { TAU, clamp, lerp } = MathUtil;
   const angleDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
   const dist = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
 
@@ -383,4 +384,4 @@ const RealtimeCombat = (() => {
   return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, step, simulate, alive, reach, mode };
 })();
 
-if (typeof module !== 'undefined') module.exports = RealtimeCombat;
+export { RealtimeCombat };

@@ -1,6 +1,7 @@
 {
   "name": "untitled-space-game",
   "private": true,
+  "type": "module",
   "scripts": {
     "test": "node tests/run.js && node tests/smoke.js",
     "perf": "node tests/perf.js"

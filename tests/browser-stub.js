@@ -230,4 +230,4 @@ function install(options) {
   return rt;
 }
 
-module.exports = { install };
+export { install };

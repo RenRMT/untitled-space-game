@@ -1,12 +1,10 @@
-'use strict';
-
 // Colours and type shared by everything drawn on canvas (flight view, system map). The DOM panels
 // use the same values as CSS variables in index.html (named in the comments); keep the two in
 // step. Colours only one view uses stay with that view.
 //
 //   Theme.color.cyan, ...         hex strings
 //   Theme.font(13)                '13px ui-monospace, Menlo, Consolas, monospace'
-// Browser script (global `Theme`).
+// ES module (`Theme`).
 
 const Theme = (() => {
   const color = {
@@ -30,3 +28,5 @@ const Theme = (() => {
   const font = (px) => `${px}px ${mono}`;
   return { color, mono, font };
 })();
+
+export { Theme };

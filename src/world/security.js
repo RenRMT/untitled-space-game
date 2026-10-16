@@ -1,5 +1,3 @@
-'use strict';
-
 // Security: how safe a place in the system is, and what that means for pirates and what they
 // leave. The system (world/solar-system.js) gives every point a level from 3 (high: close to a station,
 // held firmly) down to 0 (none: the outer system and the depths of the nebulae). This module says
@@ -17,7 +15,7 @@
 //   Security.pick(rng, [[value, weight]]) -> a value, by weight
 //   Security.lootTier(level) -> 1..4, the loot tier of wrecks at that level
 //   Security.componentTier(rng, lootTier) -> a component tier (1–5) for something at that loot tier
-// Works as a classic browser script (global `Security`) and as a Node module.
+// ES module (`Security`); also runs in Node (the tests).
 
 const Security = (() => {
   const LEVELS = [
@@ -67,4 +65,4 @@ const Security = (() => {
   return { LEVELS, PIRATES, PACK, COMPONENT_TIERS, pirates, pick, lootTier, componentTier };
 })();
 
-if (typeof module !== 'undefined') module.exports = Security;
+export { Security };

@@ -1,5 +1,3 @@
-'use strict';
-
 // The research tree: what salvaged components (rules/goods.js) are for. Researching a node uses up
 // components of its kind plus a few trade goods, and then:
 // - an equipment node unlocks that piece of equipment (rules/loadout.js): from then on stations sell it,
@@ -19,13 +17,15 @@
 //                                       cost: [{ kind, need, have }] }
 //   Research.upgrades(researched)  -> { cargo, hull, weapons }   (rules/loadout.js `upgrades`)
 //   Research.known(researched)     -> Set of equipment ids the player may buy
-// researched: a Set of node ids. Works as a classic browser script (global `Research`) and as a
-// Node module.
+// researched: a Set of node ids. ES module (`Research`); also runs in Node
+// (the tests).
+
+import { Goods } from './goods.js';
+import { Loadout } from './loadout.js';
 
 const Research = (() => {
-  const isNode = typeof require === 'function';
-  const L = isNode ? require('./loadout.js') : Loadout;
-  const G = isNode ? require('./goods.js') : Goods;
+  const L = Loadout;
+  const G = Goods;
   const { MK, EQUIPMENT } = L;
 
   const comp = (category, tier) => G.component(category, tier);
@@ -133,4 +133,4 @@ const Research = (() => {
   return { LINES, NODES, status, upgrades, known };
 })();
 
-if (typeof module !== 'undefined') module.exports = Research;
+export { Research };

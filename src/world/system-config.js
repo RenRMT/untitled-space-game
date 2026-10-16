@@ -10,3 +10,5 @@ const SYSTEM_CONFIG = {
   params: {},
   galaxy: {},
 };
+
+export { SYSTEM_CONFIG };

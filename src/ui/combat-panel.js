@@ -1,5 +1,3 @@
-'use strict';
-
 // The combat panel: shown above the speed bar while a fight runs, in place of the context card.
 // One row per ship (you first, then your squad) with hull and shield bars; tap an enemy row to
 // focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
@@ -15,7 +13,9 @@
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 //   CombatPanel.top   its top edge on screen, null while hidden (UI.topEdge)
-// Browser script (global `CombatPanel`).
+// ES module (`CombatPanel`); needs a browser.
+
+import { UI } from './ui.js';
 
 const CombatPanel = (() => {
   const root = document.getElementById('combat');
@@ -110,3 +110,5 @@ const CombatPanel = (() => {
     set onButton(f) { onButton = f; },
   };
 })();
+
+export { CombatPanel };

@@ -1,7 +1,5 @@
-'use strict';
-
 // Small maths helpers every module shares: a full turn, clamping and linear interpolation.
-// Works as a classic browser script (global `MathUtil`) and as a Node module.
+// ES module (`MathUtil`); also runs in Node (the tests).
 
 const MathUtil = (() => {
   const TAU = Math.PI * 2;
@@ -10,4 +8,4 @@ const MathUtil = (() => {
   return { TAU, clamp, lerp };
 })();
 
-if (typeof module !== 'undefined') module.exports = MathUtil;
+export { MathUtil };

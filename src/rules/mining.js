@@ -1,5 +1,3 @@
-'use strict';
-
 // Asteroid mining: which asteroid the ship can mine, how long it takes and what it leaves behind.
 // The flight view (game.js) offers Mine for an asteroid; mining runs for `duration` seconds, then
 // the asteroid breaks up and may drop one trade good to collect: a metal, mineral or gas, its
@@ -10,11 +8,13 @@
 //   Mining.yieldOf(galaxySeed, asteroid) -> { kind, seed } | null
 //   Mining.gasOf(galaxySeed, pocket) -> [{ kind, seed }]
 //   Mining.duration(e) -> seconds to mine or collect it with a Mk I computer
-// Works as a classic browser script (global `Mining`) and as a Node module.
+// ES module (`Mining`); also runs in Node (the tests).
+
+import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { Goods } from './goods.js';
 
 const Mining = (() => {
-  const { hashInt, mulberry32, seedToInt, weightedPick } = typeof require === 'function' ? require('../core/rng.js') : globalThis;
-  const G = typeof require === 'function' ? require('./goods.js') : Goods;
+  const G = Goods;
 
   const config = {
     duration: 5, // seconds of mining before the asteroid breaks up
@@ -55,4 +55,4 @@ const Mining = (() => {
   return { config, YIELD, yieldOf, gasOf, duration };
 })();
 
-if (typeof module !== 'undefined') module.exports = Mining;
+export { Mining };

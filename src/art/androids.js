@@ -1,5 +1,3 @@
-'use strict';
-
 // Android portraits: seeded robot head-and-shoulders busts built from the parts and marks of
 // art/portraits.js, so ArtPortraits.draw renders them in all four styles. A culture
 // (art/culture.js) tints the suit and, half the time, the lamps.
@@ -7,7 +5,10 @@
 //   ArtAndroids.create(seed, culture?) -> portrait { seed, culture, pal, items, traits }
 //                                         (pass it to ArtPortraits.draw)
 //   ArtAndroids.FACES, HEADS              the face and head shapes there are
-// Browser only (global `ArtAndroids`). Load after art/portraits.js.
+// ES module (`ArtAndroids`); needs a browser.
+
+import { ArtPortraits } from './portraits.js';
+import { ArtUtil } from './util.js';
 
 const ArtAndroids = (() => {
   const U = ArtUtil;
@@ -140,3 +141,5 @@ const ArtAndroids = (() => {
 
   return { create, FACES, HEADS: Object.keys(HEADS) };
 })();
+
+export { ArtAndroids };

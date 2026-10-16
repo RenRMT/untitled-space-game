@@ -1,5 +1,3 @@
-'use strict';
-
 // Small DOM helpers for the panels (station menu, settings, context card, combat panel).
 //
 //   UI.h('li', { class: 'good', onclick: fn, style: { left: '40%' }, disabled: true }, child, 'text', [more])
@@ -7,6 +5,7 @@
 //     empty attribute), on* attributes add listeners, style takes an object. Children may be
 //     nodes, text (always set as text, never parsed as HTML) or arrays of them; null, undefined
 //     and false are skipped.
+//   UI.rich('Dock at **the waystation**') -> children for UI.h: the text, its **bold** runs in <strong>
 //   UI.keyed() -> { changed(parts), reset(), shown }
 //     remembers what a panel last showed (parts, compared as JSON), so it is rebuilt only when
 //     something visible changes. changed() records the new parts and says whether they differ.
@@ -15,7 +14,7 @@
 //     ResizeObserver and window resizes, so canvas drawing can read it every frame without
 //     forcing a layout straight after the panels were written (without ResizeObserver it is
 //     measured on each read).
-// Browser script (global `UI`).
+// ES module (`UI`); needs a browser.
 
 const UI = (() => {
   function h(tag, attrs = {}, ...children) {
@@ -59,5 +58,10 @@ const UI = (() => {
     return { get top() { return top; } };
   }
 
-  return { h, keyed, topEdge };
+  const rich = (text) => text.split(/\*\*/).map((t, k) => [t, k % 2 === 1]).filter(([t]) => t)
+    .map(([t, bold]) => (bold ? h('strong', {}, t) : t));
+
+  return { h, rich, keyed, topEdge };
 })();
+
+export { UI };

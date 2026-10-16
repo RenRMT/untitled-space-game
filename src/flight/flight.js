@@ -1,5 +1,3 @@
-'use strict';
-
 // How a ship flies: turning, speeding up and slowing down by its engine's numbers (rules/loadout.js
 // stats: maxSpeed, accel, turnRate). The player's ship and NPC ships in a real-time fight
 // (combat/combat-realtime.js) both fly by these rules.
@@ -12,10 +10,12 @@
 //
 //   Flight.step(body, stats, { targetAngle, targetSpeed, mode }, dt)
 //   body: { x, y, vx, vy, angle, thrust } (thrust 0..1, for the engine flame), updated in place.
-// Works as a classic browser script (global `Flight`) and as a Node module.
+// ES module (`Flight`); also runs in Node (the tests).
+
+import { MathUtil } from '../core/math.js';
 
 const Flight = (() => {
-  const { TAU, clamp, lerp } = typeof require === 'function' ? require('../core/math.js') : MathUtil;
+  const { TAU, clamp, lerp } = MathUtil;
 
   // Turn from a toward target by at most maxStep, the short way round.
   function turnToward(a, target, maxStep) {
@@ -58,4 +58,4 @@ const Flight = (() => {
   return { step, turnToward };
 })();
 
-if (typeof module !== 'undefined') module.exports = Flight;
+export { Flight };

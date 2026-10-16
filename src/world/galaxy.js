@@ -1,5 +1,3 @@
-'use strict';
-
 // The play area: several solar systems (world/solar-system.js) far apart in one open space, joined by
 // jump gates. Galaxy.generate places each system, generates it there with a gate toward each
 // system it links to, and gathers everything into one object that reads like a single system:
@@ -17,12 +15,13 @@
 // - securityAt, nebulaAt, regionAt, stationDist as for one system; deep space is lawless and
 //   empty.
 // The first system is generated from the seed itself, so it is the system the seed always gave
-// (apart from its gate). Works as a classic browser script (global `Galaxy`) and as a Node module.
+// (apart from its gate). ES module (`Galaxy`); also runs in Node (the tests).
+
+import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
+import { SolarSystem } from './solar-system.js';
 
 const Galaxy = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const { hashInt, mulberry32, seedToInt } = isNode ? require('../core/rng.js') : globalThis;
-  const SS = isNode ? require('./solar-system.js') : SolarSystem;
+  const SS = SolarSystem;
 
   // Bump whenever a change here moves systems or gates for the same seed.
   const VERSION = 2;
@@ -163,4 +162,4 @@ const Galaxy = (() => {
   return { generate, params: DEFAULTS, VERSION, saveKey };
 })();
 
-if (typeof module !== 'undefined') module.exports = Galaxy;
+export { Galaxy };

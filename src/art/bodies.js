@@ -1,5 +1,3 @@
-'use strict';
-
 // Moons and nebulae in the four art styles (line, pixel, flat, low-poly), lit by the shared
 // up-left world light (art/render.js). Sprites live in one cache bounded by memory
 // (Art.config.maxBodyPixels) and are built from the frame's shared build budget, like the rest of
@@ -18,7 +16,12 @@
 //   is drawn). It's drawn in tiles built once in world units and drawn at any zoom (see Tiles
 //   below); a tile that isn't built yet is left out while the frame's budget is spent.
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
-// Browser only (global `ArtBodies`). Load after art/render.js.
+// ES module (`ArtBodies`); needs a browser.
+
+import { Art } from './render.js';
+import { SpriteCache } from './sprite-cache.js';
+import { ArtUtil } from './util.js';
+import { mulberry32 } from '../core/rng.js';
 
 const ArtBodies = (() => {
   const U = ArtUtil;
@@ -542,3 +545,5 @@ const ArtBodies = (() => {
     stats: () => cache.stats(),
   };
 })();
+
+export { ArtBodies };

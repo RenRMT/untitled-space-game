@@ -1,5 +1,3 @@
-'use strict';
-
 // The docked screen: station header, Trade / Ship / Research / Squad / Missions tabs and a Launch
 // button.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
@@ -20,7 +18,18 @@
 //   done, open, percent }], provided?, reward, note?, accept?(), complete?() }.
 // locks() -> { tabs: [tab names], reason, launch }: tabs that can't be opened yet and why, and why
 //   Launch can't be pressed yet (null when it can). Asked again after every change.
-// Browser script (global `StationMenu`).
+// ES module (`StationMenu`); needs a browser.
+
+import { ItemIcons } from '../art/icons.js';
+import { Display } from '../core/display.js';
+import { Economy } from '../rules/economy.js';
+import { Goods } from '../rules/goods.js';
+import { Loadout } from '../rules/loadout.js';
+import { Logic } from '../rules/logic.js';
+import { Mining } from '../rules/mining.js';
+import { Research } from '../rules/research.js';
+import { Squad } from '../rules/squad.js';
+import { UI } from './ui.js';
 
 const StationMenu = (() => {
   const root = document.getElementById('station');
@@ -301,8 +310,8 @@ const StationMenu = (() => {
     face(g, size);
     return c;
   }
-  // A line with its **bold** runs (Intro.runs).
-  const said = (text) => h('p', {}, Intro.runs(text).map((r) => (r.bold ? h('strong', {}, r.text) : r.text)));
+  // A line with its **bold** runs (UI.rich).
+  const said = (text) => h('p', {}, UI.rich(text));
 
   // Missions: each one shown here, with what its giver says (briefing, or the debrief once it's
   // done), its objectives ticked off as they're met, what it pays, and Accept or Complete.
@@ -428,3 +437,5 @@ const StationMenu = (() => {
     toggleSlot(id) { openSlot = openSlot === id ? null : id; refresh(); },
   };
 })();
+
+export { StationMenu };

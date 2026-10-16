@@ -1,6 +1,45 @@
-'use strict';
-
 // ---------- Setup ----------
+
+import { ArtAndroids } from './art/androids.js';
+import { ArtBlueprints } from './art/blueprints.js';
+import { ArtBodies } from './art/bodies.js';
+import { ArtCulture } from './art/culture.js';
+import { ArtPortraits } from './art/portraits.js';
+import { Art } from './art/render.js';
+import { ArtUtil } from './art/util.js';
+import { CombatCore } from './combat/combat-core.js';
+import { RealtimeCombat } from './combat/combat-realtime.js';
+import { Combat } from './combat/combat.js';
+import { Display } from './core/display.js';
+import { MathUtil } from './core/math.js';
+import { hashInt, mulberry32 } from './core/rng.js';
+import { Params, Store } from './core/store.js';
+import { Theme } from './core/theme.js';
+import { Entities } from './flight/entities.js';
+import { Flight } from './flight/flight.js';
+import { Interactions } from './flight/interactions.js';
+import { Scene } from './flight/scene.js';
+import { Travel } from './flight/travel.js';
+import { Economy } from './rules/economy.js';
+import { Goods } from './rules/goods.js';
+import { Knowledge } from './rules/knowledge.js';
+import { Loadout } from './rules/loadout.js';
+import { Logic } from './rules/logic.js';
+import { Mining } from './rules/mining.js';
+import { Research } from './rules/research.js';
+import { Squad } from './rules/squad.js';
+import { Intro } from './story/intro.js';
+import { Missions } from './story/missions.js';
+import { CombatPanel } from './ui/combat-panel.js';
+import { Comms } from './ui/comms.js';
+import { ContextCard } from './ui/context.js';
+import { SystemMap } from './ui/map.js';
+import { Settings } from './ui/settings.js';
+import { StationMenu } from './ui/station.js';
+import { Galaxy } from './world/galaxy.js';
+import { SYSTEM_CONFIG } from './world/system-config.js';
+import { Security } from './world/security.js';
+import { SolarSystem } from './world/solar-system.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d', { alpha: false }); // every frame starts with an opaque fill
@@ -1278,8 +1317,18 @@ function showGates() {
   SystemMap.access = { system: (s) => gatesOnline() || world.knowledge.visited(s.index), gate: () => gatesOnline() };
 }
 
+// The galaxy is generated from SYSTEM_CONFIG (world/system-config.js); a ?seed= URL parameter
+// overrides its seed, and the map's Reroll asks for a new one.
+function initialSeed() {
+  const param = Params.get('seed');
+  if (param === null || param === '') return SYSTEM_CONFIG.seed;
+  return /^\d+$/.test(param) ? Number(param) : param;
+}
+const newGalaxy = (seed) => loadGalaxy(Galaxy.generate(seed, SYSTEM_CONFIG));
+
 function loadGalaxy(galaxy) {
   if (world.knowledge) world.knowledge.save(); // keep the old galaxy's charts before switching
+  SystemMap.galaxy = galaxy;
   world.galaxy = galaxy;
   world.cultures = ArtCulture.forGalaxy(galaxy);
   world.scene = Scene.create(galaxy, world.cultures);
@@ -1307,8 +1356,8 @@ function loadGalaxy(galaxy) {
   else placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);
 }
-loadGalaxy(SystemMap.galaxy);
-SystemMap.onLoad = loadGalaxy; // re-rolled on the map
+newGalaxy(initialSeed());
+SystemMap.onReroll = (seed) => { Params.set('seed', seed); newGalaxy(seed); };
 // Knowledge and cargo save on a short debounce; write them out when the page is hidden or closed.
 // Everything, now: when the page is hidden or closed (a fight's hull damage isn't saved until then
 // or the fight's end).
@@ -3253,3 +3302,105 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
+
+// ---------- For the tests ----------
+
+// The game's state and functions by name, for tests/smoke.js and tests/perf.js, which play the game
+// and check it from outside: a module's own names aren't reachable otherwise. Read-only but for the
+// few the tests set. A test that needs another name adds it here.
+export const G = {
+  get ART_STYLES() { return ART_STYLES; },
+  get GATE() { return GATE; },
+  get GATE_JOB() { return GATE_JOB; },
+  get OPENING() { return OPENING; },
+  get SALVAGE() { return SALVAGE; },
+  get SHIP() { return SHIP; },
+  get TRACTOR() { return TRACTOR; },
+  get actions() { return actions; },
+  get ambushCleared() { return ambushCleared; },
+  get approach() { return approach; },
+  get arriveAt() { return arriveAt; },
+  get artStyle() { return artStyle; },
+  get autopilot() { return autopilot; },
+  get burst() { return burst; },
+  get cam() { return cam; },
+  get canvas() { return canvas; },
+  get cargo() { return cargo; },
+  get combatMode() { return combatMode; },
+  get describe() { return describe; },
+  get dock() { return dock; },
+  get docked() { return docked; },
+  set docked(v) { docked = v; },
+  get dropEntity() { return dropEntity; },
+  get engage() { return engage; },
+  get escorting() { return escorting; },
+  get fight() { return fight; },
+  get firstMember() { return firstMember; },
+  get frame() { return frame; },
+  get frameList() { return frameList; },
+  set frameList(v) { frameList = v; },
+  get gapTo() { return gapTo; },
+  get gatesOnline() { return gatesOnline; },
+  get here() { return here; },
+  get hold() { return hold; },
+  get hudShown() { return hudShown; },
+  get inFight() { return inFight; },
+  get intro() { return intro; },
+  get isHostile() { return isHostile; },
+  get jump() { return jump; },
+  get lab() { return lab; },
+  get last() { return last; },
+  set last(v) { last = v; },
+  get lastRegion() { return lastRegion; },
+  set lastRegion(v) { lastRegion = v; },
+  get launch() { return launch; },
+  get loadCargo() { return loadCargo; },
+  get mineTime() { return mineTime; },
+  get mining() { return mining; },
+  get mission() { return mission; },
+  get modes() { return modes; },
+  get moveMode() { return moveMode; },
+  get navHits() { return navHits; },
+  set navHits(v) { navHits = v; },
+  get nearbyEntities() { return nearbyEntities; },
+  get objective() { return objective; },
+  get opening() { return opening; },
+  get origin() { return origin; },
+  get outfitting() { return outfitting; },
+  get perfStats() { return perfStats; },
+  get placeBeside() { return placeBeside; },
+  get placeShip() { return placeShip; },
+  get playerDestroyed() { return playerDestroyed; },
+  get react() { return react; },
+  get recordFrame() { return recordFrame; },
+  set recordFrame(v) { recordFrame = v; },
+  get render() { return render; },
+  get repairSquad() { return repairSquad; },
+  get repairs() { return repairs; },
+  get saveCargo() { return saveCargo; },
+  get saveCargoNow() { return saveCargoNow; },
+  get say() { return say; },
+  get select() { return select; },
+  get selected() { return selected; },
+  set selected(v) { selected = v; },
+  get setMode() { return setMode; },
+  get settingsBtn() { return settingsBtn; },
+  get ship() { return ship; },
+  get showGates() { return showGates; },
+  get simTime() { return simTime; },
+  set simTime(v) { simTime = v; },
+  get snapWings() { return snapWings; },
+  get startMining() { return startMining; },
+  get startStation() { return startStation; },
+  get stationLocks() { return stationLocks; },
+  get talk() { return talk; },
+  get toast() { return toast; },
+  get towHome() { return towHome; },
+  get view() { return view; },
+  get visible() { return visible; },
+  get waystation() { return waystation; },
+  get wingDisabled() { return wingDisabled; },
+  get wings() { return wings; },
+  get world() { return world; },
+  Art, ArtBodies, Combat, Comms, ContextCard, Economy, Galaxy, Goods, Knowledge, Loadout, Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+};

@@ -1,5 +1,3 @@
-'use strict';
-
 // What each kind of thing in space is, in one place: draw order and how it is drawn, how close a
 // tap must land to pick it, its name label and minimap mark, and how its context card describes
 // it. A new kind of object is a new entry here (plus its art and, if it does something, an action
@@ -21,13 +19,20 @@
 //   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly,
 //                                          except one marked a pirate too)
 //   Entities.stationSubtitle(station)
-// Works as a classic browser script (global `Entities`) and as a Node module. Drawing and the
+// ES module (`Entities`); also runs in Node (the tests). Drawing and the
 // colours need art/render.js, art/bodies.js and core/theme.js, so only the factories work in Node.
 
+import { ArtBodies } from '../art/bodies.js';
+import { ArtItems } from '../art/items.js';
+import { Art } from '../art/render.js';
+import { Theme } from '../core/theme.js';
+import { Goods } from '../rules/goods.js';
+import { Loadout } from '../rules/loadout.js';
+import { Squad } from '../rules/squad.js';
+
 const Entities = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const ArtItemsRef = isNode ? require('../art/items.js') : ArtItems;
-  const GoodsRef = isNode ? require('../rules/goods.js') : Goods;
+  const ArtItemsRef = ArtItems;
+  const GoodsRef = Goods;
   const color = () => Theme.color; // looked up when drawing, so Node never needs core/theme.js
 
   // A floating item: its art, its type (rules/goods.js) and how it turns. Position and turning come
@@ -172,4 +177,4 @@ const Entities = (() => {
   return { KINDS, ROLE_LABEL, item, isHostile, stationSubtitle };
 })();
 
-if (typeof module !== 'undefined') module.exports = Entities;
+export { Entities };

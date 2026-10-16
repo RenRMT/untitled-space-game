@@ -1,5 +1,3 @@
-'use strict';
-
 // The player's squad: AI-flown ships that fly in formation with the player (their leader) and
 // fight beside them. Every squad member is an android ship (art/culture.js xeno().android) with
 // an android designation for a name, and a row of logic slots holding AI logic modules
@@ -18,13 +16,15 @@
 //   Squad.install(m, id, slot), Squad.remove(m, slot), Squad.move(m, from, to)
 //   Squad.modulesOf(m) -> [module ids]      the installed ones, in the order they're checked
 //   Squad.read(saved) -> [members]          a save, checked (unknown modules are dropped)
-// Works as a classic browser script (global `Squad`) and as a Node module.
+// ES module (`Squad`); also runs in Node (the tests).
+
+import { mulberry32 } from '../core/rng.js';
+import { Loadout } from './loadout.js';
+import { Logic } from './logic.js';
 
 const Squad = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const { mulberry32 } = isNode ? require('../core/rng.js') : globalThis;
-  const L = isNode ? require('./logic.js') : Logic;
-  const Load = isNode ? require('./loadout.js') : Loadout;
+  const L = Logic;
+  const Load = Loadout;
 
   const SLOTS = 4;
   // Android designations: a callsign and a two-digit unit number ("Cipher-07").
@@ -85,4 +85,4 @@ const Squad = (() => {
   return { SLOTS, member, stats, modulesOf, formation, install, remove, move, read, designation };
 })();
 
-if (typeof module !== 'undefined') module.exports = Squad;
+export { Squad };

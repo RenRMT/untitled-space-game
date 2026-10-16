@@ -1,5 +1,3 @@
-'use strict';
-
 // AI logic modules: the instructions squad members (rules/squad.js) follow, as items installed in their
 // logic slots. Each module is one rule, "if <condition>, then <action>", and has a category named
 // for what it is about (a combat logic module for fighting; movement, support and others can come
@@ -19,7 +17,7 @@
 //   fighting, or null }.
 // Intents: { type: 'follow' } (keep formation), { type: 'attack', target: an enemy id }.
 // A new rule is a new condition and/or action and a MODULES entry; nothing else changes.
-// Works as a classic browser script (global `Logic`) and as a Node module.
+// ES module (`Logic`); also runs in Node (the tests).
 
 const Logic = (() => {
   const CATEGORIES = {
@@ -60,4 +58,4 @@ const Logic = (() => {
   return { CATEGORIES, CONDITIONS, ACTIONS, MODULES, decide, label, rule };
 })();
 
-if (typeof module !== 'undefined') module.exports = Logic;
+export { Logic };

@@ -1,5 +1,3 @@
-'use strict';
-
 // Map travel: plot a course on the system map and watch the ship cruise there in a straight
 // line, far faster than it flies. On the way:
 // - contacts the route passes within ping range of are pinged (Knowledge.pass),
@@ -8,8 +6,8 @@
 //   in) or ignore (keep going),
 // - otherwise the trip ends at the destination.
 // Contacts reached where the trip starts are left behind, and the destination's own contact is
-// for the arrival. Positions are world units. Works as a classic browser script (global
-// `Travel`) and as a Node module.
+// for the arrival. Positions are world units. ES module
+// (`Travel`); also runs in Node (the tests).
 
 const Travel = (() => {
   const config = { speed: 5000, fastForward: 4 }; // world units per second
@@ -116,4 +114,4 @@ const Travel = (() => {
   return { create, config, encounters, INTERDICT };
 })();
 
-if (typeof module !== 'undefined') module.exports = Travel;
+export { Travel };

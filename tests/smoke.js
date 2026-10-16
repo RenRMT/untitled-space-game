@@ -1,26 +1,27 @@
-'use strict';
-
-// Smoke test for the whole game in Node: `node tests/smoke.js`. Loads every script in the order
-// index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
+// Smoke test for the whole game in Node: `node tests/smoke.js`. Starts the game (src/game.js and
+// everything it imports) in a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode and the
 // settings. It opens on the introduction and the waystation's three missions, which the first four
 // tests play through. Each step checks its effect; at the end nothing may have been drawn at a
 // non-finite position. The steps share one game, in order, as a player would play them.
 
-const fs = require('fs');
-const vm = require('vm');
-const path = require('path');
-const assert = require('assert');
-const { install } = require('./browser-stub.js');
+import assert from 'node:assert';
+import { install } from './browser-stub.js';
 
-const ROOT = path.join(__dirname, '..');
+// The stand-in browser first: the game's modules use the DOM as they load.
 const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1' });
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-for (const file of scripts) vm.runInThisContext(fs.readFileSync(path.join(ROOT, file), 'utf8'), { filename: file });
-// Evaluate in the game's own global scope (its top-level consts aren't properties of globalThis).
-const game = (src) => vm.runInThisContext(src);
+const { G } = await import('../src/game.js');
+const { ItemIcons } = await import('../src/art/icons.js');
+const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
+const { UI } = await import('../src/ui/ui.js');
+
+// game(src): run a snippet as if inside the game, its names (G, src/game.js) in scope. A sloppy-mode
+// function, for `with`; assignments to names G can set (lastRegion = ...) go through to the game.
+const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG });
+const { Art, ArtBodies, Combat, Comms, ContextCard, Economy, Galaxy, Goods, Knowledge, Loadout, Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel } = G; // the tests use them too
+const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
+const game = (src) => inGame(scope, src);
 
 let failed = 0;
 function test(name, fn) {
@@ -953,6 +954,11 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   game('launch()');
   browser.frames(3);
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');
+});
+
+test('text with **bold** runs becomes text and <strong> elements', () => {
+  const parts = UI.rich('It has been **793** solar cycles');
+  assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
 });
 
 test('settings open and close', () => {

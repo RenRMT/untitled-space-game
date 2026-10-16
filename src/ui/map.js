@@ -1,8 +1,6 @@
-'use strict';
-
-// Full-screen map overlay. Generates the galaxy from SYSTEM_CONFIG (world/system-config.js) with
-// Galaxy.generate (world/galaxy.js); a ?seed= URL parameter overrides the configured seed. Two views,
-// switched with the Local / Galaxy toggle (or L and G):
+// Full-screen map overlay of the galaxy the flight view gives it (SystemMap.galaxy = ...; its Reroll
+// button asks for a new one: SystemMap.onReroll). Two views, switched with the Local / Galaxy toggle
+// (or L and G):
 // - Local: the system the ship is in (or nearest to, in deep space): the star, orbits, planets and
 //   moons, belts and fields, nebulae, every station and gate, and the contacts the player knows
 //   of (SystemMap.knowledge, see rules/knowledge.js): identified ones by type, pinged ones as signals.
@@ -14,6 +12,13 @@
 // Map travel (local view, from inside the system): select a place (a station, gate, planet, known
 // contact, the objective or any point) and press Travel; the flight view runs the trip (flight/travel.js) and the map
 // shows the route, progress, signal prompts, Stop and fast-forward.
+
+import { Display } from '../core/display.js';
+import { MathUtil } from '../core/math.js';
+import { Params } from '../core/store.js';
+import { Theme } from '../core/theme.js';
+import { Security } from '../world/security.js';
+import { SolarSystem } from '../world/solar-system.js';
 
 const SystemMap = (() => {
   const overlay = document.getElementById('map-overlay');
@@ -53,7 +58,7 @@ const SystemMap = (() => {
   let showContacts = false;
   let player = null; // the ship's position in world units, set by the flight view
   let onJump = null;
-  let onLoad = null; // called with each newly generated galaxy (after the first one)
+  let onReroll = null; // asked for a new galaxy, with a random seed
   let knowledge = null; // fog of war; null shows everything
   let objective = null; // the mission's next step: { x, y, label, station (id) | null }, or null
   const OBJECTIVE_COLOR = Theme.color.amber;
@@ -95,16 +100,13 @@ const SystemMap = (() => {
 
   // ---------- Galaxy and the local system ----------
 
-  function load(seed) {
-    galaxy = Galaxy.generate(seed, SYSTEM_CONFIG);
+  function setGalaxy(g) {
+    galaxy = g;
     system = null;
     player = null;
     kept.local = kept.galaxy = null;
     fitted = false;
     setLocal(galaxy.systems[galaxy.stations[galaxy.startStation].system]);
-    // Let the flight view swap its world (fog of war, travel, scene) right away, even while the
-    // map stays open; otherwise the map would draw the new galaxy with the old one's charts.
-    if (onLoad) onLoad(galaxy);
     if (isOpen) fit();
     updateStats();
     updateInfo();
@@ -143,16 +145,8 @@ const SystemMap = (() => {
       + `${system.stations.length} stations${found}`;
   }
 
-  function initialSeed() {
-    const param = Params.get('seed');
-    if (param === null || param === '') return SYSTEM_CONFIG.seed;
-    return /^\d+$/.test(param) ? Number(param) : param;
-  }
-
   function reroll() {
-    const seed = 1 + Math.floor(Math.random() * 999999);
-    Params.set('seed', seed);
-    load(seed);
+    if (onReroll) onReroll(1 + Math.floor(Math.random() * 999999));
   }
 
   // ---------- View ----------
@@ -832,13 +826,12 @@ const SystemMap = (() => {
     else if (isOpen && (e.key === 'l' || e.key === 'L')) setMode('local');
   });
 
-  load(initialSeed());
-
   return {
     open,
     close,
     get isOpen() { return isOpen; },
     get galaxy() { return galaxy; },
+    set galaxy(g) { setGalaxy(g); },
     get system() { return system; }, // the local view's
     get mode() { return mode; },
     setMode,
@@ -851,7 +844,7 @@ const SystemMap = (() => {
       if (moved && isOpen) { updateTravelUI(); requestDraw(); } // open() brings both up to date
     },
     set onJump(fn) { onJump = fn; updateInfo(); },
-    set onLoad(fn) { onLoad = fn; },
+    set onReroll(fn) { onReroll = fn; },
     set knowledge(k) { knowledge = k; updateStats(); updateInfo(); requestDraw(); },
     set access(a) { access = a; updateStats(); updateInfo(); requestDraw(); },
     // The mission's objective to mark ({ x, y, label, station }), or null; redrawn only when it changes.
@@ -873,3 +866,5 @@ const SystemMap = (() => {
     redraw() { updateTravelUI(); requestDraw(); },
   };
 })();
+
+export { SystemMap };

@@ -1,5 +1,3 @@
-'use strict';
-
 // Draws art/blueprints.js blueprints, planets, stars and asteroids in four styles:
 //   line    – the game's original neon line art on the dark background,
 //   pixel   – rasterised on a coarse texel grid with Bayer-dithered bevel shading and outlines,
@@ -12,7 +10,11 @@
 // two caches bounded by memory (art/sprite-cache.js), with a build budget per frame: the flight
 // view calls Art.beginFrame() every frame, and while the frame's budget is spent an object keeps
 // its last sprite (another rotation, scale or art style) until a later frame builds the new one.
-// Browser only (global `Art`).
+// ES module (`Art`); needs a browser.
+
+import { SpriteCache } from './sprite-cache.js';
+import { ArtUtil } from './util.js';
+import { Display } from '../core/display.js';
 
 const Art = (() => {
   const U = ArtUtil;
@@ -21,7 +23,7 @@ const Art = (() => {
   // Mobile browsers kill tabs that hold too much canvas memory (around 64 MB on some), so on touch
   // screens the caches below keep about a third: 12M px, about 48 MB in all. Sprites there are
   // drawn at a lower pixel ratio too (core/display.js), so the same scene needs about half the pixels.
-  const MEM = typeof Display !== 'undefined' && Display.touch() ? 0.35 : 1;
+  const MEM = Display.touch() ? 0.35 : 1;
   const config = {
     texel: 2, // world units per pixel-art texel
     tilt: 0.62, // low-poly camera tilt (radians from straight down)
@@ -74,7 +76,7 @@ const Art = (() => {
   // theirs from art/blueprints.js.
   const idOf = (o) => o._artId || (o._artId = JSON.stringify(o, (k, v) => (k[0] === '_' ? undefined : v)));
   const quant = (ppu) => 2 ** (Math.round(Math.log2(ppu) * 4) / 4);
-  const dprOf = () => (typeof Display !== 'undefined' ? Display.dpr() : 1); // core/display.js
+  const dprOf = Display.dpr;
 
   // ---------- Palette ----------
 
@@ -1497,3 +1499,5 @@ const Art = (() => {
     },
   };
 })();
+
+export { Art };

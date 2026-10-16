@@ -1,5 +1,3 @@
-'use strict';
-
 // The item catalogue: every kind of trade good and salvaged component, with its rarity, base price
 // and colour. Items are grouped into categories:
 // - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits): just
@@ -17,7 +15,7 @@
 //   Goods.categories(group)     -> category ids of 'trade' or 'salvage'
 //   Goods.pick(rng, cat)        -> a type id of that category, rarer ones less likely
 //   Goods.resolve(kind, label?) -> the current type id for an item from an older save, or null
-// Works as a classic browser script (global `Goods`) and as a Node module.
+// ES module (`Goods`); also runs in Node (the tests).
 
 const Goods = (() => {
   // Rarity levels. weight: how often each level turns up when something is found.
@@ -154,4 +152,4 @@ const Goods = (() => {
   return { RARITY, CATEGORIES, TIERS, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
 })();
 
-if (typeof module !== 'undefined') module.exports = Goods;
+export { Goods };

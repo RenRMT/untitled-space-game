@@ -1,12 +1,13 @@
-'use strict';
-
 // Item icons for menus: an item type's own art (art/items.js), drawn by the game's renderer in
 // the current art style onto a small canvas and kept as an image URL.
 // ItemIcons.url(kind, style, size) -> data URL of a size x size (CSS pixels) icon, sharp on
 // high-DPI screens. Each kind/style/size is drawn once and reused.
 // Items differ a lot in shape (a long ingot, a squat canister), so each is drawn once to find
 // where its art actually lands, then again scaled and centred to fill the icon.
-// Browser script (global `ItemIcons`).
+// ES module (`ItemIcons`); needs a browser.
+
+import { ArtItems } from './items.js';
+import { Art } from './render.js';
 
 const ItemIcons = (() => {
   const config = {
@@ -83,3 +84,5 @@ const ItemIcons = (() => {
 
   return { config, url };
 })();
+
+export { ItemIcons };

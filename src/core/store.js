@@ -1,5 +1,3 @@
-'use strict';
-
 // URL parameters and saved data in one place. localStorage can be missing or refuse writes
 // (private windows, blocked site data, Node), so every access is guarded: reads fall back,
 // writes are dropped, and the game carries on with what it has for the session.
@@ -10,7 +8,7 @@
 //   Store.set(key, value), Store.remove(key)
 //   Store.getJSON(key, fallback), Store.setJSON(key, value)
 //   Store.choice(key, options, fallback) a saved choice among options; ?key= overrides it
-// Browser script (globals `Params` and `Store`); also loads in Node, where nothing is saved.
+// ES module (`Params`, `Store`); also runs in Node, where nothing is saved.
 
 const Params = (() => {
   const params = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
@@ -62,3 +60,5 @@ const Store = (() => {
   }
   return { get, set, remove, getJSON, setJSON, choice };
 })();
+
+export { Params, Store };

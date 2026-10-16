@@ -1,5 +1,3 @@
-'use strict';
-
 // The introduction: an escape pod drifting near Waystation HD-1863 (the android-run station on
 // the first system's outer edge) is talked in by the station. Its diagnostic questions set the
 // art style and the movement mode; between them the pod flies itself to the station (a first
@@ -24,7 +22,7 @@
 //   run.answers                           { style, move } as answered so far
 //   run.portrait                          whether lines show the station's portrait (they do
 //                                         once the art style has been picked)
-// Works as a classic browser script (global `Intro`) and as a Node module.
+// ES module (`Intro`); also runs in Node (the tests).
 
 const Intro = (() => {
   const STATION = 'Waystation HD-1863';
@@ -89,10 +87,7 @@ const Intro = (() => {
     };
   }
 
-  // A line split into plain and **bold** runs: [{ text, bold }].
-  const runs = (text) => text.split(/\*\*/).map((t, k) => ({ text: t, bold: k % 2 === 1 })).filter((r) => r.text);
-
-  return { STATION, SCRIPT, create, runs };
+  return { STATION, SCRIPT, create };
 })();
 
-if (typeof module !== 'undefined') module.exports = Intro;
+export { Intro };

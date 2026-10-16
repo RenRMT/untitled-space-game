@@ -1,5 +1,3 @@
-'use strict';
-
 // What both combat modes share (rounds: combat/combat.js, real time: combat/combat-realtime.js), and the shape
 // every mode takes, so the flight view (game.js) runs any of them the same way and a new mode is a
 // new module rather than new branches in game.js.
@@ -42,14 +40,17 @@
 //   { type: 'target' | 'locked' | 'lost-lock', id }. s.player, s.enemies, s.allies and s.focus as
 //   named; s.over becomes 'won', 'lost' or 'fled' when the fight ends (an ally shot down drops out:
 //   only the player's ship decides the outcome).
-// Works as a classic browser script (global `CombatCore`) and as a Node module.
+// ES module (`CombatCore`); also runs in Node (the tests).
+
+import { MathUtil } from '../core/math.js';
+import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { Goods } from '../rules/goods.js';
+import { Security } from '../world/security.js';
 
 const CombatCore = (() => {
-  const isNode = typeof require === 'function';
-  const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('../core/rng.js') : globalThis;
-  const G = isNode ? require('../rules/goods.js') : Goods;
-  const Sec = isNode ? require('../world/security.js') : Security;
-  const { clamp } = isNode ? require('../core/math.js') : MathUtil;
+  const G = Goods;
+  const Sec = Security;
+  const { clamp } = MathUtil;
 
   const config = {
     minHit: 0.1, // a hit chance never drops below this ...
@@ -124,4 +125,4 @@ const CombatCore = (() => {
   return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, loot };
 })();
 
-if (typeof module !== 'undefined') module.exports = CombatCore;
+export { CombatCore };

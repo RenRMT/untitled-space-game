@@ -1,5 +1,3 @@
-'use strict';
-
 // Item blueprints (low-poly `h` is relative to whatever part lies under the centroid; rings are absolute):
 // salvaged components and trade goods, drawn by art/render.js in all four styles.
 // Items are culture-neutral. Each item type (rules/goods.js) has its own colour: components are
@@ -9,14 +7,17 @@
 //
 //   ArtItems.create(typeId, seed) -> blueprint (type 'item'; kind, category 'loot' | 'trade', rarity, label)
 //
-// Works as a classic browser script (global `ArtItems`) and as a Node module.
+// ES module (`ArtItems`); also runs in Node (the tests).
+
+import { ArtBlueprints } from './blueprints.js';
+import { ArtUtil } from './util.js';
+import { hashInt, mulberry32 } from '../core/rng.js';
+import { Goods } from '../rules/goods.js';
 
 const ArtItems = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const U = isNode ? require('./util.js') : ArtUtil;
-  const B = isNode ? require('./blueprints.js') : ArtBlueprints;
-  const { mulberry32, hashInt } = isNode ? require('../core/rng.js') : globalThis;
-  const G = isNode ? require('../rules/goods.js') : Goods;
+  const U = ArtUtil;
+  const B = ArtBlueprints;
+  const G = Goods;
   const { TAU } = U;
 
   // Rounded rectangle; consecutive duplicate points are dropped so low-poly roofs stay star-shaped.
@@ -285,4 +286,4 @@ const ArtItems = (() => {
   return { SHAPES, create };
 })();
 
-if (typeof module !== 'undefined') module.exports = ArtItems;
+export { ArtItems };

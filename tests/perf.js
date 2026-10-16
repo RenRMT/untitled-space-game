@@ -1,5 +1,3 @@
-'use strict';
-
 // Frame-cost benchmark in a real browser: `node tests/perf.js` (needs Playwright and a Chromium;
 // not part of `npm test`). Serves the repository, opens the game as a phone would (390×844 CSS
 // pixels at DPR 3, touch, CPU slowed 4×) and flies through the scenes that cost most: the tutorial
@@ -11,21 +9,25 @@
 //   node tests/perf.js            all scenarios
 //   node tests/perf.js nebula     only those whose name contains "nebula"
 
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
+const require = createRequire(import.meta.url);
 function playwright() {
   try { return require('playwright'); } catch (e) { /* fall back to a global install */ }
   return require(path.join(execSync('npm root -g').toString().trim(), 'playwright'));
 }
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const SECONDS = 6;
 
-// Where each scenario puts the ship and how it flies (evaluated in the game's scope).
+// Where each scenario puts the ship and how it flies: run in the page with the game's names (G,
+// src/game.js) in scope.
 const SCENARIOS = [
   { name: 'nebula (line)', style: 'line', place: 'nebula' },
   { name: 'nebula (lowpoly)', style: 'lowpoly', place: 'nebula' },
@@ -86,18 +88,23 @@ async function run(browser, base, sc) {
   page.on('pageerror', (e) => errors.push(e.message));
   const cdp = await context.newCDPSession(page);
   await page.goto(`${base}/?seed=1&fresh&skipintro&style=${sc.style}`);
-  await page.waitForFunction(() => typeof perfStats !== 'undefined');
+  // The game's names in the page (the module the page loaded, imported again), and a way to run a
+  // snippet with them in scope, as tests/smoke.js does.
+  await page.evaluate(async () => {
+    window.__G = (await import('/src/game.js')).G;
+    window.__inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
+  });
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
-  await page.evaluate(PLACE[sc.place]);
+  await page.evaluate((src) => __inGame(__G, src), PLACE[sc.place]);
   // Record each frame's work from here on (frame() calls recordFrame by name).
   await page.evaluate(() => {
     window.__work = [];
-    const record = recordFrame;
-    recordFrame = (work, gap) => { window.__work.push(work); record(work, gap); };
+    const record = __G.recordFrame;
+    __G.recordFrame = (work, gap) => { window.__work.push(work); record(work, gap); };
   });
-  const before = await page.evaluate(() => Art.stats());
+  const before = await page.evaluate(() => __G.Art.stats());
   await page.waitForTimeout(SECONDS * 1000);
-  const out = await page.evaluate(() => ({ work: window.__work, art: Art.stats(), bodies: ArtBodies.stats(), posed: perfStats.posed, drawn: perfStats.drawn }));
+  const out = await page.evaluate(() => ({ work: window.__work, art: __G.Art.stats(), bodies: __G.ArtBodies.stats(), posed: __G.perfStats.posed, drawn: __G.perfStats.drawn }));
   await context.close();
   if (errors.length) throw new Error(`${sc.name}: ${errors.join('; ')}`);
   const w = out.work.slice(10).sort((a, b) => a - b); // the first frames build the scene's sprites

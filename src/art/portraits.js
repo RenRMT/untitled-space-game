@@ -1,5 +1,3 @@
-'use strict';
-
 // Portrait renderer: draws a seeded head-and-shoulders bust built from domed parts plus flat
 // feature marks in all four styles, so silhouettes match across styles. Light is the shared world
 // light (up-left, art/render.js). Units: the bust fills a 100×100 frame centred on 0,0, y down.
@@ -9,7 +7,11 @@
 //                                                        in world units (scale the ctx so 100
 //                                                        units = your tile size)
 //   ArtPortraits.kit: { part, ell, stroke, mulberry }    for bust generators
-// Browser only (global `ArtPortraits`). Load after art/render.js.
+// ES module (`ArtPortraits`); needs a browser.
+
+import { Art } from './render.js';
+import { ArtUtil } from './util.js';
+import { mulberry32 } from '../core/rng.js';
 
 const ArtPortraits = (() => {
   const U = ArtUtil;
@@ -278,3 +280,5 @@ const ArtPortraits = (() => {
 
   return { draw, kit: { part, ell, stroke, mulberry } };
 })();
+
+export { ArtPortraits };

@@ -1,5 +1,3 @@
-'use strict';
-
 // Procedural asset blueprints: style-independent 2D part lists that art/render.js draws in any
 // of the four art styles. Coordinates are world units, nose toward +x, +y down (canvas space).
 //
@@ -9,12 +7,13 @@
 // optional raised top `bevel` (a ridge or apex with `roof: true`, else a chamfer). Optional extras: `lines` (detail segments), `grid` [nx, ny]
 // (panel cells), `thin` (a strut drawn as one line in the line style), `dome` (circles),
 // `line: false` (part skipped in the line style), `overlay` (scorch marks drawn over what is below).
-// Works as a classic browser script (global `ArtBlueprints`) and as a Node module.
+// ES module (`ArtBlueprints`); also runs in Node (the tests).
+
+import { ArtUtil } from './util.js';
+import { hashInt, mulberry32 } from '../core/rng.js';
 
 const ArtBlueprints = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const U = isNode ? require('./util.js') : ArtUtil;
-  const { mulberry32, hashInt } = isNode ? require('../core/rng.js') : globalThis;
+  const U = ArtUtil;
   const { TAU, lerp, clamp } = U;
 
   // A blueprint's id names what it is built from (type, culture and seed), so building the same
@@ -905,4 +904,4 @@ const ArtBlueprints = (() => {
   return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish, NATURAL, gasPocket };
 })();
 
-if (typeof module !== 'undefined') module.exports = ArtBlueprints;
+export { ArtBlueprints };

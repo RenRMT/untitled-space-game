@@ -1,5 +1,3 @@
-'use strict';
-
 // Seeded random helpers shared by the starfield, the solar system generator, the scene and the art.
 
 // Deterministic 32-bit hash of an integer pair plus a seed.
@@ -35,4 +33,4 @@ function weightedPick(list, r) {
   return list[list.length - 1][0];
 }
 
-if (typeof module !== 'undefined') module.exports = { hashInt, mulberry32, seedToInt, weightedPick };
+export { hashInt, mulberry32, seedToInt, weightedPick };

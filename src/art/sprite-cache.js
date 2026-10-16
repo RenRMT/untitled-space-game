@@ -1,5 +1,3 @@
-'use strict';
-
 // Caches of pre-rendered sprites for art/render.js, bounded by memory rather than by count, with a
 // build budget per frame that several caches can share.
 //
@@ -20,7 +18,7 @@
 //                                                          (px: extra cost in pixels); the
 //                                                          sprite gets its `key`
 //   cache.has(key), cache.clear(), cache.stats() -> { sprites, pixels, builds, deferred, dropped }
-// Works as a classic browser script (global `SpriteCache`) and as a Node module.
+// ES module (`SpriteCache`); also runs in Node (the tests).
 
 const SpriteCache = (() => {
   const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
@@ -94,4 +92,4 @@ const SpriteCache = (() => {
   return { budget, create };
 })();
 
-if (typeof module !== 'undefined') module.exports = SpriteCache;
+export { SpriteCache };

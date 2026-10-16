@@ -1,5 +1,3 @@
-'use strict';
-
 // The settings menu: one panel for the game's options, opened with the Settings button in flight.
 // Each option registers itself with add() and shows as a row of choices, with a line explaining
 // the selected one. Options keep their own state; this only draws them and passes clicks on.
@@ -8,7 +6,9 @@
 //                  note?, locked?() -> reason string | null })
 //   Settings.open(), Settings.close(), Settings.isOpen
 //   Settings.onToggle = (open) => ...   called when the panel opens or closes
-// Browser script (global `Settings`).
+// ES module (`Settings`); needs a browser.
+
+import { UI } from './ui.js';
 
 const Settings = (() => {
   const root = document.getElementById('settings');
@@ -109,3 +109,5 @@ const Settings = (() => {
     set onToggle(f) { onToggle = f; },
   };
 })();
+
+export { Settings };

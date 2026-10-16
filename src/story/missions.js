@@ -1,5 +1,3 @@
-'use strict';
-
 // Missions: jobs a station gives the player, offered and handed in on the station screen's
 // Missions tab (ui/station.js), carried out in flight (game.js). There are three so far, all the
 // waystation's. Two pay off the player's debt after the introduction (story/intro.js): "Payment in
@@ -39,12 +37,13 @@
 //   Missions.salvageSite(galaxy, site)     where "The remaining balance" goes (see below)
 //   Missions.gateSite(galaxy)              where "Gated community" happens (see below)
 //   Missions.fill(text, vars), Missions.lines(list, log, id)
-// Works as a classic browser script (global `Missions`) and as a Node module.
+// ES module (`Missions`); also runs in Node (the tests).
+
+import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
+import { Squad } from '../rules/squad.js';
 
 const Missions = (() => {
-  const isNode = typeof require === 'function' && typeof module !== 'undefined';
-  const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('../core/rng.js') : globalThis;
-  const SquadRef = isNode ? require('../rules/squad.js') : Squad;
+  const SquadRef = Squad;
   const TAU = Math.PI * 2;
 
   const LIST = {
@@ -447,4 +446,4 @@ const Missions = (() => {
   return { LIST, STATUSES, create, fill, lines, site, SITE, salvageSite, SALVAGE, gateSite, GATE };
 })();
 
-if (typeof module !== 'undefined') module.exports = Missions;
+export { Missions };

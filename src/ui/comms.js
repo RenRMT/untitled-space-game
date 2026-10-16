@@ -1,18 +1,19 @@
-'use strict';
-
 // The comms box: a message from someone in space, at the foot of the screen, with their portrait
 // beside it. A line waits for a tap (or Enter / Space) to go on; a question shows its answers as
 // buttons (or keys 1–4), each with a portrait of its own if it has one. A hint is a message that
 // doesn't wait: flight goes on under it and taps pass through to space.
 //
 //   Comms.show({ from, text, face?, choices?: [{ label, face? }], onNext?, onChoose?(i) })
-//     text: plain and **bold** runs (Intro.runs); face(ctx, size): draws a portrait in a
+//     text: plain, with **bold** runs (UI.rich); face(ctx, size): draws a portrait in a
 //     size × size CSS-pixel square
 //   Comms.hint({ from, text, face? })
 //   Comms.hide(), Comms.isOpen (a line or question showing, not a hint)
 //   Comms.top             the box's top edge on screen (px), or null while hidden
 //   Comms.onSkip = fn    shows a Skip button that calls it (null hides it)
-// Browser script (global `Comms`). Load after ui/ui.js and story/intro.js.
+// ES module (`Comms`); needs a browser.
+
+import { Display } from '../core/display.js';
+import { UI } from './ui.js';
 
 const Comms = (() => {
   const { h } = UI;
@@ -47,7 +48,7 @@ const Comms = (() => {
     root.classList.toggle('hint', !waits);
     root.classList.toggle('ask', !!(o.choices && o.choices.length));
     fromEl.textContent = o.from || '';
-    textEl.replaceChildren(...Intro.runs(o.text).map((r) => (r.bold ? h('strong', {}, r.text) : r.text)));
+    textEl.replaceChildren(...UI.rich(o.text));
     faceEl.hidden = !o.face;
     if (o.face) paint(faceEl, o.face, FACE);
     const choices = (o.choices || []).map((c, i) => {
@@ -103,3 +104,5 @@ const Comms = (() => {
     next, choose,
   };
 })();
+
+export { Comms };

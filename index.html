@@ -525,59 +525,8 @@
   </div>
 </div>
 
-<!-- Core: maths, randomness, saved data, colours -->
-<script src="src/core/math.js"></script>
-<script src="src/core/rng.js"></script>
-<script src="src/core/display.js"></script>
-<script src="src/core/store.js"></script>
-<script src="src/core/theme.js"></script>
-<!-- World: galaxy generation -->
-<script src="src/world/security.js"></script>
-<script src="src/world/system-config.js"></script>
-<script src="src/world/solar-system.js"></script>
-<script src="src/world/galaxy.js"></script>
-<!-- Rules: items, markets, ships, research, squad -->
-<script src="src/rules/goods.js"></script>
-<script src="src/rules/knowledge.js"></script>
-<script src="src/rules/economy.js"></script>
-<script src="src/rules/mining.js"></script>
-<script src="src/rules/loadout.js"></script>
-<script src="src/rules/logic.js"></script>
-<script src="src/rules/squad.js"></script>
-<script src="src/rules/research.js"></script>
-<!-- Art: procedural drawing in four styles -->
-<script src="src/art/util.js"></script>
-<script src="src/art/sprite-cache.js"></script>
-<script src="src/art/culture.js"></script>
-<script src="src/art/blueprints.js"></script>
-<script src="src/art/items.js"></script>
-<script src="src/art/render.js"></script>
-<script src="src/art/bodies.js"></script>
-<script src="src/art/icons.js"></script>
-<script src="src/art/portraits.js"></script>
-<script src="src/art/androids.js"></script>
-<!-- Flight: things in space and how they move -->
-<script src="src/flight/entities.js"></script>
-<script src="src/flight/scene.js"></script>
-<script src="src/flight/interactions.js"></script>
-<script src="src/flight/flight.js"></script>
-<script src="src/flight/travel.js"></script>
-<!-- Combat -->
-<script src="src/combat/combat-core.js"></script>
-<script src="src/combat/combat.js"></script>
-<script src="src/combat/combat-realtime.js"></script>
-<!-- Story: introduction and missions -->
-<script src="src/story/intro.js"></script>
-<script src="src/story/missions.js"></script>
-<!-- UI: DOM panels and the map -->
-<script src="src/ui/ui.js"></script>
-<script src="src/ui/map.js"></script>
-<script src="src/ui/station.js"></script>
-<script src="src/ui/context.js"></script>
-<script src="src/ui/combat-panel.js"></script>
-<script src="src/ui/settings.js"></script>
-<script src="src/ui/comms.js"></script>
-<!-- The flight view and main loop -->
-<script src="src/game.js"></script>
+<!-- The game is ES modules: src/game.js imports the rest (layer by layer: core, world, rules, art,
+     flight, combat, story, ui). Modules need the page served over http, not opened as a file. -->
+<script type="module" src="src/game.js"></script>
 </body>
 </html>

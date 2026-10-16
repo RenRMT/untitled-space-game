@@ -1,5 +1,3 @@
-'use strict';
-
 // What the player knows about the galaxy (fog of war for the map and the minimap).
 // - Systems (world/galaxy.js) are discovered by entering them; the start system is known from the
 //   start. The galaxy map shows the discovered ones.
@@ -9,7 +7,10 @@
 // - sense(): the ship's sensors, a few times a second: contacts within sensor range of their
 //   edge are identified, those within ping range pinged,
 // - pass(): a coarse long-range pass, as during map travel: contacts in reach are only pinged.
-// Saved per galaxy (core/store.js). Browser script (global `Knowledge`).
+// Saved per galaxy (core/store.js). ES module (`Knowledge`); also runs in Node (the tests).
+
+import { Store } from '../core/store.js';
+import { Galaxy } from '../world/galaxy.js';
 
 const Knowledge = (() => {
   // Defaults for sense(), in world units; the ship's scanner sets the real ranges (rules/loadout.js).
@@ -99,3 +100,5 @@ const Knowledge = (() => {
 
   return { create, SENSOR_RANGE, PING_RANGE };
 })();
+
+export { Knowledge };
