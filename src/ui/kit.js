@@ -36,6 +36,9 @@
 //     tokens: [{ t, text }] (t: kw | subj | prop | op | num | fn | punc | ws | err | cmt) coloured by
 //     kind; off: struck through; dim: greyed (not run); active: just ran; err / note: a comment under it;
 //     with onclick it is a button
+//   Kit.instruction({ n, rows, kind, off, dim, active, err, note, onclick, aria })   one squad instruction as a
+//     card: a keyword badge per row (IF / AND / OR / NOT / THEN / ELSE) and plain-word chips coloured by
+//     kind (rows: Logic.rows); kind: 'add' | 'else' (dashed); states as for codeLine; with onclick a button
 //   Kit.choices(items, onPick, { label })   a row of mono choice buttons, one of them on;
 //     items: [{ id, label, on, locked, title }]; locked ones are dashed and can't be picked
 // ES module (`Kit`); needs a browser.
@@ -267,6 +270,18 @@ const Kit = (() => {
       ? h('button', { class: cls, type: 'button', role: 'listitem', onclick, 'aria-label': aria }, ln, src)
       : h('div', { class: cls, role: 'listitem' }, ln, src);
   }
+  function instruction({ n, rows, kind, off, dim, active, err, note, onclick, aria }) {
+    const body = h('span', { class: 'rows' }, rows.map((r) => h('span', { class: 'ir' },
+      h('span', { class: `kw kw-${r.kw.toLowerCase()}` }, r.kw === 'THEN' || r.kw === 'ELSE' ? `${r.kw} ▶` : r.kw),
+      h('span', { class: 'chips' }, r.not ? h('span', { class: 'kw-not' }, 'NOT') : null,
+        r.chips.map((c) => h('span', { class: `ic ic-${c.kind}` }, c.text))))),
+    err ? h('span', { class: 'msg err' }, err) : null, note ? h('span', { class: 'msg' }, note) : null);
+    const cls = ['ui-instr', kind, off && 'off', dim && 'dim', active && 'active', err && 'bad'].filter(Boolean).join(' ');
+    const num = h('span', { class: 'n', 'aria-hidden': 'true' }, n === undefined ? '' : String(n).padStart(2, '0'));
+    return onclick
+      ? h('button', { class: cls, type: 'button', role: 'listitem', onclick, 'aria-label': aria }, num, body)
+      : h('div', { class: cls, role: 'listitem', 'aria-label': aria }, num, body);
+  }
   const choices = (items, onPick, { label } = {}) => h('div', { class: 'ui-choices', role: 'group', 'aria-label': label },
     items.map((it) => h('button', {
       class: ['ui-choice', it.on && 'on', it.locked && 'locked'].filter(Boolean).join(' '), type: 'button',
@@ -276,7 +291,7 @@ const Kit = (() => {
   return {
     TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
     slotNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
-    code, codeLine, choices,
+    code, codeLine, choices, instruction,
   };
 })();
 

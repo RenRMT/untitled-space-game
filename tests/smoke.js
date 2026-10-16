@@ -466,12 +466,13 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)'], 'its first combat logic module');
   assert.ok(game('gatesOnline() && !world.scene.gates[mission.gate.gate].offline'), 'the gate is online');
   game(`StationMenu.showTab('squad')`);
-  assert.match(tab(), /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'the program, as code');
+  assert.match(tab(), /01IFEnemyis the leader's targetTHEN ▶AttackEnemy/, 'its first instruction, as a card');
   // Editing it: a new line, through its sheet.
   game(`StationMenu.showLine(firstMember().id, 1)`);
-  assert.match(onStation(), /New line/);
-  assert.match(onStation(), /if true → attack\(enemy\)/, 'a blank line to start from');
-  pressOnStation('Add line');
+  assert.match(onStation(), /New instruction/);
+  assert.match(onStation(), /ALWAYSTHEN ▶AttackEnemy/, 'a blank instruction to start from');
+  assert.match(onStation(), /Who.*Then/, 'its choices in plain words');
+  pressOnStation('Add instruction');
   assert.deepStrictEqual(game('firstMember().program.map(Logic.text)'), ['if enemy.isLeaderTarget → attack(enemy)', 'if true → attack(enemy)']);
   // Moved up, switched off, then deleted.
   game(`StationMenu.showLine(firstMember().id, 1)`);
@@ -1077,14 +1078,14 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(game('!cargo.squad[0].disabled && cargo.squad[0].hullPoints === Squad.stats(cargo.squad[0]).hull'), 'repaired');
   game(`StationMenu.showTab('squad')`);
   const tab = textOf(browser.document.getElementById('st-body'));
-  assert.match(tab, /01if enemy\.isLeaderTarget → attack\(enemy\)/, 'its program, as code');
-  assert.match(tab, /else → follow\(leader\)/, 'and what it does when no line holds');
-  assert.match(tab, /1\/3 lines run/);
-  assert.match(tab, /ran ×\d+ last fight/, 'how often the line took over');
+  assert.match(tab, /01IFEnemyis the leader's targetTHEN ▶AttackEnemy/, 'its instruction, as a card');
+  assert.match(tab, /ELSE ▶Follow leader/, 'and what it does when none applies');
+  assert.match(tab, /1\/3 run/);
+  assert.match(tab, /Used \d+× last fight/, 'how often the instruction was used');
   // A line after one that always holds never runs, and says so.
   assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.blank()) && programs.set(cargo.squad[0].id, 1, Logic.PRESETS['assist.leader'])`));
   game(`StationMenu.refresh()`);
-  assert.match(textOf(browser.document.getElementById('st-body')), /never runs: line 1 always holds first/);
+  assert.match(textOf(browser.document.getElementById('st-body')), /Never runs: instruction 1 always applies first/);
   assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.PRESETS['assist.leader']) && programs.remove(cargo.squad[0].id, 1)`));
   game('launch()');
   browser.frames(3);

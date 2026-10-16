@@ -2,10 +2,21 @@
 
 **Decision (October 2026):** squad members are programmed gambit style, like Final Fantasy XII:
 each runs a short program of lines (`rules/logic.js`), top down, and does what the first line
-that holds says; with none, it keeps formation. Lines read as code and are built by tapping
-choices in the Squad tab, never typed:
+that holds says; with none, it keeps formation. Lines are built by tapping choices in the Squad
+tab, never typed.
 
-    if enemy.hull < 30% and not enemy.targeting(leader) → attack(weakest(enemy))
+**Update (October 2026):** pseudo-code put some players off, so the Squad tab shows and edits each
+line as an **instruction card**: plain-word chips with control-flow badges and symbol operators.
+
+    IF    [Enemy] [Hull] [< 30%]
+    AND   NOT [Enemy] [is targeting] [Leader]
+    THEN  ▶ [Attack] [weakest Enemy]
+    ELSE  ▶ Follow leader
+
+In combat, wingmen still show the line they are running as code, for flavour
+(`L2 › attack(weakest(enemy))`), and research keeps its package names (`import combat.select@1.0`).
+Both views come from the same line data: `Logic.rows`/`Logic.say` for the cards,
+`Logic.tokens`/`Logic.text` for the code.
 
 The Research tab no longer unlocks gear. It builds **logic packages** (`rules/research.js`), shown
 as imports (`import combat.select@1.0`). Each package unlocks building blocks (subjects, picks,

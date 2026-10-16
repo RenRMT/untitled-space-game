@@ -1,5 +1,6 @@
 // AI logic: the programs squad members (rules/squad.js) run, gambit style. A program is a list of
-// lines, each one rule written like a line of code:
+// lines, each one rule; the Squad tab shows it as an instruction card in plain words (rows), and
+// combat shows it as a line of code (tokens):
 //
 //   if enemy.hull < 30% and not enemy.isLeaderTarget → attack(nearest(enemy))
 //
@@ -25,6 +26,9 @@
 //                                            punc | ws | err; Logic.text(line) joins them, and
 //                                            Logic.actionText(line) is just its action
 //   Logic.alwaysRuns(line) -> bool           it holds whenever there's a fight: nothing after it runs
+//   Logic.rows(line) -> [{ kw, not, chips }]  the line as an instruction card, in plain words (the
+//                                            Squad tab edits these; combat shows the code); every
+//                                            block has a `say`; Logic.say(line) is it as a sentence
 //   Logic.blocks(pkg) -> [{ kind, id, label }]   what a package gives
 // ctx: what a squad member knows when it decides: { self, leader, enemies: the enemies still
 //   flying, allies: the other squad members still flying, leaderTarget: the enemy id the leader is
@@ -92,6 +96,20 @@ const Logic = (() => {
     use: { label: 'use', pkg: 'tactics.use', on: null, target: true, note: 'use an ability the ship has', intent: (c, line) => ({ type: 'use', skill: line.skill, target: c.id }) },
   };
   for (const B of [SUBJECTS, PICKS, PROPS, KEYWORDS, ACTIONS]) for (const [id, b] of Object.entries(B)) b.id = id;
+  // In plain words, for the instruction cards the player edits (rows, say); combat keeps the code.
+  const SAY = {
+    subject: { enemy: 'Enemy', self: 'Self', leader: 'Leader', ally: 'Ally', fight: 'Fight' },
+    pick: { any: 'Any', nearest: 'Nearest', weakest: 'Weakest', strongest: 'Strongest' },
+    prop: {
+      isLeaderTarget: "is the leader's target", hull: 'Hull', shield: 'Shield', distance: 'Distance', targeting: 'is targeting',
+      class: 'is a', enemies: 'Enemies left', allies: 'Squad left',
+    },
+    value: { self: 'Self', leader: 'Leader', ally: 'an Ally', fighter: 'Fighter', freighter: 'Freighter' },
+    act: { attack: 'Attack', follow: 'Follow leader', keepRange: 'Attack from range', guard: 'Guard', retreat: 'Retreat', use: 'Use' },
+    rel: { '<': '<', '<=': '≤', '>': '>', '>=': '≥', '==': '=', '!=': '≠' },
+  };
+  for (const [kind, B] of [['subject', SUBJECTS], ['pick', PICKS], ['prop', PROPS], ['act', ACTIONS]]) for (const b of Object.values(B)) b.say = SAY[kind][b.id];
+  for (const b of Object.values(KEYWORDS)) b.say = b.id.toUpperCase();
 
   const PRESETS = {
     'assist.leader': { on: true, subject: 'enemy', pick: 'any', when: [{ join: null, not: false, of: null, prop: 'isLeaderTarget', rel: null, value: null }], act: 'attack', skill: null },
@@ -235,6 +253,50 @@ const Logic = (() => {
   // A line that always holds in a fight (no conditions, nothing to wait for): nothing after it runs.
   const alwaysRuns = (line) => !!line && line.on && !line.err && !line.when.length && line.act !== 'use';
 
+  // ---------- The line as an instruction card ----------
+
+  const chip = (kind, words) => ({ kind, text: words });
+  const sayValue = (p, v) => (typeof v === 'string' ? SAY.value[v] || v : `${v}${p.unit || ''}`);
+  const sayRel = (r) => SAY.rel[r] || r || '?';
+  function clauseChips(c, line) {
+    const p = PROPS[c.prop];
+    const about = chip('subj', SAY.subject[c.of || line.subject] || String(c.of || line.subject));
+    if (!p) return [about, chip('err', c.prop || '?')];
+    if (p.kind === 'flag') return [about, chip('prop', p.say)];
+    if (p.kind === 'flagArg') return [about, chip('prop', p.say), chip('val', sayValue(p, c.value))];
+    if (p.kind === 'enum') return [about, chip('prop', c.rel === '!=' ? 'is not a' : p.say), chip('val', sayValue(p, c.value))];
+    return [about, chip('prop', p.say), chip('op', sayRel(c.rel)), chip('val', sayValue(p, c.value))];
+  }
+  // Who an action is aimed at: 'Enemy', 'weakest Enemy'.
+  function targetText(line) {
+    const s = SAY.subject[line.subject] || String(line.subject);
+    return line.pick && line.pick !== 'any' ? `${(SAY.pick[line.pick] || line.pick).toLowerCase()} ${s}` : s;
+  }
+  function actChips(line) {
+    const act = ACTIONS[line.act];
+    if (!act) return [chip('err', String(line.act))];
+    const out = [chip('act', act.say)];
+    if (line.act === 'use') out.push(chip('val', line.skill || '?'));
+    if (act.target) out.push(chip('subj', targetText(line)));
+    return out;
+  }
+  // The card's rows: [{ kw: 'IF' | 'AND' | 'OR' | 'ALWAYS' | 'THEN', not, chips: [{ kind, text }] }].
+  // kind: subj | prop | op | val | act | err.
+  function rows(line) {
+    const out = line.when.length
+      ? line.when.map((c, i) => ({ kw: i ? (c.join || '?').toUpperCase() : 'IF', not: !!c.not, chips: clauseChips(c, line) }))
+      : [{ kw: 'ALWAYS', not: false, chips: [] }];
+    out.push({ kw: 'THEN', not: false, chips: actChips(line) });
+    return out;
+  }
+  // The card as one sentence: 'If Enemy Hull < 30% and not Enemy is targeting Leader: Attack weakest Enemy.'
+  function say(line) {
+    const r = rows(line), then = r.pop();
+    const words = (row) => row.chips.map((x) => x.text).join(' ');
+    const cond = line.when.length ? r.map((row, i) => `${i ? `${row.kw.toLowerCase()} ` : ''}${row.not ? 'not ' : ''}${words(row)}`).join(' ') : '';
+    return `${cond ? `If ${cond}: ` : 'Always: '}${words(then)}.`;
+  }
+
   // What a package gives: every block tagged with it.
   function blocks(pkg) {
     const out = [];
@@ -247,7 +309,7 @@ const Logic = (() => {
     return out;
   }
 
-  return { MAX_CLAUSES, SUBJECTS, PICKS, PROPS, RELS, KEYWORDS, ACTIONS, PRESETS, knows, copy, blank, clause, check, read, decide, tokens, text, actionText, alwaysRuns, blocks };
+  return { MAX_CLAUSES, SUBJECTS, PICKS, PROPS, RELS, KEYWORDS, ACTIONS, PRESETS, knows, copy, blank, clause, check, read, decide, tokens, text, actionText, alwaysRuns, rows, say, sayValue, sayRel, blocks };
 })();
 
 export { Logic };

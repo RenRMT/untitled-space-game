@@ -1467,6 +1467,16 @@ test('logic: lines check against what research has unlocked, and read back from 
     'if enemy.hull < 30% and not enemy.targeting(leader) → attack(nearest(enemy))');
   assert.strictEqual(Logic.text(L({ subject: 'self', act: 'retreat', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 3 }] })), 'if fight.enemies >= 3 → retreat()');
   assert.strictEqual(Logic.text(Logic.blank()), 'if true → attack(enemy)');
+  // As an instruction card, in plain words.
+  const card = (line) => Logic.rows(line).map((r) => `${r.kw}${r.not ? ' NOT' : ''}: ${r.chips.map((c) => c.text).join(' | ')}`);
+  assert.deepStrictEqual(card(L({ pick: 'weakest', when: [{ prop: 'hull', rel: '<=', value: 30 }, { join: 'or', not: true, prop: 'targeting', value: 'leader' }] })),
+    ['IF: Enemy | Hull | ≤ | 30%', 'OR NOT: Enemy | is targeting | Leader', 'THEN: Attack | weakest Enemy']);
+  assert.deepStrictEqual(card(Logic.blank()), ['ALWAYS: ', 'THEN: Attack | Enemy']);
+  assert.deepStrictEqual(card(L({ subject: 'self', act: 'retreat', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 3 }] })), ['IF: Fight | Enemies left | ≥ | 3', 'THEN: Retreat']);
+  assert.deepStrictEqual(card(L({ when: [{ prop: 'class', rel: '!=', value: 'freighter' }] }))[0], 'IF: Enemy | is not a | Freighter');
+  assert.strictEqual(Logic.say(Logic.PRESETS['assist.leader']), "If Enemy is the leader's target: Attack Enemy.");
+  assert.strictEqual(Logic.say(Logic.blank()), 'Always: Attack Enemy.');
+  for (const B of [Logic.SUBJECTS, Logic.PICKS, Logic.PROPS, Logic.KEYWORDS, Logic.ACTIONS]) for (const b of Object.values(B)) assert(typeof b.say === 'string' && b.say, `${b.id} has words`);
   assert.strictEqual(Logic.actionText(L({ pick: 'weakest', when: [{ prop: 'hull', rel: '<', value: 30 }] })), 'attack(weakest(enemy))');
   assert(Logic.alwaysRuns(Logic.blank()) && !Logic.alwaysRuns(Logic.PRESETS['assist.leader']) && !Logic.alwaysRuns({ ...Logic.blank(), on: false }));
   assert(!Logic.alwaysRuns(L({ act: 'use', skill: 'emp' })), 'use waits for its ability');
