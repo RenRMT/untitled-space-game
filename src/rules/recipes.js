@@ -13,14 +13,15 @@
 //   Recipes.forBay(type) -> [recipe]
 //   Recipes.known(done) -> Set      recipe ids known, given the research done (rules/research.js)
 //   Recipes.producers(kind), Recipes.consumers(kind) -> [recipe]   the recipes that make / use it
-//   Recipes.item(kind) -> { id, name, kind: 'good' | 'component' | 'gear', stage, price, tier? } | null
+//   Recipes.item(kind) -> { id, name, kind: 'good' | 'component' | 'gear' | 'mod', stage, price, tier?, slot? } | null
 //   Recipes.value(counts) -> credits   what a set of things is worth at base prices
 //   Recipes.gearRecipe(gear id) -> recipe   the assembler's recipe for a piece of gear
 // Kinds are rules/goods.js type ids (trade goods and components) and, made by the assembler,
-// rules/loadout.js equipment ids. ES module (`Recipes`); also runs in Node (the tests).
+// rules/loadout.js equipment ids and rules/mods.js mod ids (each mod's kind researched first). ES module (`Recipes`); also runs in Node (the tests).
 
 import { Goods } from './goods.js';
 import { Loadout } from './loadout.js';
+import { Mods } from './mods.js';
 
 const Recipes = (() => {
   const BAYS = {
@@ -144,6 +145,29 @@ const Recipes = (() => {
       RECIPES[`make.${gear}`] = { id: `make.${gear}`, bay: 'assembler', in: input, out: { [gear]: 1 }, time: GEAR_TIME[tier], unlock: tier > 1 ? `bp.${gear}` : null };
     });
   }
+  // Mods, at the assembler, once their kind is researched (rules/research.js `mods.<slot>`). A mod is
+  // worth a little more than what goes into it.
+  const MOD_PARTS = {
+    'mod.extended-barrel': { 'focusing-lens': 1, 'steel-pipe': 2 },
+    'mod.overcharger': { capacitor: 1, 'copper-cable': 2 },
+    'mod.rapid-cycler': { actuator: 1, capacitor: 1 },
+    'mod.gimbal-mount': { actuator: 2, 'hull-plating': 1 },
+    'mod.hardened-emitter': { 'hull-plating': 2, capacitor: 1 },
+    'mod.fast-cycler': { 'power-cell': 2, superconductor: 1 },
+    'mod.targeting-suite': { 'sensor-array': 1, electronics: 2 },
+    'mod.ore-analyser': { 'sensor-array': 1, aerogel: 1 },
+    'mod.lock-accelerator': { electronics: 2, 'optical-fibre': 2 },
+    'mod.afterburner': { 'thruster-nozzle': 1, hydrazine: 3 },
+    'mod.vector-thrusters': { 'thruster-nozzle': 1, actuator: 1 },
+    'mod.evasion-routine': { electronics: 1, actuator: 1, 'thruster-nozzle': 1 },
+    'mod.long-array': { 'sensor-array': 1, 'optical-fibre': 2 },
+    'mod.lock-array': { 'sensor-array': 1, electronics: 1 },
+  };
+  const MOD_PRICE = {};
+  for (const m of Mods.LIST) {
+    RECIPES[`make.${m.id}`] = { id: `make.${m.id}`, bay: 'assembler', in: MOD_PARTS[m.id], out: { [m.id]: 1 }, time: 600, unlock: `mods.${m.slot}` };
+    MOD_PRICE[m.id] = Math.round(Object.entries(MOD_PARTS[m.id]).reduce((sum, [kind, count]) => sum + Goods.type(kind).price * count, 0) * 1.3 / 10) * 10;
+  }
   // Alternative recipes, unlocked by industry research (rules/research.js `ind.alt.*`).
   RECIPES['alt.power-cell'] = { id: 'alt.power-cell', bay: 'fabricator', in: { 'water-ice': 2, 'copper-cable': 1, titanium: 1 }, out: { 'power-cell': 1 }, time: 40, unlock: 'ind.alt.power-cell' };
   RECIPES['alt.graphene'] = { id: 'alt.graphene', bay: 'refinery', in: { carbon: 4, 'water-ice': 1 }, out: { graphene: 1 }, time: 60, unlock: 'ind.alt.graphene' };
@@ -157,7 +181,9 @@ const Recipes = (() => {
     const t = Goods.type(kind);
     if (t) return { id: kind, name: t.name, kind: Goods.isSalvage(kind) ? 'component' : 'good', stage: t.stage, price: t.price, tier: t.tier };
     const e = Loadout.EQUIPMENT[kind];
-    return e && !e.npc ? { id: kind, name: e.name, kind: 'gear', stage: 'item', price: e.price, tier: e.tier, slot: e.slot } : null;
+    if (e) return e.npc ? null : { id: kind, name: e.name, kind: 'gear', stage: 'item', price: e.price, tier: e.tier, slot: e.slot };
+    const m = Mods.MODS[kind];
+    return m ? { id: kind, name: m.name, kind: 'mod', stage: 'item', price: MOD_PRICE[kind], slot: m.slot } : null;
   }
   const value = (counts) => Object.entries(counts).reduce((n, [kind, k]) => n + (item(kind)?.price || 0) * k, 0);
   const gearRecipe = (gear) => RECIPES[`make.${gear}`] || null;

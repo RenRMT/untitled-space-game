@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Loadout } from '../rules/loadout.js';
+import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { Research } from '../rules/research.js';
 import { SolarSystem } from '../world/solar-system.js';
@@ -12,7 +13,8 @@ import { snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
 import { world } from './world.js';
 
-// Equipment: what's fitted, spare gear (assembled, or taken out) to fit, selling spare gear for half
+// Equipment: what's fitted, spare gear (assembled, or taken out) to fit, mods fitted to a slot (as
+// many as its gear has room for; the rest go back to the spare mods), selling spare gear for half
 // its price, and the shipyard's hulls (the current one traded in for half its price; the gear moves
 // across, what doesn't fit goes to the spare gear). Gear isn't sold: industry assembles it.
 export const SELL_BACK = 0.5;
@@ -20,6 +22,7 @@ export const outfitting = {
   get loadout() { return cargo.loadout; },
   get upgrades() { return Research.upgrades(cargo.lab.done); },
   get gear() { return cargo.gear; },
+  get mods() { return cargo.mods; },
   // Whether industry can make a piece of gear: Mk I always, the rest once its blueprint is researched.
   canMake: (id) => Recipes.known(cargo.lab.done).has(`make.${id}`),
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
@@ -43,6 +46,24 @@ export const outfitting = {
     cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: null } };
     return changedShip();
   },
+  // A spare mod into a slot with room for it; one out of a slot, back to the spare mods.
+  fitMod(slot, id) {
+    const type = Loadout.EQUIPMENT[cargo.loadout.fitted[slot]]?.slot, list = cargo.loadout.mods?.[slot] || [];
+    if (!cargo.mods[id] || !Mods.fits(id, type) || list.length >= Loadout.modRoom(cargo.loadout, slot)) return false;
+    addTo(cargo.mods, id, -1);
+    cargo.loadout = { ...cargo.loadout, mods: { ...cargo.loadout.mods, [slot]: [...list, id] } };
+    return changedShip();
+  },
+  removeMod(slot, i) {
+    const list = cargo.loadout.mods?.[slot] || [];
+    if (!list[i]) return false;
+    addTo(cargo.mods, list[i]);
+    const rest = list.filter((m, k) => k !== i);
+    const mods = { ...cargo.loadout.mods, [slot]: rest };
+    if (!rest.length) delete mods[slot];
+    cargo.loadout = { ...cargo.loadout, mods };
+    return changedShip();
+  },
   sell(id) {
     if (!cargo.gear[id]) return false;
     addTo(cargo.gear, id, -1);
@@ -60,8 +81,9 @@ export const outfitting = {
   buyHull(id) {
     if (!Loadout.HULLS[id]?.price || outfitting.hullBlocked(id)) return false;
     cargo.credits -= outfitting.hullPrice(id);
-    const { loadout: next, left } = Loadout.refit(cargo.loadout, id, outfitting.upgrades);
+    const { loadout: next, left, leftMods } = Loadout.refit(cargo.loadout, id, outfitting.upgrades);
     for (const item of left) addTo(cargo.gear, item);
+    for (const m of leftMods) addTo(cargo.mods, m);
     cargo.loadout = next;
     applyShip();
     cargo.hull = SHIP.hull; // a new ship, undamaged
@@ -69,7 +91,12 @@ export const outfitting = {
     return true;
   },
 };
+// The loadout changed: mods without room in their slot go back to the spare mods, and the ship's
+// stats follow.
 export function changedShip() {
+  const { loadout, left } = Loadout.trimMods(cargo.loadout);
+  cargo.loadout = loadout;
+  for (const m of left) addTo(cargo.mods, m);
   applyShip();
   saveCargo();
   return true;

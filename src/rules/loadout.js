@@ -15,11 +15,14 @@
 // Research (rules/research.js upgrades: hull refits, refinements) comes in as `upgrades`:
 // { cargo, hull } as fractions added, { weapons } as extra weapon slots, and { lines: { [line]:
 // { [stat]: fraction } } } added to the stats of that line's gear (tuned), within LIMITS.
-// A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null } }.
+// Mods (rules/mods.js) are fitted to a slot, as many as its gear has room for (the rest wait, unused).
+// A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null },
+// mods?: { [slot id]: [mod id] } }.
 // ES module (`Loadout`); also runs in Node (the tests).
 
 import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
+import { Mods } from './mods.js';
 
 const Loadout = (() => {
   const MAX_WEAPONS = 4;
@@ -78,6 +81,12 @@ const Loadout = (() => {
   // How far bonuses may take a stat: [lowest, highest].
   const LIMITS = { accuracy: [0, 0.99], evasion: [0, 0.6], lockTime: [0.2, Infinity], fireRate: [0.5, Infinity], arc: [0, 360] };
 
+  // What research (its line) and mods (as many as it has room for) add to a piece of gear's stats.
+  function bonusFor(item, upgrades = {}, mods = []) {
+    const out = { ...(upgrades.lines?.[item.line] || {}) };
+    for (const [k, f] of Object.entries(Mods.effects(mods, Mods.SLOTS[item.tier]))) out[k] = (out[k] || 0) + f;
+    return out;
+  }
   // A piece of gear's stats with fractions added ({ damage: 0.08 } is 8% more damage), kept in LIMITS.
   function tuned(base, bonus = {}) {
     const out = { ...base };
@@ -163,13 +172,33 @@ const Loadout = (() => {
     });
   }
 
-  // The same gear moved to another hull: each slot keeps its item where the new hull has that slot;
-  // what doesn't fit (weapons past its hardpoints) comes back in `left` (equipment ids).
+  // The same gear moved to another hull: each slot keeps its item (and mods) where the new hull has
+  // that slot; what doesn't fit (weapons past its hardpoints) comes back in `left` (equipment ids)
+  // and `leftMods` (mod ids).
   function refit(loadout, hullId, upgrades = {}) {
-    const fitted = {}, left = [];
-    for (const s of slotsOf(hullId, upgrades)) fitted[s.id] = loadout.fitted[s.id] ?? null;
+    const fitted = {}, mods = {}, left = [], leftMods = [];
+    for (const s of slotsOf(hullId, upgrades)) {
+      fitted[s.id] = loadout.fitted[s.id] ?? null;
+      if (loadout.mods?.[s.id]?.length) mods[s.id] = [...loadout.mods[s.id]];
+    }
     for (const [id, item] of Object.entries(loadout.fitted)) if (item && !(id in fitted)) left.push(item);
-    return { loadout: { hull: hullId, fitted }, left };
+    for (const [id, list] of Object.entries(loadout.mods || {})) if (!(id in fitted)) leftMods.push(...list);
+    return { loadout: { hull: hullId, fitted, mods }, left, leftMods };
+  }
+
+  // Room for mods in a slot, by what's fitted there (none when empty).
+  const modRoom = (loadout, slotId) => Mods.SLOTS[EQUIPMENT[loadout.fitted[slotId]]?.tier || 0];
+  // The loadout with each slot's mods cut to the room its gear has, and what was cut (mod ids).
+  function trimMods(loadout) {
+    const mods = {}, left = [];
+    for (const [id, list] of Object.entries(loadout.mods || {})) {
+      const room = modRoom(loadout, id), type = EQUIPMENT[loadout.fitted[id]]?.slot;
+      const keep = list.filter((m) => Mods.fits(m, type)).slice(0, room), rest = [...list];
+      for (const m of keep) rest.splice(rest.indexOf(m), 1);
+      left.push(...rest);
+      if (keep.length) mods[id] = keep;
+    }
+    return { loadout: { ...loadout, mods }, left };
   }
 
   // What the ship can do with this loadout. Empty slots contribute nothing.
@@ -185,9 +214,9 @@ const Loadout = (() => {
       shield: 0, shieldRecharge: 0, firepower: 0, weaponSlots: weaponSlots(loadout.hull, upgrades), weaponsFitted: 0,
       accuracy: 0, evasion: 0, initiative: 0, weapons: [], ...NO_LOCK,
     };
-    for (const { type, item } of slots(loadout, upgrades)) {
+    for (const { id, type, item } of slots(loadout, upgrades)) {
       if (!item) continue;
-      const s = tuned(item.stats, upgrades.lines?.[item.line]);
+      const s = tuned(item.stats, bonusFor(item, upgrades, loadout.mods?.[id]));
       if (type === 'engine') Object.assign(out, { maxSpeed: s.maxSpeed, accel: s.accel * handling, turnRate: s.turnRate * handling, evasion: s.evasion || 0 });
       else if (type === 'scanner') Object.assign(out, { sensorRange: s.sensorRange, pingRange: s.pingRange, initiative: s.sensorRange + s.pingRange, lockRange: s.lockRange });
       else if (type === 'computer') Object.assign(out, { miningRate: s.miningRate, accuracy: s.accuracy || 0, lockTime: s.lockTime });
@@ -217,7 +246,7 @@ const Loadout = (() => {
     }
   }
 
-  return { MAX_WEAPONS, MK, SLOT_TYPES, LINES, EQUIPMENT, STARTER_GEAR, HULLS, FOR_SALE, LIMITS, slotsOf, starter, npc, slots, refit, tuned, stats, summary };
+  return { MAX_WEAPONS, MK, SLOT_TYPES, LINES, EQUIPMENT, STARTER_GEAR, HULLS, FOR_SALE, LIMITS, slotsOf, starter, npc, slots, refit, modRoom, trimMods, bonusFor, tuned, stats, summary };
 })();
 
 export { Loadout };

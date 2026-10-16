@@ -28,7 +28,7 @@ const ResearchView = {
     const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
     const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
     for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = SLOT_CODE[L.slot];
-    Object.assign(CAT_CODE, { 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
+    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
     const STATE = {
       done: { tag: 'Done', tone: 'var(--good)' },
       active: { tag: 'Building', tone: 'var(--cyan)' },

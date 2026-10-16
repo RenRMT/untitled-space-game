@@ -33,6 +33,7 @@ const IndustryView = {
     // A thing's icon: a good's art, or for gear its slot's code.
     const iconOf = (kind, size) => {
       const it = Recipes.item(kind);
+      if (it.kind === 'mod') return Kit.icon('MOD', size, { code: 'MOD' });
       return it.kind === 'gear' ? Kit.icon(SLOT_CODE[it.slot], size, { code: SLOT_CODE[it.slot], tier: it.tier }) : env.itemIcon(kind, size);
     };
     const list = (counts) => Object.entries(counts).map(([k, n]) => (n > 1 ? `${n} ${name(k)}` : name(k))).join(' + ');
@@ -80,7 +81,7 @@ const IndustryView = {
       const t = Recipes.item(kind);
       return Kit.optionRow({
         icon: h('span', { class: 'st-item' }, iconOf(kind, 40), h('span', { class: 'n num' }, `×${n}`)),
-        name: t.name, tag: t.kind === 'gear' ? 'gear' : t.stage, tagTone: null, action,
+        name: t.name, tag: t.kind === 'gear' || t.kind === 'mod' ? t.kind : t.stage, tagTone: null, action,
       });
     }
     function warehouse(s) {
@@ -91,7 +92,7 @@ const IndustryView = {
       return env.section('Warehouse',
         Kit.head('Warehouse', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
         kinds.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, s.storage[k],
-          Kit.button('Take', env.act(() => ind().withdraw(k), () => Kit.toast(`${name(k)} to your ${{ component: 'components', gear: 'spare gear' }[Recipes.item(k).kind] || 'hold'}`)), {
+          Kit.button('Take', env.act(() => ind().withdraw(k), () => Kit.toast(`${name(k)} to your ${{ component: 'components', gear: 'spare gear', mod: 'spare mods' }[Recipes.item(k).kind] || 'hold'}`)), {
             kind: 'ghost', disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of the warehouse`,
           }))))
           : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),

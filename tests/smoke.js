@@ -673,9 +673,22 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'fitted, and the sheet closed');
   assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
+  // A mod in the Mk II's slot: a spare one fitted from the slot's sheet, changing the ship.
+  game(`cargo.mods['mod.extended-barrel'] = 1`);
+  game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
+  assert.match(onStation(), /Mods · 0\/1.*Extended barrel.*Spare ×1/, 'the slot\'s mods');
+  const range = game('SHIP.weapons[1].range');
+  pressOnStation('Fit');
+  assert.ok(game(`cargo.loadout.mods['weapon-2'][0] === 'mod.extended-barrel' && !cargo.mods['mod.extended-barrel']`));
+  assert.ok(game('SHIP.weapons[1].range') > range, 'reaches further');
+  assert.match(onStation(), /Mods · 1\/1.*Extended barrel.*Remove/);
+  game('StationMenu.closeSheet()');
   // Swapped in: the old laser is spare gear, sold for half.
   game(`cargo.gear['pulse-laser-2'] = 1`);
   assert.ok(game(`outfitting.fit('weapon-1', 'pulse-laser-2')`));
+  // Gear out of a slot: its mods go back to the spare mods.
+  assert.ok(game(`outfitting.unfit('weapon-2') && cargo.mods['mod.extended-barrel'] === 1 && !cargo.loadout.mods['weapon-2']`), 'mods back');
+  assert.ok(game(`outfitting.fit('weapon-2', 'pulse-laser-2') && outfitting.fitMod('weapon-2', 'mod.extended-barrel')`));
   assert.strictEqual(game(`cargo.gear['pulse-laser-1']`), 1, 'the old laser is spare gear');
   const credits = game('cargo.credits');
   assert.ok(game(`outfitting.sell('pulse-laser-1')`));
@@ -712,9 +725,9 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.deepStrictEqual(game(`[SHIP.weaponsFitted, cargo.gear['pulse-laser-2']]`), [1, 1]);
   game(`StationMenu.showTab('ship')`);
   // All of it survives a save and reload.
-  const before = game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo])');
+  const before = game('JSON.stringify([cargo.loadout, cargo.gear, cargo.mods, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo, SHIP.weapons])');
   game('saveCargoNow(); loadCargo(world.galaxy)');
-  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo])'), before);
+  assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.mods, cargo.lab, cargo.industry, cargo.components, SHIP.hull, SHIP.cargo, SHIP.weapons])'), before);
   // Back to a Courier for the rest of the run.
   game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); Clock.now = () => Date.now(); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));

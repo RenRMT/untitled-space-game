@@ -9,6 +9,7 @@ import { Clock } from '../core/clock.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
+import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
@@ -69,12 +70,14 @@ export const industry = {
       return k > 0;
     });
   },
-  // From the warehouse here into the hold (as far as it has room), the components store or the spare gear.
+  // From the warehouse here into the hold (as far as it has room), or the components, spare gear or
+  // spare mods, which take no room.
   withdraw(kind, n = Infinity) {
     return industry.change((s) => {
-      const apart = Goods.isSalvage(kind) || !!Loadout.EQUIPMENT[kind]; // these take no room in the hold
+      const apart = Goods.isSalvage(kind) || !!Loadout.EQUIPMENT[kind] || !!Mods.MODS[kind];
       const k = Industry.withdraw(s, kind, apart ? n : Math.min(n, hold.free));
       if (Loadout.EQUIPMENT[kind]) addTo(cargo.gear, kind, k);
+      else if (Mods.MODS[kind]) addTo(cargo.mods, kind, k);
       else if (apart) addTo(cargo.components, kind, k);
       else for (let i = 0; i < k; i++) cargo.items.push({ kind, label: Goods.type(kind).name, category: 'trade' });
       return k > 0;

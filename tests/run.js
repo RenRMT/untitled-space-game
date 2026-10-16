@@ -29,6 +29,7 @@ import { HullMods } from '../src/rules/hullmods.js';
 import { Research } from '../src/rules/research.js';
 import { Recipes } from '../src/rules/recipes.js';
 import { Industry } from '../src/rules/industry.js';
+import { Mods } from '../src/rules/mods.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -824,6 +825,29 @@ test('recipes: real goods in and out, made from earlier stages, and no loops', (
   }
   for (const t of Object.values(Goods.TYPES)) assert(have.has(t.id), `${t.id} can't be had`);
   for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(have.has(id), `${id} can't be made`);
+  for (const m of Mods.LIST) assert(have.has(m.id), `${m.id} can't be made`);
+});
+
+test('mods: a trade each, made at an assembler once researched, fitted as far as the gear has room', () => {
+  for (const m of Mods.LIST) {
+    const fx = Object.entries(m.effects).map(([k, f]) => (Mods.LOWER.has(k) ? -f : f));
+    assert(fx.some((f) => f > 0) && fx.some((f) => f < 0), `${m.id} is a trade, not just better`);
+    const stats = Object.values(Loadout.EQUIPMENT).find((e) => e.slot === m.slot && !e.npc).stats;
+    for (const k of Object.keys(m.effects)) assert(k in stats, `${m.id}: ${k} isn't a ${m.slot} stat`);
+    const R = Recipes.RECIPES[`make.${m.id}`];
+    assert(R && R.bay === 'assembler' && R.unlock === `mods.${m.slot}` && Research.PACKAGES[R.unlock].mods.includes(m.id), m.id);
+  }
+  const lo = { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-4' }, mods: { 'weapon-1': ['mod.overcharger'], 'weapon-2': ['mod.overcharger', 'mod.overcharger', 'mod.overcharger'] } };
+  const w = Loadout.stats(lo).weapons;
+  assert.strictEqual(w[0].damage, Loadout.EQUIPMENT['pulse-laser-1'].stats.damage, 'Mk I: no room, no effect');
+  assert(Math.abs(w[1].damage - Loadout.EQUIPMENT['pulse-laser-4'].stats.damage * 1.3) < 1e-9, 'Mk IV: two of them count');
+  // Cut to the room the gear has; a mod that doesn't fit the gear comes out too.
+  const t = Loadout.trimMods({ ...lo, mods: { ...lo.mods, shield: ['mod.overcharger'] }, fitted: { ...lo.fitted, shield: 'deflector-3' } });
+  assert.deepStrictEqual(t.loadout.mods, { 'weapon-2': ['mod.overcharger', 'mod.overcharger'] });
+  assert.deepStrictEqual(t.left, ['mod.overcharger', 'mod.overcharger', 'mod.overcharger']);
+  // Moving to a hull with fewer hardpoints hands back that slot's mods.
+  const r = Loadout.refit({ hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-2', 'weapon-2': 'pulse-laser-2' }, mods: { 'weapon-2': ['mod.gimbal-mount'] } }, 'hauler');
+  assert.deepStrictEqual([r.left, r.leftMods], [['pulse-laser-2'], ['mod.gimbal-mount']]);
 });
 
 test('gear is assembled: one recipe per piece, Mk I known, the rest by blueprint, the best from exotic salvage', () => {

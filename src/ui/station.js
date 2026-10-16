@@ -10,9 +10,10 @@
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
-// outfitting: { loadout, upgrades, gear, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
-//               fit(slot, id), unfit(slot), sell(id), buyHull(id) }: the ship's equipment, spare
-//               gear, whether industry can make a piece, and the shipyard (game/outfitting.js).
+// outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
+//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id) }:
+//               the ship's equipment and mods, spare gear and mods, whether industry can make a
+//               piece, and the shipyard (game/outfitting.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
 // industry: game/industry.js: bays leased at stations, their jobs and warehouses (rules/industry.js).
@@ -38,6 +39,7 @@ import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Mining } from '../rules/mining.js';
+import { Mods } from '../rules/mods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
@@ -242,6 +244,34 @@ const StationMenu = (() => {
     }));
   }
 
+  // A slot's mods: fitted ones (Remove), then spare ones that fit this kind of gear (Fit), each with
+  // what it changes on the gear fitted, as far as there's room (rules/mods.js).
+  function modSection(s) {
+    const { outfitting: o } = ctx, cur = s.item;
+    if (!cur) return null;
+    const room = Mods.SLOTS[cur.tier], list = o.loadout.mods?.[s.id] || [];
+    const asItem = (mods) => ({ stats: Loadout.tuned(cur.stats, Loadout.bonusFor(cur, o.upgrades, mods)) });
+    const now = asItem(list);
+    const fitted = list.map((m, i) => Kit.optionRow({
+      code: 'MOD', name: Mods.MODS[m].name, sub: Mods.MODS[m].note, current: true,
+      rows: Kit.compare(asItem(list.filter((x, k) => k !== i)), now, METRICS[s.type]).filter((r) => r.diff),
+      action: Kit.button('Remove', act(() => o.removeMod(s.id, i), () => Kit.toast(`${Mods.MODS[m].name} back with the spare mods`)), { kind: 'ghost', aria: `Remove ${Mods.MODS[m].name}` }),
+    }));
+    const spare = Object.keys(o.mods).filter((m) => Mods.fits(m, s.type)).map((m) => Kit.optionRow({
+      code: 'MOD', name: Mods.MODS[m].name, tag: `Spare ×${o.mods[m]}`, tagTone: 'good', sub: Mods.MODS[m].note,
+      rows: Kit.compare(asItem([]), asItem([m]), METRICS[s.type]).filter((r) => r.diff), // what it does on its own
+      action: Kit.button('Fit', act(() => o.fitMod(s.id, m), () => Kit.toast(`${Mods.MODS[m].name} fitted`)), {
+        kind: 'primary', disabled: list.length >= room, title: list.length >= room ? 'No room for another mod' : undefined, aria: `Fit ${Mods.MODS[m].name}`,
+      }),
+    }));
+    return [
+      h('span', { class: 'ui-label' }, `Mods · ${list.length}/${room}`),
+      room ? null : h('p', { class: 'ui-note' }, 'Mk I gear has no room for mods: Mk II and III have one, Mk IV and V two.'),
+      fitted, spare,
+      room && !fitted.length && !spare.length ? h('p', { class: 'ui-note' }, 'No spare mods for this gear: assemble them at an assembler once researched.') : null,
+    ];
+  }
+
   // Where a piece of gear is, if it's waiting in a warehouse (game/industry.js), for the slot sheet.
   const inStore = (id) => (ctx.industry ? ctx.industry.sites.filter((x) => x.storage[id]).map((x) => x.name) : []);
 
@@ -294,6 +324,7 @@ const StationMenu = (() => {
           code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true,
           action: Kit.button('Remove', act(() => o.unfit(s.id), () => Kit.toast(`${cur.name} moved to spare gear`)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
+        modSection(s),
         h('span', { class: 'ui-label' }, 'Options'),
         options.length ? options : h('p', { class: 'ui-note' }, 'Better gear for this slot is assembled at an assembler, by blueprint.'),
       ],

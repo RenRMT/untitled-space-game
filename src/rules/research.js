@@ -11,7 +11,8 @@
 // line), hull refits (rules/hullmods.js) for every hull you fly, and industry (faster bays, more
 // of them, more room, alternative recipes, a longer lab queue).
 // Each package is of a kind: 'logic' (a code library, `name@ver`), 'blueprint' (`bp.<gear id>`),
-// 'refine' (`ref.<line>.<step>`), 'hull' or 'industry' (`ind.*`). A schematic recovered from pirates grants its blueprint outright (grant).
+// 'refine' (`ref.<line>.<step>`), 'mods' (`mods.<slot type>`: the mods for that kind of gear,
+// rules/mods.js), 'hull' or 'industry' (`ind.*`). A schematic recovered from pirates grants its blueprint outright (grant).
 //
 //   Research.GROUPS                   [{ id, label }]: the Research tab's groups, in order
 //   Research.CATEGORIES               [{ id, group, label, note }] in display order
@@ -53,6 +54,7 @@ import { Goods } from './goods.js';
 import { HullMods } from './hullmods.js';
 import { Loadout } from './loadout.js';
 import { Logic } from './logic.js';
+import { Mods } from './mods.js';
 
 const Research = (() => {
   const QUEUE_MAX = 3;
@@ -75,6 +77,8 @@ const Research = (() => {
     { id: 'tactics', group: 'logic', label: 'Tactics', note: 'reading the fight' },
     { id: 'maint', group: 'logic', label: 'Maintenance', note: 'keeping self and the squad flying' },
     ...GEAR_LINES.map(([line, spec]) => ({ id: `bp.${line}`, group: spec.slot === 'weapon' ? 'weapons' : 'systems', label: spec.name, note: `blueprints for ${spec.name.toLowerCase()} gear` })),
+    { id: 'mods.weapons', group: 'weapons', label: 'Mods', note: 'mods for weapons' },
+    { id: 'mods.systems', group: 'systems', label: 'Mods', note: 'mods for shields, computers, engines and scanners' },
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
     { id: 'ind.speed', group: 'industry', label: 'Bay speed', note: 'every bay works faster' },
     { id: 'ind.room', group: 'industry', label: 'Bays and room', note: 'more bays per station, more room in each warehouse' },
@@ -207,6 +211,16 @@ const Research = (() => {
       };
     }
   }
+  // Mods, a package per kind of gear: what each kind's mods are made with is up to the assembler.
+  const MOD_SHORT = { weapon: 'Weapon', shield: 'Shield', computer: 'Computer', engine: 'Engine', scanner: 'Scanner' };
+  for (const slot of Object.keys(MOD_SHORT)) {
+    const id = `mods.${slot}`, list = Mods.LIST.filter((m) => m.slot === slot);
+    PACKAGES[id] = {
+      id, kind: 'mods', name: `${MOD_SHORT[slot]} mods`, short: MOD_SHORT[slot], cat: slot === 'weapon' ? 'mods.weapons' : 'mods.systems', requires: [], time: H,
+      cost: { credits: 1200, [c(BP_SALVAGE[slot], 2)]: 2, [BP_PART[slot]]: 1 }, mods: list.map((m) => m.id),
+      note: `${list.map((m) => m.name).join(', ')}: mods for ${slot === 'weapon' ? 'weapons' : `${slot}s`}, fitted to gear from Mk II up`,
+    };
+  }
   // Industry: [id, name, short (on its node), cat, requires, time, credits, { cost }, { bonus }, note].
   const INDUSTRY = [
     ['ind.speed.1', 'Bay speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer', 2)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
@@ -235,6 +249,7 @@ const Research = (() => {
       ...(p.lines ? [{ kind: 'lines', id: 'lines', label: `+${p.lines} line${p.lines === 1 ? '' : 's'}` }] : []),
       ...(p.upgrade || p.refine || p.industry ? [{ kind: 'upgrade', id: 'upgrade', label: p.note }] : []),
       ...(p.gear ? [{ kind: 'recipe', id: `make.${p.gear}`, label: `the ${p.name} recipe` }] : []),
+      ...(p.mods || []).map((m) => ({ kind: 'mod', id: m, label: Mods.MODS[m].name })),
     ];
   };
   const known = (done) => new Set(done);

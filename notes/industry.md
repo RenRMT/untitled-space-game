@@ -97,5 +97,7 @@ work settled after a long time offline speeds up exactly when the bonus finished
 4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints
    (migration 9: gear owned and schematics recovered become blueprints done). *(done)*
 5. Refinements and industry research. *(done)*
-6. Mods.
+6. Mods (`rules/mods.js`): fourteen fixed trades across the five kinds of gear, researched per kind
+   (`mods.<slot>`), assembled from parts, fitted from a slot's sheet on the Ship tab (room by Mk: I
+   none, II–III one, IV–V two), kept with the slot when its gear is swapped (migration 10). *(done)*
 7. Later: consumables through `use()`, squad refit kits, logistics between warehouses.
