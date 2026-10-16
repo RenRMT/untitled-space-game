@@ -677,12 +677,17 @@ test('buys, fits and sells gear from the outfitter, researches a hull refit, and
   game('cargo.hull = SHIP.hull - 30; cargo.credits = 3000');
   const maxHull = game('SHIP.hull');
   game(`StationMenu.showTab('research')`);
-  assert.match(onStation(), /Hull refits.*Armour plating/, 'refits are researched');
-  assert.ok(game(`lab.enqueue('hull.armour-1')`));
+  pressOnStation(/^Hull \d+\/\d+$/);
+  assert.match(onStation(), /Hull refits.*Cargo.*Armour.*Hardpoint/, 'refits are researched, in their own group');
+  game(`StationMenu.showNode('hull.armour-1')`);
+  assert.match(onStation(), /Armour plating Mk I.*Your ship.*Hull120→138/, 'its sheet says what it does to the ship');
+  pressOnStation('Build');
+  game('StationMenu.closeSheet()');
   assert.ok(game(`cargo.credits === 0 && !cargo.components['hull-simple']`), 'paid for');
   assert.strictEqual(game('SHIP.hull'), maxHull, 'not until it is built');
   game(`__T += Research.timeOf('hull.armour-1'); StationMenu.tick()`);
   assert.ok(game(`cargo.lab.done.includes('hull.armour-1')`));
+  assert.match(onStation(), /\+15%Hull/, 'research adds it, as a stat chip');
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -713,15 +718,17 @@ test('researches a logic package: paid up front, built on the real clock, and th
     { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
   assert.ok(game('!!docked'));
   game(`StationMenu.showTab('research')`);
-  assert.match(onStation(), /import core\.bool/);
-  assert.match(onStation(), /idle: queue a package below/);
+  pressOnStation(/^Logic \d+\/\d+$/); // the group last looked at stays open
+  assert.match(onStation(), /Lab.*idle: pick a package below.*Core.*bool.*ext/, 'the bench, the groups and the tree');
   // What core.bool costs, put aboard.
   game(`for (const c of lab.status('core.bool').cost) {
     if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
     else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
   } cargo.credits = 1000; StationMenu.refresh()`);
   const held = game('cargo.items.length');
-  pressOnStation(/^Build/);
+  game(`StationMenu.showNode('core.bool')`);
+  assert.match(onStation(), /core\.bool@1\.0.*Gives.*Cost/, 'the package\'s sheet');
+  pressOnStation('Build');
   assert.ok(game(`cargo.lab.active.id === 'core.bool' && cargo.credits === 700 && !cargo.components['computer-simple']`), 'paid up front');
   assert.strictEqual(game('cargo.items.length'), held - 1, 'the goods went too');
   assert.match(onStation(), /compiling core\.bool@1\.0/);
@@ -741,8 +748,9 @@ test('researches a logic package: paid up front, built on the real clock, and th
     else for (let i = 0; i < c.need; i++) cargo.items.push({ kind: c.kind, label: Goods.type(c.kind).name, category: 'trade' });
   }`);
   assert.ok(game(`lab.enqueue('maint.sense') && lab.enqueue('squad.link')`));
-  game(`StationMenu.refresh()`);
-  assert.match(onStation(), /queued squad\.link@1\.0/);
+  game(`StationMenu.showNode('squad.link')`);
+  assert.match(onStation(), /squad\.link@1\.0.*Cancel · all back/, 'queued: it can be cancelled from its sheet');
+  game('StationMenu.closeSheet()');
   game(`saveCargoNow(); __T += Research.timeOf('maint.sense') + 1000; loadCargo(world.galaxy)`);
   assert.ok(game(`cargo.lab.done.includes('maint.sense') && cargo.lab.active.id === 'squad.link'`), 'finished while away');
   // Cancelled while building: half back.

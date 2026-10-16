@@ -65,7 +65,7 @@ work settled after a long time offline speeds up exactly when the bonus finished
    is tuned by line. *(done)*
 1. Hull refits move into the Hull research group (save migration 7). *(done)*
 1b. The Research tab redrawn like the Ship tab: a lab bench, groups, a tech tree schematic, a sheet
-    per node, and lab bonuses.
+    per node, and what research adds (`ui/research-view.js`, `Research.layout`). *(done)*
 2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage.
 3. Facilities: leased bays, station warehouses, offline settlement in event order
    (`rules/industry.js`), and the Industry tab.

@@ -1062,6 +1062,25 @@ test('hull refits are researched: each costs credits and hull components, and bu
   assert.deepStrictEqual(Research.upgrades([]), { cargo: 0, hull: 0, weapons: 0, lines: {} });
 });
 
+test('research groups lay out as trees: one cell per package, requirements to the left, four columns at most', () => {
+  for (const g of Research.GROUPS) {
+    const L = Research.layout(g.id), shown = Research.LIST.filter((p) => Research.CATEGORIES.find((c) => c.id === p.cat).group === g.id);
+    assert.deepStrictEqual(L.nodes.map((n) => n.id).sort(), shown.map((p) => p.id).sort(), `${g.id}: every package once`);
+    assert(L.nodes.length, `${g.id} has packages`);
+    const cells = new Set(L.nodes.map((n) => `${n.row}:${n.col}`));
+    assert.strictEqual(cells.size, L.nodes.length, `${g.id}: no two in one cell`);
+    assert(L.cols <= Research.MAX_COLS, `${g.id}: ${L.cols} columns`);
+    const at = Object.fromEntries(L.nodes.map((n) => [n.id, n]));
+    for (const [a, b] of L.edges) assert(at[a].col < at[b].col, `${a} -> ${b} runs left to right`);
+    for (const n of L.nodes) assert(n.row >= 0 && n.row < L.rows && n.col >= 0 && n.col < L.cols);
+    assert.deepStrictEqual(L.lanes.map((l) => l.row), [...L.lanes.map((l) => l.row)].sort((x, y) => x - y));
+  }
+  // A chain stays on its row: the hull refits are a row each, the hardpoint off armour II.
+  const hull = Object.fromEntries(Research.layout('hull').nodes.map((n) => [n.id, n]));
+  assert.deepStrictEqual(['hull.cargo-racks-1', 'hull.cargo-racks-2', 'hull.cargo-racks-3'].map((id) => [hull[id].row, hull[id].col]), [[0, 0], [0, 1], [0, 2]]);
+  assert.deepStrictEqual([hull['hull.hardpoint-retrofit'].row, hull['hull.hardpoint-retrofit'].col], [2, 2]);
+});
+
 test('research records when each package finished, and bonuses count from then', () => {
   const lab = Research.empty(), T = 1e12;
   Research.enqueue(lab, 'hull.armour-1', T);

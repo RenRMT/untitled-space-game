@@ -247,7 +247,7 @@
   .st-gauge .mark.cheap { background: var(--good); }
   .st-gauge .mark.dear { background: var(--warn); }
 
-  /* Components in store (Research, refits): a row per kind and a column per tier; costs as icon chips. */
+  /* Components in store (Research): a row per kind and a column per tier; costs as icon chips. */
   .st-components { width: 100%; border-collapse: collapse; font-size: 14px; }
   .st-components th { font: 700 11px var(--sans); letter-spacing: 0.1em; color: var(--dim); text-align: center; padding: 4px 2px; }
   .st-components tbody th { text-align: left; font: 400 14px var(--sans); letter-spacing: 0; color: var(--hud); border-top: 1px solid var(--line-soft); }
@@ -255,16 +255,39 @@
   .st-costs { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
   .st-costs .cost { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--hud); }
   .st-costs .cost.short { color: var(--warn); }
-  /* Research: what's building, as a terminal line with a progress bar; packages named as imports. */
-  .st-build { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); font: 400 13px/1.4 var(--mono); }
-  .st-build .top, .st-build .queued { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
-  .st-build .top .num { color: var(--hud); font-size: 12px; white-space: nowrap; }
-  .st-build .queued { min-height: 36px; border-top: 1px dashed var(--line-soft); }
-  .st-build .queued .num { margin-left: auto; color: var(--dim); font-size: 12px; }
-  .st-build .cmd { min-width: 0; overflow-wrap: anywhere; }
-  .st-pkgs .ui-opt .name { font-family: var(--mono); font-size: 14px; }
-  .st-pkgs .ui-opt .sub { font-family: var(--mono); font-size: 12px; font-style: italic; color: var(--dim); }
   .st-costs .icon { margin: -2px 0; }
+  /* Research: the lab bench (what's building, then the queue as a pipeline of slots), and the
+     group's tree of packages (a schematic like the ship's, as tall as the tree). */
+  .st-bench { display: flex; align-items: stretch; gap: 12px; }
+  .st-bench-cur {
+    flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 6px; padding: 10px 12px;
+    background: var(--cyan-tint); border: 1px solid var(--cyan); border-radius: var(--r-lg); color: var(--hud);
+    font: 400 13px/1.35 var(--mono); text-align: left; cursor: pointer;
+  }
+  .st-bench-cur.idle { background: var(--s1); border: 1px dashed var(--line-strong); color: var(--dim); cursor: default; }
+  .st-bench-cur .cmd { overflow-wrap: anywhere; }
+  .st-bench-cur .num { font-size: 12px; color: var(--hud); }
+  .st-bench-cur:focus-visible, .st-bench-slot:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .st-bench-q { flex: none; display: flex; gap: 8px; position: relative; }
+  .st-bench-q::before { content: ''; position: absolute; left: -12px; right: 8px; top: 50%; border-top: 1px dashed var(--line-strong); z-index: 0; }
+  .st-bench-slot {
+    position: relative; z-index: 1; width: 52px; padding: 6px 2px; box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 2px;
+    background: var(--s1); border: 1px dashed var(--cyan); border-radius: var(--r-md); color: var(--hud); cursor: pointer;
+  }
+  .st-bench-slot.empty { border-color: var(--line); color: var(--dim); cursor: default; justify-content: center; }
+  .st-bench-slot .lbl { max-width: 100%; font: 500 10px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-bench-slot .num { font-size: 10px; color: var(--dim); }
+  .st-tree { margin-top: 4px; }
+  .st-tree-lines path { stroke: var(--line-strong); stroke-dasharray: 3 3; }
+  .st-tree-lines path.done { stroke: var(--cyan); stroke-opacity: 0.6; stroke-dasharray: none; }
+  .st-lane { position: absolute; font: 700 10px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .st-need { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+  .st-need .ui-link { font: 500 14px var(--mono); letter-spacing: 0; text-transform: none; padding: 0; }
+  .st-need .num { margin-left: auto; font-size: 12px; color: var(--dim); }
+  .st-gives { margin: 0; font: 500 14px/1.4 var(--mono); color: var(--hud); }
+  .st-pkg-note { font-family: var(--mono); font-size: 13px; font-style: italic; }
+  .st-left { font-size: 12px; color: var(--hud); }
 
   /* Squad: each member's hull and program; the line editor's fields and conditions. */
   .st-member { display: flex; align-items: center; gap: 10px; }

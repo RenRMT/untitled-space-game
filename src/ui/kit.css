@@ -120,6 +120,27 @@
 .ui-slot[aria-expanded="true"] { border-color: var(--cyan); border-style: solid; background: rgba(125, 249, 255, 0.1); }
 .ui-slot:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
+/* A research tree's node: a package, its state as border and a corner mark. */
+.ui-tnode {
+  position: absolute; padding: 7px 6px 6px; box-sizing: border-box;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 2px;
+  background: var(--s1); border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  color: var(--hud); text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.ui-tnode .top { display: flex; align-items: flex-start; justify-content: space-between; }
+.ui-tnode .mark { font: 600 11px var(--mono); color: var(--cyan); }
+.ui-tnode .lbl { font: 500 12px/1.2 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-tnode .ui-meter { flex: none; height: 4px; }
+.ui-tnode.done { border-color: color-mix(in srgb, var(--good) 55%, transparent); }
+.ui-tnode.done .mark { color: var(--good); }
+.ui-tnode.active { border-color: var(--cyan); background: var(--cyan-tint); }
+.ui-tnode.queued { border: 1px dashed var(--cyan); }
+.ui-tnode.locked { border-style: dashed; border-color: var(--line); background: rgba(11, 14, 23, 0.6); color: var(--dim); }
+.ui-tnode.locked .ui-icon { opacity: 0.5; }
+.ui-tnode:hover { border-color: var(--cyan); }
+.ui-tnode[aria-expanded="true"] { border-color: var(--cyan); border-style: solid; background: rgba(125, 249, 255, 0.1); }
+.ui-tnode:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
 /* Stat chips: a value and its label; tap one for what it means and where it comes from. */
 .ui-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .ui-chip {

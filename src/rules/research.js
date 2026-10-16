@@ -34,6 +34,9 @@
 //                                    needing it): refund 1 for a queued package, 0.5 for the one building
 //   Research.settle(lab, now) -> [ids]         what finished by now (in order), into done
 //   Research.progress(lab, now) -> 0..1        of the one building
+//   Research.layout(group) -> { cols, rows, nodes: [{ id, col, row }], edges: [[from, to]], lanes: [{ cat, row }] }
+//                the group's packages as a tree, for the Research tab: a column per step of requirements
+//                (at most MAX_COLS), a row per chain within a category; lanes: where each category starts
 // Times are milliseconds since the epoch (Date.now(), core/clock.js); a clock set back never
 // undoes progress or makes it negative. ES module (`Research`); also runs in Node (the tests).
 
@@ -238,7 +241,35 @@ const Research = (() => {
     return Math.max(0, Math.min(1, (now - a.start) / Math.max(1, a.end - a.start)));
   }
 
-  return { QUEUE_MAX, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, empty, status, enqueue, cancel, settle, progress };
+  // A group as a tree: a package's column is one past its furthest requirement in the group. Within
+  // a category, a package follows its requirement along the same row when the cell is free, and
+  // otherwise starts a row of its own.
+  const MAX_COLS = 4;
+  function layout(group) {
+    const list = LIST.filter((p) => CATEGORIES.find((k) => k.id === p.cat).group === group);
+    const ids = new Set(list.map((p) => p.id));
+    const col = {};
+    const colOf = (id) => (col[id] ??= Math.max(-1, ...PACKAGES[id].requires.filter((r) => ids.has(r)).map(colOf)) + 1);
+    const nodes = [], lanes = [], taken = new Set(), rowOf = {};
+    let rows = 0;
+    for (const cat of CATEGORIES.filter((k) => k.group === group)) {
+      const inCat = list.filter((p) => p.cat === cat.id);
+      if (!inCat.length) continue;
+      lanes.push({ cat: cat.id, row: rows });
+      for (const p of inCat) {
+        const at = colOf(p.id);
+        const after = p.requires.find((r) => ids.has(r) && PACKAGES[r].cat === cat.id && col[r] === at - 1 && !taken.has(`${rowOf[r]}:${at}`));
+        const row = after ? rowOf[after] : rows++;
+        rowOf[p.id] = row;
+        taken.add(`${row}:${at}`);
+        nodes.push({ id: p.id, col: at, row });
+      }
+    }
+    const edges = list.flatMap((p) => p.requires.filter((r) => ids.has(r)).map((r) => [r, p.id]));
+    return { cols: Math.max(0, ...nodes.map((n) => n.col + 1)), rows, nodes, edges, lanes };
+  }
+
+  return { QUEUE_MAX, MAX_COLS, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, empty, status, enqueue, cancel, settle, progress, layout };
 })();
 
 export { Research };
