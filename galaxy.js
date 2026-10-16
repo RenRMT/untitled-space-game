@@ -89,7 +89,7 @@ const Galaxy = (() => {
     });
 
     // Everything together, renumbered and rekeyed.
-    const all = { stars: [], planets: [], moons: [], belts: [], fields: [], nebulae: [], stations: [], wrecks: [], contacts: [], packs: [], asteroids: [], gates: [] };
+    const all = { stars: [], planets: [], moons: [], belts: [], fields: [], nebulae: [], stations: [], wrecks: [], contacts: [], packs: [], asteroids: [], gates: [], pockets: [] };
     for (const s of systems) {
       const pre = s.index === 0 ? '' : `${s.index}.`;
       const off = Object.fromEntries(Object.entries(all).map(([k, list]) => [k, list.length]));
@@ -102,6 +102,7 @@ const Galaxy = (() => {
       for (const k of s.packs) { k.id += off.packs; for (const sh of k.ships) sh.key = pre + sh.key; }
       for (const w of s.wrecks) { w.key = pre + w.key; if (w.contact) w.contact = pre + w.contact; }
       for (const a of s.asteroids) a.key = pre + a.key;
+      for (const q of s.pockets) { q.key = pre + q.key; q.nebula += off.nebulae; }
       for (const g of s.gates) { g.id += off.gates; g.key = pre + g.key; }
       for (const f of s.fields) if (f.camp !== undefined) f.camp += off.stations;
       for (const [k, list] of Object.entries({ ...s, stars: [s.star] })) {
