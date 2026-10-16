@@ -12,6 +12,17 @@ export const DEADZONE = 8;
 export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
 export let interacted = false;
 
+// While a finger is down, how much of the screen the panels cover stays as it was when the drag
+// began: a fight's panel or a message that pops up mid-drag doesn't reframe the camera or move the
+// edge markers under the finger. Once it lets go, things ease to where the panels now are.
+// steady(key, value) -> value, or what it was for this key when the drag began.
+const held = new Map();
+export function steady(key, value) {
+  if (!drag.active) return value;
+  if (!held.has(key)) held.set(key, value);
+  return held.get(key);
+}
+
 // Drag length (CSS px) that maps to full speed.
 export const maxDrag = () => Math.min(view.w, view.h) * 0.3;
 
@@ -22,6 +33,7 @@ export const maxDrag = () => Math.min(view.w, view.h) * 0.3;
 export function endDrag(e) {
   if (!drag.active || e.pointerId !== drag.id) return;
   drag.active = false;
+  held.clear();
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (intro.on) { // nothing to select yet: only flying
     if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
@@ -47,6 +59,7 @@ export function init() {
   canvas.addEventListener('pointerdown', (e) => {
     if (drag.active || (e.pointerType === 'mouse' && e.button !== 0)) return;
     canvas.setPointerCapture(e.pointerId);
+    held.clear();
     Object.assign(drag, {
       active: true, id: e.pointerId,
       x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0,

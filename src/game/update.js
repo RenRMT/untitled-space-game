@@ -7,8 +7,9 @@ import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
 import { tickFight } from './combat.js';
 import { gapTo } from './docking.js';
-import { updateRegionNotice } from './draw-world.js';
+import { updateRegion } from './draw-world.js';
 import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
+import { steady } from './input.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { moveMode } from './options.js';
@@ -59,7 +60,7 @@ export function update(dt) {
 
   fadeFlash(dt);
   toast.t = Math.max(0, toast.t - dt);
-  updateRegionNotice();
+  updateRegion();
   // Ship sensors look for contacts around it, a few times a second.
   senseTimer -= dt;
   if (senseTimer <= 0) {
@@ -68,7 +69,7 @@ export function update(dt) {
   }
 
   // Camera leads in the direction of travel. In a fight it frames the ship and its target in
-  // the space above the combat panel; in real time it leans only so far, keeping your own ship
+  // the space above the combat panel (as it was when a drag began, while one goes on: steady); in real time it leans only so far, keeping your own ship
   // well on screen when the target is far off.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
@@ -76,7 +77,7 @@ export function update(dt) {
   const focus = fight.s && fight.ships.get(fight.s.focus);
   if (focus) {
     const top = CombatPanel.top;
-    const covered = top === null ? 0 : Math.max(0, view.h - top);
+    const covered = steady('fight', top === null ? 0 : Math.max(0, view.h - top));
     let dx = (focus.x - ship.x) / 2, dy = (focus.y - ship.y) / 2;
     if (fightMode().flying) {
       const max = (Math.min(view.w, view.h - covered) * 0.3) / view.zoom, len = Math.hypot(dx, dy);
@@ -88,7 +89,7 @@ export function update(dt) {
   // The introduction frames the pod and the station together above the comms box, unless the pod
   // has flown off.
   if (intro.on && gapTo(intro.station) < 1500) {
-    const top = Comms.top, covered = top === null ? 0 : Math.max(0, view.h - top + 12);
+    const top = Comms.top, covered = steady('intro', top === null ? 0 : Math.max(0, view.h - top + 12));
     tx = (ship.x + intro.station.x) / 2;
     ty = (ship.y + intro.station.y) / 2 + covered / 2 / view.zoom;
   }
