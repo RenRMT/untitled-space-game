@@ -17,6 +17,7 @@ import { cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
+import { steady } from './input.js';
 import { burst, stopMining } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
@@ -505,7 +506,7 @@ export function drawFoeMarkers() {
     foes.push({ ref: e.id, x: p.x, y: p.y, color: HOSTILE_COLOR, ring: e.id === s.focus ? HOSTILE_COLOR : null, label });
   }
   const top = CombatPanel.top;
-  foeHits = edgeMarkers(foes, top === null ? 64 : Math.max(64, view.h - top + 18), 0.9);
+  foeHits = edgeMarkers(foes, steady('foes', top === null ? 64 : Math.max(64, view.h - top + 18)), 0.9);
 }
 
 // The enemy whose edge marker is under a tap, if any.

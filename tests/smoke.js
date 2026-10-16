@@ -757,10 +757,11 @@ test('sensors find a hidden derelict, and the radar shows it once found', () => 
 test('a nebula dampens the sensors and lowers security', () => {
   game(`fight.grace = 1e9; globalThis.__neb = world.galaxy.nebulae[0]; placeShip(__neb.x + __neb.r + 400, __neb.y, Math.PI);`);
   browser.frames(2);
-  // Into the nebula's core (moved there, not placed: placing forgets where the ship was).
+  // Into the nebula's core.
   game('ship.x = __neb.x + __neb.blobs[0].dx; ship.y = __neb.y + __neb.blobs[0].dy');
   browser.frames(2);
-  assert.match(game('toast.text'), /Entering the .* Nebula/);
+  assert.strictEqual(game('here.region.nebula === __neb'), true, 'the HUD shows the nebula');
+  assert.doesNotMatch(game('toast.text'), /Entering/, 'with no notice of its own');
   assert.ok(game('frameList.some((e) => e.kind === "nebula")'), 'the nebula is drawn');
   game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
@@ -776,7 +777,7 @@ test('no edge: the ship flies on out of the system into deep space', () => {
   browser.frames(90);
   assert.ok(game('Math.hypot(ship.x, ship.y) > world.galaxy.systems[0].radius + 300'), 'past where the edge was');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)'), null);
-  assert.match(game('toast.text'), /Leaving the .* system · deep space/);
+  assert.strictEqual(game('here.region.system'), null, 'the HUD says deep space');
   game('ship.targetSpeed = 0; ship.vx = ship.vy = 0; { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
 });
@@ -840,6 +841,16 @@ test('an off-screen station gets an edge marker, and a tap on it selects the sta
   canvas.dispatch('pointerup', { pointerId: 3, pointerType: 'touch', button: 0, clientX: m.x, clientY: m.y });
   assert.strictEqual(game('selected && selected.e'), game('__st0'), 'the tap selected the station');
   game('select(null)');
+});
+
+test('a panel that opens mid-drag moves nothing until the finger lifts', () => {
+  const canvas = browser.document.getElementById('game');
+  const at = { pointerId: 4, pointerType: 'touch', button: 0, clientX: 200, clientY: 300 };
+  canvas.dispatch('pointerdown', at);
+  assert.strictEqual(game('steady("test", 0)'), 0, 'the cover as the drag began');
+  assert.strictEqual(game('steady("test", 180)'), 0, 'held while the finger is down');
+  canvas.dispatch('pointerup', at);
+  assert.strictEqual(game('steady("test", 180)'), 180, 'and where the panel is once it lifts');
 });
 
 test('travels on the system map', () => {

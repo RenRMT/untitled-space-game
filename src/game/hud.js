@@ -7,7 +7,7 @@ import { ContextCard } from '../ui/context.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { visible } from './draw-world.js';
-import { DEADZONE, drag, interacted, maxDrag } from './input.js';
+import { DEADZONE, drag, interacted, maxDrag, steady } from './input.js';
 import { mission } from './missions.js';
 import { moveMode } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
@@ -37,7 +37,8 @@ export function drawLabels(list) {
 
 // Markers at the screen edge for things off screen, pointing their way: an arrow in the item's
 // colour, a ring round it when `ring` (a colour) is set, and its label set inward from the arrow
-// so it never covers it. items: [{ ref, x, y (world), color, ring, label }]. bottom: how far up
+// so it never covers it. items: [{ ref, x, y (world), color, ring, label, alpha }], alpha (optional)
+// fading that one further than the `alpha` they all share. bottom: how far up
 // from the bottom edge to stay (the speed bar, or the panel when one is open); the other margins
 // keep clear of the HUD text and the buttons. Returns where each was drawn, for markerAt().
 export function edgeMarkers(items, bottom, alpha) {
@@ -47,8 +48,8 @@ export function edgeMarkers(items, bottom, alpha) {
   ctx.save();
   ctx.font = Theme.font(11);
   ctx.textAlign = 'left';
-  ctx.globalAlpha = alpha;
   for (const m of items) {
+    ctx.globalAlpha = alpha * (m.alpha ?? 1);
     const [px, py] = worldToScreen(m.x, m.y);
     const dx = px - cx, dy = py - cy;
     // Where the line from the screen centre to it leaves the inset screen rectangle.
@@ -99,10 +100,19 @@ export function markerAt(hits, sx, sy) {
 // one selects its station.
 export let navHits = [];
 
+// How strongly an edge marker shows at distance d: in full close by, fading to `far` at `range`
+// and beyond, so near places stand out from far ones and a crowded edge stays readable.
+export const markerFade = (d, range, far) => {
+  const u = clamp(d / range, 0, 1);
+  return far + (1 - far) * (1 - u * u * (3 - 2 * u));
+};
+
 // The mission's objective gets one too, at any distance: the station's own marker ringed in amber
-// when it's a station, else an amber one of its own.
+// when it's a station, else an amber one of its own. It fades with distance too, but less, and
+// the selected station's never falls below MARKED.
 // Stations and gates are few, so they come from the scene's own lists rather than the frame's
 // (which reaches only NEAR).
+const MARKED = 0.6;
 export function drawNavMarkers() {
   if (!hudShown()) { navHits = []; return; }
   const stations = [];
@@ -112,18 +122,22 @@ export function drawNavMarkers() {
     const d = Math.hypot(st.x - ship.x, st.y - ship.y);
     if (d > NAV_RANGE) return;
     // The selected station's marker, or the objective's.
-    const ring = selected && selected.key === entityKey(st) ? SELECT_COLOR : obj && obj.station === st ? COLORS.amber : null;
-    stations.push({ ref: st, x: st.x, y: st.y, color: st.color, ring, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
+    const chosen = selected && selected.key === entityKey(st), goal = obj && obj.station === st;
+    const ring = chosen ? SELECT_COLOR : goal ? COLORS.amber : null;
+    const alpha = Math.max(markerFade(d, NAV_RANGE, goal ? 0.4 : 0.22), chosen ? MARKED : 0);
+    stations.push({ ref: st, x: st.x, y: st.y, d, color: st.color, ring, alpha, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
   };
   world.scene.stations.forEach(mark);
   world.scene.gates.forEach(mark);
   const R = obj && (obj.station ? obj.station.radius : mission.site.spread);
   if (obj && !visible({ x: obj.x, y: obj.y, radius: R }) && !stations.some((m) => m.ref === obj.station)) {
-    const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(Math.hypot(obj.x - ship.x, obj.y - ship.y) - (obj.station ? R : 0))}`;
-    stations.push({ ref: obj.station, x: obj.x, y: obj.y, color: COLORS.amber, ring: COLORS.amber, label });
+    const d = Math.hypot(obj.x - ship.x, obj.y - ship.y);
+    const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(d - (obj.station ? R : 0))}`;
+    stations.push({ ref: obj.station, x: obj.x, y: obj.y, d, color: COLORS.amber, ring: COLORS.amber, alpha: markerFade(d, NAV_RANGE * 2, 0.4), label });
   }
+  stations.sort((a, b) => a.d - b.d); // the nearest keep their place at the edge when labels collide
   const top = ContextCard.isOpen ? ContextCard.top : null;
-  navHits = edgeMarkers(stations, top === null ? 64 : Math.max(64, view.h - top + 16), 0.85);
+  navHits = edgeMarkers(stations, steady('nav', top === null ? 64 : Math.max(64, view.h - top + 16)), 0.95);
 }
 
 // The station whose edge marker is under a tap, if any.
