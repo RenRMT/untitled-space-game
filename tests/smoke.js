@@ -4,8 +4,8 @@
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. It opens on the introduction and the first mission, which
-// the first two tests play through. Each step checks its effect; at the end nothing may have
+// settings and a start-style switch. It opens on the introduction and the two opening missions,
+// which the first three tests play through. Each step checks its effect; at the end nothing may have
 // been drawn at a non-finite position. The steps share one game, in order, as a player would
 // play them.
 
@@ -234,32 +234,144 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.ok(game('!!docked'), 'docked at the waystation');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'ready');
   assert.match(tab(), /Please confirm the delivery/);
-  // Handed in: the debt settled, the android in the squad, every tab open.
+  // Handed in: the balance halved, the android in the squad, the Squad tab open; the second
+  // mission offered.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done');
   assert.match(tab(), /surplus to requirements/);
+  assert.match(tab(), /reduced to 6 bars of gold/);
   assert.match(tab(), /has joined your squad/);
-  assert.deepStrictEqual(game('stationLocks().tabs'), []);
+  assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research'], 'Squad opens; the debt is not settled yet');
+  assert.match(tab(), /The remaining balance/);
+  assert.ok(game('!!stationLocks().launch'), 'Launch waits for the second mission');
   assert.strictEqual(game('cargo.squad.length'), 1);
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
   assert.deepStrictEqual(game('Squad.modulesOf(cargo.squad[0])'), [], 'with no logic modules yet');
   game(`StationMenu.showTab('squad')`);
   assert.strictEqual(game('StationMenu.tab'), 'squad');
   assert.match(tab(), new RegExp(game('mission.vars.ship')));
+  game(`StationMenu.showTab('missions')`);
+});
+
+test('the second mission: mining and gas, an android signal, a hostile android, and the AI logic module settles the debt', () => {
+  const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
+  const tab = () => textOf(body);
+  const press = (label) => {
+    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
+    assert.ok(b, `a ${label} button`);
+    b.dispatch('click', {});
+  };
+  const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
+  assert.ok(game('!!docked && docked.station === waystation()'), 'still at the waystation');
+  assert.match(tab(), /mine 3 asteroids, and collect gas from 3 gas pockets/);
+  assert.match(tab(), new RegExp(game('mission.vars.nebula')));
+  assert.ok(!/android signal|AI logic module/.test(tab()), 'the briefing keeps the twist to itself');
+  press('Accept');
+  assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'active');
+  game('launch()');
+  assert.match(textOf(comms), /asteroid field and the .* are marked on your map/);
+  talkThrough();
+  browser.frames(2);
+  assert.match(game('objective().text'), /^Mine asteroids · 0\/3/);
+  assert.ok(game('frameList.some((e) => e.kind === "wingman")'), 'the squad member flies along');
+  // Three asteroids from the first mission's field (the first mined in full, the rest hurried).
+  game('fight.grace = 1e9');
+  for (let i = 0; i < 3; i++) {
+    game(`{ globalThis.__rock = mission.rocks.find((a) => !cargo.removed.has(a.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); }`);
+    browser.frames(1);
+    game('startMining(__rock)');
+    assert.ok(game('mining.target === __rock'), 'mining');
+    if (i) game('mining.t = mineTime() - 0.05');
+    assert.ok(until('cargo.removed.has(__rock.key)', 60 * 8), 'mined');
+  }
+  assert.strictEqual(game('cargo.missions.count(SALVAGE, "mine")'), 3);
+  assert.match(game('objective().text'), /^Collect gas pockets · 0\/3/);
+  // Three pockets in the nebula the marker points to.
+  for (let i = 0; i < 3; i++) {
+    game(`{ const o = objective(); globalThis.__gas = world.scene.entities.find((e) => e.kind === 'gas' && e.x === o.x && e.y === o.y); }`);
+    assert.ok(game('!!__gas && __gas.pocket.nebula === mission.salvage.nebula'), 'the marker is on a pocket of the nebula');
+    game('placeShip(__gas.x, __gas.y + __gas.radius + 60)');
+    browser.frames(1);
+    game('startMining(__gas); mining.t = mineTime() - 0.05');
+    assert.ok(until('cargo.removed.has(__gas.key)', 60 * 4), 'collected');
+    game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); render(); }`);
+  }
+  assert.strictEqual(game('cargo.missions.count(SALVAGE, "gas")'), 3);
+  // The squad member picks up the signal.
+  assert.ok(until('!!talk.lines', 60 * 5), 'the squad member calls');
+  assert.match(textOf(comms), new RegExp(`${game('mission.vars.ship')}.*faint ship reading further inside the nebula`));
+  game('Comms.next()');
+  assert.match(textOf(comms), /The signature is android/);
+  talkThrough();
+  assert.match(game('objective().text'), /^Investigate the android signal/);
+  assert.deepStrictEqual(game('[objective().x, objective().y]'), game('[mission.salvage.x, mission.salvage.y]'));
+  assert.ok(game('world.galaxy.nebulaAt(mission.salvage.x, mission.salvage.y) === world.galaxy.nebulae[mission.salvage.nebula]'), 'inside the nebula');
+  // There: a hostile android, which attacks.
+  game('cargo.hull = SHIP.hull; combatMode.set("rounds"); fight.grace = 0; placeShip(mission.salvage.x - 1800, mission.salvage.y, 0)');
+  browser.frames(2);
+  assert.ok(game('cargo.missions.done(SALVAGE, "investigate")'), 'investigated');
+  assert.ok(game('frameList.includes(mission.hostile)'), 'the hostile android is there');
+  game('select(mission.hostile)');
+  browser.frames(1);
+  assert.match(game('describe(selected.e).subtitle'), /^Android · unregistered · Mk III gear/);
+  game('select(null)');
+  const toIt = 'ship.targetAngle = Math.atan2(mission.hostile.y - ship.y, mission.hostile.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5;';
+  assert.ok(until('!!fight.s', 60 * 20, toIt), 'it attacks');
+  assert.deepStrictEqual(game('fight.s.enemies.map((e) => e.name)'), [game('mission.vars.hostile')], 'alone, by its designation');
+  assert.match(game('toast.text'), new RegExp(`^${game('mission.vars.hostile')} attacks!`));
+  assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
+  assert.strictEqual(game('fight.result'), 'won');
+  assert.ok(until('cargo.missions.done(SALVAGE, "hostile")', 60 * 3), 'destroyed (once its explosion plays)');
+  browser.frames(2);
+  assert.ok(game('frameList.includes(mission.module)'), 'it left the AI logic module');
+  // The squad member is puzzled.
+  assert.ok(until('!!talk.lines', 60 * 10), 'the squad member calls again');
+  assert.match(textOf(comms), /That vessel was android/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /Androids are pacifists/);
+  game('Comms.next()');
+  assert.match(textOf(comms), /It dropped something: an AI logic module/);
+  talkThrough();
+  // The module (not into the hold), then home.
+  const held = game('cargo.items.length');
+  game('placeShip(mission.module.x + 10, mission.module.y)');
+  browser.frames(2);
+  assert.ok(game('cargo.missions.done(SALVAGE, "module")') && game('cargo.items.length') === held, 'recovered, outside the hold');
+  assert.match(game('objective().text'), /^Return to Waystation HD-1863/);
+  game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
+  assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'ready');
+  assert.match(tab(), /hand over the AI logic module/);
+  // Handed in: the module studied, the debt settled, every tab open.
+  press('Complete mission');
+  assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'done');
+  assert.match(tab(), /pacifist by design/);
+  assert.match(tab(), /anomaly/);
+  assert.match(tab(), /come back later/);
+  assert.match(tab(), /your account is settled/);
+  assert.match(tab(), /Trade, Ship and Research are now open/);
+  assert.deepStrictEqual(game('stationLocks().tabs'), []);
+  assert.ok(!game('opening()'));
+  game(`StationMenu.showTab('trade')`);
+  assert.strictEqual(game('StationMenu.tab'), 'trade', 'Trade is open');
+  assert.ok(game(`cargo.items.some((it) => Goods.type(it.kind).category === 'gas')`), 'the gas is the player\'s to keep');
   game('launch()');
   browser.frames(3);
-  assert.ok(game('frameList.some((e) => e.kind === "wingman") && !frameList.includes(mission.android)'), 'it flies as a wingman now');
   assert.strictEqual(game('objective()'), null, 'nothing more to do');
-  // A save from before missions that played the introduction has it done already.
+  // A save from before the second mission, with the first done: its debt was settled already.
   game('saveCargoNow()');
   const key = game('cargo.key'), saved = JSON.parse(browser.storage.get(key));
-  assert.deepStrictEqual(saved.missions.repayment.status, 'done');
+  delete saved.missions.salvage;
+  delete saved.missionsVersion;
+  browser.storage.set(key, JSON.stringify(saved));
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'done', 'an older save');
+  // From before missions altogether, having played the introduction: both done.
   delete saved.missions;
   browser.storage.set(key, JSON.stringify(saved));
   game('loadCargo(world.galaxy)');
-  assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done', 'an older save');
+  assert.deepStrictEqual(game('[cargo.missions.status(OPENING), cargo.missions.status(SALVAGE)]'), ['done', 'done'], 'an even older save');
   // On to the usual start, with the usual settings.
-  game('artStyle.set("line"); combatMode.set("rounds"); placeBeside(startStation())');
+  game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
 });
 
 test('boots at the start station', () => {

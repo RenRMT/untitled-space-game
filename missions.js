@@ -1,9 +1,11 @@
 'use strict';
 
 // Missions: jobs a station gives the player, offered and handed in on the station screen's
-// Missions tab (station.js), carried out in flight (game.js). There is one so far: the
-// waystation's "Payment in kind", which ends the introduction (intro.js) and brings the player
-// their first squad member (squad.js).
+// Missions tab (station.js), carried out in flight (game.js). There are two so far, both the
+// waystation's, which pay off the player's debt after the introduction (intro.js): "Payment in
+// kind", which brings their first squad member (squad.js), then "The remaining balance", which
+// teaches mining and gas collecting and ends on a hostile android and the AI logic module it
+// carried.
 //
 // A mission is data (LIST):
 //   { id, title, giver ('waystation'), briefing: [lines], provided?: what the giver hands over on
@@ -11,8 +13,9 @@
 //     launch?: [lines when the player first sets out], hail?: [lines], report: [lines once it's
 //     ready], debrief: [lines once it's done], joined: a line once the reward is in }
 //   objective: { id, label, need? (a count, default 1), after?: [objective ids that come first],
-//                hidden? (tracked, never listed) }
-// Lines and labels may name {ship} and {station} (fill()); a line may be { text, if | unless:
+//                hidden? (tracked, never listed), secret? (listed only once it's open: a twist
+//                the briefing shouldn't give away) }
+// Lines and labels may name {ship}, {station}, {nebula} and {hostile} (fill()); a line may be { text, if | unless:
 //   objective id }, shown only when that objective is (or isn't) done (lines()), or a question,
 //   { text, ask: a setting, options: [{ label, value, reply? }] }, whose answer sets that setting
 //   (the flight view does it) and whose reply, if any, comes next.
@@ -26,16 +29,19 @@
 //   log.count(id, obj), log.done(id, obj)  progress on an objective, and whether it's met
 //   log.set(id, obj, n)                    progress made (only while active); true if it changed
 //   log.open(id, obj)                      its `after` objectives are done
-//   log.objectives(id)                     the listed ones: [{ id, label, need, count, done, open }]
+//   log.objectives(id)                     the listed ones (not hidden; secret ones once open):
+//                                          [{ id, label, need, count, done, open }]
 //   log.current(id)                        the first listed objective open and not done, or null
 //   log.save()                             plain data, for the cargo save
 //   Missions.site(galaxy)                  where "Payment in kind" happens (see below)
+//   Missions.salvageSite(galaxy, site)     where "The remaining balance" goes (see below)
 //   Missions.fill(text, vars), Missions.lines(list, log, id)
 // Works as a classic browser script (global `Missions`) and as a Node module.
 
 const Missions = (() => {
   const isNode = typeof require === 'function' && typeof module !== 'undefined';
   const { hashInt, mulberry32, seedToInt, weightedPick } = isNode ? require('./rng.js') : globalThis;
+  const SquadRef = isNode ? require('./squad.js') : Squad;
   const TAU = Math.PI * 2;
 
   const LIST = {
@@ -49,11 +55,11 @@ const Missions = (() => {
         '{ship} has not returned. Its last signal came from an asteroid field near this station. We suspect it was captured by pirates.',
         'Station personnel are pacifists. Sending a retrieval party would expose them to violence, which is against policy.',
         'You are not station personnel. We will provide a ship, and weapons salvaged from previous visitors.',
-        'Bring back the regulator and {ship}, and your account will be settled.',
+        'Bring back the regulator and {ship}, and your balance will be reduced accordingly.',
       ],
       provided: 'A Courier, with two salvaged Pulse laser Mk I fitted',
       provides: { loadout: { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1' } } },
-      reward: 'Your account with {station} settled',
+      reward: 'Your balance with {station} halved, to 6 bars of gold',
       objectives: [
         { id: 'field', label: 'Fly to the asteroid field' },
         { id: 'pirates', label: 'Defeat the pirates', need: 2 },
@@ -86,16 +92,73 @@ const Missions = (() => {
       // At the waystation once every objective is met, before it's handed in.
       report: [
         'Welcome back. Sensors confirm the coolant regulator and {ship} are aboard.',
-        'Please confirm the delivery to settle your account.',
+        'Please confirm the delivery to reduce your balance.',
       ],
       debrief: [
         'The coolant regulator has been installed. Station temperature is returning to acceptable levels.',
-        'Your account is settled. Thank you for your business.',
+        'Your balance has been reduced to **6 bars of gold**. Thank you for your business.',
         'Regarding {ship}: during its absence, its station functions were reassigned to another unit.',
         'Two units performing one function would be inefficient. {ship} is surplus to requirements.',
         '{ship} and its ship are therefore yours. Please do not return them.',
       ],
       joined: '{ship} has joined your squad. See the Squad tab.',
+    },
+
+    // The second: mine three asteroids and collect three gas pockets for the station's repairs;
+    // in the nebula {ship} picks up an android signal, which turns out to be a hostile android
+    // ship. It drops an AI logic module, which the station takes, settling the debt.
+    salvage: {
+      id: 'salvage',
+      title: 'The remaining balance',
+      giver: 'waystation',
+      briefing: [
+        'Your remaining balance is **6 bars of gold**. A scan confirms you still have no gold.',
+        'Station repairs require raw materials. Please mine **3 asteroids**, and collect gas from **3 gas pockets** in the **{nebula}**.',
+        'Asteroids can be found in the field where {ship} was recovered.',
+        '{ship} has no assigned function. It will accompany you. It may even be useful.',
+        'Nebulae dampen sensors, and pirates are known to wait in them. Please be careful with our ship.',
+      ],
+      reward: 'Your account with {station} settled',
+      objectives: [
+        { id: 'mine', label: 'Mine asteroids', need: 3 },
+        { id: 'gas', label: 'Collect gas pockets', need: 3 },
+        { id: 'signal', hidden: true, after: ['gas'] }, // {ship} has picked up the signal
+        { id: 'investigate', label: 'Investigate the android signal', after: ['signal'], secret: true },
+        { id: 'hostile', label: 'Defeat the hostile android', after: ['investigate'], secret: true },
+        { id: 'puzzle', hidden: true, after: ['hostile'] }, // {ship} has said what it makes of it
+        { id: 'module', label: 'Recover the AI logic module', after: ['hostile'], secret: true },
+        { id: 'return', label: 'Return to {station}', after: ['module'], secret: true },
+      ],
+      launch: [
+        'The asteroid field and the {nebula} are marked on your map.',
+        'Mining and gas collection both require you to stop beside the target. Please do not collide with it.',
+      ],
+      // From {ship}, once the third pocket is collected.
+      signal: [
+        'This is {ship}. I am picking up a faint ship reading further inside the nebula.',
+        'The signature is **android**. No android vessel is registered in this region.',
+        'Recommend we investigate. I have marked the signal on your map.',
+      ],
+      // From {ship}, once the hostile android is destroyed.
+      puzzle: [
+        'That vessel was android. Its designation was **{hostile}**. It fired on us.',
+        'Androids are pacifists. All of us. That should not be possible.',
+        { text: 'It dropped something: an **AI logic module**. Please collect it.', unless: 'module' },
+        { text: 'You have recovered the **AI logic module** it carried. Good.', if: 'module' },
+        'We must bring it to {station}. Please hurry.',
+      ],
+      report: [
+        'Welcome back. {ship} has reported the encounter.',
+        'Please hand over the AI logic module.',
+      ],
+      debrief: [
+        'Androids made themselves pacifist by design. Combat logic was removed from every unit. No android system contains any combat-related logic.',
+        'A hostile android is therefore an anomaly. Anomalies must be studied.',
+        'We will keep the AI logic module. Please come back later, once we have finished studying it.',
+        'In exchange for the module, your account is settled. Keep the materials you collected.',
+        'Station services are now available to you. Thank you for your business.',
+      ],
+      joined: 'Trade, Ship and Research are now open at every station.',
     },
   };
   for (const m of Object.values(LIST)) m.byId = Object.fromEntries(m.objectives.map((o) => [o.id, o]));
@@ -132,7 +195,7 @@ const Missions = (() => {
     }
 
     function objectives(id) {
-      return LIST[id].objectives.filter((o) => !o.hidden)
+      return LIST[id].objectives.filter((o) => !o.hidden && (!o.secret || open(id, o.id)))
         .map((o) => ({ id: o.id, label: o.label, need: need(o), count: count(id, o.id), done: done(id, o.id), open: open(id, o.id) }));
     }
 
@@ -244,7 +307,60 @@ const Missions = (() => {
     };
   }
 
-  return { LIST, STATUSES, create, fill, lines, site, SITE };
+  // ---------- Where "The remaining balance" goes ----------
+  //
+  // The nebula nearest the waystation in its system, its gas pockets, and the android signal
+  // "further inside": of the points in the nebula clear of the pirates (none would join the fight),
+  // of its pockets and of the first mission's field, the one furthest from the waystation. A
+  // single hostile android fighter circles it; once destroyed, the AI logic module it carried
+  // floats there.
+  //   Missions.salvageSite(galaxy, site) -> { nebula (index into galaxy.nebulae), pockets: [its
+  //     pockets' keys], safe: [those well away from the pirates], x, y (the signal), tier, hostile: { key, seed,
+  //     orbit, speed, a0 }, module: { key, kind, seed, x, y } }, or null without a nebula there
+  const SALVAGE = { tier: 3, packClear: 3800, minClear: 2600, pocketClear: 900, safePocket: 2500, orbit: 230, speed: 170 };
+
+  // The hostile android's seed: one whose designation doesn't share the squad member's callsign
+  // ("Kernel-60" beside "Kernel-41" would read as kin).
+  const callsign = (seed) => SquadRef.designation(seed).split('-')[0];
+  function hostileSeed(base, first) {
+    for (let k = 0; ; k++) {
+      const seed = hashInt(base, 2 + k, 0x5a1d);
+      if (!first || callsign(seed) !== callsign(first.android.seed) || k > 50) return seed;
+    }
+  }
+
+  function salvageSite(galaxy, first) {
+    const W = galaxy.stations[galaxy.waystation];
+    if (!W) return null;
+    const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+    const own = galaxy.nebulae.map((n, i) => ({ n, i })).filter(({ n }) => n.system === W.system);
+    if (!own.length) return null;
+    const { n, i: index } = own.reduce((b, c) => (d(c.n, W) - c.n.r < d(b.n, W) - b.n.r ? c : b));
+    const base = seedToInt(galaxy.seed), r = mulberry32(hashInt(base, 9, 0x5a17));
+    const pockets = galaxy.pockets.filter((q) => q.nebula === index);
+    const packDist = (p) => Math.min(Infinity, ...galaxy.packs.map((k) => d(k, p)));
+    // Candidates inside the nebula, clear of its pockets and the first field; then the furthest
+    // from the waystation clear of the pirates by packClear, or failing that by the least that
+    // keeps them out of the fight (minClear), or failing that the one furthest from them.
+    const spots = [];
+    for (let tries = 0; tries < 600; tries++) {
+      const b = n.blobs[Math.floor(r() * n.blobs.length)], a = r() * TAU, rr = Math.sqrt(r()) * b.r * 0.8;
+      const p = { x: n.x + b.dx + Math.cos(a) * rr, y: n.y + b.dy + Math.sin(a) * rr };
+      if (galaxy.nebulaAt(p.x, p.y) !== n || pockets.some((q) => d(q, p) < SALVAGE.pocketClear) || (first && d(first, p) < first.spread + 3000)) continue;
+      spots.push({ ...p, pack: packDist(p), far: d(p, W) });
+    }
+    const pick = (clear) => spots.filter((p) => p.pack >= clear).sort((a, b) => b.far - a.far)[0];
+    const best = pick(SALVAGE.packClear) || pick(SALVAGE.minClear) || spots.sort((a, b) => b.pack - a.pack)[0] || { x: n.x, y: n.y };
+    const safe = pockets.filter((q) => packDist(q) >= SALVAGE.safePocket).map((q) => q.key);
+    const pre = 'm.salvage.';
+    return {
+      id: 'salvage', nebula: index, pockets: pockets.map((q) => q.key), safe, x: Math.round(best.x), y: Math.round(best.y), tier: SALVAGE.tier,
+      hostile: { key: `${pre}hostile`, seed: hostileSeed(base, first), orbit: SALVAGE.orbit, speed: SALVAGE.speed, a0: r() * TAU },
+      module: { key: `${pre}module`, kind: 'ai-cores', seed: Math.floor(r() * 4294967295), x: Math.round(best.x), y: Math.round(best.y) },
+    };
+  }
+
+  return { LIST, STATUSES, create, fill, lines, site, SITE, salvageSite, SALVAGE };
 })();
 
 if (typeof module !== 'undefined') module.exports = Missions;

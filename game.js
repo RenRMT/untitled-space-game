@@ -223,10 +223,15 @@ const cargo = {
 // online (nothing does that yet: until then the first system is all there is).
 const STORY = ['intro', 'gates'];
 const gatesOnline = () => cargo.story.has('gates');
-// The first mission (missions.js), which follows the introduction: until it's handed in, the
-// station screens offer only the Missions tab (see The first mission below).
-const OPENING = 'repayment';
-const opening = () => cargo.missions.status(OPENING) !== 'done';
+// The opening missions (missions.js), which follow the introduction and pay off the player's
+// debt: "Payment in kind", then "The remaining balance". Until the second is handed in, station
+// screens offer only Missions (and Squad, once the first has brought a squad member): see The
+// opening missions below.
+const OPENING = 'repayment', SALVAGE = 'salvage';
+const opening = () => cargo.missions.status(SALVAGE) !== 'done';
+// Saves from before the second mission count it as done once the first was: their debt was
+// settled by the first. Saves carry the version of the mission chain they were made with.
+const MISSIONS_VERSION = 2;
 const PICKUP_RANGE = 24; // world units beyond the item's own size
 // " · rare" after an item's name in notices, for anything better than common.
 const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
@@ -296,6 +301,7 @@ function readCargo(d) {
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions);
   else if (cargo.story.has('intro')) cargo.missions.finish(OPENING);
+  if (!(d.missionsVersion >= MISSIONS_VERSION) && cargo.missions.status(OPENING) === 'done') cargo.missions.finish(SALVAGE);
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
@@ -330,7 +336,7 @@ function saveCargoNow() {
     items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
     drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
     loadout: cargo.loadout, gear: cargo.gear, research: [...cargo.research], squad: cargo.squad,
-    story: [...cargo.story], missions: cargo.missions.save(),
+    story: [...cargo.story], missions: cargo.missions.save(), missionsVersion: MISSIONS_VERSION,
   });
 }
 
@@ -761,7 +767,7 @@ function skipIntro() {
   dock(st);
 }
 
-// ---------- The first mission: payment in kind ----------
+// ---------- The opening missions: payment in kind, then the remaining balance ----------
 //
 // After the introduction the player is docked at the waystation with an escape pod and a debt.
 // Until the first mission (missions.js) is handed in, every station screen offers only the
@@ -772,22 +778,36 @@ function skipIntro() {
 // like a wingman; docking with it at the waystation and handing the mission in there settles the
 // debt, and the android joins the squad. Progress is read every frame from what has happened
 // (destroyed pirates and the collected regulator are in cargo.removed), so a save can't fall out
-// of step with it. ?skipintro skips the mission as well: done, with the android in the squad.
+// of step with it. ?skipintro skips the missions as well: done, with the android in the squad.
+//
+// The second mission (Missions.salvageSite) is offered on handing in the first: mine three
+// asteroids (the first mission's field has plenty) and collect three gas pockets in the nebula
+// nearest the waystation, counted as they're done (missionCollected). After the third pocket the
+// squad member picks up an android signal deeper in the nebula; there a hostile android fighter
+// attacks. Destroyed, it leaves an AI logic module; the squad member is puzzled and asks to bring
+// it home. Docking at the waystation with it makes the mission ready; handing it in settles the
+// debt and opens the station screens.
 
 // site: Missions.site(); rocks, pirates, android, cargo: its things in space; face: the android's
 // portrait; vars: the names its lines use; hailT: seconds the android has waited to call; told:
 // the waystation has said where to go (this session).
-const mission = { site: null, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: false };
+// salvage: Missions.salvageSite(), with hostile and module: its things in space; callT: seconds
+// the squad member has waited to call; told: the mission ids the waystation has seen off.
+const mission = {
+  site: null, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: new Set(),
+  salvage: null, hostile: null, module: null, callT: 0,
+};
 // A conversation on the comms box: lines from someone, one after another, then `then`. A line may
 // be a question (missions.js) whose answer sets a setting.
 const talk = { lines: null, i: 0, from: '', face: null, then: null };
 const MISSION_LOCKED = ['trade', 'ship', 'research', 'squad'];
+const SIGNAL_REACHED = 2200; // the android signal counts as investigated this close
 const HAIL = { range: 4000, wait: 1.2 }; // the android calls within this range, this long after the fight
 const FIELD_REACHED = 1500; // the field counts as reached this far beyond its spread
 
 function buildMission() {
   const site = Missions.site(world.galaxy);
-  Object.assign(mission, { site, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: false });
+  Object.assign(mission, { site, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: new Set(), salvage: null, hostile: null, module: null, callT: 0 });
   if (!site) return;
   mission.rocks = site.rocks.map((a) => ({ kind: 'asteroid', ast: { type: a.type, r: a.r, seed: a.seed }, key: a.key, spin0: a.spin0, tumble: a.tumble, radius: a.r, x: a.x, y: a.y }));
   mission.pirates = site.pirates.map((p) => {
@@ -806,24 +826,54 @@ function buildMission() {
   mission.cargo = { ...Entities.item({ key: c.key, kind: c.kind, seed: c.seed, angle: a.angle, tumble: 0.2, x: c.x, y: c.y }), label: 'Coolant regulator', mission: OPENING };
   mission.face = ArtAndroids.create(a.seed, world.android);
   mission.vars = { ship: name, station: world.galaxy.stations[world.galaxy.waystation].name };
+  buildSalvage();
+}
+
+// The second mission's hostile android (a pirate, as far as fights go, in android colours) and
+// the AI logic module it leaves.
+function buildSalvage() {
+  const S = Missions.salvageSite(world.galaxy, mission.site);
+  mission.salvage = S;
+  if (!S) return;
+  const h = S.hostile, art = ArtBlueprints.create('fighter', world.android, h.seed), name = Squad.designation(h.seed);
+  mission.hostile = {
+    kind: 'ship', role: 'fighter', pirate: true, android: true, key: h.key, art, name, color: world.android.color,
+    radius: art.radius, x: S.x, y: S.y, tier: S.tier,
+    motion: { type: 'orbit', cx: S.x, cy: S.y, r: h.orbit, w: h.speed / h.orbit, a0: h.a0 },
+  };
+  const m = S.module;
+  mission.module = { ...Entities.item({ key: m.key, kind: m.kind, seed: m.seed, angle: 0, tumble: 0.25, x: m.x, y: m.y }), label: 'AI logic module', mission: SALVAGE };
+  Object.assign(mission.vars, { nebula: world.galaxy.nebulae[S.nebula].name, hostile: name });
 }
 
 const fillIn = (text) => Missions.fill(text, mission.vars);
 const missionActive = () => !!mission.site && cargo.missions.status(OPENING) === 'active';
 const objectiveDone = (o) => cargo.missions.done(OPENING, o);
+const salvageActive = () => !!mission.salvage && cargo.missions.status(SALVAGE) === 'active';
+const salvageDone = (o) => cargo.missions.done(SALVAGE, o);
+// The squad member the first mission brought (its portrait and name are mission.face and .vars.ship).
+const firstMember = () => (mission.site ? cargo.squad.find((m) => m.seed === mission.site.android.seed) : null);
 // The android follows the ship home once it has called, until it docks with it.
 const escorting = () => missionActive() && objectiveDone('hail') && !objectiveDone('escort');
 
-// What's in space for the mission now: the field always; the pirates, the regulator and the
-// android while it's under way (the android until it docks), when they're near the camera.
+// What's in space for the opening missions now, near the camera: the first mission's field
+// always; while the first is under way its pirates, the regulator and the android (until it
+// docks); while the second is, once the signal is found, the hostile android, then its module.
 function missionThings() {
   const site = mission.site;
   if (!site) return [];
   const near = Math.hypot(site.x - cam.x, site.y - cam.y) < NEAR + site.spread;
   const out = near ? [...mission.rocks] : [];
-  if (!missionActive()) return out;
-  if (near) out.push(...mission.pirates, mission.cargo);
-  if (!objectiveDone('escort') && (near || escorting())) out.push(mission.android);
+  if (missionActive()) {
+    if (near) out.push(...mission.pirates, mission.cargo);
+    if (!objectiveDone('escort') && (near || escorting())) out.push(mission.android);
+  }
+  // The hostile android once the signal is found, then the module it leaves.
+  const S = mission.salvage;
+  if (S && salvageActive() && salvageDone('signal') && Math.hypot(S.x - cam.x, S.y - cam.y) < NEAR + 1000) {
+    out.push(mission.hostile);
+    if (cargo.removed.has(S.hostile.key)) out.push(mission.module);
+  }
   return out;
 }
 
@@ -866,6 +916,7 @@ function endTalk(keep = true) {
 // The objectives, from what has happened; the android calls once the pirates are gone and the
 // fight is over.
 function tickMission(dt) {
+  tickSalvage(dt);
   if (!missionActive() || intro.on) return;
   const log = cargo.missions, site = mission.site, w = mission.android;
   let changed = false;
@@ -892,58 +943,123 @@ function hail() {
     then: () => { if (cargo.missions.set(OPENING, 'hail', 1)) { snapEscortIfFar(); saveCargo(); } },
   });
 }
+// The second mission's objectives, from what has happened: the signal reached, the hostile
+// android destroyed, its module collected (mining and gas are counted as they happen:
+// missionCollected). The squad member calls about the signal after the third pocket, and again
+// once the hostile android is gone, each time when nothing else is going on.
+function tickSalvage(dt) {
+  if (!salvageActive() || intro.on) return;
+  const log = cargo.missions, S = mission.salvage;
+  let changed = false;
+  const calm = !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
+  const call = (o, lines) => {
+    if (!calm || !log.open(SALVAGE, o) || salvageDone(o)) return false;
+    mission.callT += dt;
+    if (mission.callT < HAIL.wait) return true;
+    mission.callT = 0;
+    say(Missions.lines(lines, log, SALVAGE).map(fillIn), {
+      from: mission.vars.ship, face: firstMember() ? faceOf(mission.face) : null,
+      then: () => { if (log.set(SALVAGE, o, 1)) saveCargo(); },
+    });
+    return true;
+  };
+  const def = Missions.LIST[SALVAGE];
+  if (!call('signal', def.signal) && !call('puzzle', def.puzzle)) mission.callT = 0;
+  if (salvageDone('signal') && !salvageDone('investigate') && Math.hypot(ship.x - S.x, ship.y - S.y) < SIGNAL_REACHED) {
+    changed = log.set(SALVAGE, 'investigate', 1);
+    notify(`Android vessel ${mission.vars.hostile} · weapons hot`, 3);
+  }
+  if (cargo.removed.has(S.hostile.key)) changed = log.set(SALVAGE, 'hostile', 1) || changed;
+  if (cargo.removed.has(S.module.key)) changed = log.set(SALVAGE, 'module', 1) || changed;
+  if (changed) saveCargo();
+}
+
+// An asteroid mined or a gas pocket collected: counted toward the second mission.
+function missionCollected(kind) {
+  if (!salvageActive()) return;
+  const o = kind === 'gas' ? 'gas' : 'mine';
+  if (cargo.missions.set(SALVAGE, o, cargo.missions.count(SALVAGE, o) + 1)) saveCargo();
+}
+
 // Starting to follow from wherever it is (only a teleport snaps it into place: snapWings).
 function snapEscortIfFar() {
   const w = mission.android, st = Squad.formation(ship, activeSquad().length);
   if (Math.hypot(st.x - w.x, st.y - w.y) > WING_SNAP) Object.assign(w, st, { vx: 0, vy: 0, angle: ship.angle, a: ship.angle });
 }
 
-// Docking with the android at the waystation brings it home.
+// Docking with the android at the waystation brings it home; with the AI logic module, it brings
+// the second mission home (with what the squad member had to say taken as said).
 function missionDocked(station) {
   if (talk.lines) endTalk();
   if (escorting() && station.station.waystation && cargo.missions.set(OPENING, 'escort', 1)) saveCargo();
+  if (salvageActive() && station.station.waystation && salvageDone('module')) {
+    cargo.missions.set(SALVAGE, 'puzzle', 1);
+    cargo.missions.set(SALVAGE, 'return', 1);
+    saveCargo();
+  }
 }
 
-// On the first launch with the mission under way, the waystation says where to go and has the
-// ship's combat systems calibrated: the player picks the combat mode.
+// On the first launch with an opening mission under way, the waystation sees the player off:
+// for the first, where to go and calibrating the ship's combat systems (the player picks the
+// combat mode); for the second, where to go.
 function missionLaunched() {
-  if (!missionActive() || objectiveDone('field') || mission.told) return;
-  mission.told = true;
-  const lines = Missions.lines(Missions.LIST[OPENING].launch, cargo.missions, OPENING)
+  const id = missionActive() && !objectiveDone('field') ? OPENING
+    : salvageActive() && !cargo.missions.count(SALVAGE, 'mine') && !cargo.missions.count(SALVAGE, 'gas') ? SALVAGE : null;
+  if (!id || mission.told.has(id)) return;
+  mission.told.add(id);
+  const lines = Missions.lines(Missions.LIST[id].launch, cargo.missions, id)
     .map((l) => (typeof l === 'string' ? fillIn(l) : l));
   say(lines, { from: mission.vars.station, face: faceOf(world.wayFace) });
 }
 
-// The station screen's view of the missions (station.js): the first mission at the waystation
-// (offered, under way, ready or done), and anywhere else while it's under way.
+// The station screen's view of the missions (station.js). At the waystation: the first mission
+// until the second is accepted (its debrief leads to the second's offer), then the second.
+// Elsewhere: whichever is under way.
+const MISSION_NOTE = {
+  repayment: { active: 'The asteroid field is marked on your map.' },
+  salvage: { active: 'The asteroid field and the {nebula} are marked on your map.' },
+};
 function missionViews(station) {
   if (!mission.site) return [];
-  const def = Missions.LIST[OPENING], log = cargo.missions, status = log.status(OPENING), here = !!station.station.waystation;
-  if (!here && status !== 'active' && status !== 'ready') return [];
-  const said = !here ? [] : status === 'done' ? def.debrief : status === 'ready' ? def.report : def.briefing;
-  return [{
-    id: OPENING, title: def.title, from: mission.vars.station, face: here ? faceOf(world.wayFace) : null, status, here,
-    lines: Missions.lines(said, log, OPENING).map(fillIn),
-    objectives: log.objectives(OPENING).map((o) => ({ ...o, label: fillIn(o.label) })),
-    provided: status !== 'done' ? def.provided : null,
-    reward: fillIn(def.reward),
-    note: !here ? null : status === 'active' ? 'The asteroid field is marked on your map.' : status === 'done' ? fillIn(def.joined) : null,
-    accept: acceptMission, complete: completeMission,
-  }];
+  const log = cargo.missions, here = !!station.station.waystation;
+  const ids = [OPENING, ...(mission.salvage ? [SALVAGE] : [])].filter((id) => {
+    const status = log.status(id);
+    if (!here) return status === 'active' || status === 'ready';
+    if (id === OPENING) return status !== 'done' || log.status(SALVAGE) === 'offered';
+    return log.status(OPENING) === 'done';
+  });
+  return ids.map((id) => {
+    const def = Missions.LIST[id], status = log.status(id);
+    const said = !here ? [] : status === 'done' ? def.debrief : status === 'ready' ? def.report : def.briefing;
+    const note = !here ? null : status === 'done' ? def.joined : (MISSION_NOTE[id] || {})[status];
+    return {
+      id, title: def.title, from: mission.vars.station, face: here ? faceOf(world.wayFace) : null, status, here,
+      lines: Missions.lines(said, log, id).map(fillIn),
+      objectives: log.objectives(id).map((o) => ({ ...o, label: fillIn(o.label) })),
+      provided: status !== 'done' ? def.provided : null,
+      reward: fillIn(def.reward),
+      note: note ? fillIn(note) : null,
+      accept: () => acceptMission(id), complete: () => completeMission(id),
+    };
+  });
 }
 
-// Accepting: the waystation provides the ship.
-function acceptMission() {
-  if (!cargo.missions.accept(OPENING)) return;
-  cargo.loadout = validLoadout(Missions.LIST[OPENING].provides.loadout) || cargo.loadout;
-  applyShip();
-  cargo.hull = SHIP.hull;
+// Accepting: for the first mission, the waystation provides the ship.
+function acceptMission(id = OPENING) {
+  if (!cargo.missions.accept(id)) return;
+  const gives = Missions.LIST[id].provides;
+  if (gives && gives.loadout) {
+    cargo.loadout = validLoadout(gives.loadout) || cargo.loadout;
+    applyShip();
+    cargo.hull = SHIP.hull;
+  }
   saveCargo();
 }
-// Handing in: the debt settled, and the android joins the squad.
-function completeMission() {
-  if (!cargo.missions.complete(OPENING)) return;
-  joinAndroid();
+// Handing in: the first brings the android into the squad; the second settles the debt (the AI
+// logic module stays with the station; it was never in the hold).
+function completeMission(id = OPENING) {
+  if (!cargo.missions.complete(id)) return;
+  if (id === OPENING) joinAndroid();
   saveCargo();
 }
 function joinAndroid() {
@@ -952,36 +1068,52 @@ function joinAndroid() {
   if (!cargo.squad.some((m) => m.seed === seed)) cargo.squad.push(Squad.member(seed));
   buildWings();
 }
-// ?skipintro: the introduction and the first mission as if played.
+// ?skipintro: the introduction and the opening missions as if played.
 function skipOpening() {
   cargo.story.add('intro');
   cargo.missions.finish(OPENING);
+  cargo.missions.finish(SALVAGE);
   if (mission.site) joinAndroid();
   saveCargo();
 }
 
-// What the station screen can't do yet: during the first mission only Missions, and no Launch
-// until it's accepted.
+// What the station screen can't do yet: until the debt is settled only Missions, and Squad
+// once the first mission has brought a squad member; no Launch while the next opening mission
+// waits to be accepted.
 function stationLocks() {
   if (!opening()) return { tabs: [], reason: '', launch: null };
+  const first = cargo.missions.status(OPENING) !== 'done', next = first ? OPENING : SALVAGE;
   return {
-    tabs: MISSION_LOCKED,
+    tabs: first ? MISSION_LOCKED : MISSION_LOCKED.filter((t) => t !== 'squad'),
     reason: fillIn('Station services are suspended until your account with {station} is settled.'),
-    launch: cargo.missions.status(OPENING) === 'offered' ? 'Accept the mission to launch' : null,
+    launch: cargo.missions.status(next) === 'offered' ? 'Accept the mission to launch' : null,
   };
 }
 
 // Where the mission goes next, for the HUD, an edge marker and the map: { text, x, y, station }
 // (station: the scene's station when it's the waystation), or null.
+// The second mission's gas objective points at the nearest pocket of its nebula still to collect,
+// of those well away from the pirates while any are left.
 function objective() {
   if (!mission.site || intro.on) return null;
-  const status = cargo.missions.status(OPENING), W = waystation();
+  const W = waystation(), id = cargo.missions.status(OPENING) !== 'done' ? OPENING : mission.salvage ? SALVAGE : null;
+  if (!id) return null;
+  const status = cargo.missions.status(id);
   if (status === 'ready') return { text: `Report to ${W.name}`, x: W.x, y: W.y, station: W };
   if (status !== 'active') return null;
-  const o = cargo.missions.current(OPENING);
+  const o = cargo.missions.current(id);
   if (!o) return null;
   const text = `${fillIn(o.label)}${o.need > 1 ? ` · ${o.count}/${o.need}` : ''}`;
-  return o.id === 'escort' ? { text, x: W.x, y: W.y, station: W } : { text, x: mission.site.x, y: mission.site.y, station: null };
+  if (o.id === 'escort' || o.id === 'return') return { text, x: W.x, y: W.y, station: W };
+  if (o.id === 'gas') {
+    const left = (keys) => keys.map((k) => world.scene.get(k)).filter((e) => e && !cargo.removed.has(e.key));
+    const pool = left(mission.salvage.safe).length ? left(mission.salvage.safe) : left(mission.salvage.pockets);
+    const q = pool.sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))[0];
+    const n = world.galaxy.nebulae[mission.salvage.nebula];
+    return q ? { text, x: q.x, y: q.y, station: null } : { text, x: n.x, y: n.y, station: null };
+  }
+  if (id === SALVAGE && o.id !== 'mine') return { text, x: mission.salvage.x, y: mission.salvage.y, station: null };
+  return { text, x: mission.site.x, y: mission.site.y, station: null };
 }
 
 // Jump gates offline (gatesOnline): they keep their destination to themselves, and the map
@@ -1013,11 +1145,12 @@ function loadGalaxy(galaxy) {
   Art.clearCache();
   ArtBodies.clearCache();
   if (intro.on) endIntro({ played: false }); // a new galaxy mid-introduction: start over
-  if (!mission.site) cargo.missions.finish(OPENING); // no waystation: no first mission
+  if (!mission.site) cargo.missions.finish(OPENING); // no waystation: no opening missions
+  if (!mission.salvage) cargo.missions.finish(SALVAGE); // (or no nebula for the second)
   else if (Params.has('skipintro') && opening()) skipOpening();
   showGates();
   if (introDue()) startIntro();
-  else if (opening()) placeBeside(waystation()); // the first mission starts and ends there
+  else if (opening()) placeBeside(waystation()); // the opening missions start and end there
   else placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);
 }
@@ -1082,7 +1215,7 @@ function dock(station) {
     squad: { members: cargo.squad },
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
-    tab: opening() ? 'missions' : 'trade', // the first mission is all there is to do at first
+    tab: opening() ? 'missions' : 'trade', // the opening missions are all there is to do at first
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
@@ -1331,9 +1464,11 @@ function finishMining() {
     });
     const names = [...new Set(gas.map((g) => Goods.type(g.kind).name))].join(', ');
     notify(`Gas pocket collected · ${gas.length} × ${names}`, 2.5);
+    missionCollected('gas');
     saveCargo();
     return;
   }
+  missionCollected('mine');
   const found = Mining.yieldOf(world.galaxy.seed, a);
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
@@ -1721,7 +1856,7 @@ function pathVelocity(e) {
   return [(next.x - e.x) / 0.1, (next.y - e.y) / 0.1];
 }
 
-const shipName = (e, i, n) => `${Entities.ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`;
+const shipName = (e, i, n) => (e.android && e.name ? e.name : `${Entities.ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`);
 const fightLog = (line) => { fight.log = [...fight.log, line].slice(-2); };
 
 // An enemy as the flight view keeps it during a fight: its pose (held facing you, or flown on)
@@ -1760,14 +1895,16 @@ function engage(target, ambushed = false) {
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);
-  fight.log = [ambushed ? 'Pirates attack!' : `You engage the ${names[0]}.`];
+  // Who started it: pirates, or (in the second opening mission) a named android.
+  const attackers = target.android ? `${target.name} attacks!` : 'Pirates attack!';
+  fight.log = [ambushed ? attackers : `You engage the ${names[0]}.`];
   fight.result = null;
   stopMining();
   autopilot.key = null;
   select(null);
   SystemMap.blocked = true;
   document.body.classList.add('in-combat');
-  notify(ambushed ? 'Pirates attack!' : 'Combat');
+  notify(ambushed ? attackers : 'Combat');
 }
 
 // Hostile ships can be attacked; any ship can be approached (and followed).
