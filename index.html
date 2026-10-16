@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#05060a">
 <title>Untitled Space Game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<!-- The UI kit: colour tokens, type and the components every panel is built from (src/ui/kit.js). -->
+<link href="src/ui/kit.css" rel="stylesheet">
 <style>
-  :root {
-    --bg: #05060a;
-    --panel: rgba(12, 15, 24, 0.92);
-    --line: #26304a;
-    --cyan: #7df9ff;
-    --hud: #cfd8ff;
-    --dim: #6f7a99;
-    --mono: ui-monospace, Menlo, Consolas, monospace;
-  }
+  /* Screen layouts on top of the UI kit (src/ui/kit.css), which holds the tokens: --bg, --s1, --line,
+     --cyan, --sans, --mono, ... */
   html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; overscroll-behavior: none; }
+  body { font-family: var(--sans); -webkit-text-size-adjust: 100%; }
+  button { -webkit-tap-highlight-color: transparent; }
   canvas {
     display: block; width: 100vw; height: 100vh; height: 100dvh;
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -23,77 +23,90 @@
   #game { cursor: crosshair; }
   #map-canvas { cursor: grab; }
 
+  /* The plain button of the flight view, the map and the dialogs: a kit button (.ui-btn) on a
+     panel background, so it reads over space. */
   .btn {
-    font: 12px var(--mono); letter-spacing: 0.08em; text-transform: uppercase;
+    min-height: 40px; box-sizing: border-box; padding: 0 12px;
+    font: 700 13px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase;
     color: var(--hud); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 3px;
-    padding: 8px 12px; cursor: pointer; touch-action: manipulation;
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    cursor: pointer; touch-action: manipulation;
   }
   .btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
+  .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
   /* Map and settings: small icon buttons side by side in the bottom-right corner, level with the
      speed bar and clear of the panels above it. */
   .icon-btn {
     position: absolute; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    width: 34px; height: 34px; padding: 0; display: grid; place-items: center;
+    width: 34px; height: 34px; min-height: 0; padding: 0; display: grid; place-items: center;
   }
   .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
   #map-btn { right: calc(12px + 34px + 6px + env(safe-area-inset-right, 0px)); }
   #settings-btn { right: calc(12px + env(safe-area-inset-right, 0px)); }
   .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
-  #map-overlay { position: fixed; inset: 0; z-index: 2; background: var(--bg); font: 12px var(--mono); color: var(--hud); }
+  #map-overlay { position: fixed; inset: 0; z-index: 2; background: var(--bg); font: 14px var(--sans); color: var(--hud); }
   #map-overlay[hidden] { display: none; }
   #map-overlay .bar {
     position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
     padding: 10px 12px; pointer-events: none;
   }
   #map-overlay .bar > * { pointer-events: auto; }
-  #map-overlay .top { top: 0; background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
-  #map-overlay .bottom { bottom: 0; flex-wrap: wrap; gap: 8px; background: linear-gradient(rgba(5, 6, 10, 0), var(--bg)); }
+  #map-overlay .top { top: 0; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
+  #map-overlay .bottom {
+    bottom: 0; flex-wrap: wrap; gap: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(rgba(5, 6, 10, 0), var(--bg));
+  }
   #map-overlay .bottom .spacer { flex: 1; pointer-events: none; }
-  #map-title { letter-spacing: 0.12em; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #map-overlay .btn { min-height: var(--hit); }
+  #map-title { font: 700 15px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #map-view { flex: none; gap: 0; }
-  #map-view .btn { flex: none; padding: 6px 10px; }
+  #map-view .btn { flex: none; padding: 0 12px; }
   #map-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   #map-view .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; }
-  #map-stats { color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #map-stats { font: 12px var(--mono); color: var(--dim); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #map-travel, #map-investigate { border-color: var(--cyan); color: var(--cyan); }
+  #map-travel:disabled { border-color: var(--line); color: var(--hud); }
 
   #map-info {
-    position: absolute; top: 56px; right: 12px; width: min(240px, calc(100vw - 24px));
-    box-sizing: border-box; padding: 10px 12px;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
-    pointer-events: none;
+    position: absolute; top: calc(64px + env(safe-area-inset-top, 0px)); right: 12px; width: min(260px, calc(100vw - 24px));
+    box-sizing: border-box; padding: 12px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
+    font-size: 14px; pointer-events: none;
   }
   #map-info[hidden] { display: none; }
   #map-overlay [hidden] { display: none !important; }
-  #map-travel-status { color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  #map-travel-status { font: 12px var(--mono); color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #map-prompt {
-    position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
-    width: min(320px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px;
-    background: var(--panel); border: 1px solid var(--cyan); border-radius: 3px;
-    display: flex; flex-direction: column; gap: 10px;
+    position: absolute; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    width: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px;
+    background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--cyan); border-radius: var(--r-lg);
+    display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: var(--bright);
   }
   #map-prompt .actions { display: flex; gap: 8px; justify-content: flex-end; }
-  #map-info .head { display: flex; align-items: center; gap: 8px; font-weight: 600; margin-bottom: 6px; }
+  #map-info .head { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 600; color: var(--bright); margin-bottom: 6px; }
   #map-info .swatch { width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(255, 255, 255, 0.2); }
   #map-info .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
-  #map-info .row span:first-child { color: var(--dim); white-space: nowrap; }
-  #map-info .row span:last-child { text-align: right; }
+  #map-info .row span:first-child { font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+  #map-info .row span:last-child { text-align: right; font-family: var(--mono); font-size: 12px; }
 
   @media (max-width: 560px) {
-    #map-stats { font-size: 11px; }
-    #map-overlay .btn { padding: 8px 9px; font-size: 11px; }
+    #map-overlay .btn { padding: 0 9px; font-size: 12px; letter-spacing: 0.08em; }
+    /* The stats get a line of their own under the title and buttons. */
+    #map-overlay .top { flex-wrap: wrap; row-gap: 4px; }
+    #map-stats { order: 3; flex-basis: 100%; }
+    #map-title { flex: 1 1 0; }
   }
 
   /* Panels above the speed bar: the context card and, in a fight, the combat panel. The coloured
      left edge is each panel's own. */
   .panel {
     position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
-    box-sizing: border-box; padding: 9px 10px 10px 12px;
-    background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: 3px;
-    font: 12px var(--mono); color: var(--hud);
+    box-sizing: border-box; padding: 10px 10px 10px 12px;
+    background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r-lg);
+    font: 14px var(--sans); color: var(--hud);
   }
   .panel[hidden] { display: none; }
 
@@ -101,44 +114,45 @@
      with what you can do there. Docked, the flight controls go away. */
   #context { width: min(360px, calc(100vw - 24px)); border-left-color: var(--accent, var(--cyan)); }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .cx-title { flex: 1; min-width: 0; color: #eef1ff; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cx-tag { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
-  .cx-tag.hostile { color: #ff5a6e; }
-  .cx-tag.good { color: #b6ff8a; }
+  .cx-title { flex: 1; min-width: 0; color: var(--bright); font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-tag { font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+  .cx-tag.hostile { color: var(--hostile); }
+  .cx-tag.good { color: var(--good); }
   .cx-close {
-    font: 16px/1 var(--mono); color: var(--dim); background: none; border: 0; padding: 2px 4px; margin: -4px -4px -4px 0;
+    width: 36px; height: 36px; flex: none; display: grid; place-items: center;
+    font: 400 22px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -6px -6px -6px 0;
     cursor: pointer; touch-action: manipulation;
   }
   .cx-close:hover, .cx-close:focus-visible { color: var(--cyan); outline: none; }
-  .cx-sub { color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cx-actions { display: flex; gap: 6px; margin-top: 9px; }
+  .cx-sub { font: 12px var(--mono); color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-actions { display: flex; gap: 6px; margin-top: 10px; }
   .cx-actions .btn {
-    flex: 1 1 0; min-width: 0; padding: 9px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    border-color: var(--cyan); color: var(--cyan);
+    flex: 1 1 0; min-width: 0; min-height: var(--hit); padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    border-color: var(--cyan); color: var(--cyan); background: transparent; position: relative;
   }
-  .cx-actions .btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
+  .cx-actions .btn:hover { background: var(--cyan-tint); }
+  .cx-actions .btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; background: transparent; }
   /* A running action (mining) shows its progress filling up left to right. */
   .cx-actions .btn.busy:disabled {
-    --busy: #ff9d5c;
     border-color: var(--busy); color: var(--busy); cursor: default;
-    background: linear-gradient(90deg, rgba(255, 157, 92, 0.22) var(--progress, 0%), var(--panel) var(--progress, 0%));
+    background: linear-gradient(90deg, rgba(255, 157, 92, 0.22) var(--progress, 0%), var(--s1) var(--progress, 0%));
   }
   body.docked #map-btn, body.docked #settings-btn, body.docked #context { display: none; }
 
   /* Combat panel: replaces the context card during a fight. One row per ship with shield (top)
      and hull (bottom) bars; enemy rows are buttons that focus fire. */
   #combat {
-    --hostile: #ff5a6e; --shd: #7df9ff; --hul: #b6ff8a;
+    --shd: var(--cyan); --hul: var(--good);
     width: min(380px, calc(100vw - 24px)); border-left-color: var(--hostile);
   }
   #combat.won { border-left-color: var(--hul); }
   #combat.fled { border-left-color: var(--cyan); }
   .cb-head { display: flex; align-items: center; gap: 8px; }
-  .cb-title { flex: 1; min-width: 0; color: #eef1ff; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .cb-title { flex: 1; min-width: 0; color: var(--bright); font: 700 15px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
   #combat.lost .cb-title { color: var(--hostile); }
-  .cb-btn { padding: 6px 14px; border-color: var(--cyan); color: var(--cyan); }
+  .cb-btn { min-height: var(--hit); padding: 0 16px; border-color: var(--cyan); color: var(--cyan); background: transparent; }
   .cb-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
-  .cb-track { height: 2px; margin: 8px 0 4px; background: var(--line); }
+  .cb-track { height: 2px; margin: 8px 0 4px; background: var(--line-soft); border-radius: 1px; overflow: hidden; }
   .cb-timer { display: block; height: 100%; width: 0; background: var(--hostile); }
   .cb-timer.escape { background: var(--cyan); }
   #combat .cb-btn[hidden] { display: none; }
@@ -146,255 +160,149 @@
   #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
   .cb-rows { display: flex; flex-direction: column; }
   .cb-row {
-    display: grid; grid-template-columns: minmax(0, 1fr) 110px 58px; align-items: center; column-gap: 8px;
-    width: 100%; box-sizing: border-box; padding: 6px 4px 6px 14px; margin: 0; border: 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
+    display: grid; grid-template-columns: minmax(0, 1fr) 110px 62px; align-items: center; column-gap: 8px;
+    width: 100%; min-height: 36px; box-sizing: border-box; padding: 6px 4px 6px 14px; margin: 0; border: 0; border-top: 1px solid var(--line-soft);
     background: none; color: var(--hud); font: inherit; text-align: left; position: relative;
   }
   .cb-row:first-child { border-top: 0; }
-  button.cb-row { cursor: pointer; touch-action: manipulation; }
-  button.cb-row:hover .cb-name, button.cb-row:focus-visible .cb-name { color: #eef1ff; }
-  button.cb-row:focus-visible { outline: 1px solid var(--cyan); outline-offset: -1px; }
+  button.cb-row { cursor: pointer; touch-action: manipulation; min-height: var(--hit); }
+  button.cb-row:hover .cb-name, button.cb-row:focus-visible .cb-name { color: var(--bright); }
+  button.cb-row:focus-visible { outline: 1px solid var(--cyan); outline-offset: -1px; border-radius: var(--r-sm); }
   .cb-row.focus::before { content: '▸'; position: absolute; left: 2px; color: var(--hostile); }
-  .cb-row.focus .cb-name { color: #eef1ff; }
+  .cb-row.focus .cb-name { color: var(--bright); }
   .cb-row.you .cb-name { color: var(--cyan); }
   .cb-row.down { opacity: 0.45; }
-  .cb-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hud); }
+  .cb-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hud); }
   .cb-bars { display: flex; flex-direction: column; gap: 2px; }
-  .cb-bar { display: block; height: 4px; background: rgba(38, 48, 74, 0.9); }
+  .cb-bar { display: block; height: 4px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
   .cb-bar > span { display: block; height: 100%; transition: width 0.25s ease-out; }
   .cb-bar.shd > span { background: var(--shd); }
   .cb-bar.hul > span { background: var(--hul); }
   .cb-row:not(.you) .cb-bar.hul > span { background: var(--hostile); }
-  .cb-nums { color: var(--dim); font-size: 11px; text-align: right; white-space: nowrap; }
-  .cb-log { color: var(--dim); font-size: 11px; margin-top: 6px; min-height: 2.6em; line-height: 1.3; }
+  .cb-nums { font: 500 12px var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
+  .cb-log { font-size: 13px; color: var(--dim); margin-top: 6px; min-height: 2.6em; line-height: 1.3; }
   .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
   body.in-combat #context, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
 
-  /* Station screen */
+  /* Station screen: header, the tab's content, then the icon tab bar and Launch in thumb reach.
+     Sheets (#st-layer) slide up over it. */
   #station {
-    --culture: var(--dim); --good: #b6ff8a; --wanted: #ffb347;
+    --culture: var(--dim);
     position: fixed; inset: 0; z-index: 2; background: var(--bg); color: var(--hud);
-    font: 13px/1.45 var(--mono); display: flex; flex-direction: column; align-items: center;
-    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
+    font: 15px/1.4 var(--sans); display: flex; flex-direction: column; align-items: center;
+    padding-top: env(safe-area-inset-top, 0px);
     animation: st-in 0.22s ease-out;
   }
   #station[hidden] { display: none; }
   @keyframes st-in { from { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { #station { animation: none; } }
-  #station > * { width: min(560px, 100%); box-sizing: border-box; padding-left: 16px; padding-right: 16px; }
+  #station > .st-head, #station > #st-body, #station > #st-note, #station > .ui-nav { width: min(560px, 100%); box-sizing: border-box; }
 
-  .st-head { display: flex; align-items: flex-end; gap: 12px; padding-top: 18px; padding-bottom: 14px; }
-  .st-head .id { flex: 1; min-width: 0; border-left: 3px solid var(--culture); padding-left: 12px; }
-  #st-name { display: block; font-size: 20px; line-height: 1.2; color: #eef1ff; overflow-wrap: anywhere; }
-  #st-sub { display: block; color: var(--dim); margin-top: 2px; }
-  #st-credits { font-size: 15px; color: var(--cyan); white-space: nowrap; }
-
-  .st-tabs { display: flex; gap: 6px; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
-  .st-tabs .btn { flex: 1 1 0; min-width: 0; padding-left: 4px; padding-right: 4px; overflow: hidden; text-overflow: ellipsis; }
-  @media (max-width: 480px) { .st-tabs { gap: 4px; } .st-tabs .btn { font-size: 10px; letter-spacing: 0.02em; } }
-  .st-tabs .btn[aria-selected="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
-
-  #st-body { flex: 1; overflow-y: auto; overscroll-behavior: contain; padding-top: 6px; padding-bottom: 16px; }
-  #st-body h2 {
-    display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    font-size: 13px; font-weight: 600; color: #eef1ff; margin: 18px 0 6px;
+  .st-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 22px 16px 12px; border-bottom: 1px solid var(--line-soft); }
+  .st-head .culture { width: 3px; align-self: stretch; background: var(--culture); border-radius: 2px; }
+  .st-head .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  #st-name { font-size: 19px; font-weight: 600; line-height: 1.15; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #st-sub { font-size: 13px; color: var(--dim); letter-spacing: 0.04em; }
+  .st-credits {
+    flex: none; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 16px; background: var(--s1);
   }
-  #st-body .note { color: var(--wanted); margin: 14px 0 0; }
-  #st-body .empty { color: var(--dim); padding: 10px 0; margin: 0; }
-  #st-body .lead { color: var(--dim); margin: 10px 0 0; line-height: 1.5; }
-  .list { list-style: none; margin: 0; padding: 0; }
-  /* A row: what it is (name, tag, count, gauge) on the left; Buy and Sell in fixed columns. */
-  .list .good {
-    display: grid; grid-template-columns: minmax(0, 1fr) 174px; column-gap: 6px; align-items: center;
-    padding: 10px 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
-  }
-  .list .good:first-child { border-top: 0; }
-  .good .what { grid-column: 1; min-width: 0; padding-right: 6px; }
-  .good .what > * { display: block; }
-  .good .name { color: #eef1ff; overflow-wrap: break-word; }
-  .good .held { font-size: 11px; margin-top: 2px; min-height: 1em; }
-  .good .name .tag { margin-left: 6px; }
-  .good .held, .list.compact .held { color: var(--dim); white-space: nowrap; }
-  .tag { font-size: 11px; color: var(--good); white-space: nowrap; }
-  .tag.wanted { color: var(--wanted); }
-  .good .deal { grid-column: 2; display: grid; grid-template-columns: 84px 84px; gap: 6px; align-items: center; }
-  .good .deal .btn { width: 100%; box-sizing: border-box; padding: 9px 4px; }
-  .good .deal > :only-child { grid-column: 2; }
-  .good .na { text-align: center; color: var(--dim); font-size: 11px; }
-  .btn.small { padding: 5px 8px; font-size: 11px; }
+  .st-credits i { width: 7px; height: 7px; background: var(--cyan); transform: rotate(45deg); }
+  #st-credits { font: 500 14px var(--mono); color: var(--cyan); white-space: nowrap; }
 
-  /* Price gauge: where this station's price sits between cheap (left) and dear (right). */
-  .gauge { position: relative; height: 3px; margin: 7px 4px 2px; background: var(--line); border-radius: 2px; }
-  .gauge .mark {
-    position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%;
-    background: var(--hud);
+  #st-body {
+    flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 24px;
+    display: flex; flex-direction: column; gap: 18px;
   }
-  .gauge .mark.cheap { background: var(--good); }
-  .gauge .mark.dear { background: var(--wanted); }
+  #st-body > * { flex: none; }
+  #st-body > .ui-schematic { margin: -4px auto -6px; }
+  .st-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: -8px; }
+  .st-title .aside { font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }
+  .st-sec { display: flex; flex-direction: column; gap: 8px; }
+  .st-gap { margin-top: 6px; }
+  .st-foot-note { text-align: center; font-size: 13px; }
+  #st-note { flex: none; margin: 0; padding: 8px 16px 0; font-size: 14px; color: var(--warn); text-align: right; }
+  #st-note[hidden] { display: none; }
+  .st-nav { flex: none; }
+  #st-launch { min-width: 120px; }
+  #station .icon { display: block; flex: none; } /* item icons: sized by their width/height attributes */
 
-  #st-body h2 .count { font-size: 11px; font-weight: normal; color: var(--dim); white-space: nowrap; }
+  /* The hull and its repair, in one row. */
+  .st-hull { display: flex; align-items: center; gap: 10px; min-height: var(--hit); }
+  .st-hull .gauge { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .st-hull .top { display: flex; justify-content: space-between; align-items: baseline; }
+  .st-hull .top .ui-label { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; }
+  .st-hull .top .num { font-size: 12px; color: var(--hud); }
+  .st-hull .ui-tag { font-size: 13px; padding: 0 6px; }
 
-  /* Loadout: one row per equipment slot, slot type on the left; a filled square marks fitted gear. */
-  .slots { list-style: none; margin: 0; padding: 0; }
-  .slots .slot {
-    display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; column-gap: 10px; align-items: baseline;
-    padding: 9px 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
-  }
-  .slots .slot-options { padding: 0 0 8px 122px; }
-  @media (max-width: 480px) { .slots .slot { grid-template-columns: 84px minmax(0, 1fr) auto; } .slots .slot-options { padding-left: 12px; } }
+  /* The ship outline behind the slot buttons. */
+  .st-outline, .st-outline svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-  /* Lists of choices (slot options, spare gear, hulls, research): what on the left, an action on
-     the right. */
-  .choices { list-style: none; margin: 0; padding: 0; }
-  .choices .choice, .choices .node {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 10px; align-items: center;
-    padding: 8px 0; border-top: 1px solid rgba(38, 48, 74, 0.6);
-  }
-  .choices > li:first-child { border-top: 0; }
-  .choices .what > * { display: block; }
-  .choices .name { color: #eef1ff; overflow-wrap: break-word; }
-  .choices .detail { font-size: 11px; color: var(--dim); margin-top: 2px; }
-  .choices .held { font-size: 11px; color: var(--dim); text-align: right; max-width: 150px; }
-  .choices .btn { white-space: nowrap; }
-  .slot-options .choices { border-left: 1px solid var(--line); padding-left: 10px; }
-  .node.done .name { color: var(--dim); }
-  .node.done .name::after { content: ' ✓'; color: var(--good); }
-  .node.locked .name { color: var(--hud); }
-  .costs { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 5px; }
-  .cost { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--hud); }
-  .cost.short { color: var(--wanted); }
-  .cost .icon { margin: -2px 0; }
+  /* Trade: the hold's fill, then a row per good: icon (with how many you hold), name, where the
+     price sits, Buy and Sell. */
+  .st-holdbar { display: flex; align-items: center; gap: 10px; margin-top: -8px; }
+  .st-item { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; }
+  .st-item .n { position: absolute; top: -4px; right: -6px; padding: 0 3px; font-size: 11px; color: var(--bright); background: var(--s2); border-radius: 3px; }
+  .st-deal { flex: none; display: flex; gap: 6px; }
+  .st-deal .ui-btn, .st-deal .lock { min-width: 72px; }
+  @media (max-width: 380px) { .st-deal .ui-btn, .st-deal .lock { min-width: 64px; padding: 0 6px; } }
+  .st-gauge { position: relative; display: block; height: 3px; margin: 7px 4px 3px; max-width: 160px; background: var(--line); border-radius: 2px; }
+  .st-gauge .mark { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--hud); }
+  .st-gauge .mark.cheap { background: var(--good); }
+  .st-gauge .mark.dear { background: var(--warn); }
 
-  /* Components in store: a row per kind, a column per tier (rarity colours, as in rules/goods.js). */
-  .components { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .components th { font-weight: normal; color: var(--dim); text-align: center; padding: 4px 2px; font-size: 11px; }
-  .components tbody th { text-align: left; }
-  .components td { text-align: center; padding: 5px 2px; color: var(--line); border-top: 1px solid rgba(38, 48, 74, 0.6); }
-  .components tbody th { border-top: 1px solid rgba(38, 48, 74, 0.6); }
-  .components td.has { color: #eef1ff; }
-  .components td.has.r2 { color: #6fd08c; }
-  .components td.has.r3 { color: #5aa9ff; }
-  .components td.has.r4 { color: #c77dff; }
-  .components td.has.r5 { color: #ff8f5a; }
-  .slots .slot:first-child { border-top: 0; }
-  .slot .type { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); }
-  .slot .item > * { display: block; }
-  .slot .name { color: #eef1ff; overflow-wrap: break-word; }
-  .slot .name::before {
-    content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 8px; vertical-align: 1px;
-    background: var(--cyan); border: 1px solid var(--cyan); box-sizing: border-box;
-  }
-  .slot .detail { font-size: 11px; color: var(--dim); margin-top: 2px; }
-  .slot.empty .name { color: var(--dim); }
-  .slot.empty .name::before { background: none; border: 1px dashed var(--dim); }
+  /* Research: components in store, a row per kind and a column per tier; costs as icon chips. */
+  .st-components { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .st-components th { font: 700 11px var(--sans); letter-spacing: 0.1em; color: var(--dim); text-align: center; padding: 4px 2px; }
+  .st-components tbody th { text-align: left; font: 400 14px var(--sans); letter-spacing: 0; color: var(--hud); border-top: 1px solid var(--line-soft); }
+  .st-components td { text-align: center; padding: 6px 2px; color: var(--line-strong); border-top: 1px solid var(--line-soft); font-size: 13px; }
+  .st-costs { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+  .st-costs .cost { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--hud); }
+  .st-costs .cost.short { color: var(--warn); }
+  .st-costs .icon { margin: -2px 0; }
 
-  /* Hull condition and the repair button on the Ship tab. */
-  .hull-row { display: flex; align-items: center; gap: 12px; padding: 4px 0 2px; }
-  .hull-gauge { flex: 1; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
-  .hull-gauge > span { display: block; height: 100%; background: #b6ff8a; }
-  .hull-row.damaged .hull-gauge > span { background: #ffb347; }
-  .hull-row .btn { white-space: nowrap; }
-
-  .list.compact li { display: flex; justify-content: space-between; padding: 6px 0; }
-
-  /* Item types: the item's icon (its own art, in the current style; art/icons.js), and a tag for
-     anything rarer than common (colours as Goods.RARITY in rules/goods.js). Trade lists are grouped
-     by category. In a trade row the icon sits to the left of the name, count and gauge. */
-  #station .icon { display: block; flex: none; } /* sized by its width/height attributes */
-  .good .what.with-icon { display: grid; grid-template-columns: 32px minmax(0, 1fr); column-gap: 10px; align-items: center; }
-  .good .what.with-icon > .icon { grid-row: 1 / span 3; }
-  .good .what.with-icon > :not(.icon) { grid-column: 2; }
-  .list.compact .name { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .list.compact .icon { margin: -4px 0; }
-  .list.compact li { align-items: center; }
-  .rarity { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; margin-left: 8px; white-space: nowrap; }
-  .rarity.r2 { color: #6fd08c; }
-  .rarity.r3 { color: #5aa9ff; }
-  .rarity.r4 { color: #c77dff; }
-  .rarity.r5 { color: #ff8f5a; }
-  #st-body h3.cat {
-    display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 11px; font-weight: normal;
-    letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
-  }
-  #st-body h3.cat .tag { letter-spacing: 0; text-transform: none; }
-  .stats { margin: 0; }
-  .stats .stat { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
-  .stats .stat:first-child { border-top: 0; }
-  .stats dt { color: var(--dim); }
-  .stats dd { margin: 0; text-align: right; }
-
-  /* Missions: what the giver says (portrait and lines), the objectives ticked off as they're met,
-     what it provides and pays, and Accept or Complete. */
-  .mission + .mission { margin-top: 22px; padding-top: 4px; border-top: 1px solid var(--line); }
-  .ms-comms {
-    display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; margin-top: 8px;
-    background: rgba(12, 15, 24, 0.92); border: 1px solid var(--line); border-left: 3px solid var(--culture); border-radius: 3px;
-  }
-  .ms-face { flex: none; border: 1px solid var(--line); border-radius: 2px; }
-  .ms-lines { flex: 1; min-width: 0; }
-  .ms-from { display: block; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--culture); }
-  .ms-lines p { margin: 6px 0 0; color: #eef1ff; overflow-wrap: anywhere; }
-  .ms-lines strong { color: var(--culture); font-weight: 600; }
-  .ms-goals { list-style: none; margin: 6px 0 0; padding: 0; }
-  .ms-goals li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(38, 48, 74, 0.6); }
-  .ms-goals li:first-child { border-top: 0; }
-  .ms-goals .name::before {
-    content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 10px; vertical-align: 1px;
-    border: 1px solid var(--cyan); box-sizing: border-box;
-  }
-  .ms-goals .done .name { color: var(--dim); }
-  .ms-goals .done .name::before { background: var(--good); border-color: var(--good); }
-  .ms-goals .open .name { color: #eef1ff; }
-  .ms-goals .later .name { color: var(--dim); }
-  .ms-goals .later .name::before { border-style: dashed; border-color: var(--dim); }
-  .ms-goals .held { color: var(--dim); white-space: nowrap; }
-  .ms-detail { margin: 6px 0 0; color: var(--hud); }
-  .ms-note { margin: 12px 0 0; color: var(--good); }
-  .ms-act { display: block; width: 100%; margin-top: 16px; padding: 11px 16px; border-color: var(--cyan); color: var(--cyan); }
-  .st-foot {
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    padding-top: 12px; padding-bottom: 14px; border-top: 1px solid var(--line);
-  }
-  #st-hold { color: var(--dim); }
-  #st-launch { min-width: 140px; padding: 11px 16px; border-color: var(--cyan); background: var(--cyan); color: var(--bg); }
-  #st-launch:hover, #st-launch:focus-visible { background: #b9fcff; }
-  #station .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-  #station .btn:disabled { opacity: 0.35; }
+  /* Squad: each member's hull and logic modules. */
+  .st-member { display: flex; align-items: center; gap: 10px; }
+  .st-member .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .st-member .line { display: flex; gap: 8px; align-items: baseline; }
+  .st-member .name { font-size: 17px; font-weight: 600; color: var(--bright); }
+  .st-member .sub { font-size: 13px; color: var(--dim); }
 
   /* Settings: a dialog over the flight view (which keeps drawing behind it, so art style changes
      show right away). One group per option: a row of choices and a line about the selected one. */
   #settings {
     position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
-    padding: 16px; box-sizing: border-box; background: rgba(5, 6, 10, 0.55);
-    font: 12px/1.45 var(--mono); color: var(--hud);
+    padding: 16px; box-sizing: border-box; background: rgba(2, 3, 6, 0.66);
+    font: 15px/1.4 var(--sans); color: var(--hud);
   }
   #settings[hidden] { display: none; }
   .set-panel {
-    width: min(400px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 3px; padding: 12px 14px 14px;
+    width: min(420px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box;
+    background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 8px 16px 16px;
   }
-  .set-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-  #settings-title { color: #eef1ff; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; }
+  .set-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 4px; }
+  #settings-title { font: 700 22px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
   .set-close {
-    font: 18px/1 var(--mono); color: var(--dim); background: none; border: 0; padding: 4px 6px; margin: -4px -6px 0 0;
+    width: var(--hit); height: var(--hit); display: grid; place-items: center; margin-right: -10px;
+    font: 400 24px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0;
     cursor: pointer; touch-action: manipulation;
   }
   .set-close:hover, .set-close:focus-visible { color: var(--cyan); outline: none; }
-  .set-group { padding: 12px 0 2px; border-top: 1px solid rgba(38, 48, 74, 0.6); margin-top: 8px; }
+  .set-group { padding: 12px 0 4px; border-top: 1px solid var(--line-soft); margin-top: 8px; }
   .set-group:first-child { border-top: 0; margin-top: 0; }
-  .set-label { display: flex; align-items: center; gap: 8px; color: #eef1ff; margin-bottom: 8px; }
+  .set-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
   .set-label kbd {
-    font: 10px var(--mono); color: var(--dim); border: 1px solid var(--line); border-radius: 2px; padding: 0 4px;
+    font: 500 10px var(--mono); letter-spacing: 0; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px;
   }
   @media (hover: none) { .set-label kbd { display: none; } } /* keyboard shortcuts mean nothing on touch */
   .seg { display: flex; gap: 6px; }
-  .seg .btn { flex: 1 1 0; min-width: 0; padding: 9px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .seg .btn { flex: 1 1 0; min-width: 0; min-height: var(--hit); padding: 0 4px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: transparent; }
   .seg .btn[aria-checked="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
   .seg .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-  .set-hint { margin: 8px 0 0; color: var(--hud); }
-  .set-note { margin: 4px 0 0; color: var(--dim); font-size: 11px; }
-  .set-note.locked { color: #ffb347; }
+  .set-hint { margin: 8px 0 0; font-size: 14px; color: var(--hud); }
+  .set-note { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
+  .set-note.locked { color: var(--warn); }
 
   /* Comms box: a message from someone in space, with their portrait; tap to go on, or answer.
      A hint (.hint) doesn't wait: taps pass through it to space. */
@@ -402,38 +310,39 @@
     --from: #4fd8ff;
     position: fixed; left: 50%; transform: translateX(-50%); z-index: 1;
     bottom: calc(14px + env(safe-area-inset-bottom, 0px)); width: min(560px, calc(100vw - 24px));
-    font: 13px/1.5 var(--mono); color: var(--hud); animation: cm-in 0.2s ease-out;
+    font: 15px/1.4 var(--sans); color: var(--hud); animation: cm-in 0.2s ease-out;
   }
   #comms[hidden] { display: none; }
   @keyframes cm-in { from { opacity: 0; transform: translate(-50%, 8px); } }
   @media (prefers-reduced-motion: reduce) { #comms { animation: none; } }
   .cm-box {
     display: flex; gap: 12px; align-items: flex-start; padding: 12px; cursor: pointer;
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--from); border-radius: 3px;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--from); border-radius: var(--r-lg);
   }
   #comms.ask .cm-box { cursor: default; }
   #comms.hint { bottom: calc(46px + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
   #comms.hint .cm-box { cursor: default; border-left-color: var(--cyan); }
   #comms.hint .cm-from { color: var(--cyan); }
-  .cm-face { flex: none; width: 72px; height: 72px; border: 1px solid var(--line); border-radius: 2px; }
+  .cm-face { flex: none; width: 72px; height: 72px; border: 1px solid var(--line); border-radius: var(--r-sm); }
   .cm-face[hidden] { display: none; }
   .cm-main { flex: 1; min-width: 0; }
   .cm-head { display: flex; align-items: center; gap: 8px; }
-  .cm-from { flex: 1; min-width: 0; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--from); }
+  .cm-from { flex: 1; min-width: 0; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--from); }
   .cm-skip {
-    font: 11px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim);
-    background: none; border: 0; padding: 2px 4px; margin: -4px -4px -4px 0; cursor: pointer; pointer-events: auto;
+    min-height: 32px; font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+    background: none; border: 0; padding: 0 4px; margin: -8px -4px -8px 0; cursor: pointer; pointer-events: auto;
   }
   .cm-skip:hover, .cm-skip:focus-visible { color: var(--cyan); outline: none; }
   .cm-skip[hidden] { display: none; }
-  .cm-text { margin: 4px 0 0; color: #eef1ff; overflow-wrap: anywhere; }
+  .cm-text { margin: 4px 0 0; color: var(--bright); overflow-wrap: anywhere; }
   .cm-text strong { color: var(--from); font-weight: 600; }
-  .cm-more { margin-top: 6px; text-align: right; font-size: 11px; color: var(--dim); }
+  .cm-more { margin-top: 6px; text-align: right; font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
   .cm-more[hidden], .cm-choices[hidden] { display: none; }
   .cm-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; margin-top: 10px; }
-  .cm-choice { border-color: var(--cyan); color: var(--cyan); padding: 9px 6px; white-space: normal; }
+  .cm-choice { min-height: var(--hit); border-color: var(--cyan); color: var(--cyan); background: transparent; padding: 8px 6px; white-space: normal; line-height: 1.2; }
+  .cm-choice:hover { background: var(--cyan-tint); }
   .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
-  .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: 2px; }
+  .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--r-sm); }
   body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
   /* Someone talking on the comms during flight: the box takes the context card's place, and covers
      the corner buttons on a narrow screen. */
@@ -469,23 +378,26 @@
 
 <div id="comms" role="region" aria-label="Comms" aria-live="polite" hidden></div>
 
-<div id="station" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
+<div id="station" class="ui" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
   <header class="st-head">
+    <span class="culture" aria-hidden="true"></span>
     <div class="id"><span id="st-name"></span><span id="st-sub"></span></div>
-    <span id="st-credits" aria-label="Credits"></span>
+    <span class="st-credits" role="img" aria-label="Credits"><i aria-hidden="true"></i><span id="st-credits"></span></span>
   </header>
-  <nav class="st-tabs" role="tablist" aria-label="Station services">
-    <button class="btn" type="button" role="tab" data-tab="trade">Trade</button>
-    <button class="btn" type="button" role="tab" data-tab="ship">Ship</button>
-    <button class="btn" type="button" role="tab" data-tab="research">Research</button>
-    <button class="btn" type="button" role="tab" data-tab="squad">Squad</button>
-    <button class="btn" type="button" role="tab" data-tab="missions">Missions</button>
-  </nav>
   <main id="st-body" role="tabpanel"></main>
-  <footer class="st-foot">
-    <span id="st-hold"></span>
-    <button id="st-launch" class="btn" type="button">Launch</button>
-  </footer>
+  <p id="st-note" role="status" hidden></p>
+  <nav class="ui-nav st-nav">
+    <div class="ui-tabs" role="tablist" aria-label="Station services">
+      <button class="ui-tab" type="button" role="tab" data-tab="trade">Trade</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="ship">Ship</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="research">Research</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="squad">Squad</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="missions">Missions</button>
+    </div>
+    <button id="st-launch" class="ui-btn primary lg" type="button">Launch</button>
+  </nav>
+  <!-- Sheets (a slot's equipment, a mission) slide up over the screen here (ui/kit.js). -->
+  <div id="st-layer" class="ui-layer" hidden></div>
 </div>
 
 <div id="settings" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>

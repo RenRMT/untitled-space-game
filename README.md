@@ -32,7 +32,7 @@ URL parameters:
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context card, combat panel, comms, settings) and the map |
+| `src/ui/` | the DOM panels (station menu, context card, combat panel, comms, settings) and the map, built from the UI kit (`kit.js`, `kit.css`) |
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
@@ -57,6 +57,10 @@ Each file starts with a comment saying what it does and, for modules other parts
   `src/game/` (see `Interactions` in `src/flight/interactions.js`).
 - **A combat mode:** a module with the shape `src/combat/combat-core.js` describes, added to `COMBAT`
   in `src/game/options.js`.
+- **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,
+  meters, rows that expand, bottom sheets, the tab bar, toasts) and its tokens (`src/ui/kit.css`:
+  colours, the two fonts, radii, the 44 px touch target). Words are Barlow Semi Condensed, numbers
+  IBM Plex Mono. Icons are placeholders with a short code until art is registered in `Kit.ICONS`.
 - **A change to what is saved:** a step at the end of `CARGO_MIGRATIONS` in `src/game/cargo.js`, so
   older saves are brought up to date (`Save.migrate`, `src/core/save.js`).
 

@@ -54,6 +54,23 @@ function clickCard(id) {
 const textOf = (el) => (el === null || el === undefined ? '' : typeof el !== 'object' ? String(el) : (el.textContent || '') + (el.children || []).map(textOf).join(''));
 // Every element under one (itself included), depth first.
 const allOf = (el) => (el && typeof el === 'object' ? [el, ...(el.children || []).flatMap(allOf)] : []);
+// The station screen: the text of its tab and of the sheet open over it (a mission, a slot), and
+// a press of one of their buttons, by its text (a string, or a pattern).
+const stationParts = () => [browser.document.getElementById('st-body'), browser.document.getElementById('st-layer')];
+const onStation = () => stationParts().map(textOf).join('');
+function pressOnStation(label) {
+  const b = stationParts().flatMap(allOf).find((el) => el.tagName === 'BUTTON' && (typeof label === 'string' ? textOf(el) === label : label.test(textOf(el))));
+  assert.ok(b, `a ${label} button`);
+  b.dispatch('click', {});
+}
+// A mission's card on the Missions tab, tapped: its sheet opens; then the whole message.
+function openMission(title) {
+  pressOnStation(new RegExp(`^${title}`));
+  showAllLines();
+}
+const showAllLines = () => {
+  if (stationParts().flatMap(allOf).some((el) => el.tagName === 'BUTTON' && /^Read all/.test(textOf(el)))) pressOnStation(/^Read all \d+ lines/);
+};
 function until(cond, maxFrames, each = '') {
   for (let i = 0; i < maxFrames; i++) {
     if (game(cond)) return true;
@@ -141,12 +158,7 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
 
 test('the first mission: accepted at the waystation, the pirates beaten, the android escorted home, and it joins the squad', () => {
   const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
-  const tab = () => textOf(body);
-  const press = (label) => {
-    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
-    assert.ok(b, `a ${label} button`);
-    b.dispatch('click', {});
-  };
+  const tab = onStation, press = pressOnStation;
   // Docked after the introduction: only the Missions tab, and no launching before accepting.
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'opens on the Missions tab');
   assert.deepStrictEqual(game('stationLocks().tabs'), ['trade', 'ship', 'research', 'squad']);
@@ -154,6 +166,9 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'the other tabs are locked');
   assert.match(tab(), /Payment in kind/);
   assert.match(tab(), /Station services are suspended/);
+  assert.match(tab(), /4 objectives · tap to read the briefing/);
+  openMission('Payment in kind');
+  assert.match(tab(), /Briefing/);
   assert.match(tab(), /coolant regulator/);
   assert.match(tab(), new RegExp(`${game('mission.vars.ship')} has not returned`));
   assert.ok(allOf(body).some((el) => el.tagName === 'CANVAS'), 'the waystation\'s portrait');
@@ -163,7 +178,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   launchBtn.dispatch('click', {});
   assert.ok(game('!!docked'), 'still docked');
   // Accepting provides the ship: a Courier with both hardpoints armed.
-  press('Accept');
+  press('Accept mission');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'active');
   assert.ok(game('SHIP.name === "Courier" && SHIP.weaponsFitted === 2'), 'two salvaged lasers');
   assert.ok(!launchBtn.disabled, 'Launch is open');
@@ -233,11 +248,14 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
   assert.ok(game('!!docked'), 'docked at the waystation');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'ready');
+  assert.match(tab(), /Hand in/);
+  openMission('Payment in kind');
   assert.match(tab(), /Please confirm the delivery/);
   // Handed in: the balance halved, the android in the squad, the Squad tab open; the second
   // mission offered.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done');
+  showAllLines();
   assert.match(tab(), /surplus to requirements/);
   assert.match(tab(), /reduced to 6 bars of gold/);
   assert.match(tab(), /has joined your squad/);
@@ -254,19 +272,15 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
 });
 
 test('the second mission: mining and gas, an android signal, a hostile android, and the AI logic module settles the debt', () => {
-  const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
-  const tab = () => textOf(body);
-  const press = (label) => {
-    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
-    assert.ok(b, `a ${label} button`);
-    b.dispatch('click', {});
-  };
+  const comms = browser.document.getElementById('comms');
+  const tab = onStation, press = pressOnStation;
   const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
   assert.ok(game('!!docked && docked.station === waystation()'), 'still at the waystation');
+  openMission('The remaining balance');
   assert.match(tab(), /mine 3 asteroids, and collect gas from 3 gas pockets/);
   assert.match(tab(), new RegExp(game('mission.vars.nebula')));
   assert.ok(!/android signal|AI logic module/.test(tab()), 'the briefing keeps the twist to itself');
-  press('Accept');
+  press('Accept mission');
   assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'active');
   game('launch()');
   assert.match(textOf(comms), /asteroid field and the .* are marked on your map/);
@@ -345,10 +359,12 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   assert.match(game('objective().text'), /^Return to Waystation HD-1863/);
   game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
   assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'ready');
+  openMission('The remaining balance');
   assert.match(tab(), /hand over the AI logic module/);
   // Handed in: the module studied, the debt settled, every tab open.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'done');
+  showAllLines();
   assert.match(tab(), /pacifist by design/);
   assert.match(tab(), /anomaly/);
   assert.match(tab(), /come back later/);
@@ -381,13 +397,8 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
 });
 
 test('the gate mission: the squad member unblocks the gate under attack, and gets its first combat logic module', () => {
-  const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
-  const tab = () => textOf(body);
-  const press = (label) => {
-    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
-    assert.ok(b, `a ${label} button`);
-    b.dispatch('click', {});
-  };
+  const comms = browser.document.getElementById('comms');
+  const tab = onStation, press = pressOnStation;
   const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
   const win = (what) => {
     assert.ok(until('!!fight.s', 60 * 10), `${what}: the pirates attack`);
@@ -401,11 +412,12 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   assert.ok(!game('stationLocks().launch'), 'Launch is open');
   game(`StationMenu.showTab('missions')`);
   assert.match(tab(), /Gated community/);
+  openMission('Gated community');
   assert.match(tab(), /Optional/);
   assert.match(tab(), /We deactivated it as a security measure/);
   assert.match(tab(), /Waystation HD-1908/);
   assert.ok(game('gatesOnline() === false'), 'the gate is offline');
-  press('Accept');
+  press('Accept mission');
   assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'active');
   game('combatMode.set("rounds"); launch()');
   assert.match(textOf(comms), /The jump gate is marked on your map/);
@@ -443,9 +455,11 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
   assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'ready');
   game(`StationMenu.showTab('missions')`);
+  openMission('Gated community');
   // Handed in: the gate online, the squad member's first combat logic module.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'done');
+  showAllLines();
   assert.match(tab(), /Jump gate activated/);
   assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
   assert.match(tab(), /share our findings with Waystation HD-1908/);
@@ -594,7 +608,12 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['research', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
-  game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2'); StationMenu.showTab('trade')`);
+  game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
+  assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
+  assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
+  assert.match(onStation(), /Heavy cannonMk IIResearch/, 'the next Mk to research');
+  game(`StationMenu.showTab('trade')`);
+  assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
   // What Pulse laser Mk II costs, put aboard: components to their store, goods to the hold.
   const give = (id) => game(`for (const c of lab.status('${id}').cost) {
     if (Goods.isSalvage(c.kind)) cargo.components[c.kind] = c.need;
@@ -613,7 +632,12 @@ test('researches with components and goods, then buys, fits and sells gear, and 
   // Buy and fit it in the empty hardpoint, then swap out the old laser and sell it.
   game('cargo.credits = 5000');
   const fp = game('SHIP.firepower');
-  assert.ok(game(`outfitting.fit('weapon-2', 'pulse-laser-2', true)`));
+  // Through the Ship tab: the empty hardpoint's sheet, Buy on the Mk II (Buy and its price).
+  game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
+  assert.match(onStation(), /Open hardpoint/);
+  pressOnStation(`Buy${game(`Loadout.EQUIPMENT['pulse-laser-2'].price`)} cr`);
+  assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'fitted, and the sheet closed');
+  assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
   assert.strictEqual(game('cargo.credits'), 5000 - game(`Loadout.EQUIPMENT['pulse-laser-2'].price`));
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
   assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-3', true)`), 'unresearched gear is not for sale');

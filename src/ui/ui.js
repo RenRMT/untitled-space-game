@@ -2,9 +2,9 @@
 //
 //   UI.h('li', { class: 'good', onclick: fn, style: { left: '40%' }, disabled: true }, child, 'text', [more])
 //     makes an element. Attributes that are false, null or undefined are left out (true sets an
-//     empty attribute), on* attributes add listeners, style takes an object. Children may be
-//     nodes, text (always set as text, never parsed as HTML) or arrays of them; null, undefined
-//     and false are skipped.
+//     empty attribute), on* attributes add listeners, style takes an object (custom properties,
+//     '--name', included). Children may be nodes, text (always set as text, never parsed as HTML)
+//     or arrays of them, nested to any depth; null, undefined and false are skipped.
 //   UI.rich('Dock at **the waystation**') -> children for UI.h: the text, its **bold** runs in <strong>
 //   UI.paint(canvas, draw, size)    sizes a canvas to size × size CSS px, sharp at the screen's pixel
 //     density, clears it and calls draw(ctx, size) (portraits)
@@ -26,11 +26,11 @@ const UI = (() => {
     for (const [k, v] of Object.entries(attrs)) {
       if (v === false || v === null || v === undefined) continue;
       if (k === 'class') n.className = v;
-      else if (k === 'style') Object.assign(n.style, v);
+      else if (k === 'style') for (const [prop, val] of Object.entries(v)) { if (prop.startsWith('--')) n.style.setProperty(prop, val); else n.style[prop] = val; }
       else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
       else n.setAttribute(k, v === true ? '' : v);
     }
-    for (const c of children.flat()) if (c !== null && c !== undefined && c !== false) n.append(c.nodeType ? c : String(c));
+    for (const c of children.flat(Infinity)) if (c !== null && c !== undefined && c !== false) n.append(c.nodeType ? c : String(c));
     return n;
   }
 

@@ -1,0 +1,258 @@
+// The UI kit: builders for the components every DOM panel is made of, on top of UI.h (ui/ui.js).
+// Styles are in ui/kit.css. Each builder returns a DOM node, or an array of them, ready for UI.h.
+//
+//   Kit.ICONS[name] = url                  register icon art; until then Kit.icon draws a placeholder
+//   Kit.icon(name, size, { code, tier, dot })   an icon slot: the art if registered, else a dashed box
+//                                          with a short code (default: the name's first 3 letters)
+//   Kit.button(label, onclick, { kind: 'primary' | 'ghost' | 'warn' | 'good' | 'busy', price, disabled,
+//                                aria, title, lg, wide, progress })
+//   Kit.pips(tier), Kit.mk(tier)           5 tier pips / 'Mk II', coloured by tier (1–5; rarity alike)
+//   Kit.tag(text, color)                   a small caps status word ('New', 'Hand in')
+//   Kit.meter(fraction, { color, thin })   a filled track
+//   Kit.segments(states)                   one segment per step: 'done' | 'open' | ''
+//   Kit.compare(cur, next, metrics)        -> rows [{ code, label, cur, next, diff, better: 1 | -1 | 0 }]
+//     metrics: [{ code, label, get(item), fmt(v), fmtDiff(|d|), dir (1: higher is better, -1: lower), none }]
+//   Kit.deltas(rows), Kit.compareTable(rows)  'DPS ▲8  RNG ▲50' / the current → new table
+//   Kit.slotNode({ x, y, label, code, item, open, onclick })   a slot button on the ship schematic
+//   Kit.statChips(stats, openId, onToggle) -> [grid, detail?]   stats: [{ id, code, label, value, detail, from }]
+//   Kit.itemTiles(items, openId, onToggle) -> [grid, detail?]   items: [{ id, icon, name, count, tier, rarity, units }]
+//   Kit.optionRow({ code, icon, name, tier, tag, tagTone, sub, rows, vals, extra, note, open, onToggle,
+//                   action, locked, lockLabel, current })   a row with an icon, a name, a line of numbers
+//                   (rows: deltas; vals: [[code, value]]) and one action; with onToggle it expands to
+//                   the full comparison and the note; locked: dimmed, with a lockLabel badge
+//                   ('Locked'; null for none) in place of the action
+//   Kit.head(label, aside...)              a section heading, then a count, a meter, ...
+//   Kit.check(state, small)                a check box: 'done' | 'open' | 'later'
+//   Kit.infoTile({ code, label, text, tone }), Kit.callout(text, tone)
+//   Kit.quote({ from, kind, face, lines, color, more })   a message: portrait, sender, lines
+//   Kit.disclosure({ label, open, onToggle })   a heading that folds what follows away
+//   Kit.sheet({ title, sub, kicker, kickerColor, code, body, foot, tall, host, onClose })
+//     -> { close(), update(sameOptions), isOpen }: a bottom sheet over a scrim; Esc, × and the scrim
+//     close it, Tab stays inside. One at a time. host: the element it is put in (default: a layer
+//     of its own at the end of <body>).
+//   Kit.toast(text, tone)                  'good' | 'warn' | 'hostile'; goes by itself
+// ES module (`Kit`); needs a browser.
+
+import { UI } from './ui.js';
+
+const Kit = (() => {
+  const { h } = UI;
+  const TIER = [null, 'var(--t1)', 'var(--t2)', 'var(--t3)', 'var(--t4)', 'var(--t5)'];
+  const MK = [null, 'Mk I', 'Mk II', 'Mk III', 'Mk IV', 'Mk V'];
+  const ICONS = {};
+  const tierVar = (t) => (t ? { '--tier': TIER[t] } : {});
+  const nodes = (x) => [x].flat(Infinity).filter((n) => n !== null && n !== undefined && n !== false);
+
+  function icon(name, size = 24, { code, tier, dot } = {}) {
+    const src = ICONS[name];
+    const style = { width: `${size}px`, height: `${size}px`, ...tierVar(tier) };
+    const badge = dot === undefined ? null : h('span', { class: 'dot', hidden: !dot });
+    if (src) return h('span', { class: 'ui-icon', style, 'aria-hidden': 'true' }, h('img', { src, alt: '', width: size, height: size, draggable: 'false' }), badge);
+    return h('span', { class: 'ui-icon ph', style: { ...style, fontSize: `${Math.max(7, Math.round(size / 4))}px` }, 'aria-hidden': 'true' },
+      code ?? String(name).slice(0, 3).toUpperCase(), badge);
+  }
+
+  function button(label, onclick, { kind = '', price, disabled = false, aria, title, lg = false, wide = false, progress } = {}) {
+    return h('button', {
+      class: ['ui-btn', kind, lg && 'lg', wide && 'wide'].filter(Boolean).join(' '), type: 'button', disabled, 'aria-label': aria, title,
+      style: progress !== undefined ? { '--progress': `${Math.round(progress * 100)}%` } : undefined,
+      onclick,
+    }, h('span', {}, label), price !== undefined ? h('span', { class: 'price' }, `${price.toLocaleString('en-US')} cr`) : null);
+  }
+
+  const pips = (tier) => h('span', { class: 'ui-pips', style: tierVar(tier), 'aria-hidden': 'true' },
+    [1, 2, 3, 4, 5].map((i) => h('i', { class: i <= tier ? 'on' : '' })));
+  const mk = (tier) => h('span', { class: 'ui-mk', style: tierVar(tier) }, MK[tier]);
+  const tag = (text, color) => h('span', { class: 'ui-tag', style: color ? { '--tone': color } : undefined }, text);
+
+  const meter = (k, { color, thin } = {}) => h('span', { class: `ui-meter${thin ? ' thin' : ''}`, 'aria-hidden': 'true' },
+    h('span', { style: { '--pct': `${Math.max(0, Math.min(1, k || 0)) * 100}%`, ...(color ? { '--meter': color } : {}) } }));
+  const segments = (states) => h('span', { class: 'ui-segs', 'aria-hidden': 'true' }, states.map((s) => h('i', { class: s })));
+
+  function compare(cur, next, metrics) {
+    return metrics.map((m) => {
+      const a = cur ? m.get(cur) : (m.none ?? 0), b = m.get(next), d = b - a;
+      return { code: m.code, label: m.label, cur: cur ? m.fmt(a) : '—', next: m.fmt(b), diff: d ? m.fmtDiff(Math.abs(d)) : '', better: Math.sign(d) * (m.dir || 1) };
+    });
+  }
+  const arrow = (r) => (r.better > 0 ? ['up', `▲${r.diff}`] : r.better < 0 ? ['down', `▼${r.diff}`] : ['', '=']);
+  const deltas = (rows) => h('span', { class: 'ui-deltas' }, rows.map((r) => {
+    const [cls, txt] = arrow(r);
+    return h('span', { class: 'ui-delta' }, `${r.code} `, h('span', { class: cls }, txt));
+  }));
+  const compareTable = (rows) => rows.map((r) => {
+    const [cls, txt] = arrow(r);
+    return h('div', { class: 'ui-cmp' }, h('span', {}, r.label), h('span', { class: 'cur' }, r.cur), h('span', { class: 'to', 'aria-hidden': 'true' }, '→'),
+      h('span', { class: 'next' }, r.next), h('span', { class: 'ui-delta' }, h('span', { class: cls }, txt)));
+  });
+  // Values on their own ('DPS 24/s  RNG 700'), for what's fitted now.
+  const values = (vals) => h('span', { class: 'ui-deltas ui-vals' }, vals.map(([code, v]) => h('span', { class: 'ui-delta' }, h('span', { class: 'k' }, code), ` ${v}`)));
+
+  function slotNode({ x, y, label, code, item, open, onclick }) {
+    return h('button', {
+      class: `ui-slot${item ? '' : ' empty'}`, type: 'button', 'aria-expanded': String(!!open), 'aria-haspopup': 'dialog',
+      'aria-label': `${label}: ${item ? item.name : 'empty'}`, style: { left: `${x}px`, top: `${y}px`, ...tierVar(item?.tier) }, onclick,
+    }, icon(code, 32, { code: item ? code : '+', tier: item?.tier }), h('span', { class: 'lbl' }, label), pips(item ? item.tier : 0));
+  }
+
+  function statChips(stats, openId, onToggle) {
+    const open = stats.find((s) => s.id === openId);
+    return [
+      h('div', { class: 'ui-chips' }, stats.map((s) => h('button', {
+        class: 'ui-chip', type: 'button', 'aria-expanded': String(s.id === openId), 'aria-label': `${s.label}: ${s.value}`,
+        onclick: () => onToggle(s.id === openId ? null : s.id),
+      }, icon(s.code, 20, { code: s.code }), h('span', {}, h('span', { class: 'v' }, s.value), h('span', { class: 'l' }, s.label))))),
+      open ? h('div', { class: 'ui-detail', role: 'region', 'aria-label': open.label, 'aria-live': 'polite' },
+        h('div', { class: 'head' }, h('span', {}, open.label), h('span', { class: 'num' }, open.value)),
+        h('span', {}, open.detail), open.from ? h('span', { class: 'src' }, open.from) : null) : null,
+    ];
+  }
+
+  function itemTiles(items, openId, onToggle) {
+    const open = items.find((i) => i.id === openId);
+    return [
+      h('div', { class: 'ui-tiles' }, items.map((it) => h('button', {
+        class: 'ui-tile', type: 'button', 'aria-expanded': String(it.id === openId), 'aria-label': `${it.name}, ${it.count}`,
+        style: tierVar(it.tier), onclick: () => onToggle(it.id === openId ? null : it.id),
+      }, it.icon || icon(it.id, 32), h('span', { class: 'n' }, `×${it.count}`)))),
+      open ? h('div', { class: 'ui-detail', style: { '--accent': TIER[open.tier] || 'var(--line)' }, 'aria-live': 'polite' },
+        h('div', { class: 'head' }, h('span', {}, open.name), h('span', { class: 'num', style: { color: 'var(--dim)', fontSize: '12px' } }, open.units || `${open.count} in hold`)),
+        open.rarity ? h('span', { class: 'ui-label', style: { color: TIER[open.tier] } }, open.rarity) : null) : null,
+    ];
+  }
+
+  function optionRow({ code, icon: art, name, tier, tag: label, tagTone, sub, rows, vals, extra, note, open, onToggle, action, locked, lockLabel, current }) {
+    const expandable = !!onToggle && !!(rows?.length || note);
+    const main = [
+      art || icon(code, 40, { code, tier }),
+      h('span', { class: 'main' },
+        h('span', { class: 'line' }, h('span', { class: 'name' }, name), tier ? mk(tier) : null,
+          label ? tag(label, tagTone ? `var(--${tagTone})` : null) : null),
+        rows?.length ? deltas(rows) : vals?.length ? values(vals) : null,
+        sub ? h('span', { class: 'sub' }, sub) : null,
+        extra || null),
+      expandable ? h('span', { class: 'chev', 'aria-hidden': 'true' }, open ? '▴' : '▾') : null,
+    ];
+    return h('div', { class: `ui-opt${locked ? ' locked' : ''}${current ? ' current' : ''}` },
+      h('div', { class: 'row' },
+        expandable ? h('button', { class: 'what', type: 'button', 'aria-expanded': String(!!open), onclick: onToggle }, main) : h('div', { class: 'what' }, main),
+        action || (locked && lockLabel !== null ? h('span', { class: 'lock' }, lockLabel || 'Locked') : null)),
+      expandable ? h('div', { class: 'more', hidden: !open }, rows?.length ? compareTable(rows) : null, note ? h('p', { class: 'ui-note' }, note) : null) : null);
+  }
+
+  const head = (label, ...aside) => h('div', { class: 'ui-head' }, h('h2', { class: 'ui-label' }, label), aside);
+  const check = (state, small) => h('span', { class: `ui-check ${state}${small ? ' sm' : ''}`, 'aria-hidden': 'true' }, state === 'done' && !small ? '✓' : '');
+  const infoTile = ({ code, label, text, tone }) => h('div', { class: 'ui-info', style: tone ? { '--tone': tone } : undefined },
+    icon(code, 32, { code }), h('span', { class: 'main' }, h('span', { class: 'ui-label' }, label), h('span', { class: 'txt' }, text)));
+  const callout = (text, tone) => h('p', { class: 'ui-callout', role: 'status', style: tone ? { '--tone': tone } : undefined }, text);
+
+  function quote({ from, kind, face, lines, color, more }) {
+    return h('div', { class: 'ui-quote', style: color ? { '--from': color } : undefined },
+      face || icon('face', 56, { code: 'FACE' }),
+      h('div', { class: 'main' },
+        h('span', { class: 'ui-label' }, kind ? `${from} · ${kind}` : from),
+        lines.map((text) => h('p', {}, UI.rich(text))),
+        more || null));
+  }
+
+  const disclosure = ({ label, open, onToggle }) => h('button', { class: 'ui-disclosure', type: 'button', 'aria-expanded': String(!!open), onclick: onToggle },
+    h('span', {}, label), h('span', { 'aria-hidden': 'true' }, open ? '▴' : '▾'));
+
+  // ---------- Bottom sheet ----------
+  let current = null;
+  let ownLayer = null;
+  function sheet(opts) {
+    if (current) current.close(true);
+    const host = opts.host || (ownLayer ||= document.body.appendChild(h('div', { class: 'ui-layer', hidden: true })));
+    const returnFocus = document.activeElement;
+    const kickerEl = h('span', { class: 'ui-tag' }), titleEl = h('span', { class: 't' }), subEl = h('span', { class: 's' });
+    const iconEl = h('span', {});
+    const closeBtn = h('button', { class: 'ui-iconbtn', type: 'button', 'aria-label': 'Close', title: 'Close (Esc)', onclick: () => close() }, '×');
+    const bodyEl = h('div', { class: 'body' }), footEl = h('div', { class: 'foot' });
+    const panel = h('div', { class: 'ui-sheet ui', role: 'dialog', 'aria-modal': 'true' },
+      h('div', { class: 'grab', 'aria-hidden': 'true' }),
+      h('div', { class: 'head' }, iconEl, h('div', { class: 'titles' }, kickerEl, titleEl, subEl), closeBtn),
+      bodyEl, footEl);
+    // On click, not pointer down: closing on the down would hand the click to whatever is under it.
+    const scrim = h('div', { class: 'ui-scrim', onclick: () => close() });
+
+    function fill(o) {
+      panel.className = `ui-sheet ui${o.tall ? ' tall' : ''}`;
+      panel.setAttribute('aria-label', o.title);
+      iconEl.replaceChildren(...(o.code ? [icon(o.code, 32, { code: o.code })] : []));
+      iconEl.hidden = !o.code;
+      kickerEl.textContent = o.kicker || '';
+      kickerEl.hidden = !o.kicker;
+      kickerEl.style.setProperty('--tone', o.kickerColor || '');
+      titleEl.textContent = o.title;
+      subEl.textContent = o.sub || '';
+      subEl.hidden = !o.sub;
+      const scroll = bodyEl.scrollTop;
+      bodyEl.replaceChildren(...nodes(o.body));
+      bodyEl.scrollTop = scroll;
+      footEl.replaceChildren(...nodes(o.foot));
+      footEl.hidden = !nodes(o.foot).length;
+    }
+
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); return; }
+      if (e.key !== 'Tab') return;
+      const items = [...panel.querySelectorAll('button:not([disabled])')];
+      const i = items.indexOf(document.activeElement);
+      if (items.length && (i < 0 || (e.shiftKey && i === 0) || (!e.shiftKey && i === items.length - 1))) {
+        e.preventDefault();
+        items[e.shiftKey ? items.length - 1 : 0].focus();
+      }
+    };
+    let open = true;
+    function close(silent) {
+      if (!open) return;
+      open = false;
+      host.replaceChildren();
+      host.hidden = true;
+      window.removeEventListener('keydown', onKey, true);
+      if (current === handle) current = null;
+      if (!silent && opts.onClose) opts.onClose();
+      if (!silent && returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
+    }
+
+    fill(opts);
+    host.replaceChildren(scrim, panel);
+    host.hidden = false;
+    window.addEventListener('keydown', onKey, true);
+    (bodyEl.querySelector('button:not([disabled])') || closeBtn).focus({ preventScroll: true });
+    const handle = {
+      close,
+      // New contents for the same sheet (after something in it changed); keeps the scroll position,
+      // and moves focus to × if the focused button went away.
+      update(o) {
+        if (!open) return;
+        fill(o);
+        const f = document.activeElement;
+        if (!f || !f.isConnected || f === document.body) closeBtn.focus({ preventScroll: true });
+      },
+      get isOpen() { return open; },
+    };
+    current = handle;
+    return handle;
+  }
+
+  // ---------- Toast ----------
+  let toastEl = null, toastTimer = null;
+  function toast(text, tone = 'good') {
+    toastEl ||= document.body.appendChild(h('div', { class: 'ui-toast ui', role: 'status', 'aria-live': 'polite', hidden: true }));
+    toastEl.textContent = text;
+    toastEl.style.setProperty('--tone', `var(--${tone})`);
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { toastEl.hidden = true; }, 2400);
+    return toastEl;
+  }
+
+  return {
+    TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
+    slotNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
+  };
+})();
+
+export { Kit };
