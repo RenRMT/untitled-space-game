@@ -110,8 +110,9 @@ interaction: escort or trade contracts, freighters pirates attack, patrols that 
 ## Trade goods research doesn't use
 
 **What they were.** The catalogue (`goods.js`) had 62 trade goods in nine categories, each with a
-rarity (common to exotic), a base price and a colour of its own. It now keeps the 21 that research
-(`research.js`) asks for:
+rarity (common to exotic), a base price and a colour of its own. It kept the 21 that research
+(`research.js`) asked for (industry has since added raw materials and parts of its own: see
+`industry.md`):
 
 | Category | Kept | Taken out |
 | --- | --- | --- |

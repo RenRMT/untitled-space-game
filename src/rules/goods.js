@@ -1,7 +1,8 @@
 // The item catalogue: every kind of trade good and salvaged component, with its rarity, base price
 // and colour. Items are grouped into categories:
-// - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits): just
-//   the ones research uses (rules/research.js), from iron to plasma conduit,
+// - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits): raw
+//   materials mined and collected, and what industry makes of them (rules/recipes.js), from iron to
+//   AI cores,
 // - salvaged components (hull, weapon, computer, drive): generic, in five tiers from simple to
 //   exotic ("Simple computer components"), used up by research (rules/research.js). They're never
 //   traded, so their price is only a guide to what they're worth.
@@ -17,7 +18,8 @@
 //   Goods.component(cat, tier)  -> the component type id of a category at a tier (1–5)
 //   Goods.ofCategory(cat)       -> types of a category, commonest first
 //   Goods.categories(group)     -> category ids of 'trade' or 'salvage'
-//   Goods.pick(rng, cat)        -> a type id of that category, rarer ones less likely
+//   Goods.pick(rng, cat, where?) -> a type id of that category, rarer ones less likely; where: a stage, or
+//                                  a test of the type, narrows it
 //   Goods.resolve(kind, label?) -> the current type id for an item from an older save, or null
 // ES module (`Goods`); also runs in Node (the tests).
 
@@ -49,18 +51,23 @@ const Goods = (() => {
   };
 
   // Trade goods: [id, name, rarity, price, [hue, saturation, lightness]] per category, commonest
-  // first. (Components are added below.)
+  // first. (Components are added below.) A made good is worth more than what it's made of
+  // (rules/recipes.js), so prices rise along the chain.
   const TABLE = {
     metal: [
       ['iron', 'Iron', 1, 35, [212, 0.12, 0.42]],
+      ['copper-ore', 'Copper ore', 1, 30, [22, 0.6, 0.5]],
       ['titanium', 'Titanium', 2, 110, [255, 0.25, 0.6]],
       ['platinum', 'Platinum', 4, 600, [175, 0.45, 0.72]],
     ],
     mineral: [
+      ['silicates', 'Silicates', 1, 25, [45, 0.3, 0.7]],
+      ['carbon', 'Carbon', 1, 20, [0, 0, 0.22]],
       ['corundum', 'Corundum', 3, 220, [222, 0.75, 0.52]],
       ['diamond', 'Diamond', 4, 550, [195, 0.7, 0.86]],
     ],
     gas: [
+      ['water-ice', 'Water ice', 1, 20, [190, 0.5, 0.88]],
       ['deuterium', 'Deuterium', 3, 170, [28, 0.85, 0.55]],
       ['helium-3', 'Helium-3', 4, 420, [55, 0.95, 0.6]],
     ],
@@ -68,23 +75,31 @@ const Goods = (() => {
       ['carbon-fibre', 'Carbon fibre', 2, 140, [220, 0.12, 0.3]],
       ['aerogel', 'Aerogel', 3, 300, [195, 0.75, 0.84]],
       ['graphene', 'Graphene', 3, 330, [160, 0.25, 0.42]],
-      ['metamaterial', 'Metamaterial', 4, 750, [140, 0.75, 0.5]],
+      ['hull-plating', 'Hull plating', 3, 390, [30, 0.2, 0.58]],
+      ['focusing-lens', 'Focusing lens', 3, 450, [280, 0.7, 0.72]],
+      ['metamaterial', 'Metamaterial', 4, 1200, [140, 0.75, 0.5]],
     ],
     crates: [
-      ['electronics', 'Electronics', 2, 110, [160, 0.6, 0.42]],
-      ['robotics', 'Robotics', 3, 280, [45, 0.9, 0.55]],
-      ['ai-cores', 'AI cores', 4, 800, [190, 0.85, 0.55]],
+      ['electronics', 'Electronics', 2, 170, [160, 0.6, 0.42]],
+      ['actuator', 'Actuators', 2, 340, [0, 0, 0.62]],
+      ['power-cell', 'Power cells', 3, 370, [100, 0.75, 0.5]],
+      ['sensor-array', 'Sensor arrays', 3, 390, [320, 0.6, 0.6]],
+      ['thruster-nozzle', 'Thruster nozzles', 3, 460, [8, 0.75, 0.48]],
+      ['capacitor', 'Capacitors', 3, 560, [255, 0.6, 0.62]],
+      ['robotics', 'Robotics', 3, 640, [45, 0.9, 0.55]],
+      ['ai-cores', 'AI cores', 4, 2900, [190, 0.85, 0.55]],
     ],
     barrels: [
       ['hydrazine', 'Hydrazine', 2, 70, [32, 0.85, 0.52]],
-      ['nanite-suspension', 'Nanite suspension', 4, 520, [200, 0.1, 0.78]],
+      ['nanite-suspension', 'Nanite suspension', 4, 1200, [200, 0.1, 0.78]],
     ],
     tubes: [
-      ['steel-pipe', 'Steel pipe', 1, 50, [210, 0.1, 0.55]],
+      ['steel-pipe', 'Steel pipe', 1, 100, [210, 0.1, 0.55]],
       ['copper-cable', 'Copper cable', 2, 110, [18, 0.65, 0.45]],
       ['optical-fibre', 'Optical fibre', 2, 135, [185, 0.85, 0.62]],
-      ['superconductor', 'Superconductor cable', 3, 320, [230, 0.75, 0.62]],
-      ['plasma-conduit', 'Plasma conduit', 4, 700, [330, 0.8, 0.6]],
+      ['superconductor', 'Superconductor cable', 3, 480, [230, 0.75, 0.62]],
+      ['cooling-loop', 'Cooling loops', 3, 1100, [100, 0.6, 0.45]],
+      ['plasma-conduit', 'Plasma conduit', 4, 1550, [330, 0.8, 0.6]],
     ],
   };
 
@@ -110,10 +125,11 @@ const Goods = (() => {
   // Production stages, in chain order (rules/recipes.js makes each from earlier ones).
   const STAGES = ['raw', 'salvage', 'refined', 'advanced', 'part'];
   const STAGE_OF = {
-    raw: ['iron', 'titanium', 'platinum', 'corundum', 'diamond', 'deuterium', 'helium-3'],
+    raw: ['iron', 'copper-ore', 'titanium', 'platinum', 'silicates', 'carbon', 'corundum', 'diamond', 'water-ice', 'deuterium', 'helium-3'],
     refined: ['steel-pipe', 'copper-cable', 'carbon-fibre', 'hydrazine'],
     advanced: ['graphene', 'aerogel', 'superconductor', 'optical-fibre', 'metamaterial'],
-    part: ['electronics', 'robotics', 'ai-cores', 'plasma-conduit', 'nanite-suspension'],
+    part: ['electronics', 'actuator', 'power-cell', 'sensor-array', 'thruster-nozzle', 'capacitor', 'robotics', 'ai-cores',
+      'hull-plating', 'focusing-lens', 'cooling-loop', 'plasma-conduit', 'nanite-suspension'],
   };
   const stageOf = (id, category) => (CATEGORIES[category].group === 'salvage' ? 'salvage'
     : Object.keys(STAGE_OF).find((st) => STAGE_OF[st].includes(id)));
@@ -136,10 +152,11 @@ const Goods = (() => {
   // 'computer-complex', or null.
   const component = (category, tier) => (COMPONENTS[category] && TIERS[tier] ? `${category}-${TIERS[tier].toLowerCase()}` : null);
 
-  // A type of a category: first its rarity, weighted by how common each level is, then one of the
-  // types at that level. Uses two numbers from rng.
-  function pick(rng, cat) {
-    const list = ofCategory(cat);
+  // A type of a category (and of a stage, if given): first its rarity, weighted by how common each
+  // level is, then one of the types at that level. Uses two numbers from rng.
+  function pick(rng, cat, where) {
+    const keep = typeof where === 'function' ? where : (t) => !where || t.stage === where;
+    const list = ofCategory(cat).filter(keep);
     const levels = [...new Set(list.map((t) => t.rarity))];
     const total = levels.reduce((n, l) => n + RARITY[l].weight, 0);
     let x = rng() * total, level = levels[levels.length - 1];

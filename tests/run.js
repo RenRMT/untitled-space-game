@@ -27,6 +27,7 @@ import { Logic } from '../src/rules/logic.js';
 import { Squad } from '../src/rules/squad.js';
 import { HullMods } from '../src/rules/hullmods.js';
 import { Research } from '../src/rules/research.js';
+import { Recipes } from '../src/rules/recipes.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -797,6 +798,73 @@ test('rarer items turn up less often: picks, floating cargo and market stock', (
   for (let l = 2; l < 4; l++) assert(rate[l] > rate[l + 1], `stock rates: ${rate.map((v) => v.toFixed(2)).join('/')}`);
 });
 
+// ---------- Industry ----------
+
+const STAGE_RANK = { raw: 0, salvage: 0, refined: 1, advanced: 2, part: 3 };
+test('recipes: real goods in and out, made from earlier stages, and no loops', () => {
+  assert.strictEqual(new Set(Recipes.LIST.map((r) => r.id)).size, Recipes.LIST.length);
+  for (const r of Recipes.LIST) {
+    assert(Recipes.BAYS[r.bay], `${r.id}: bay ${r.bay}`);
+    assert(r.time > 0 && Object.keys(r.in).length && Object.keys(r.out).length, r.id);
+    for (const [kind, n] of [...Object.entries(r.in), ...Object.entries(r.out)]) assert(Goods.type(kind) && Number.isInteger(n) && n > 0, `${r.id}: ${kind} × ${n}`);
+    assert(r.unlock === null || Research.PACKAGES[r.unlock], `${r.id}: unlock ${r.unlock}`);
+    const rank = (k) => STAGE_RANK[Goods.type(k).stage];
+    assert(Math.min(...Object.keys(r.out).map(rank)) >= Math.max(...Object.keys(r.in).map(rank)), `${r.id} goes back down the chain`);
+  }
+  // No loops: everything made can be made, in some order, from raw materials and salvage.
+  const have = new Set(Object.values(Goods.TYPES).filter((t) => t.stage === 'raw' || t.stage === 'salvage').map((t) => t.id));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const r of Recipes.LIST) {
+      if (!Object.keys(r.in).every((k) => have.has(k))) continue;
+      for (const k of Object.keys(r.out)) if (!have.has(k)) { have.add(k); changed = true; }
+    }
+  }
+  for (const t of Object.values(Goods.TYPES)) assert(have.has(t.id), `${t.id} can't be had`);
+});
+
+test('every trade good has a source and a use beyond selling', () => {
+  // Sources: mined, collected or made.
+  const mined = new Set();
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const s = systems.get(seed);
+    for (const e of thingsOf(seed, 'asteroid')) { const y = Mining.yieldOf(s.seed, e); if (y) mined.add(y.kind); }
+    for (const e of thingsOf(seed, 'gas')) for (const y of Mining.gasOf(s.seed, e)) mined.add(y.kind);
+  }
+  const research = new Set(Object.values(Research.PACKAGES).flatMap((p) => Object.keys(p.cost)));
+  for (const cat of Goods.categories('trade')) {
+    for (const t of Goods.ofCategory(cat)) {
+      if (t.stage === 'raw') assert(mined.has(t.id), `${t.id} is raw but never mined or collected`);
+      else assert(Recipes.producers(t.id).length, `${t.id} is never made`);
+      if (t.stage !== 'part') assert(Recipes.consumers(t.id).length || research.has(t.id), `${t.id} has no use`);
+    }
+  }
+  for (const t of Object.values(Goods.TYPES)) if (t.stage === 'raw' || t.stage === 'salvage') assert(!Recipes.producers(t.id).some((r) => !Object.keys(r.in).some(Goods.isSalvage)), `${t.id} is raw, not made`);
+});
+
+test('a recipe makes something worth more than what goes in, but not absurdly more', () => {
+  for (const r of Recipes.LIST) {
+    const k = Recipes.value(r.out) / Recipes.value(r.in);
+    assert(k >= 1.1 && k <= 4, `${r.id}: worth ×${k.toFixed(2)} what goes in`);
+  }
+});
+
+test('markets: raw and refined goods are stocked, parts less often, the rarest parts never', () => {
+  const stocked = {}, offered = {};
+  for (const seed of STATION_SEEDS) {
+    for (const st of stationsOf(seed)) {
+      for (const g of Economy.market(seed, st).goods) {
+        const stage = Goods.type(g.kind).stage;
+        offered[stage] = (offered[stage] || 0) + 1;
+        if (g.buy !== null) stocked[stage] = (stocked[stage] || 0) + 1;
+        if (stage === 'part' && g.rarity >= Economy.config.madeOnly) assert.strictEqual(g.buy, null, `${g.kind} sold at ${st.name}`);
+      }
+    }
+  }
+  const rate = (s) => (stocked[s] || 0) / offered[s];
+  assert(rate('raw') > rate('part') && rate('refined') > rate('part'), JSON.stringify(stocked));
+});
+
 test('saves: old data steps up a version at a time; a burst of changes is one write', () => {
   const steps = [(d) => { d.a = 1; }, (d) => { d.b = d.a + 1; }];
   assert.deepStrictEqual(Save.migrate({}, steps), { a: 1, b: 2, version: 2 }, 'from before versions');
@@ -816,10 +884,10 @@ test('saves: old data steps up a version at a time; a burst of changes is one wr
 
 test('old saves: item categories and labels become item types', () => {
   assert.strictEqual(Goods.resolve('metal'), 'iron');
-  assert.strictEqual(Goods.resolve('gas'), 'deuterium');
+  assert.strictEqual(Goods.resolve('gas'), 'water-ice');
   assert.strictEqual(Goods.resolve('hull'), 'hull-simple');
   assert.strictEqual(Goods.resolve(undefined, 'Railgun barrel'), 'weapon-simple');
-  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'corundum');
+  assert.strictEqual(Goods.resolve(undefined, 'Ore crystals'), 'silicates');
   assert.strictEqual(Goods.resolve('titanium'), 'titanium');
   assert.strictEqual(Goods.resolve('unobtainium'), null);
   // Goods and categories taken out of the catalogue are dropped from old saves.

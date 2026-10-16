@@ -5,7 +5,10 @@
 // - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, common types are always stocked and rarer ones less often (more
-//   often where the category is produced); exotics are never sold, only found.
+//   often where the category is produced); exotics are never sold, only found,
+// - goods further along the production chain (rules/goods.js stage) are stocked less often, except
+//   where they're made, and the rarest parts (AI cores, plasma conduit, nanite suspension) never:
+//   they have to be made.
 // Salvaged components aren't traded at all: they're used for research (rules/research.js), hull
 // refits among it.
 // Equipment (rules/loadout.js) is sold by each station's outfitter (outfitter()): Mk I everywhere,
@@ -34,6 +37,10 @@ const Economy = (() => {
     // used to be (very rare ones were 5% and 15%).
     stock: [null, 1, 0.7, 0.4, 0.2, 0],
     stockProduced: [null, 1, 1, 0.7, 0.4, 0],
+    // ... times this, by production stage, where the category isn't produced; parts this rare or
+    // rarer are never stocked.
+    stockStage: { raw: 1, refined: 1, advanced: 0.6, part: 0.5 },
+    madeOnly: 4,
     startingCredits: 500,
   };
 
@@ -79,8 +86,10 @@ const Economy = (() => {
       const factor = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
         const price = t.price * factor * jitter();
-        // The commonest type of a category on sale is always stocked; the rest by rarity.
-        const stocked = forSale.has(category) && (r() < (produced ? config.stockProduced : config.stock)[t.rarity] || t === G.ofCategory(category)[0]);
+        // The commonest type of a category on sale is always stocked; the rest by rarity and stage.
+        const chance = produced ? config.stockProduced[t.rarity] : config.stock[t.rarity] * (config.stockStage[t.stage] ?? 1);
+        const madeOnly = t.stage === 'part' && t.rarity >= config.madeOnly;
+        const stocked = forSale.has(category) && !madeOnly && (r() < chance || t === G.ofCategory(category)[0]);
         goods.push({
           kind: t.id, category, rarity: t.rarity, produced, consumed,
           buy: stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,

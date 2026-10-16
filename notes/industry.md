@@ -32,11 +32,16 @@ code follows it phase by phase.
 
 | Stage | Made at (base time per item) | Goods |
 |---|---|---|
-| raw | mined, gas, salvage | iron, titanium, platinum, corundum, diamond, deuterium, helium-3; later copper ore, silicates, carbon, water ice |
+| raw | mined, gas, salvage | iron, copper ore, titanium, platinum, silicates, carbon, corundum, diamond, water ice, deuterium, helium-3 |
 | refined | refinery (20 s) | steel pipe, copper cable, carbon fibre, hydrazine |
-| advanced | refinery | graphene, aerogel, superconductor, optical fibre, metamaterial |
-| part | fabricator (30 s) | electronics, robotics, AI cores, plasma conduit, nanite suspension; later focusing lens, capacitor, power cell, actuator, hull plating, sensor array, thruster nozzle, cooling loop |
+| advanced | refinery (25–60 s) | graphene, aerogel, superconductor, optical fibre, metamaterial |
+| part | fabricator (30–90 s) | electronics, actuators, power cells, sensor arrays, thruster nozzles, capacitors, hull plating, focusing lenses, cooling loops, robotics, plasma conduit, nanite suspension, AI cores |
 | item | assembler (2 m to 2 h by Mk) | gear Mk I–V, mods; later consumables and refit kits |
+
+Salvaged components are recycled at a refinery: simple and standard ones into refined goods,
+advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives carbon, icy rock
+water ice, and nebula gas pockets the rarer gases. Markets stock goods further along the chain
+less often (except where they're made), and never the rarest parts, which have to be made.
 
 Station specialties (×1.25 speed): mining camps and salvage yards run refineries, waystations and
 major stations run fabricators, and capitals run assemblers. A crafted good is worth 1.15–4× its
@@ -66,7 +71,7 @@ work settled after a long time offline speeds up exactly when the bonus finished
 1. Hull refits move into the Hull research group (save migration 7). *(done)*
 1b. The Research tab redrawn like the Ship tab: a lab bench, groups, a tech tree schematic, a sheet
     per node, and what research adds (`ui/research-view.js`, `Research.layout`). *(done)*
-2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage.
+2. New goods and recipes (`rules/recipes.js`); mining yields name goods; markets stock by stage. *(done)*
 3. Facilities: leased bays, station warehouses, offline settlement in event order
    (`rules/industry.js`), and the Industry tab.
 4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints.
