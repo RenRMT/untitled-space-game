@@ -4,8 +4,8 @@
 // index.html lists them into a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
-// settings and a start-style switch. It opens on the introduction and the two opening missions,
-// which the first three tests play through. Each step checks its effect; at the end nothing may have
+// settings and a start-style switch. It opens on the introduction and the waystation's three
+// missions, which the first four tests play through. Each step checks its effect; at the end nothing may have
 // been drawn at a non-finite position. The steps share one game, in order, as a player would
 // play them.
 
@@ -211,7 +211,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.strictEqual(game('fight.s.enemies.length'), 2, 'the pair fights together');
   assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
   assert.strictEqual(game('fight.result'), 'won');
-  assert.strictEqual(game('cargo.missions.count(OPENING, "pirates")'), 2);
+  assert.ok(until('cargo.missions.count(OPENING, "pirates") === 2', 60 * 3), 'both down (once the last explosion plays)');
   // Once the fight is over, the android calls.
   assert.ok(until('!!talk.lines', 60 * 10), 'the android calls');
   assert.match(textOf(comms), new RegExp(`${game('mission.vars.ship')}.*Your hull registry matches`));
@@ -321,7 +321,12 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   assert.match(game('toast.text'), new RegExp(`^${game('mission.vars.hostile')} attacks!`));
   assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
   assert.strictEqual(game('fight.result'), 'won');
-  assert.ok(until('cargo.missions.done(SALVAGE, "hostile")', 60 * 3), 'destroyed (once its explosion plays)');
+  // Done for, though it blows up a moment later: meanwhile it can't start another fight.
+  for (let i = 0; i < 180 && !game('cargo.removed.has(mission.salvage.hostile.key)'); i++) {
+    assert.ok(!game('fight.s'), 'no second fight with a destroyed ship');
+    browser.frames(1);
+  }
+  assert.ok(game('cargo.missions.done(SALVAGE, "hostile") && !fight.dying.size'), 'destroyed (once its explosion plays)');
   browser.frames(2);
   assert.ok(game('frameList.includes(mission.module)'), 'it left the AI logic module');
   // The squad member is puzzled.
@@ -371,6 +376,87 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   game('loadCargo(world.galaxy)');
   assert.deepStrictEqual(game('[cargo.missions.status(OPENING), cargo.missions.status(SALVAGE)]'), ['done', 'done'], 'an even older save');
   // On to the usual start, with the usual settings.
+  game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
+});
+
+test('the gate mission: the squad member unblocks the gate under attack, and gets its first combat logic module', () => {
+  const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
+  const tab = () => textOf(body);
+  const press = (label) => {
+    const b = allOf(body).find((el) => el.tagName === 'BUTTON' && textOf(el) === label);
+    assert.ok(b, `a ${label} button`);
+    b.dispatch('click', {});
+  };
+  const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
+  const win = (what) => {
+    assert.ok(until('!!fight.s', 60 * 10), `${what}: the pirates attack`);
+    game('cargo.hull = SHIP.hull');
+    assert.ok(until('!inFight()', 120 * 60), `${what}: the fight ends`);
+    assert.strictEqual(game('fight.result'), 'won', what);
+  };
+  // Offered at the waystation once the debt is settled: optional, so nothing is locked.
+  game('cargo.hull = SHIP.hull; repairSquad(); placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
+  assert.deepStrictEqual(game('stationLocks().tabs'), []);
+  assert.ok(!game('stationLocks().launch'), 'Launch is open');
+  game(`StationMenu.showTab('missions')`);
+  assert.match(tab(), /Gated community/);
+  assert.match(tab(), /Optional/);
+  assert.match(tab(), /We deactivated it as a security measure/);
+  assert.match(tab(), /Waystation HD-1908/);
+  assert.ok(game('gatesOnline() === false'), 'the gate is offline');
+  press('Accept');
+  assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'active');
+  game('combatMode.set("rounds"); launch()');
+  assert.match(textOf(comms), /The jump gate is marked on your map/);
+  talkThrough();
+  browser.frames(2);
+  assert.match(game('objective().text'), /^Escort .* to the jump gate/);
+  assert.deepStrictEqual(game('[objective().x, objective().y]'), game('[mission.gate.x, mission.gate.y]'));
+  // At the gate: the squad member starts work, flies to its spot and cuts at the blocks.
+  game('fight.grace = 0; placeShip(mission.gate.work.x - 400, mission.gate.work.y, 0)');
+  browser.frames(2);
+  assert.ok(game('cargo.missions.done(GATE_JOB, "reach")'), 'reached');
+  assert.match(textOf(comms), /Beginning work on the gate blocks/);
+  talkThrough();
+  browser.frames(240);
+  const at = game('{ const w = wings.get(firstMember().id); Math.hypot(w.x - mission.gate.work.x, w.y - mission.gate.work.y) }');
+  assert.ok(at < 60, `at its spot by the gate (${at.toFixed(0)} off)`);
+  assert.ok(game('cargo.missions.count(GATE_JOB, "work")') > 0, 'the work goes on');
+  assert.match(game('objective().text'), /^Protect .* while it disables the gate blocks · \d+%/);
+  // A third of the way in, a pirate; then two more.
+  game('mission.work = Missions.GATE.workAt - 0.2');
+  assert.ok(until('cargo.missions.done(GATE_JOB, "ambush")', 60 * 2), 'the ambush');
+  win('the first wave');
+  assert.ok(until('cargo.missions.count(GATE_JOB, "pirates") === 1', 60 * 3), 'one down');
+  assert.ok(game('cargo.missions.count(GATE_JOB, "work") < 100'), 'the work waits for the pirates');
+  assert.ok(until('!!fight.s', 60 * 10), 'the second wave attacks');
+  assert.strictEqual(game('fight.s.enemies.length'), 2, 'two in the second wave');
+  win('the second wave');
+  assert.ok(until('cargo.missions.count(GATE_JOB, "pirates") === 3', 60 * 3), 'all three down');
+  // The work finishes; the squad member reports.
+  game('mission.work = 99.5');
+  assert.ok(until('!!talk.lines', 60 * 10), 'the squad member reports');
+  assert.match(textOf(comms), /The gate blocks are disabled/);
+  talkThrough();
+  assert.match(game('objective().text'), /^Return to Waystation HD-1863/);
+  game('placeShip(waystation().x, waystation().y + waystation().radius + 150); dock(waystation())');
+  assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'ready');
+  game(`StationMenu.showTab('missions')`);
+  // Handed in: the gate online, the squad member's first combat logic module.
+  press('Complete mission');
+  assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'done');
+  assert.match(tab(), /Jump gate activated/);
+  assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
+  assert.match(tab(), /share our findings with Waystation HD-1908/);
+  assert.deepStrictEqual(game('Squad.modulesOf(firstMember())'), ['assist-leader'], 'its first combat logic module');
+  assert.ok(game('gatesOnline() && !world.scene.gates[mission.gate.gate].offline'), 'the gate is online');
+  game(`StationMenu.showTab('squad')`);
+  assert.match(tab(), /Combat logic module · Assist leader/);
+  game('launch()');
+  browser.frames(3);
+  assert.strictEqual(game('objective()'), null, 'nothing more to do');
+  // The tests after this one start from offline gates and a fresh squad member.
+  game('cargo.story.delete("gates"); showGates(); Squad.remove(firstMember(), firstMember().modules.indexOf("assist-leader")); saveCargo()');
   game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
 });
 
