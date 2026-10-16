@@ -16,6 +16,7 @@
 // - Allies (squad members) fly the same way at the enemy their orders name, locking on and firing
 //   by the same rules; with no target they hold their place in formation (setOrders).
 // - Escape: stay clear of every enemy's guns for a few seconds.
+// - Abilities (rules/abilities.js) wear off on fight time (s.t); a ship an EMP has silenced holds fire.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
 // the enemies and does the numbers. Deterministic for a given rng.
@@ -24,6 +25,7 @@
 import { CombatCore } from './combat-core.js';
 import { MathUtil } from '../core/math.js';
 import { Flight } from '../flight/flight.js';
+import { Abilities } from '../rules/abilities.js';
 
 const RealtimeCombat = (() => {
   const F = Flight;
@@ -138,6 +140,7 @@ const RealtimeCombat = (() => {
 
   // Every ready weapon that can reach the target fires once per 1/fireRate seconds.
   function fire(s, a, t, dt, events) {
+    if (Abilities.disabled(a, s.t)) { a.cool.forEach((c, i) => { a.cool[i] = Math.max(0, c - dt); }); return; }
     a.stats.weapons.forEach((w, i) => {
       a.cool[i] -= dt;
       if (a.cool[i] > 0) return;
@@ -292,6 +295,7 @@ const RealtimeCombat = (() => {
     const p = s.player;
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
     s.t += dt;
+    for (const c of [p, ...allies(s), ...alive(s)]) Abilities.tick(c, s.t);
     for (const e of alive(s)) steer(s, e, dt);
     for (const a of allies(s)) steerAlly(s, a, dt);
     updateFocus(s, events);

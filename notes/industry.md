@@ -100,4 +100,9 @@ work settled after a long time offline speeds up exactly when the bonus finished
 6. Mods (`rules/mods.js`): fourteen fixed trades across the five kinds of gear, researched per kind
    (`mods.<slot>`), assembled from parts, fitted from a slot's sheet on the Ship tab (room by Mk: I
    none, II–III one, IV–V two), kept with the slot when its gear is swapped (migration 10). *(done)*
-7. Later: consumables through `use()`, squad refit kits, logistics between warehouses.
+7. Abilities (`rules/abilities.js`): consumables an assembler makes (repair nanites, shield cells,
+   EMP charges, jammer pods), carried in the kit (migration 11) and spent a charge at a time in a
+   fight, with a cooldown per ship. The player uses them from buttons on the combat panel; squad
+   members by `use` lines (`tactics.use`, no longer hidden), which run only when there's a charge,
+   it's off cooldown and it would help. EMP and jamming are timed statuses on fight time, so both
+   combat modes see them. *(done)* Still open: squad refit kits, and logistics between warehouses.

@@ -37,6 +37,9 @@ station outfitters and found as schematics on pirates. Hull refits are researche
 
 ## Abilities are not logic
 
+*Built: abilities are consumables industry makes (`rules/abilities.js`, see `industry.md` phase 7);
+energy was left out, a charge per use and a cooldown do its job.*
+
 **Decision:** logic modules only decide; they never grant abilities. Abilities (crowd control,
 debuffs, repairs, boosts) must be open to the player too, so they will come from somewhere else,
 most likely **gear**. Logic has a seam ready for them:

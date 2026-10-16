@@ -8,6 +8,7 @@ import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
 import { Economy } from '../rules/economy.js';
+import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
@@ -33,14 +34,15 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // (repaired at stations). home: the last station docked at, where a lost ship is towed.
 // loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
-// loadout, rules/mods.js); lab: research (rules/research.js: what's done, building and queued,
+// loadout, rules/mods.js); kit: consumables for abilities in a fight ({ [ability id]: charges },
+// rules/abilities.js), which take no room in the hold; lab: research (rules/research.js: what's done, building and queued,
 // blueprints and hull refits among it); industry: bays leased at stations and their warehouses
 // (rules/industry.js); squad: the squad members (rules/squad.js), with their programs
 // and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, lab: Research.empty(), industry: Industry.empty(), squad: [], story: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), squad: [], story: new Set(),
   missions: Missions.create(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
@@ -108,6 +110,7 @@ export function loadCargo(galaxy) {
   cargo.loadout = Loadout.starter('courier');
   cargo.gear = {};
   cargo.mods = {};
+  cargo.kit = {};
   cargo.lab = Research.empty();
   cargo.industry = Industry.empty();
   cargo.squad = []; // the first member joins at the end of the first mission
@@ -217,6 +220,10 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     if (!d.mods) d.mods = {};
   },
+  // 11. Abilities: an empty kit.
+  (d) => {
+    if (!d.kit) d.kit = {};
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -268,6 +275,7 @@ export function readCargo(d) {
   if (d.missions) cargo.missions = Missions.create(d.missions);
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
+  if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
   if (Array.isArray(d.items)) cargo.items = d.items.map(upgradeItem).filter((it) => it && !Goods.isSalvage(it.kind));
@@ -287,7 +295,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-  loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, lab: cargo.lab, industry: cargo.industry, squad: cargo.squad,
+  loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, squad: cargo.squad,
   story: [...cargo.story], missions: cargo.missions.save(),
 }), 1000);
 export const saveCargo = () => cargoSave.change();

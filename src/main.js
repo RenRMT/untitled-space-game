@@ -16,6 +16,7 @@
 //   core/         maths, randomness, saved data, display, colours
 
 import { Art } from './art/render.js';
+import { Abilities } from './rules/abilities.js';
 import { ArtBodies } from './art/bodies.js';
 import { Combat } from './combat/combat.js';
 import { Economy } from './rules/economy.js';
@@ -72,7 +73,7 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Knowledge, Loadout,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Knowledge, Loadout,
   Logic, Mining, Missions, Recipes, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {

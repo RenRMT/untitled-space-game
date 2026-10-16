@@ -9,12 +9,13 @@ import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { Scene } from '../flight/scene.js';
+import { Abilities } from '../rules/abilities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
-import { cargo, dropEntity, saveCargo } from './cargo.js';
+import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
@@ -338,6 +339,30 @@ export function tickFight(dt) {
   }
 }
 
+// An ability (rules/abilities.js) used in the fight under way: a charge from the kit, by the player or
+// a squad member, on a combatant (by id), if it's ready. Shown over the target and in the panel's log.
+export function useAbility(s, user, id, targetId) {
+  if (!s || s.over || (cargo.kit[id] || 0) < 1) return false;
+  const target = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === targetId);
+  const ev = Abilities.use(user, id, target, s.t);
+  if (!ev) return false;
+  addTo(cargo.kit, id, -1);
+  saveCargo();
+  const a = Abilities.ABILITIES[id], friend = a.on === 'friend';
+  fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: target.id, jx: 0, text: ev.amount ? `+${Math.round(ev.amount)}` : a.name, color: friend ? COLORS.good : COLORS.flame });
+  const who = user === s.player ? 'You' : user.name, on = target === user ? '' : ` on ${target === s.player ? 'you' : target.name}`;
+  fightLog(`${who} used ${a.name}${on}`);
+  return true;
+}
+// The player's ability buttons: what each would be used on (yourself, or the enemy you're targeting).
+const playerTarget = (s, id) => (Abilities.ABILITIES[id].on === 'friend' ? s.player.id : s.focus);
+export function abilityButtons(s) {
+  return Abilities.LIST.filter((a) => cargo.kit[a.id] > 0).map((a) => {
+    const t = [s.player, ...s.enemies].find((c) => c.id === playerTarget(s, a.id));
+    return { id: `ability:${a.id}`, code: a.code, label: a.name, count: cargo.kit[a.id], enabled: Abilities.ready(s.player, a.id, t, s.t) };
+  });
+}
+
 // Target an enemy (a tap on it, its marker or its row).
 export function focusOn(id) {
   const s = fight.s;
@@ -359,7 +384,7 @@ export function updateCombatPanel() {
     run: !over && allies.includes(c) && c.hull > 0 && c.line !== undefined ? (c.line >= 0 ? `L${c.line + 1}` : 'else') : null,
   }));
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
-  CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log });
+  CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log, abilities: over ? [] : abilityButtons(s) });
 }
 
 // Real time: the guns' field of fire ahead of the ship, out to their range; brighter while the
@@ -540,6 +565,7 @@ export function init() {
   actions.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => isHostile(e), range: () => CombatCore.config.engageRange, run: (e) => engage(e) });
   CombatPanel.onFocus = focusOn;
   CombatPanel.onButton = (id) => {
+    if (fight.s && id.startsWith('ability:')) { const a = id.slice(8); useAbility(fight.s, fight.s.player, a, playerTarget(fight.s, a)); return; }
     if (fight.s && fightMode().press) fightMode().press(fight.s, id); // Flee
     if (id === 'close') { fight.result = null; CombatPanel.hide(); }
   };

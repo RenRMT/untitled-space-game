@@ -10,12 +10,15 @@
 //   the ally it picked (CombatCore.aim) while that one is still flying.
 // - Fleeing: from then on the player stops firing, and at the end of each round gets away with a
 //   chance set by top speed against the fastest enemy.
+// - Abilities (rules/abilities.js) are used between rounds and wear off on fight time (s.t, seconds
+//   since the fight began); a ship an EMP has silenced holds fire.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers) and
 // draws it; this module only does the numbers.
 // ES module (`Combat`); also runs in Node (the tests).
 
 import { CombatCore } from './combat-core.js';
 import { MathUtil } from '../core/math.js';
+import { Abilities } from '../rules/abilities.js';
 
 const Combat = (() => {
   const core = CombatCore;
@@ -39,7 +42,7 @@ const Combat = (() => {
   // timer: seconds until the next round, as a combat mode runs them.
   // allyList: squad members, each with its orders ({ target }: setOrders).
   function create(rng, player, enemies, focus = enemies[0] && enemies[0].id, allyList = []) {
-    const s = { rng, player, enemies, allies: allyList, focus, round: 0, fleeing: false, over: null, timer: config.firstRound };
+    const s = { rng, player, enemies, allies: allyList, focus, round: 0, fleeing: false, over: null, timer: config.firstRound, t: 0 };
     for (const a of allyList) a.order = a.order || {};
     for (const e of enemies) e.aim = aim(rng, s);
     return s;
@@ -80,7 +83,7 @@ const Combat = (() => {
     const rank = (c) => (c === s.player ? 0 : s.allies.includes(c) ? 1 : 2); // who wins ties
     const actors = [s.player, ...allies(s), ...alive(s)].sort((a, b) => b.stats.initiative - a.stats.initiative || rank(a) - rank(b));
     for (const a of actors) {
-      if (a.hull <= 0 || s.player.hull <= 0) continue;
+      if (a.hull <= 0 || s.player.hull <= 0 || Abilities.disabled(a, s.t)) continue;
       if (a === s.player) {
         if (s.fleeing) continue;
         for (const w of a.stats.weapons) {
@@ -162,6 +165,8 @@ const Combat = (() => {
       enemies.map((e) => combatant(e.id, e.name, e.stats, e.hull)), target, list.map((a) => combatant(a.id, a.name, a.stats, a.hull))),
     step(s, dt) {
       if (s.over) return [];
+      s.t += dt;
+      for (const c of [s.player, ...s.allies, ...s.enemies]) Abilities.tick(c, s.t);
       s.timer -= dt;
       if (s.timer > 0) return [];
       s.timer += config.round;
