@@ -144,6 +144,9 @@ const Recipes = (() => {
       RECIPES[`make.${gear}`] = { id: `make.${gear}`, bay: 'assembler', in: input, out: { [gear]: 1 }, time: GEAR_TIME[tier], unlock: tier > 1 ? `bp.${gear}` : null };
     });
   }
+  // Alternative recipes, unlocked by industry research (rules/research.js `ind.alt.*`).
+  RECIPES['alt.power-cell'] = { id: 'alt.power-cell', bay: 'fabricator', in: { 'water-ice': 2, 'copper-cable': 1, titanium: 1 }, out: { 'power-cell': 1 }, time: 40, unlock: 'ind.alt.power-cell' };
+  RECIPES['alt.graphene'] = { id: 'alt.graphene', bay: 'refinery', in: { carbon: 4, 'water-ice': 1 }, out: { graphene: 1 }, time: 60, unlock: 'ind.alt.graphene' };
   const LIST = Object.values(RECIPES);
 
   const forBay = (type) => LIST.filter((r) => r.bay === type);

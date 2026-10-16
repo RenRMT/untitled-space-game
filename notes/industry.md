@@ -72,9 +72,12 @@ share one lab queue, so every hour of lab time is a choice between them. Package
 - **blueprint:** unlocks the assembler recipe for one line at one Mk (`bp.pulse-laser-3`). Mk II
   needs only credits and components; from Mk III, parts made by industry too (capacitors, power
   cells, electronics, thruster nozzles); Mk V an exotic component. Each needs the Mk before it.
-- **refine** (planned): +4% to one stat of a line, three steps per line.
-- **industry** (planned): faster bays, more bays and storage, alternative recipes, a longer lab
-  queue.
+- **refine:** +4% to a line's stats (damage; shield strength and recharge; accuracy; top speed and
+  acceleration; identify and ping range), three steps per line. Each step needs the one before and a
+  blueprint (Mk II, then III, then IV). Drawn under the blueprints in the same row group.
+- **industry:** bay speed (+15% a step, three steps), warehouse racks (+100 room), extra bays per
+  station (+1, two steps), alternative recipes (power cells straight from water ice, graphene
+  without corundum) and a longer lab queue (+1).
 
 `Research.upgrades(done)` sums what's done for `Loadout.stats` (hull refits, and per-line stat
 fractions through `Loadout.tuned`, kept within `Loadout.LIMITS`). `lab.doneAt` records when each
@@ -93,6 +96,6 @@ work settled after a long time offline speeds up exactly when the bonus finished
    (`rules/industry.js`, `game/industry.js`), and the Industry tab (`ui/industry-view.js`). *(done)*
 4. The assembler and blueprints. Gear is no longer sold, and schematics become blueprints
    (migration 9: gear owned and schematics recovered become blueprints done). *(done)*
-5. Refinements and industry research.
+5. Refinements and industry research. *(done)*
 6. Mods.
 7. Later: consumables through `use()`, squad refit kits, logistics between warehouses.

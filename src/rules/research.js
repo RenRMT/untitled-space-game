@@ -2,14 +2,16 @@
 // shown as code libraries to import (`import combat.select`). Research costs credits, salvaged
 // components and trade goods (rules/goods.js), all paid when a package is queued, and takes time:
 // real time, which goes on while the game is closed. One package builds at a time; up to
-// QUEUE_MAX more wait their turn, each starting the moment the one before it finishes (so a
+// QUEUE_MAX more (and more with industry research: queueMax) wait their turn, each starting the moment the one before it finishes (so a
 // queue left overnight is worked through overnight).
 // Logic packages only ever unlock decisions (subjects, conditions, keywords, actions, more lines);
 // the abilities a `use` line runs come from elsewhere, so the packages for it are hidden until then.
 // The same lab also researches the ship: blueprints for gear from Mk II up (assembled at an
-// assembler, rules/recipes.js), and hull refits (rules/hullmods.js) for every hull you fly.
-// Each package is of a kind: 'logic' (a code library, `name@ver`), 'blueprint' (`bp.<gear id>`) or
-// 'hull' (an upgrade). A schematic recovered from pirates grants its blueprint outright (grant).
+// assembler, rules/recipes.js), refinements (a few % more of one stat for every piece of a gear
+// line), hull refits (rules/hullmods.js) for every hull you fly, and industry (faster bays, more
+// of them, more room, alternative recipes, a longer lab queue).
+// Each package is of a kind: 'logic' (a code library, `name@ver`), 'blueprint' (`bp.<gear id>`),
+// 'refine' (`ref.<line>.<step>`), 'hull' or 'industry' (`ind.*`). A schematic recovered from pirates grants its blueprint outright (grant).
 //
 //   Research.GROUPS                   [{ id, label }]: the Research tab's groups, in order
 //   Research.CATEGORIES               [{ id, group, label, note }] in display order
@@ -26,7 +28,9 @@
 //   Research.lineBonus(done) -> n     program lines added (rules/squad.js lineLimit)
 //   Research.upgrades(done)           -> { cargo, hull, weapons, lines: { [line]: { [stat]: fraction } } }:
 //                                     what's done adds to every ship (rules/loadout.js stats)
-//   Research.bonusAt(lab, t, key) -> n   an industry bonus from what was done by time t
+//   Research.bonusAt(lab, t, key) -> n   an industry bonus from what was done by time t ('speed',
+//                                     'storage', 'bays', 'queue')
+//   Research.queueMax(lab) -> n       how many packages can wait behind the one building
 //   Research.blueprintFor(gear id) -> package id | null   (Mk I and NPC gear have none)
 //   Research.grant(lab, id, now) -> [{ id, refund }]   done at once (a schematic): what was queued or
 //                                building of it comes out, refunded in full; nothing if already done
@@ -61,6 +65,7 @@ const Research = (() => {
     { id: 'weapons', label: 'Weapons' },
     { id: 'systems', label: 'Systems' },
     { id: 'hull', label: 'Hull' },
+    { id: 'industry', label: 'Industry' },
   ];
   // Blueprints: a category per gear line (its name labels the row), weapons apart from the rest.
   const GEAR_LINES = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc);
@@ -71,6 +76,10 @@ const Research = (() => {
     { id: 'maint', group: 'logic', label: 'Maintenance', note: 'keeping self and the squad flying' },
     ...GEAR_LINES.map(([line, spec]) => ({ id: `bp.${line}`, group: spec.slot === 'weapon' ? 'weapons' : 'systems', label: spec.name, note: `blueprints for ${spec.name.toLowerCase()} gear` })),
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
+    { id: 'ind.speed', group: 'industry', label: 'Bay speed', note: 'every bay works faster' },
+    { id: 'ind.room', group: 'industry', label: 'Bays and room', note: 'more bays per station, more room in each warehouse' },
+    { id: 'ind.recipes', group: 'industry', label: 'Recipes', note: 'other ways to make things' },
+    { id: 'ind.lab', group: 'industry', label: 'Lab', note: 'the lab itself' },
   ];
 
   const L = (o) => ({ ...Logic.blank(), ...o, when: (o.when || []).map((x) => Logic.clause(x)) });
@@ -169,11 +178,50 @@ const Research = (() => {
       if (t === 5) cost[c(cat, 5)] = 1;
       if (t >= 3) cost[BP_PART[spec.slot]] = t - 2;
       PACKAGES[id] = {
-        id, kind: 'blueprint', name: Loadout.EQUIPMENT[gear].name, cat: `bp.${line}`, line, tier: t, col: t - 2, gear,
+        id, kind: 'blueprint', name: Loadout.EQUIPMENT[gear].name, cat: `bp.${line}`, line, tier: t, col: t - Math.max(2, spec.from || 1), gear,
         requires: Loadout.EQUIPMENT[`${line}-${t - 1}`] && t > 2 ? [prev] : [], time: BP_TIME[t], cost,
         note: `Assemble the ${Loadout.EQUIPMENT[gear].name} at an assembler`,
       };
     }
+  }
+  // Refinements, three steps per gear line, each +4% of the line's stats: a step needs the one before
+  // and a blueprint (Mk II for the first step, then III, then IV; a line starting later, later).
+  // Drawn under the blueprints, each a column to the right of the one it needs.
+  const REFINE = {
+    'pulse-laser': { damage: 0.04 }, 'heavy-cannon': { damage: 0.04 }, 'beam-turret': { damage: 0.04 },
+    deflector: { strength: 0.04, recharge: 0.04 }, 'flight-computer': { accuracy: 0.04 },
+    'courier-drive': { maxSpeed: 0.04, accel: 0.04 }, 'survey-scanner': { sensorRange: 0.04, pingRange: 0.04 },
+  };
+  const STAT_NAMES = { damage: 'damage', strength: 'shield strength', recharge: 'recharge', accuracy: 'accuracy', maxSpeed: 'top speed', accel: 'acceleration', sensorRange: 'identify range', pingRange: 'ping range' };
+  const REF_TIME = [0, 30 * M, 2 * H, 6 * H], REF_CREDITS = [0, 800, 2500, 6000];
+  for (const [line, spec] of GEAR_LINES) {
+    const first = Math.max(2, spec.from || 1), cat = BP_SALVAGE[spec.slot];
+    for (let n = 1; n <= 3; n++) {
+      const id = `ref.${line}.${n}`, bpTier = first + n - 1;
+      const stats = REFINE[line], words = Object.keys(stats).map((k) => STAT_NAMES[k]).join(' and ');
+      PACKAGES[id] = {
+        id, kind: 'refine', name: `${spec.name} tuning ${Loadout.MK[n].replace('Mk ', '')}`, cat: `bp.${line}`, line, step: n, col: n,
+        requires: [...(n > 1 ? [`ref.${line}.${n - 1}`] : []), `bp.${line}-${bpTier}`], time: REF_TIME[n],
+        cost: { credits: REF_CREDITS[n], [c(cat, n + 1)]: 2, [BP_PART[spec.slot]]: n },
+        refine: { line, stats }, note: `+4% ${words} for every ${spec.name.toLowerCase()}`,
+      };
+    }
+  }
+  // Industry: [id, name, short (on its node), cat, requires, time, credits, { cost }, { bonus }, note].
+  const INDUSTRY = [
+    ['ind.speed.1', 'Bay speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer', 2)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
+    ['ind.speed.2', 'Bay speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { actuator: 2, [c('computer', 3)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
+    ['ind.speed.3', 'Bay speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { robotics: 2, [c('computer', 4)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
+    ['ind.storage.1', 'Warehouse racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull', 1)]: 3 }, { storage: 100 }, '+100 room in every warehouse'],
+    ['ind.storage.2', 'Warehouse racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 3 }, { storage: 100 }, '+100 room in every warehouse'],
+    ['ind.bays.1', 'Extra bay I', 'Bays +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 2 }, { bays: 1 }, 'one more bay at every station'],
+    ['ind.bays.2', 'Extra bay II', 'Bays +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'hull-plating': 4, [c('hull', 3)]: 2 }, { bays: 1 }, 'one more bay at every station'],
+    ['ind.alt.power-cell', 'Ice cells', 'Ice cells', 'ind.recipes', [], H, 1200, { 'power-cell': 1, [c('drive', 2)]: 2 }, {}, 'power cells straight from water ice, without hydrazine'],
+    ['ind.alt.graphene', 'Carbon graphene', 'Graphene', 'ind.recipes', ['ind.alt.power-cell'], 2 * H, 2500, { graphene: 2, [c('hull', 2)]: 2 }, {}, 'graphene from carbon and ice, without corundum'],
+    ['ind.lab.1', 'Lab queue', 'Queue +1', 'ind.lab', [], 4 * H, 5000, { robotics: 1, [c('computer', 3)]: 3 }, { queue: 1 }, 'one more package can wait in the lab queue'],
+  ];
+  for (const [id, name, short, cat, requires, time, credits, cost, industry, note] of INDUSTRY) {
+    PACKAGES[id] = { id, kind: 'industry', name, short, cat, requires, time, cost: { credits, ...cost }, industry, note };
   }
   const LIST = CATEGORIES.flatMap((cat) => Object.values(PACKAGES).filter((p) => p.cat === cat.id && !p.hidden));
   const blueprintFor = (gear) => (PACKAGES[`bp.${gear}`] ? `bp.${gear}` : null);
@@ -206,6 +254,7 @@ const Research = (() => {
   // Industry bonuses count from when their package finished, so work done offline gets them on time.
   const bonusAt = (lab, t, key) => lab.done.reduce((n, id) => n + ((lab.doneAt?.[id] ?? 0) <= t ? PACKAGES[id]?.industry?.[key] || 0 : 0), 0);
   const empty = () => ({ done: [], doneAt: {}, active: null, queue: [] });
+  const queueMax = (lab) => QUEUE_MAX + bonusAt(lab, Infinity, 'queue');
   const pending = (lab) => [...(lab.active ? [lab.active.id] : []), ...lab.queue];
 
   function status(id, lab, credits, have) {
@@ -217,7 +266,7 @@ const Research = (() => {
     if (lab.queue.includes(id)) return { ...base, state: 'queued', ok: false };
     // A requirement still to build may be ahead of it in the queue.
     const needs = p.requires.filter((r) => !lab.done.includes(r) && !pending(lab).includes(r));
-    const room = lab.queue.length < QUEUE_MAX || !lab.active;
+    const room = lab.queue.length < queueMax(lab) || !lab.active;
     const ok = !needs.length && room && credits >= base.credits && cost.every((x) => x.have >= x.need);
     return { ...base, needs, state: needs.length ? 'locked' : 'available', ok, full: !room };
   }
@@ -225,7 +274,7 @@ const Research = (() => {
   function enqueue(lab, id, now) {
     if (!PACKAGES[id] || lab.done.includes(id) || pending(lab).includes(id)) return false;
     if (!lab.active) lab.active = { id, start: now, end: now + timeOf(id) };
-    else if (lab.queue.length < QUEUE_MAX) lab.queue.push(id);
+    else if (lab.queue.length < queueMax(lab)) lab.queue.push(id);
     else return false;
     return true;
   }
@@ -318,7 +367,7 @@ const Research = (() => {
   }
 
   return {
-    QUEUE_MAX, MAX_COLS, config, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor,
+    QUEUE_MAX, MAX_COLS, config, queueMax, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor,
     empty, status, enqueue, cancel, grant, settle, progress, layout,
   };
 })();

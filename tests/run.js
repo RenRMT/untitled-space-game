@@ -850,6 +850,46 @@ test('gear is assembled: one recipe per piece, Mk I known, the rest by blueprint
   }
 });
 
+test('refinements tune every piece of a gear line, a few % a step, after its blueprints', () => {
+  const lines = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc).map(([id]) => id);
+  for (const line of lines) {
+    const steps = [1, 2, 3].map((n) => Research.PACKAGES[`ref.${line}.${n}`]);
+    assert(steps.every((p) => p && p.kind === 'refine' && p.refine.line === line), line);
+    for (const p of steps) assert(p.requires.some((r) => Research.PACKAGES[r].kind === 'blueprint'), `${p.id} needs a blueprint`);
+  }
+  const u = Research.upgrades(['ref.pulse-laser.1', 'ref.pulse-laser.2', 'ref.pulse-laser.3', 'ref.deflector.1']);
+  assert(Math.abs(u.lines['pulse-laser'].damage - 0.12) < 1e-9);
+  assert(Math.abs(u.lines.deflector.strength - 0.04) < 1e-9 && Math.abs(u.lines.deflector.recharge - 0.04) < 1e-9);
+  const plain = Loadout.stats(Loadout.starter('courier')), tuned = Loadout.stats(Loadout.starter('courier'), u);
+  assert(Math.abs(tuned.weapons[0].damage - plain.weapons[0].damage * 1.12) < 1e-9);
+  assert(Math.abs(tuned.shield - plain.shield * 1.04) < 1e-9);
+  // Every refinement done: better, but Mk still counts for more than tuning.
+  const all = Research.upgrades(Object.keys(Research.PACKAGES));
+  for (const line of lines) {
+    for (let t = 1; t < 5; t++) {
+      const a = Loadout.EQUIPMENT[`${line}-${t}`], b = Loadout.EQUIPMENT[`${line}-${t + 1}`];
+      if (!a || !b) continue;
+      for (const [k, f] of Object.entries(all.lines[line])) assert(a.stats[k] * (1 + f) <= b.stats[k] * 1.15 || b.stats[k] === a.stats[k], `${line} Mk ${t} tuned against Mk ${t + 1}: ${k}`);
+    }
+  }
+});
+
+test('industry research: faster bays, more bays and room, a longer lab queue, other recipes', () => {
+  const lab = Research.empty(), T = 1e12;
+  const env = () => Industry.env(lab);
+  assert.deepStrictEqual([env().speed(T), env().room(T), Industry.maxBays(env()), Research.queueMax(lab)], [1, 0, Industry.MAX_BAYS, Research.QUEUE_MAX]);
+  for (const id of ['ind.speed.1', 'ind.speed.2', 'ind.storage.1', 'ind.bays.1', 'ind.lab.1']) { lab.done.push(id); lab.doneAt[id] = T; }
+  assert(Math.abs(env().speed(T) - 1.3) < 1e-9 && env().speed(T - 1) === 1, 'from when it finished');
+  assert.deepStrictEqual([env().room(T), Industry.maxBays(env()), Research.queueMax(lab)], [100, Industry.MAX_BAYS + 1, Research.QUEUE_MAX + 1]);
+  // A longer queue takes one more.
+  Research.enqueue(lab, 'core.bool', T);
+  for (const id of ['maint.sense', 'squad.link', 'combat.select', 'mem.ext.1']) assert(Research.enqueue(lab, id, T), id);
+  assert(!Research.enqueue(lab, 'bp.pulse-laser-2', T));
+  // Alternative recipes, once researched.
+  assert(!Recipes.known([]).has('alt.graphene') && Recipes.known(['ind.alt.graphene']).has('alt.graphene'));
+  assert.deepStrictEqual(Recipes.producers('graphene').map((r) => r.id).sort(), ['alt.graphene', 'make.graphene', 'recycle.computer-advanced']);
+});
+
 test('a blueprint can be granted (a schematic): done at once, refunded in full if it was queued', () => {
   const lab = Research.empty(), T = 1e12;
   Research.enqueue(lab, 'bp.pulse-laser-2', T);
