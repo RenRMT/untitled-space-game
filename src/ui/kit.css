@@ -1,0 +1,298 @@
+/* UI kit: the colour, type and spacing tokens and the components every DOM panel is built from
+   (station screens, the context card, combat, comms, settings, the map's bars). Builders for the
+   components are in kit.js. core/theme.js keeps the canvas in step with the colour tokens.
+   Words are Barlow Semi Condensed, numbers IBM Plex Mono (index.html loads both; the fallbacks
+   keep everything readable without them). Touch targets are at least 44 px. */
+:root {
+  --bg: #05060a; --s1: #0b0e17; --s2: #111522; --nav: #080a12;
+  --panel: rgba(12, 15, 24, 0.92);
+  --line-soft: #1a2134; --line: #26304a; --line-strong: #3a4566;
+  --bright: #eef1ff; --hud: #cfd8ff; --dim: #7d88a8;
+  --cyan: #7df9ff; --cyan-hi: #b9fcff; --cyan-tint: rgba(125, 249, 255, 0.08);
+  --good: #b6ff8a; --warn: #ffb347; --hostile: #ff5a6e; --busy: #ff9d5c; --new: #ffcf5a;
+  --t0: #1f2740; --t1: #cfd8ff; --t2: #6fd08c; --t3: #5aa9ff; --t4: #c77dff; --t5: #ff8f5a;
+  --sans: 'Barlow Semi Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-sheet: 18px;
+  --hit: 44px;
+}
+.ui { font-family: var(--sans); color: var(--hud); }
+.ui button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
+.num, .ui-num { font-family: var(--mono); font-weight: 500; letter-spacing: 0; }
+.ui-label { font: 700 11px/1.3 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); margin: 0; }
+.ui-title { font: 700 22px/1.15 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); margin: 0; }
+/* A section heading: its label (bright), then anything else on the line (a count, a meter). */
+.ui-head { display: flex; align-items: center; gap: 10px; min-height: 24px; margin: 0; }
+.ui-head > .ui-label:first-child { color: var(--bright); font-size: 13px; }
+.ui-head .aside { margin-left: auto; font: 400 12px var(--mono); color: var(--dim); white-space: nowrap; }
+.ui-note { margin: 0; font-size: 14px; line-height: 1.4; color: var(--dim); }
+.ui-empty { margin: 0; padding: 14px; border: 1px dashed var(--line-strong); border-radius: var(--r-lg); font-size: 14px; color: var(--dim); text-align: center; }
+
+/* Buttons: outlined cyan by default; one primary (filled) per screen. A price sits under the label. */
+.ui-btn {
+  min-height: var(--hit); padding: 0 14px; box-sizing: border-box;
+  display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: none;
+  background: transparent; border: 1px solid var(--cyan); border-radius: var(--r-md); color: var(--cyan);
+  font: 700 13px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap;
+  cursor: pointer; touch-action: manipulation; position: relative; overflow: hidden;
+}
+.ui-btn > span { position: relative; }
+.ui-btn .price { font: 500 11px/1.4 var(--mono); letter-spacing: 0; text-transform: none; }
+.ui-btn:hover { background: var(--cyan-tint); }
+.ui-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ui-btn.primary { background: var(--cyan); color: var(--bg); border-color: var(--cyan); }
+.ui-btn.primary:hover { background: var(--cyan-hi); }
+.ui-btn.good { background: var(--good); color: var(--bg); border-color: var(--good); }
+.ui-btn.lg { min-height: 52px; padding: 0 20px; font-size: 15px; letter-spacing: 0.14em; }
+.ui-btn.wide { display: flex; width: 100%; }
+.ui-btn.ghost { border-color: var(--line); color: var(--hud); }
+.ui-btn.ghost:hover { border-color: var(--cyan); color: var(--cyan); background: none; }
+.ui-btn.warn { border-color: var(--warn); color: var(--warn); }
+.ui-btn.warn:hover { background: rgba(255, 179, 71, 0.08); }
+.ui-btn:disabled, .ui-btn:disabled:hover { border-color: var(--line); color: var(--dim); background: transparent; cursor: default; }
+.ui-btn.busy, .ui-btn.busy:disabled { border-color: var(--busy); color: var(--busy); background: var(--s1); }
+.ui-btn.busy::before { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--progress, 0%); background: rgba(255, 157, 92, 0.22); }
+.ui-iconbtn {
+  width: var(--hit); height: var(--hit); flex: none; display: grid; place-items: center; padding: 0;
+  background: none; border: 0; color: var(--dim); font: 400 24px/1 var(--sans); cursor: pointer; touch-action: manipulation;
+}
+.ui-iconbtn:hover, .ui-iconbtn:focus-visible { color: var(--cyan); outline: none; }
+/* A text button that reveals more ("Read all 6 lines ▾"). */
+.ui-link {
+  align-self: flex-start; min-height: 36px; padding: 0; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  background: none; border: 0; color: var(--cyan); font: 700 13px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer;
+}
+.ui-link:hover { color: var(--cyan-hi); }
+.ui-link:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* Icon slot: registered art, or a dashed placeholder with a short code. */
+.ui-icon { flex: none; position: relative; display: grid; place-items: center; box-sizing: border-box; }
+.ui-icon.ph {
+  border: 1px dashed color-mix(in srgb, var(--tier, var(--line-strong)) 60%, transparent); border-radius: var(--r-sm);
+  font: 500 9px/1 var(--mono); color: var(--dim);
+}
+.ui-icon img { width: 100%; height: 100%; display: block; }
+.ui-icon .dot { position: absolute; top: -4px; right: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--new); border: 2px solid var(--nav); }
+.ui-icon .dot[hidden] { display: none; }
+
+/* Tier pips and the Mk tag, coloured by tier (rarity uses the same colours). */
+.ui-pips { display: flex; gap: 2px; }
+.ui-pips i { width: 9px; height: 3px; border-radius: 1px; background: var(--t0); }
+.ui-pips i.on { background: var(--tier); }
+.ui-mk { font: 600 11px var(--mono); color: var(--tier); white-space: nowrap; }
+.ui-tag { font: 700 11px/1.2 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone, var(--dim)); white-space: nowrap; }
+
+/* Meter: a filled track. Progress segments: one per step. */
+.ui-meter { display: block; flex: 1 1 auto; min-width: 24px; height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
+.ui-meter > span { display: block; height: 100%; width: var(--pct, 0%); background: var(--meter, var(--cyan)); border-radius: inherit; transition: width 0.25s ease-out; }
+.ui-meter.thin { height: 3px; }
+.ui-segs { display: flex; gap: 3px; }
+.ui-segs i { flex: 1; height: 4px; border-radius: 1px; background: var(--t0); }
+.ui-segs i.done { background: var(--good); }
+.ui-segs i.open { background: var(--cyan); }
+@media (prefers-reduced-motion: reduce) { .ui-meter > span { transition: none; } }
+
+/* Stat deltas: the arrow says better or worse, not up or down. */
+.ui-deltas { display: flex; flex-wrap: wrap; gap: 2px 10px; font: 500 12px var(--mono); color: var(--dim); }
+.ui-delta { white-space: nowrap; }
+.ui-delta .up { color: var(--good); }
+.ui-delta .down { color: var(--hostile); }
+.ui-vals { color: var(--hud); }
+.ui-vals .k { color: var(--dim); }
+
+/* The ship schematic: an outline with slot buttons around it (fixed 358 × 330, scaled down on
+   narrow screens). */
+.ui-schematic { position: relative; width: 358px; height: 330px; margin: 14px auto 6px; flex: none; }
+.ui-schematic svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+@media (max-width: 389px) { .ui-schematic { zoom: 0.9; } }
+@media (max-width: 351px) { .ui-schematic { zoom: 0.8; } }
+.ui-slot {
+  position: absolute; width: 76px; height: 84px; padding: 8px 4px 7px; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  background: var(--s1); border: 1px solid color-mix(in srgb, var(--tier) 60%, transparent); border-radius: var(--r-md);
+  color: var(--hud); cursor: pointer; touch-action: manipulation;
+}
+.ui-slot .lbl { font: 600 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.ui-slot.empty { border: 1px dashed var(--line-strong); background: rgba(11, 14, 23, 0.6); }
+.ui-slot.empty .lbl { color: var(--dim); }
+.ui-slot.empty .ui-icon { color: var(--cyan); }
+.ui-slot:hover { border-color: var(--cyan); }
+.ui-slot[aria-expanded="true"] { border-color: var(--cyan); border-style: solid; background: rgba(125, 249, 255, 0.1); }
+.ui-slot:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* Stat chips: a value and its label; tap one for what it means and where it comes from. */
+.ui-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.ui-chip {
+  height: 56px; padding: 0 8px; display: flex; align-items: center; gap: 8px; min-width: 0; text-align: left;
+  background: var(--s1); border: 1px solid var(--line-soft); border-radius: var(--r-md); color: var(--hud); cursor: pointer;
+}
+.ui-chip > span:last-child { min-width: 0; }
+.ui-chip .v { display: block; font: 500 15px/1.2 var(--mono); color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-chip .l { display: block; font: 600 11px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-chip:focus-visible, .ui-tile:focus-visible, .ui-card:focus-visible, .ui-opt .what:focus-visible, .ui-disclosure:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.ui-chip[aria-expanded="true"], .ui-tile[aria-expanded="true"] { border-color: var(--cyan); background: var(--cyan-tint); }
+.ui-detail {
+  padding: 12px; background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--accent, var(--cyan));
+  border-radius: var(--r-md); display: flex; flex-direction: column; gap: 4px; font-size: 14px; line-height: 1.4;
+}
+.ui-detail .head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; font-weight: 600; color: var(--bright); }
+.ui-detail .head .num { color: var(--cyan); }
+.ui-detail .src { font: 400 11px var(--mono); color: var(--dim); }
+
+/* Item tiles: an item's icon, how many, its rarity along the bottom edge. */
+.ui-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.ui-tile {
+  position: relative; height: 64px; padding: 0; display: grid; place-items: center;
+  background: var(--s1); border: 1px solid var(--line-soft); border-bottom: 2px solid var(--tier, var(--t1)); border-radius: var(--r-md); cursor: pointer;
+}
+.ui-tile .n { position: absolute; top: 3px; right: 5px; font: 600 11px var(--mono); color: var(--bright); }
+
+/* Rows: an icon, a name with its Mk and tag, a line of numbers, and one action. Expandable rows
+   (option rows) show more on tap. */
+.ui-list { display: flex; flex-direction: column; gap: 8px; }
+.ui-opt { flex: none; background: var(--s2); border: 1px solid var(--line-soft); border-radius: var(--r-lg); overflow: hidden; }
+.ui-opt.current { background: rgba(125, 249, 255, 0.05); border-color: rgba(125, 249, 255, 0.35); }
+.ui-opt.locked { opacity: 0.6; }
+.ui-opt .row { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 10px; }
+.ui-opt .what {
+  flex: 1; min-width: 0; min-height: 48px; display: flex; align-items: center; gap: 10px;
+  background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit;
+}
+.ui-opt button.what { cursor: pointer; }
+.ui-opt .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ui-opt .line { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ui-opt .name { font-size: 16px; font-weight: 600; line-height: 1.2; color: var(--bright); }
+.ui-opt .sub { font-size: 13px; color: var(--dim); }
+.ui-opt .chev { flex: none; width: 16px; font-size: 12px; color: var(--dim); text-align: center; }
+.ui-opt .ui-btn { min-width: 78px; min-height: 48px; padding: 0 10px; }
+.ui-opt .lock {
+  flex: none; min-width: 78px; height: 48px; padding: 0 8px; box-sizing: border-box; display: grid; place-items: center; text-align: center;
+  border: 1px dashed var(--line-strong); border-radius: var(--r-md); font: 700 12px/1.2 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim);
+}
+.ui-opt .more { padding: 4px 12px 12px; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; }
+.ui-opt .more[hidden] { display: none; }
+.ui-opt .more .ui-note { margin-top: 8px; font-size: 13px; }
+.ui-cmp {
+  display: grid; grid-template-columns: minmax(0, 1fr) 64px 14px 64px 60px; gap: 4px; align-items: center;
+  padding: 7px 0; border-bottom: 1px solid var(--line-soft); font: 400 12px var(--mono);
+}
+.ui-cmp > :first-child { font: 400 14px var(--sans); color: var(--hud); }
+.ui-cmp > :not(:first-child) { text-align: right; }
+.ui-cmp .cur { color: var(--dim); }
+.ui-cmp .to { color: var(--line-strong); text-align: center; }
+.ui-cmp .next { color: var(--bright); }
+
+/* Cards: a tappable summary with a coloured left edge (a mission). */
+.ui-card {
+  flex: none; display: flex; gap: 12px; align-items: flex-start; width: 100%; box-sizing: border-box; padding: 12px 10px 12px 12px;
+  background: var(--s1); border: 1px solid var(--line-soft); border-left: 3px solid var(--accent, var(--line)); border-radius: var(--r-lg);
+  text-align: left; color: inherit; font: inherit; cursor: pointer;
+}
+.ui-card:hover { border-color: var(--line); border-left-color: var(--accent, var(--line)); }
+.ui-card .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ui-card .top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ui-card .title { font-size: 17px; font-weight: 600; line-height: 1.15; color: var(--bright); }
+.ui-card .goal { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--hud); min-width: 0; }
+.ui-card .goal .txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-card .goal .num { flex: none; font-size: 12px; color: var(--dim); }
+.ui-card .hint { font-size: 14px; color: var(--tone, var(--hud)); }
+.ui-card .foot { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--dim); min-width: 0; }
+.ui-card .foot > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-card .go { flex: none; align-self: center; font-size: 18px; color: var(--line-strong); }
+.ui-card.compact { min-height: 52px; align-items: center; padding: 8px 10px 8px 12px; background: transparent; border-left-width: 1px; }
+.ui-card.compact .title { font-size: 15px; color: var(--hud); }
+.ui-card.compact .main { gap: 0; }
+
+/* Check marks: done (filled), current (cyan), later (dashed). */
+.ui-check {
+  width: 18px; height: 18px; flex: none; box-sizing: border-box; display: grid; place-items: center;
+  border: 1px dashed var(--line-strong); border-radius: 3px; color: var(--bg); font: 700 12px/1 var(--sans);
+}
+.ui-check.sm { width: 8px; height: 8px; border-radius: 0; }
+.ui-check.open { border: 1px solid var(--cyan); }
+.ui-check.done { border: 1px solid var(--good); background: var(--good); }
+.ui-goals { display: flex; flex-direction: column; }
+.ui-goal { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
+.ui-goal .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ui-goal .txt { font-size: 15px; color: var(--dim); }
+.ui-goal.open .txt { color: var(--bright); }
+.ui-goal .num { flex: none; font-size: 12px; color: var(--dim); }
+
+/* Info tiles (what a mission provides, what it pays) and callouts (what just happened). */
+.ui-info { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--s2); border: 1px solid var(--line-soft); border-radius: var(--r-lg); }
+.ui-info .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ui-info .ui-label { color: var(--tone, var(--dim)); }
+.ui-info .txt { font-size: 15px; line-height: 1.3; color: var(--bright); }
+.ui-callout {
+  margin: 0; padding: 12px; font-size: 15px; line-height: 1.4; color: var(--bright);
+  border: 1px solid color-mix(in srgb, var(--tone, var(--good)) 33%, transparent); border-left: 3px solid var(--tone, var(--good)); border-radius: var(--r-lg);
+}
+
+/* A message from someone: portrait, who and what kind of message, the lines. */
+.ui-quote { display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: var(--s2); border: 1px solid var(--line-soft); border-left: 3px solid var(--from, var(--cyan)); border-radius: var(--r-lg); }
+.ui-quote .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ui-quote .ui-label { color: var(--from, var(--cyan)); }
+.ui-quote p { margin: 0; font-size: 15px; line-height: 1.4; color: var(--bright); overflow-wrap: anywhere; }
+.ui-quote strong { color: var(--from, var(--cyan)); font-weight: 600; }
+.ui-face { flex: none; display: block; border: 1px solid var(--line); border-radius: var(--r-sm); }
+
+/* A heading that folds a list away ("Completed · 2 ▾"). */
+.ui-disclosure {
+  flex: none; width: 100%; min-height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 2px; margin-top: 8px;
+  background: none; border: 0; border-top: 1px solid var(--line-soft); color: var(--dim); font: 700 11px var(--sans);
+  letter-spacing: 0.14em; text-transform: uppercase; text-align: left; cursor: pointer;
+}
+.ui-disclosure > span:first-child { flex: 1; }
+
+/* Bottom sheet: slides up over the screen, with a scrim behind; a fixed footer for its action. */
+.ui-layer[hidden] { display: none; }
+.ui-scrim { position: fixed; inset: 0; z-index: 4; background: rgba(2, 3, 6, 0.66); }
+.ui-sheet {
+  position: fixed; left: 50%; bottom: 0; transform: translateX(-50%); z-index: 5; width: min(560px, 100%); max-height: 80vh; max-height: 80dvh;
+  box-sizing: border-box; display: flex; flex-direction: column; background: var(--s1); border: 1px solid var(--line); border-bottom: 0;
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0; padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: ui-sheet-in 0.2s ease-out;
+}
+.ui-sheet.tall { height: 88vh; height: 88dvh; max-height: none; }
+@keyframes ui-sheet-in { from { transform: translate(-50%, 24px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .ui-sheet { animation: none; } }
+.ui-sheet .grab { flex: none; width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 8px auto 2px; }
+.ui-sheet .head { flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 8px 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.ui-sheet .head .titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ui-sheet .head .t { font-size: 19px; font-weight: 600; line-height: 1.2; color: var(--bright); }
+.ui-sheet.tall .head .t { font-size: 21px; }
+.ui-sheet .head .s { font-size: 13px; color: var(--dim); }
+.ui-sheet .body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 12px 16px 28px; display: flex; flex-direction: column; gap: 8px; }
+.ui-sheet .body > * { flex: none; }
+.ui-sheet .body > .ui-label { margin-top: 10px; }
+.ui-sheet .body > .ui-label:first-child { margin-top: 0; }
+.ui-sheet .foot { flex: none; padding: 12px 16px 16px; border-top: 1px solid var(--line-soft); background: var(--s1); display: flex; flex-direction: column; gap: 8px; }
+.ui-sheet .foot[hidden] { display: none; }
+.ui-sheet .foot .ui-note { color: var(--hud); text-align: center; }
+
+/* Tab bar: icon-only tabs (the selected one shows its label) beside the screen's main action. */
+.ui-nav { display: flex; align-items: center; gap: 10px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line-soft); background: var(--nav); }
+.ui-tabs { flex: 1; min-width: 0; display: flex; }
+.ui-tab {
+  position: relative; flex: 1 1 0; min-width: 0; height: 52px; padding: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: 0; color: var(--line-strong); cursor: pointer; touch-action: manipulation; --tier: var(--line-strong);
+}
+.ui-tab .ui-icon.ph { font-size: 7px; color: var(--line-strong); border-color: var(--line-strong); }
+.ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: transparent; white-space: nowrap; }
+.ui-tab:hover .ui-icon.ph { color: var(--dim); border-color: var(--dim); }
+.ui-tab[aria-selected="true"] .ui-icon.ph { color: var(--cyan); border-color: var(--cyan); }
+.ui-tab[aria-selected="true"] .lbl { color: var(--cyan); }
+.ui-tab[aria-selected="true"]::before { content: ''; position: absolute; top: -9px; left: 25%; right: 25%; height: 2px; background: var(--cyan); border-radius: 1px; }
+.ui-tab:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; border-radius: var(--r-md); }
+.ui-tab:disabled { opacity: 0.35; cursor: default; }
+
+/* Toast: a short message that goes by itself. */
+.ui-toast {
+  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 6;
+  width: min(528px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 14px;
+  background: var(--s2); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--good)); border-radius: var(--r-md);
+  font: 14px/1.4 var(--sans); color: var(--bright); pointer-events: none; animation: ui-toast-in 0.18s ease-out;
+}
+.ui-toast[hidden] { display: none; }
+@keyframes ui-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }

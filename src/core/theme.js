@@ -1,9 +1,9 @@
 // Colours and type shared by everything drawn on canvas (flight view, system map). The DOM panels
-// use the same values as CSS variables in index.html (named in the comments); keep the two in
-// step. Colours only one view uses stay with that view.
+// use the same values as CSS variables in the UI kit (src/ui/kit.css; named in the comments); keep
+// the two in step. Colours only one view uses stay with that view.
 //
 //   Theme.color.cyan, ...         hex strings
-//   Theme.font(13)                '13px ui-monospace, Menlo, Consolas, monospace'
+//   Theme.font(13)                "13px 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"
 // ES module (`Theme`).
 
 const Theme = (() => {
@@ -11,7 +11,7 @@ const Theme = (() => {
     bg: '#05060a', // --bg
     line: '#26304a', // --line
     hud: '#cfd8ff', // --hud: readouts
-    dim: '#6f7a99', // --dim: secondary text, misses, wrecks
+    dim: '#7d88a8', // --dim: secondary text, misses, wrecks
     bright: '#eef1ff', // titles and names
     cyan: '#7df9ff', // --cyan: the player's ship, selection, shields
     neutral: '#9aa4b8', // independents and unaligned things
@@ -24,7 +24,7 @@ const Theme = (() => {
     star: '#ffd27a',
     planet: '#8ab4ff',
   };
-  const mono = 'ui-monospace, Menlo, Consolas, monospace'; // --mono
+  const mono = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"; // --mono
   const font = (px) => `${px}px ${mono}`;
   return { color, mono, font };
 })();
