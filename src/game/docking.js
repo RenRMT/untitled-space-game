@@ -68,6 +68,7 @@ export function dock(station) {
     outfitting,
     lab,
     industry,
+    get kit() { return cargo.kit; },
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
     squad: programs,

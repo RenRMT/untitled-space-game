@@ -38,6 +38,8 @@
 //   { type: 'retreat' }, { type: 'use', skill, target }.
 // ES module (`Logic`); also runs in Node (the tests).
 
+import { Abilities } from './abilities.js';
+
 const Logic = (() => {
   const MAX_CLAUSES = 4;
 
@@ -151,7 +153,7 @@ const Logic = (() => {
     const act = ACTIONS[line.act];
     if (need(act, 'action')) {
       if (act.on && !act.on.includes(line.subject)) errors.push(`${line.act}() can't take ${line.subject}`);
-      if (line.act === 'use' ? typeof line.skill !== 'string' || !line.skill : line.skill !== null) errors.push('bad ability');
+      if (line.act === 'use' ? !Abilities.ABILITIES[line.skill] : line.skill !== null) errors.push('bad ability');
     }
     return { ok: !errors.length, errors };
   }
@@ -276,7 +278,7 @@ const Logic = (() => {
     const act = ACTIONS[line.act];
     if (!act) return [chip('err', String(line.act))];
     const out = [chip('act', act.say)];
-    if (line.act === 'use') out.push(chip('val', line.skill || '?'));
+    if (line.act === 'use') out.push(chip('val', Abilities.ABILITIES[line.skill]?.name || line.skill || '?'));
     if (act.target) out.push(chip('subj', targetText(line)));
     return out;
   }

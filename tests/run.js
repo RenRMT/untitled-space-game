@@ -30,6 +30,7 @@ import { Research } from '../src/rules/research.js';
 import { Recipes } from '../src/rules/recipes.js';
 import { Industry } from '../src/rules/industry.js';
 import { Mods } from '../src/rules/mods.js';
+import { Abilities } from '../src/rules/abilities.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -826,6 +827,7 @@ test('recipes: real goods in and out, made from earlier stages, and no loops', (
   for (const t of Object.values(Goods.TYPES)) assert(have.has(t.id), `${t.id} can't be had`);
   for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) if (!e.npc) assert(have.has(id), `${id} can't be made`);
   for (const m of Mods.LIST) assert(have.has(m.id), `${m.id} can't be made`);
+  for (const a of Abilities.LIST) assert(have.has(a.id) && Recipes.item(a.id).kind === 'consumable', `${a.id} can't be made`);
 });
 
 test('mods: a trade each, made at an assembler once researched, fitted as far as the gear has room', () => {
@@ -1106,6 +1108,48 @@ const testShip = (o) => ({
   weapons: [{ name: 'Gun', damage: 10, fireRate: 2 }], ...o,
 });
 const always = () => 0; // every roll succeeds
+
+test('abilities: a charge on a target that needs it, a cooldown, and timed effects that wear off', () => {
+  const ship = (id, o = {}) => Combat.combatant(id, id, testShip({ shield: 50, ...o }));
+  const me = ship('me'), foe = ship('foe');
+  // Repairs and shields only when they'd help.
+  assert(!Abilities.ready(me, 'repair-nanites', me, 0), 'not damaged');
+  me.hull = 40;
+  const rep = Abilities.use(me, 'repair-nanites', me, 0);
+  assert.deepStrictEqual([rep.type, rep.amount, me.hull], ['ability', 30, 70]);
+  assert(!Abilities.ready(me, 'repair-nanites', me, 5) && Abilities.ready(me, 'repair-nanites', me, 12), 'cooling down for 12 s');
+  me.shield = 0;
+  assert(Abilities.use(me, 'shield-cell', me, 0) && me.shield === 50);
+  // An EMP silences the target, then it shrugs off another for a while.
+  assert(Abilities.use(me, 'emp-charge', foe, 0));
+  assert(Abilities.disabled(foe, 3.9) && !Abilities.disabled(foe, 4));
+  assert(!Abilities.ready({ ...me, cooldowns: {} }, 'emp-charge', foe, 6), 'immune for 8 s after');
+  assert(Abilities.ready({ ...me, cooldowns: {} }, 'emp-charge', foe, 12));
+  // A jammer cuts its accuracy until it wears off; the stats come back as they were.
+  const base = foe.stats;
+  assert(Abilities.use(me, 'jammer-pod', foe, 0));
+  assert.strictEqual(foe.stats.accuracy, 0.75);
+  Abilities.tick(foe, 6);
+  assert.strictEqual(foe.stats, base);
+  assert(!Abilities.ready(me, 'jammer-pod', { ...foe, hull: 0 }, 20), 'not on the destroyed');
+});
+
+test('abilities in a fight: a silenced ship holds fire, in rounds and in real time', () => {
+  const s = Combat.create(always, Combat.combatant('p', 'Me', testShip({ initiative: 1 })), [Combat.combatant('e', 'Them', testShip({ initiative: 3, hull: 1000 }))]);
+  Abilities.use(s.player, 'emp-charge', s.enemies[0], s.t);
+  const ev = Combat.round(s);
+  assert(ev.every((e) => e.from === 'p'), 'only the player fired');
+  s.t = 5;
+  assert(Combat.round(s).some((e) => e.from === 'e'), 'and it fires again once it wears off');
+  // Real time: an enemy with its guns on you, silenced, does no damage while it lasts.
+  const body = (x) => ({ x, y: 0, vx: 0, vy: 0, angle: x > 0 ? Math.PI : 0, radius: 16 });
+  const p = RealtimeCombat.ship('player', 'Me', Loadout.stats(Loadout.starter('courier')), body(0));
+  const e = RealtimeCombat.ship('e', 'Them', Loadout.stats(Loadout.npc('fighter', 1)), body(300));
+  const rt = RealtimeCombat.create(mulberry32(3), p, [e], { focus: 'e' });
+  Abilities.use(p, 'emp-charge', e, rt.t);
+  for (let i = 0; i < 60; i++) RealtimeCombat.step(rt, 1 / 30, p); // two seconds
+  assert.strictEqual(p.hull, p.stats.hull, 'no shots landed while silenced');
+});
 
 test('combat rounds: initiative, shields before hull, no shots from the dead, recharge', () => {
   // The player fires first and destroys the enemy, which never gets to shoot back.
@@ -1802,8 +1846,8 @@ test('research: logic packages unlock every block, cost components and goods, an
   }
   // Memory: up to the most lines a program holds.
   assert.strictEqual(Squad.lineLimit(Research.lineBonus(Object.keys(Research.PACKAGES))), Squad.MAX_LINES);
-  // use() waits for abilities: its package is hidden.
-  assert(Research.PACKAGES['tactics.use'].hidden && !Research.LIST.includes(Research.PACKAGES['tactics.use']));
+  // use() runs abilities (consumables): its package is on the list now.
+  assert(!Research.PACKAGES['tactics.use'].hidden && Research.LIST.includes(Research.PACKAGES['tactics.use']));
 });
 
 test('research: queued and paid up front, built on the real clock, offline too, and cancelled for a refund', () => {

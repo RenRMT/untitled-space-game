@@ -5,7 +5,7 @@
 // QUEUE_MAX more (and more with industry research: queueMax) wait their turn, each starting the moment the one before it finishes (so a
 // queue left overnight is worked through overnight).
 // Logic packages only ever unlock decisions (subjects, conditions, keywords, actions, more lines);
-// the abilities a `use` line runs come from elsewhere, so the packages for it are hidden until then.
+// the abilities a `use` line runs are consumables industry makes (rules/abilities.js).
 // The same lab also researches the ship: blueprints for gear from Mk II up (assembled at an
 // assembler, rules/recipes.js), refinements (a few % more of one stat for every piece of a gear
 // line), hull refits (rules/hullmods.js) for every hull you fly, and industry (faster bays, more
@@ -135,8 +135,8 @@ const Research = (() => {
       example: L({ subject: 'self', act: 'follow', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 4 }] }),
     },
     'tactics.use': {
-      name: 'tactics.use', ver: '1.0', cat: 'tactics', requires: ['tactics.count'], time: 1.5 * H, hidden: true,
-      cost: { credits: 2000, [c('computer', 3)]: 3, 'ai-cores': 1 }, note: 'use(): run an ability the ship has, when it is ready',
+      name: 'tactics.use', ver: '1.0', cat: 'tactics', requires: ['tactics.count'], time: 1.5 * H,
+      cost: { credits: 2000, [c('computer', 3)]: 3, electronics: 2 }, note: 'use(): spend a charge of an ability (repair, shield, EMP, jammer) when it will help',
     },
     'maint.sense': {
       name: 'maint.sense', ver: '1.0', cat: 'maint', requires: [], time: 10 * M,

@@ -6,7 +6,7 @@
 // sheet; the Industry tab (ui/industry-view.js) lists the bays leased here, each opening a sheet to
 // set its job; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
-//                    outfitting, lab, industry, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
+//                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
@@ -17,6 +17,7 @@
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
 // industry: game/industry.js: bays leased at stations, their jobs and warehouses (rules/industry.js).
+// kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
@@ -33,6 +34,7 @@
 import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
 import { ItemIcons } from '../art/icons.js';
+import { Abilities } from '../rules/abilities.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
@@ -65,7 +67,7 @@ const StationMenu = (() => {
   let openNode = null; // the research package whose sheet is open, if any
   let openBay = null; // the industry bay whose sheet is open: { i, recipe, count }
   let sheet = null; // the open sheet (Kit.sheet)
-  let openOption = null, openStat = null, openHold = null, openHull = null; // expanded rows, chips, tiles
+  let openOption = null, openStat = null, openHold = null, openHull = null, openKit = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
@@ -349,6 +351,15 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
   }
 
+  // The kit: consumables for abilities in a fight (rules/abilities.js), made by industry.
+  function renderKit() {
+    const kit = ctx.kit || {};
+    const items = Abilities.LIST.filter((a) => kit[a.id] > 0).map((a) => ({ id: a.id, icon: Kit.icon(a.code, 32, { code: a.code }), name: a.name, count: kit[a.id], units: a.note }));
+    return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used in a fight')),
+      items.length ? Kit.itemTiles(items, openKit, (id) => { openKit = id; refresh(); })
+        : h('p', { class: 'ui-empty' }, 'No consumables. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
+  }
+
   // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half.
   function renderGear() {
     const { outfitting: o } = ctx;
@@ -422,6 +433,7 @@ const StationMenu = (() => {
       section('Hold', Kit.head('Hold', Kit.meter(hold.items.length / hold.capacity, { thin: true }), h('span', { class: 'aside num' }, `${hold.items.length}/${hold.capacity}`)),
         items.length ? Kit.itemTiles(items, openHold, (id) => { openHold = id; refresh(); })
           : h('p', { class: 'ui-empty' }, 'Empty. Buy goods at Trade or pick up cargo in space.')),
+      renderKit(),
       renderGear(),
       renderShipyard(),
     ];
@@ -653,11 +665,15 @@ const StationMenu = (() => {
     }
     return null;
   }
-  // After the subject changes: a pick and an action it can take.
+  // The abilities a line can use on its subject: on enemies, or on friends (self, the leader, an ally).
+  const abilitiesFor = (subject) => Abilities.LIST.filter((a) => (a.on === 'enemy') === (subject === 'enemy'));
+  // After the subject changes: a pick and an action it can take (and, for use, an ability that fits).
   function fitDraft(d, known) {
     if (!Logic.SUBJECTS[d.subject].many) d.pick = 'any';
     const cur = Logic.ACTIONS[d.act];
     if (cur.on && !cur.on.includes(d.subject)) d.act = Object.values(Logic.ACTIONS).find((a) => (!a.on || a.on.includes(d.subject)) && a.id !== 'use' && Logic.knows(known, a.pkg)).id;
+    if (d.act !== 'use') d.skill = null;
+    else if (!abilitiesFor(d.subject).some((a) => a.id === d.skill)) d.skill = abilitiesFor(d.subject)[0].id;
   }
 
   function lineSheet() {
@@ -714,6 +730,8 @@ const StationMenu = (() => {
           : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
         field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
+        d.act === 'use' ? field('Ability', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Ability' }),
+          h('p', { class: 'ui-note' }, `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
       ],
       foot: [
         Kit.button(isNew ? 'Add instruction' : 'Save instruction', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => { closeSheet(); Kit.toast(isNew ? 'Instruction added' : 'Instruction saved'); }), {
@@ -801,7 +819,7 @@ const StationMenu = (() => {
     if (isLocked(name)) return;
     closeSheet();
     tab = name;
-    openStat = openHold = openHull = null;
+    openStat = openHold = openHull = openKit = null;
     research.reset();
     industryView.reset();
     body.scrollTop = 0;
@@ -845,7 +863,7 @@ const StationMenu = (() => {
       ctx = options;
       tab = options.tab || 'trade';
       closeSheet();
-      openStat = openHold = openHull = null;
+      openStat = openHold = openHull = openKit = null;
       research.reset();
       doneOpen = false;
       root.hidden = false;

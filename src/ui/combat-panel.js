@@ -9,7 +9,8 @@
 //
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run? }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
-//                      progress, bar?: 'lock' | 'escape' })
+//                      abilities?: [{ id, code, label, count, enabled }], progress, bar?: 'lock' | 'escape' })
+// abilities: a button each (rules/abilities.js): its code and charges left; onButton gets its id.
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 // run: for a squad member, the program line it is running ('L2', or 'else' for none).
@@ -41,6 +42,11 @@ const CombatPanel = (() => {
   rowsEl.addEventListener('pointerdown', focusFrom);
   rowsEl.addEventListener('click', (e) => { if (e.detail === 0) focusFrom(e); });
   btn.addEventListener('click', () => onButton && !btn.disabled && onButton(btn.dataset.id));
+  const abilEl = q('.cb-abil');
+  abilEl.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-id]');
+    if (b && !b.disabled && onButton) onButton(b.dataset.id);
+  });
 
   const pct = (v, max) => `${max > 0 ? clamp((v / max) * 100, 0, 100).toFixed(1) : 0}%`;
 
@@ -69,7 +75,12 @@ const CombatPanel = (() => {
 
   function show(d) {
     const readings = d.rows.map((r) => [Math.ceil(r.hull), Math.floor(r.shield)]);
-    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || ''])])) {
+    const abil = d.abilities || [];
+    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || '']), abil])) {
+      abilEl.hidden = !abil.length;
+      abilEl.replaceChildren(...abil.map((a) => h('button', {
+        class: 'cb-ab', type: 'button', 'data-id': a.id, disabled: !a.enabled, title: `${a.label} · ${a.count} left`, 'aria-label': `${a.label}, ${a.count} left`,
+      }, h('span', { class: 'cd' }, a.code), h('span', { class: 'n' }, `×${a.count}`))));
       root.hidden = false;
       root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;

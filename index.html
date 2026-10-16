@@ -150,6 +150,17 @@
   .cb-timer { display: block; height: 100%; width: 0; background: var(--hostile); }
   .cb-timer.escape { background: var(--cyan); }
   #combat .cb-btn[hidden] { display: none; }
+  /* Abilities: a small button per consumable in the kit, its code over the charges left. */
+  .cb-abil { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+  #combat .cb-abil[hidden] { display: none; }
+  .cb-ab {
+    min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 1px solid var(--good); border-radius: 6px; background: transparent; color: var(--good); cursor: pointer; touch-action: manipulation;
+  }
+  .cb-ab .cd { font: 700 11px var(--mono); letter-spacing: 0.06em; }
+  .cb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
+  .cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+  .cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   #combat:not(.won):not(.lost):not(.fled) .cb-timer { opacity: 0.8; }
   #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
   .cb-rows { display: flex; flex-direction: column; }
@@ -412,6 +423,7 @@
     <button class="btn cb-btn" type="button"></button>
   </div>
   <div class="cb-track" aria-hidden="true"><span class="cb-timer"></span></div>
+  <div class="cb-abil" role="group" aria-label="Abilities" hidden></div>
   <div class="cb-rows"></div>
   <div class="cb-log"></div>
 </div>

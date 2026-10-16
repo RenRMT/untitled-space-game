@@ -13,12 +13,14 @@
 //   Recipes.forBay(type) -> [recipe]
 //   Recipes.known(done) -> Set      recipe ids known, given the research done (rules/research.js)
 //   Recipes.producers(kind), Recipes.consumers(kind) -> [recipe]   the recipes that make / use it
-//   Recipes.item(kind) -> { id, name, kind: 'good' | 'component' | 'gear' | 'mod', stage, price, tier?, slot? } | null
+//   Recipes.item(kind) -> { id, name, kind: 'good' | 'component' | 'gear' | 'mod' | 'consumable', stage, price, tier?, slot? } | null
 //   Recipes.value(counts) -> credits   what a set of things is worth at base prices
 //   Recipes.gearRecipe(gear id) -> recipe   the assembler's recipe for a piece of gear
 // Kinds are rules/goods.js type ids (trade goods and components) and, made by the assembler,
-// rules/loadout.js equipment ids and rules/mods.js mod ids (each mod's kind researched first). ES module (`Recipes`); also runs in Node (the tests).
+// rules/loadout.js equipment ids, rules/mods.js mod ids (each mod's kind researched first) and
+// rules/abilities.js consumables (known from the start). ES module (`Recipes`); also runs in Node (the tests).
 
+import { Abilities } from './abilities.js';
 import { Goods } from './goods.js';
 import { Loadout } from './loadout.js';
 import { Mods } from './mods.js';
@@ -168,6 +170,14 @@ const Recipes = (() => {
     RECIPES[`make.${m.id}`] = { id: `make.${m.id}`, bay: 'assembler', in: MOD_PARTS[m.id], out: { [m.id]: 1 }, time: 600, unlock: `mods.${m.slot}` };
     MOD_PRICE[m.id] = Math.round(Object.entries(MOD_PARTS[m.id]).reduce((sum, [kind, count]) => sum + Goods.type(kind).price * count, 0) * 1.3 / 10) * 10;
   }
+  // Consumables for abilities (rules/abilities.js), at the assembler: [id, { in }, how many a run makes].
+  const CONSUMABLES = [
+    ['repair-nanites', { 'nanite-suspension': 1 }, 2],
+    ['shield-cell', { 'power-cell': 1, capacitor: 1 }, 1],
+    ['emp-charge', { capacitor: 1, superconductor: 1 }, 1],
+    ['jammer-pod', { 'sensor-array': 1, electronics: 1 }, 2],
+  ];
+  for (const [id, input, n] of CONSUMABLES) RECIPES[`make.${id}`] = { id: `make.${id}`, bay: 'assembler', in: input, out: { [id]: n }, time: 300, unlock: null };
   // Alternative recipes, unlocked by industry research (rules/research.js `ind.alt.*`).
   RECIPES['alt.power-cell'] = { id: 'alt.power-cell', bay: 'fabricator', in: { 'water-ice': 2, 'copper-cable': 1, titanium: 1 }, out: { 'power-cell': 1 }, time: 40, unlock: 'ind.alt.power-cell' };
   RECIPES['alt.graphene'] = { id: 'alt.graphene', bay: 'refinery', in: { carbon: 4, 'water-ice': 1 }, out: { graphene: 1 }, time: 60, unlock: 'ind.alt.graphene' };
@@ -183,7 +193,9 @@ const Recipes = (() => {
     const e = Loadout.EQUIPMENT[kind];
     if (e) return e.npc ? null : { id: kind, name: e.name, kind: 'gear', stage: 'item', price: e.price, tier: e.tier, slot: e.slot };
     const m = Mods.MODS[kind];
-    return m ? { id: kind, name: m.name, kind: 'mod', stage: 'item', price: MOD_PRICE[kind], slot: m.slot } : null;
+    if (m) return { id: kind, name: m.name, kind: 'mod', stage: 'item', price: MOD_PRICE[kind], slot: m.slot };
+    const a = Abilities.ABILITIES[kind];
+    return a ? { id: kind, name: a.name, kind: 'consumable', stage: 'item', price: a.price, code: a.code } : null;
   }
   const value = (counts) => Object.entries(counts).reduce((n, [kind, k]) => n + (item(kind)?.price || 0) * k, 0);
   const gearRecipe = (gear) => RECIPES[`make.${gear}`] || null;

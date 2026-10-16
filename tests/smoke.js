@@ -1154,6 +1154,26 @@ test('fights in rounds to the end', () => {
   browser.frames(300); // the result panel times out
 });
 
+test('abilities in a fight: the player spends a charge from the panel, a wingman by its use line', () => {
+  game(`combatMode.set('rounds'); cargo.kit = { 'emp-charge': 2, 'repair-nanites': 1 }`);
+  meetPirate();
+  browser.frames(2);
+  const panel = () => textOf(browser.document.getElementById('combat').querySelector('.cb-abil'));
+  assert.match(panel(), /REP×1.*EMP×2/, 'a button per consumable in the kit');
+  // The player: an EMP on the enemy targeted.
+  game('fight.s.player.hull = Math.min(fight.s.player.hull, 10)');
+  game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`);
+  assert.ok(game(`cargo.kit['emp-charge'] === 1 && Abilities.disabled(fight.s.enemies.find((e) => e.id === fight.s.focus), fight.s.t)`), 'spent, and the target silenced');
+  assert.ok(!game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`), 'cooling down');
+  // A wingman with a use line repairs the damaged leader.
+  game(`cargo.lab.done.push('tactics.use'); firstMember().program.unshift({ ...Logic.blank(), subject: 'leader', act: 'use', skill: 'repair-nanites' })`);
+  browser.frames(2);
+  assert.ok(game(`!cargo.kit['repair-nanites'] && fight.s.player.hull > 10`), 'the wingman used the nanites on the leader');
+  game('firstMember().program.shift(); cargo.lab.done.pop()');
+  assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
+  browser.frames(300);
+});
+
 test('fights in real time, then gets away', () => {
   game(`combatMode.set('realtime')`);
   meetPirate();
@@ -1183,6 +1203,7 @@ test('fights in real time, then gets away', () => {
 test('the wingman flies in formation, assists the leader in both combat modes, and is repaired at a dock', () => {
   assert.strictEqual(game('cargo.squad.length'), 1, 'a new game has one wingman');
   const id = game('cargo.squad[0].id');
+  game('repairSquad()'); // an earlier fight may have left it disabled until the next dock
   assert.match(game('cargo.squad[0].name'), /^[A-Z][a-z]+-\d\d$/);
   assert.strictEqual(game(`wings.get('${id}').art.culture.lineage`), 'android', 'built in the android culture');
   // It joined with an empty program; give it the Assist leader line (a later mission's job).

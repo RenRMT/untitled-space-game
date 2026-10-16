@@ -5,10 +5,11 @@
 import { ArtBlueprints } from '../art/blueprints.js';
 import { CombatCore } from '../combat/combat-core.js';
 import { Flight } from '../flight/flight.js';
+import { Abilities } from '../rules/abilities.js';
 import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
-import { explode } from './combat.js';
+import { explode, useAbility } from './combat.js';
 import { escorting, mission, workSpot } from './missions.js';
 import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
 import { world } from './world.js';
@@ -99,7 +100,12 @@ export function logicContext(s, a) {
   return {
     self: a, leader: s.player, enemies: CombatCore.alive(s), allies: CombatCore.allies(s).filter((x) => x !== a),
     leaderTarget: s.focus ?? null, dist: distance, targetOf: (e) => CombatCore.aimAt(s, e).id,
-    ready: () => false, // abilities come later (from gear); until then `use` lines never run
+    // A `use` line runs when there's a charge in the kit, the ability is off cooldown for this ship
+    // and would help, and its target is on the right side (rules/abilities.js).
+    ready: (skill, t) => {
+      const ab = Abilities.ABILITIES[skill], foe = s.enemies.includes(t);
+      return !!ab && (cargo.kit[skill] || 0) > 0 && foe === (ab.on === 'enemy') && Abilities.ready(a, skill, t, s.t);
+    },
   };
 }
 
@@ -107,7 +113,7 @@ export function logicContext(s, a) {
 // - attack: fire on the target (keep: from as far as the guns reach),
 // - guard: fire on whoever is shooting at the ward (the nearest such to it), else stay beside it,
 // - retreat: fall back to the leader's far side from the enemies (with no target, holding fire),
-// - follow (and use, until ships have abilities): keep formation.
+// - follow: keep formation (a use line is done at once, in orderSquad, and leaves the orders as they were).
 export const GUARD_OFFSET = 110, RETREAT_OFFSET = 140;
 export function ordersFor(s, a, intent, i) {
   const formation = Squad.formation(ship, i);
@@ -159,6 +165,7 @@ export function orderSquad(s) {
       fight.fx.push({ type: 'code', delay: 0, t: LINE_LABEL, max: LINE_LABEL, at: a.id, text, idle: line < 0 });
     }
     a.line = line;
+    if (intent.type === 'use') { useAbility(s, a, intent.skill, intent.target); return; }
     m.setOrders(s, a.id, ordersFor(s, a, intent, i));
   });
 }
