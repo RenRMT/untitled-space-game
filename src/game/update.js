@@ -69,8 +69,8 @@ export function update(dt) {
   }
 
   // Camera leads in the direction of travel. In a fight it frames the ship and its target in
-  // the space above the combat panel (as it was when a drag began, while one goes on: steady); in real time it leans only so far, keeping your own ship
-  // well on screen when the target is far off.
+  // the space above the combat panel (held as it was while a drag goes on: steady); in real time
+  // it leans only so far, keeping your own ship well on screen when the target is far off.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
