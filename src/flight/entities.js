@@ -30,7 +30,6 @@ import { Art } from '../art/render.js';
 import { Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
-import { Squad } from '../rules/squad.js';
 
 const Entities = (() => {
   const ArtItemsRef = ArtItems;

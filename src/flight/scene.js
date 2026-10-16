@@ -14,7 +14,7 @@
 
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtUtil } from '../art/util.js';
-import { hashInt, mulberry32, nextSeed, seedToInt, weightedPick } from '../core/rng.js';
+import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
 import { Security } from '../world/security.js';
@@ -24,8 +24,6 @@ const Scene = (() => {
   const CELL = 5000; // grid cell size, in world units
   const MARGIN = 1200; // how far a gridded thing reaches from where it is filed (rings, pirate orbits)
 
-  // weightedPick (core/rng.js) with a random generator instead of a number.
-  const weighted = (list, r) => weightedPick(list, r());
 
   function create(galaxy, cultures) {
     const base = seedToInt(galaxy.seed);

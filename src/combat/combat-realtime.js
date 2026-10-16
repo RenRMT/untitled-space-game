@@ -47,7 +47,7 @@ const RealtimeCombat = (() => {
     spacing: 120, // enemies keep about this far apart
   };
 
-  const { TAU, clamp, lerp, angleDiff, dist } = MathUtil;
+  const { clamp, lerp, angleDiff, dist } = MathUtil;
 
   // A ship in a fight. stats: Loadout.stats(); body: { x, y, vx, vy, angle, radius } (radius
   // defaults to the hull's); hull: current hull points (defaults to full).
@@ -180,13 +180,13 @@ const RealtimeCombat = (() => {
       s.locked = false;
     }
     for (const e of alive(s)) {
-      const t = aimAt(s, e);
-      e.lockT = dist(e, t) - t.radius <= e.stats.lockRange ? e.lockT + dt : 0;
+      const target = aimAt(s, e);
+      e.lockT = dist(e, target) - target.radius <= e.stats.lockRange ? e.lockT + dt : 0;
     }
     for (const a of allies(s)) {
-      const t = byId(s, a.order.target);
-      if (!t || a.lockOn !== t.id) { a.lockOn = t ? t.id : null; a.lockT = 0; }
-      if (t && dist(a, t) - t.radius <= a.stats.lockRange) a.lockT += dt;
+      const target = byId(s, a.order.target);
+      if (!target || a.lockOn !== target.id) { a.lockOn = target ? target.id : null; a.lockT = 0; }
+      if (target && dist(a, target) - target.radius <= a.stats.lockRange) a.lockT += dt;
       else a.lockT = 0;
     }
   }

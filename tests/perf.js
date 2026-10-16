@@ -9,6 +9,8 @@
 //   node tests/perf.js            all scenarios
 //   node tests/perf.js nebula     only those whose name contains "nebula"
 
+/* global __G, __inGame */ // set in the page (below), used in page.evaluate callbacks
+
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

@@ -13,7 +13,7 @@ import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
-import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, gatesOnline, opening, repairs, saveCargo, validLoadout } from './cargo.js';
+import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, gatesOnline, opening, saveCargo, validLoadout } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';

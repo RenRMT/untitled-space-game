@@ -35,7 +35,6 @@ const ArtItems = (() => {
   }
   const polar = (r, a) => [Math.cos(a) * r, Math.sin(a) * r];
   const radial = (r0, r1, w, a) => U.rect((r0 + r1) / 2 * Math.cos(a), (r0 + r1) / 2 * Math.sin(a), r1 - r0, w, a);
-  const jit = (r, k = 0.08) => 1 - k + r() * k * 2;
 
   // ---------- Palettes ----------
 

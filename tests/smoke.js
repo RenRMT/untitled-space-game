@@ -19,7 +19,7 @@ const { UI } = await import('../src/ui/ui.js');
 // game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
 // function, for `with`.
 const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG });
-const { Art, ArtBodies, Combat, Comms, ContextCard, Economy, Galaxy, Goods, Knowledge, Loadout, Mining, Missions, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel } = G; // the tests use them too
+const { ArtBodies, Galaxy } = G; // the tests use them too
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
 const game = (src) => inGame(scope, src);
 

@@ -1196,11 +1196,11 @@ const Art = (() => {
     return ast._astS;
   }
 
-  function asteroidModel(ast, sub) {
+  function asteroidModel(ast, part) {
     ast._astM = ast._astM || {};
-    if (ast._astM[sub]) return ast._astM[sub];
+    if (ast._astM[part]) return ast._astM[part];
     const S = asteroidShape(ast);
-    const { v, f } = icosphere(sub);
+    const { v, f } = icosphere(part);
     const D = v.map(S.disp);
     const V = D.map((d) => d.q.map((x) => x / S.R));
     const N = V.map(() => [0, 0, 0]);
@@ -1209,8 +1209,8 @@ const Art = (() => {
       for (const i of [a, b, c]) for (let k = 0; k < 3; k++) N[i][k] += n[k];
     }
     N.forEach((n, i) => { const m = norm(n); N[i] = dot(m, v[i]) < 0 ? m.map((x) => -x) : m; });
-    ast._astM[sub] = { V, N, f, cr: D.map((d) => d.cr), pat: D.map((d) => d.pat) };
-    return ast._astM[sub];
+    ast._astM[part] = { V, N, f, cr: D.map((d) => d.cr), pat: D.map((d) => d.pat) };
+    return ast._astM[part];
   }
   const sub3 = sub;
   const astMat = (ast, a) => { const S = asteroidShape(ast); return mulMat(axisMat(S.axis, a), S.M0); };

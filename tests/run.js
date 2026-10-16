@@ -1139,7 +1139,6 @@ function duel(enemyStats, at, o = {}) {
   const them = RealtimeCombat.ship('e', 'Them', enemyStats, { x: at[0], y: at[1], angle: Math.atan2(-at[1], -at[0]), radius: 18 });
   return RealtimeCombat.create(o.rng || (() => 0), me, [them], { focus: 'e' });
 }
-const holdStill = (s) => { for (const e of s.enemies) { e.x = e.x0 ?? e.x; e.vx = e.vy = 0; } };
 // Run with the enemy pinned in place (so only the rules under test matter); returns shots by side.
 function runPinned(s, secs, dt = 1 / 30) {
   const shots = { player: [], e: [] };

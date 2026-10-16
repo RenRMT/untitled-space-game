@@ -330,8 +330,8 @@ const Missions = (() => {
     let at = null;
     for (const pass of PASSES) {
       for (let tries = 0; tries < 400 && !at; tries++) {
-        const a = r() * TAU, dist = pass.range[0] + r() * (pass.range[1] - pass.range[0]);
-        const p = { x: W.x + Math.cos(a) * dist, y: W.y + Math.sin(a) * dist };
+        const a = r() * TAU, d = pass.range[0] + r() * (pass.range[1] - pass.range[0]);
+        const p = { x: W.x + Math.cos(a) * d, y: W.y + Math.sin(a) * d };
         if (pass.checks.every((k) => CHECKS[k](p))) at = p;
       }
       if (at) break;
@@ -343,9 +343,9 @@ const Missions = (() => {
     const pre = 'm.repayment.';
     const rocks = [];
     for (let i = 0, n = SITE.rocks[0] + Math.floor(r() * (SITE.rocks[1] - SITE.rocks[0] + 1)); i < n; i++) {
-      const a = r() * TAU, dist = 260 + Math.sqrt(r()) * (SITE.spread - 260);
+      const a = r() * TAU, d = 260 + Math.sqrt(r()) * (SITE.spread - 260);
       rocks.push({
-        key: `${pre}a${i}`, x: at.x + Math.cos(a) * dist, y: at.y + Math.sin(a) * dist, type: weightedPick(FIELD_TYPES, r()),
+        key: `${pre}a${i}`, x: at.x + Math.cos(a) * d, y: at.y + Math.sin(a) * d, type: weightedPick(FIELD_TYPES, r()),
         r: 8 + r() ** 2.2 * 44, seed: nextSeed(r), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
       });
     }

@@ -15,15 +15,15 @@
 import { MathUtil } from '../core/math.js';
 
 const Flight = (() => {
-  const { TAU, clamp, lerp, angleDiff } = MathUtil;
+  const { clamp, lerp, angleDiff } = MathUtil;
 
   // Turn from a toward target by at most maxStep, the short way round.
   function turnToward(a, target, maxStep) {
     return a + clamp(angleDiff(target, a), -maxStep, maxStep);
   }
 
-  // Change v toward target by at most step.
-  const approach = (v, target, step) => (v < target ? Math.min(target, v + step) : Math.max(target, v - step));
+  // Change v toward target by at most by.
+  const approach = (v, target, by) => (v < target ? Math.min(target, v + by) : Math.max(target, v - by));
 
   function step(body, stats, control, dt) {
     const { targetAngle, targetSpeed, mode = 'cruise' } = control;

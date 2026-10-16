@@ -9,7 +9,6 @@ import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { cargo, saveCargo } from './cargo.js';
 import { explode } from './combat.js';
-import { dock } from './docking.js';
 import { escorting, mission, workSpot } from './missions.js';
 import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
 import { world } from './world.js';
