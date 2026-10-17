@@ -4,13 +4,19 @@
 // instead of each replacing the last. A notice already showing or waiting isn't added again.
 // What the player just did (a button's result) shows at once, in place of the oldest notice.
 // Screen readers hear each one (a polite live region).
+// In flight they aren't toasts but lines of an event log, plain text in the top-left corner that
+// the HUD draws (game/hud.js): the last LOG_LINES, newest at the bottom, each gone after LOG_TIME s;
+// the same line again counts up (×2) instead of taking another line.
 //
 //   Messages.push(text, { time = 2.5 (s), tone = 'info' | 'good' | 'warn' | 'hostile', priority = 0, now = false })
 //     priority: 0 information, 1 a mission's progress, 2 combat (jumps the queue)
 //     now: the answer to the player's own action: shown straight away
 //   Messages.tick(dt)          the frame loop's clock (game/loop.js): notices go when their time is up
 //   Messages.clear()
-//   Messages.shown -> [text]   what's on screen now (the tests read it)
+//   Messages.shown -> [text]   the toasts on screen now (the tests read it)
+//   Messages.toLog = () => bool  set by the flight view: whether notices go to the log now (in
+//                              flight) instead of showing as toasts (docked, the introduction)
+//   Messages.log -> [{ text, tone, n, age }]   the event log, oldest first
 // Where they show is set in CSS (ui/kit.css): high in the middle of the screen in flight, above the
 // tab bar when docked (body.docked).
 // ES module (`Messages`); needs a browser.
@@ -20,9 +26,22 @@ import { UI } from './ui.js';
 const Messages = (() => {
   const { h } = UI;
   const MAX_SHOWN = 2, MAX_WAITING = 6;
+  const LOG_LINES = 5, LOG_TIME = 10; // lines, seconds
   let root = null;
   const shown = []; // { text, el, left (s), priority }
   let waiting = []; // { text, time, tone, priority }
+  const log = []; // { text, tone, n, age (s) }
+  let toLog = () => false;
+
+  // A line in the event log; screen readers hear it from the same live region as the toasts.
+  function logLine(text, tone) {
+    const last = log[log.length - 1];
+    if (last && last.text === text) { last.n++; last.age = 0; } else log.push({ text, tone, n: 1, age: 0 });
+    if (log.length > LOG_LINES) log.splice(0, log.length - LOG_LINES);
+    const said = h('div', { class: 'ui-said' }, text);
+    el().appendChild(said);
+    setTimeout(() => said.remove(), 1000);
+  }
 
   function el() {
     root ||= document.body.appendChild(h('div', { class: 'ui-messages ui', role: 'status', 'aria-live': 'polite' }));
@@ -48,6 +67,7 @@ const Messages = (() => {
 
   function push(text, { time = 2.5, tone = 'info', priority = 0, now = false } = {}) {
     if (!text) return;
+    if (toLog()) { logLine(text, tone); return; }
     const same = shown.find((s) => s.text === text);
     if (same) { same.left = Math.max(same.left, time); return; }
     if (waiting.some((w) => w.text === text)) return;
@@ -65,6 +85,8 @@ const Messages = (() => {
   }
 
   function tick(dt) {
+    for (const l of log) l.age += dt;
+    while (log.length && log[0].age >= LOG_TIME) log.shift();
     if (!shown.length) return;
     for (const s of [...shown]) {
       s.left -= dt;
@@ -75,10 +97,16 @@ const Messages = (() => {
 
   function clear() {
     waiting = [];
+    log.length = 0;
     for (const s of [...shown]) dismiss(s);
   }
 
-  return { push, tick, clear, get shown() { return shown.map((s) => s.text); } };
+  return {
+    push, tick, clear, LOG_LINES, LOG_TIME,
+    get shown() { return shown.map((s) => s.text); },
+    get log() { return log; },
+    set toLog(fn) { toLog = fn; },
+  };
 })();
 
 export { Messages };

@@ -183,6 +183,9 @@ export function frame(now) {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
+  // In flight, notices are lines of the HUD's event log (game/hud.js); docked, on the map and in
+  // the introduction, toasts.
+  Messages.toLog = () => hudShown() && !docked && !SystemMap.isOpen;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && fight.s) pauseForResume();
   });

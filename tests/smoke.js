@@ -1503,8 +1503,24 @@ test('text with **bold** runs becomes text and <strong> elements', () => {
   assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
 });
 
+test('in flight, notices are an event log: the last 5 lines, a repeat counted, each gone after 10 s', () => {
+  Messages.clear();
+  assert.ok(game('!docked && !SystemMap.isOpen && hudShown()'), 'in flight');
+  for (const t of ['a', 'b', 'b', 'c', 'd', 'e', 'f']) Messages.push(t);
+  assert.deepStrictEqual(Messages.shown, [], 'no toasts');
+  assert.deepStrictEqual(Messages.log.map((l) => (l.n > 1 ? `${l.text}×${l.n}` : l.text)), ['b×2', 'c', 'd', 'e', 'f'], 'five lines, the oldest gone');
+  Messages.tick(6);
+  Messages.push('g');
+  Messages.tick(4.5);
+  assert.deepStrictEqual(Messages.log.map((l) => l.text), ['g'], 'ten seconds each');
+  Messages.tick(6);
+  assert.deepStrictEqual(Messages.log, []);
+  browser.frames(1); // the HUD draws it
+});
+
 test('notices queue: two at a time, combat first, none repeated', () => {
   Messages.clear();
+  Messages.toLog = () => false; // as when docked
   for (const t of ['one', 'two', 'three', 'one']) Messages.push(t, { time: 1.5 });
   assert.deepStrictEqual(Messages.shown, ['one', 'two'], 'two show; the repeat is dropped');
   Messages.push('Pirates attack!', { priority: 2 });
@@ -1514,6 +1530,7 @@ test('notices queue: two at a time, combat first, none repeated', () => {
   Messages.push('Hull repaired', { now: true });
   assert.ok(Messages.shown.includes('Hull repaired'), 'what the player just did shows straight away');
   Messages.clear();
+  Messages.toLog = () => game('hudShown() && !docked && !SystemMap.isOpen');
 });
 
 test('a save exported to a file comes back in, and nothing else does', () => {
