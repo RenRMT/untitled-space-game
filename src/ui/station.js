@@ -2,7 +2,8 @@
 // tabs,
 // and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
-// (with a squad, a switcher above it steps through the members' ships too, outfitted the same way);
+// (with a squad, a switcher above it steps through the members' ships too, outfitted the same way;
+// the Production tab steps through a station's orders with the same switcher);
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
 // sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
 // nodes (inputs, the stage, what it makes), the shared storage as tiles and the production pipeline,
@@ -574,22 +575,29 @@ const StationMenu = (() => {
     showShip(views[(i + dir + views.length) % views.length]);
   }
 
-  // The switcher above the Ship tab: ‹ the ship shown, a dot per ship › (only with a squad).
+  // A switcher: ‹ the one shown and where it is among them, a dot each › . The Ship tab steps
+  // through your ship and the squad's with it; the Production tab through a station's orders.
+  // names: what each is called; at: the one shown; step(+1 | -1): show the next or the one before.
+  function switcher({ label, names, at, step }) {
+    const n = names.length;
+    const arrow = (dir, glyph) => h('button', {
+      class: 'st-switch-btn', type: 'button', onclick: () => step(dir),
+      'aria-label': `Show ${names[(at + dir + n) % n]}`,
+    }, glyph);
+    return h('nav', { class: 'st-switch', 'aria-label': label },
+      arrow(-1, '‹'),
+      h('span', { class: 'mid' },
+        h('span', { class: 'who', 'aria-live': 'polite' }, names[at], h('span', { class: 'num' }, ` ${at + 1}/${n}`)),
+        h('span', { class: 'dots', 'aria-hidden': 'true' }, names.map((_, i) => h('span', { class: 'dot', 'aria-current': i === at ? 'true' : undefined })))),
+      arrow(1, '›'));
+  }
+  // The switcher above the Ship tab (only with a squad).
   function shipSwitcher() {
     const views = shipViews();
     if (views.length < 2) return null;
     const m = viewedMember(), at = views.indexOf(m ? m.id : null);
     const nameOf = (id) => (id === null ? 'Your ship' : squadMembers().find((x) => x.id === id).name);
-    const arrow = (dir, glyph) => h('button', {
-      class: 'st-switch-btn', type: 'button', onclick: () => stepShip(dir),
-      'aria-label': `Show ${nameOf(views[(at + dir + views.length) % views.length])}`,
-    }, glyph);
-    return h('nav', { class: 'st-switch', 'aria-label': 'Ships' },
-      arrow(-1, '‹'),
-      h('span', { class: 'mid' },
-        h('span', { class: 'who', 'aria-live': 'polite' }, m ? m.name : 'Your ship', h('span', { class: 'num' }, ` ${at + 1}/${views.length}`)),
-        h('span', { class: 'dots', 'aria-hidden': 'true' }, views.map((id, i) => h('span', { class: 'dot', 'aria-current': i === at ? 'true' : undefined })))),
-      arrow(1, '›'));
+    return switcher({ label: 'Ships', names: views.map(nameOf), at, step: stepShip });
   }
 
   // The Ship tab for a squad member: its hull, its loadout (each slot opening a sheet to fit gear
@@ -665,7 +673,7 @@ const StationMenu = (() => {
   // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon, showTab: (name) => pick(name),
+    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon, switcher, showTab: (name) => pick(name),
     showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 

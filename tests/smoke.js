@@ -837,6 +837,20 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   pressLabelled(/^Iron: 8 in storage, needs 2/);
   assert.match(onStation(), /Lineage2 × IronRaw✓ 8.*Enough Iron in storage/);
   game('StationMenu.closeSheet()');
+  // With room for more than one order (research), the Ship tab's switcher steps through them, a free order last.
+  game(`lab.grant('ind.bays.1'); StationMenu.refresh()`);
+  assert.match(onStation(), /Steel pipe 1\/2.*Refinery1\/2 orders.*Running/, 'the order shown, one of two');
+  pressOnStation('›');
+  assert.match(onStation(), /New order 2\/2.*Idle1 order free here.*\+ New order/, 'then the free one');
+  assert.doesNotMatch(onStation(), /Running/, 'one at a time');
+  pressOnStation(/^\+ New order/);
+  pressOnStation(/^Copper cable/);
+  pressOnStation('Place order');
+  assert.match(onStation(), /Copper cable 2\/2.*Refinery2\/2 orders.*Starved/, 'the new order, shown');
+  pressOnStation('›'); // round to the first
+  assert.match(onStation(), /Steel pipe 1\/2.*Running/);
+  game(`industry.cancel(industry.orders()[1].id); cargo.lab.done.splice(cargo.lab.done.indexOf('ind.bays.1'), 1); delete cargo.lab.doneAt['ind.bays.1']; StationMenu.refresh()`);
+  assert.doesNotMatch(onStation(), /1\/2/, 'one order again: no switcher');
   pressOnStation(/^Production pipeline · 1 order/); // folded until opened
   assert.match(onStation(), /Production pipeline.*Standalone/, 'a lone order');
   // Away for an hour: on load, everything the iron makes is made.

@@ -306,7 +306,7 @@
   .st-hull .top .num { font-size: 12px; color: var(--hud); }
   .st-hull .ui-tag { font-size: 13px; padding: 0 6px; }
 
-  /* Ship tab: stepping between your ship and the squad's. */
+  /* The switcher: on the Ship tab, stepping between your ship and the squad's; on the Production tab, between a station's orders. */
   .st-switch {
     display: flex; align-items: center; gap: 8px; margin-bottom: -6px; overflow: hidden;
     border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--s1);
@@ -456,11 +456,6 @@
   .pr-empty .ui-icon { color: var(--t4); opacity: 0.7; }
   .pr-empty .go { font: 700 13px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--cyan); }
   .pr-empty.locked .go { color: var(--dim); }
-  .pr-new { display: flex; align-items: center; gap: 10px; min-height: var(--hit); padding: 10px 12px; background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--cyan); text-align: left; cursor: pointer; font: inherit; }
-  .pr-new:hover { border-color: var(--cyan); }
-  .pr-new .main { display: flex; flex-direction: column; gap: 2px; }
-  .pr-new .name { font-weight: 600; }
-  .pr-new .sub { font-size: 13px; color: var(--dim); }
   /* Tiles: as many to a row as fit (five on a phone). */
   .pr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 6px; }
   .pr-detail { display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 12px; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-md); }

@@ -1,5 +1,6 @@
 // The station screen's Production tab (ui/station.js), drawn as a production line: the stage this
-// station works (Refinery, Fabricator or Assembler) and its orders, each a status line and a flow
+// station works (Refinery, Fabricator or Assembler) and its orders, one at a time (with more than one,
+// the Ship tab's switcher steps through them and a free order), each a status line and a flow
 // of nodes (its inputs, wired by whether storage has them, into the stage, then what it makes);
 // the shared storage and the hold as tiles, a tile opening its detail (what uses it, Take or
 // Store); and the production pipeline: every order in the galaxy, linked by what one makes and
@@ -10,7 +11,7 @@
 //   IndustryView.create(env) -> { render(), sheet(open), tick(), reset() }
 //     env: { ctx() (the station's open() options; ctx.industry: game/industry.js), refresh(), act(fn, after),
 //            section(label, ...children), lead(text), explain(key, text), fold(key, label, content),
-//            itemIcon(kind, size), showTab(name),
+//            itemIcon(kind, size), switcher({ label, names, at, step }) (the Ship tab's), showTab(name),
 //            showOrder(open), setOrder(changes), closeSheet() }
 //     sheet(open): the options for a Kit.sheet, open being
 //       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last) }: an order here, to place or change
@@ -46,6 +47,8 @@ const IndustryView = {
     let live = []; // running orders' meters and notes (see tick)
     let openStored = null; // the stored good whose tile is open
     let openAboard = null; // the good aboard whose tile is open
+    const FREE = 'free';
+    let viewing = null; // the order shown (orderViews), with more than one here
 
     const ind = () => env.ctx().industry;
     const state = () => ind().state;
@@ -190,20 +193,47 @@ const IndustryView = {
           h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B.code, 28, { code: B.code }),
             h('span', { class: 'go' }, 'Orders locked'), h('span', {}, `Complete a mission for ${here.name} first`))));
       }
+      // One order at a time, as the Ship tab shows one ship: with more than one order here (or one
+      // and room for another), the switcher above steps through them, a free order last.
+      const views = orderViews(), at = views.indexOf(viewedOrder());
+      const o = find(views[at]);
       const fresh = () => env.showOrder({ mode: 'new', recipe: null, count: 1 });
+      const nameOf = (id) => (id === FREE ? 'New order' : recipeName(Recipes.RECIPES[find(id).recipe]));
       const free = Math.max(0, max - orders.length);
-      if (!orders.length) {
-        return env.section('Orders here', title, explain,
-          h('div', { class: 'pr-status' }, Kit.tag(STATUS.idle.word, STATUS.idle.tone), h('span', { class: 'txt' }, 'No order placed'),
-            Kit.button('New order', fresh, { kind: 'ghost', aria: 'Place a new order' })),
-          h('div', { class: 'pr-board' }, h('button', { class: 'pr-empty', type: 'button', onclick: fresh },
-            Kit.icon(B.code, 28, { code: B.code }), h('span', { class: 'go' }, '+ New order'), h('span', {}, `${B.label} is idle`))));
-      }
-      return env.section('Orders here', title, explain,
-        orders.map((o) => h('div', { class: 'pr-order' }, status(o), h('div', { class: 'pr-board' }, line(o, true)))),
-        free ? h('button', { class: 'pr-new', type: 'button', onclick: fresh },
-          Kit.icon(B.code, 24, { code: B.code }), h('span', { class: 'main' }, h('span', { class: 'name' }, '+ New order'),
-            h('span', { class: 'sub' }, `${free} more order${free === 1 ? '' : 's'} free here`))) : null);
+      return [
+        views.length > 1 ? env.switcher({ label: 'Orders', names: views.map(nameOf), at, step: (dir) => showOrderAt(views[(at + dir + views.length) % views.length]) }) : null,
+        env.section('Orders here', title, explain,
+          o ? h('div', { class: 'pr-order' }, status(o), h('div', { class: 'pr-board' }, line(o, true))) : [
+            h('div', { class: 'pr-status' }, Kit.tag(STATUS.idle.word, STATUS.idle.tone),
+              h('span', { class: 'txt' }, orders.length ? `${free} order${free === 1 ? '' : 's'} free here` : 'No order placed'),
+              Kit.button('New order', fresh, { kind: 'ghost', aria: 'Place a new order' })),
+            h('div', { class: 'pr-board' }, h('button', { class: 'pr-empty', type: 'button', onclick: fresh },
+              Kit.icon(B.code, 28, { code: B.code }), h('span', { class: 'go' }, '+ New order'), h('span', {}, orders.length ? 'A free order' : `${B.label} is idle`))),
+          ]),
+      ];
+    }
+
+    // Which order the Production tab shows: an order here (its id), or FREE (room for a new one).
+    // Each order here, then FREE while there is room; the one shown falls back to the first when
+    // its order is gone.
+    function orderViews() {
+      const orders = ind().orders();
+      return [...orders.map((o) => o.id), ...(orders.length < ind().slots() ? [FREE] : [])];
+    }
+    function viewedOrder() {
+      const views = orderViews();
+      if (!views.includes(viewing)) viewing = views[0] ?? FREE;
+      return viewing;
+    }
+    function showOrderAt(id) {
+      if (id === viewing) return;
+      viewing = id;
+      env.refresh();
+    }
+    // After placing an order, show it.
+    function showNewest() {
+      const orders = ind().orders();
+      if (orders.length) viewing = orders[orders.length - 1].id;
     }
 
     // ---------- Storage and hold ----------
@@ -344,7 +374,7 @@ const IndustryView = {
     function render() {
       live = [];
       env.lead('');
-      return [ordersHere(), storage(), aboard(), pipeline()];
+      return [ordersHere(), storage(), aboard(), pipeline()].flat();
     }
 
     // ---------- Sheets ----------
@@ -418,7 +448,7 @@ const IndustryView = {
         h('p', { class: 'ui-note' }, !chosen ? 'Pick a product above.' : open.count === null
           ? `Runs while there are inputs, ${duration(t)} each. New inputs in storage start it again.`
           : `${open.count} run${open.count === 1 ? '' : 's'}, ${duration(t)} each: about ${duration(t * open.count)} with the inputs in storage.`));
-      const go = open.mode === 'new' ? () => ind().place(open.recipe, open.count) : () => ind().edit(open.id, open.recipe, open.count);
+      const go = open.mode === 'new' ? () => { if (ind().place(open.recipe, open.count)) showNewest(); } : () => ind().edit(open.id, open.recipe, open.count);
       return {
         title: open.mode === 'new' ? 'New order' : 'Change order', code: B.code, sub: `${B.label} · ${here.name}`, tall: true,
         body,
@@ -461,7 +491,7 @@ const IndustryView = {
       else if (here) {
         note = `Make it here first. ${subShort.length ? `You also need ${subShort.join(', ')}. ` : 'All of its inputs are in storage. '}${replaces
           ? `This ${B.label.toLowerCase()} has no order free, so it replaces ${recipeName(Recipes.RECIPES[o.recipe])}.` : 'It takes a free order here.'}`;
-        const make = replaces ? () => ind().edit(o.id, R.id, open.need) : () => ind().place(R.id, open.need);
+        const make = replaces ? () => ind().edit(o.id, R.id, open.need) : () => { if (ind().place(R.id, open.need)) showNewest(); };
         action = Kit.button(`Make ${name(open.kind)} here`, env.act(make, () => env.closeSheet()), { wide: true, lg: true });
       } else if (R) note = `Made by a ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
       else {
@@ -488,7 +518,7 @@ const IndustryView = {
         x.note.textContent = `${Math.round(p * 100)}% · ${duration(o.next - now)} left`;
       }
     }
-    const reset = () => { live = []; openStored = openAboard = null; };
+    const reset = () => { live = []; openStored = openAboard = viewing = null; };
 
     return { render, sheet, tick, reset };
   },
