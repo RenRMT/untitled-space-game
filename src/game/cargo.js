@@ -435,7 +435,7 @@ export function collectItems(list, dt = 0) {
     else cargo.removed.add(e.key);
     if (component) addTo(cargo.components, e.itemKind);
     else cargo.items.push({ kind: e.itemKind, label: e.label, category: 'trade' });
-    notify(`Recovered: ${e.label}${rarityNote(e)}`, 2.5);
+    notify(`Recovered: ${e.label}`, 2.5);
     saveCargo();
   }
 }
