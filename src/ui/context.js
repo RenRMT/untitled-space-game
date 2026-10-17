@@ -14,6 +14,7 @@
 //   ContextCard.onClose = () => ...      the close button was pressed
 // ES module (`ContextCard`); needs a browser.
 
+import { Store } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { Glyphs } from './glyphs.js';
 import { UI } from './ui.js';
@@ -22,6 +23,13 @@ const ContextCard = (() => {
   const EDGE = 8; // px kept clear of the screen's edges
   const BTN = 44; // a button's size (the touch target, --hit)
   const GAP = 10; // px between buttons along their arc
+  const LABEL_GAP = 26; // ... when they carry their names below them
+  // Each action's name shows under its round button until it has been used LEARN times: icons
+  // alone mean little at first, and tooltips never appear on touch screens.
+  const LEARN = 5;
+  const uses = Store.getJSON('actionUses', {}) || {};
+  const learning = (id) => (uses[id] || 0) < LEARN;
+  let gap = GAP;
   const root = document.getElementById('context');
   const el = (cls) => root.querySelector(cls);
   const infoEl = el('.cx-info'), titleEl = el('.cx-title'), tagEl = el('.cx-tag'), subEl = el('.cx-sub'), stateEl = el('.cx-state'), actionsEl = el('.cx-actions');
@@ -32,7 +40,10 @@ const ContextCard = (() => {
   el('.cx-close').addEventListener('click', () => onClose && onClose());
   actionsEl.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-id]');
-    if (b && !b.disabled && onAction) onAction(b.dataset.id);
+    if (!b || b.disabled) return;
+    const id = b.dataset.id;
+    if (learning(id)) { uses[id] = (uses[id] || 0) + 1; Store.setJSON('actionUses', uses); }
+    if (onAction) onAction(id);
   });
 
   // Buttons are updated in place while the same actions are offered, so a press isn't lost to a
@@ -43,9 +54,12 @@ const ContextCard = (() => {
     b.disabled = !a.enabled;
     b.title = a.title || a.label;
     b.setAttribute('aria-label', a.label);
-    if (b.dataset.glyph !== a.id) {
+    const name = learning(a.id) ? a.label : '';
+    if (b.dataset.glyph !== a.id || b.dataset.name !== name) {
       b.dataset.glyph = a.id;
+      b.dataset.name = name;
       b.innerHTML = Glyphs.svg(Glyphs.has(a.id) ? a.id : 'approach', 24);
+      if (name) b.append(UI.h('span', { class: 'cx-lbl', 'aria-hidden': 'true' }, name));
     }
   }
 
@@ -71,6 +85,7 @@ const ContextCard = (() => {
           return b;
         }));
       }
+      gap = d.actions.some((a) => learning(a.id)) ? LABEL_GAP : GAP;
       if (anchor) place(anchor.x, anchor.y, anchor.r);
     }
     // Progress rings fill every frame without rebuilding the buttons.
@@ -96,11 +111,11 @@ const ContextCard = (() => {
     const clampY = (v, h) => Math.max(EDGE, Math.min(H - EDGE - h, v));
     const iw = infoEl.offsetWidth || 0, ih = infoEl.offsetHeight || 0;
     const x = Math.max(EDGE + BTN, Math.min(W - EDGE - BTN, x0));
-    const y = Math.max(EDGE + ih + 12 + r0, Math.min(H - EDGE - BTN * 2 - 14 - r0, y0));
+    const y = Math.max(EDGE + ih + 12 + r0, Math.min(H - EDGE - BTN * 2 - 14 - r0 - (gap > GAP ? 16 : 0), y0));
     const r = x === x0 && y === y0 ? r0 : Math.min(r0, 24);
     infoEl.style.transform = `translate(${Math.round(clampX(x - iw / 2, iw))}px, ${Math.round(clampY(y - r - 12 - ih, ih))}px)`;
     const buttons = [...actionsEl.children], n = buttons.length;
-    const R = r + 14 + BTN / 2, step = (BTN + GAP) / R; // radians between button centres
+    const R = r + 14 + BTN / 2, step = (BTN + gap) / R; // radians between button centres
     buttons.forEach((b, i) => {
       const a = Math.PI / 2 + (i - (n - 1) / 2) * step; // fanned out round straight down
       const bx = clampX(x + Math.cos(a) * R - BTN / 2, BTN), by = clampY(y + Math.sin(a) * R - BTN / 2, BTN);

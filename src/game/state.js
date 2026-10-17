@@ -38,7 +38,22 @@ export const ship = {
 };
 
 // zoom: screen px per world unit, base (by the window's size) × k (eased: wider in the introduction).
-export const view = { w: 0, h: 0, dpr: 1, zoom: 1, base: 1, k: 1 };
+export const view = { w: 0, h: 0, dpr: 1, zoom: 1, base: 1, k: 1, inset: { t: 0, r: 0, b: 0, l: 0 } };
+// The screen's safe area (notches, rounded corners, the home bar), px: CSS knows it as
+// env(safe-area-inset-*), so a hidden element padded by it is measured.
+let probe = null;
+function safeArea() {
+  if (typeof getComputedStyle !== 'function' || !document.body) return { t: 0, r: 0, b: 0, l: 0 };
+  if (!probe) {
+    probe = document.createElement('div');
+    probe.setAttribute('aria-hidden', 'true');
+    probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;'
+      + 'padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)';
+    document.body.appendChild(probe);
+  }
+  const cs = getComputedStyle(probe), px = (v) => parseFloat(v) || 0;
+  return { t: px(cs.paddingTop), r: px(cs.paddingRight), b: px(cs.paddingBottom), l: px(cs.paddingLeft) };
+}
 export const cam = { x: 0, y: 0 };
 export const particles = [];
 export const debris = []; // rock fragments thrown off by mining, in world units
@@ -107,6 +122,7 @@ export function resize() {
   canvas.height = Math.round(view.h * view.dpr);
   view.base = clamp(Math.min(view.w, view.h) / 800, 0.55, 1.2);
   view.zoom = view.base * view.k;
+  view.inset = safeArea();
 }
 
 // Wiring, run once every module has loaded (src/main.js).

@@ -146,6 +146,13 @@
   }
   .cx-act svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
   .cx-act:hover { background: #0f1a24; }
+  /* An action's name under its button, for its first few uses (ui/context.js). */
+  .cx-lbl {
+    position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+    font: 700 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan);
+    padding: 2px 4px; background: rgba(5, 6, 10, 0.72); border-radius: var(--r-sm);
+  }
+  .cx-act:disabled .cx-lbl { color: var(--dim); }
   .cx-act:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .cx-act:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
   /* A running action (mining) fills a ring round its button. */

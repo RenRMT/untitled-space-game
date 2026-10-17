@@ -10,9 +10,9 @@ import { cargo } from './cargo.js';
 import { visible } from './draw-world.js';
 import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
-import { moveMode } from './options.js';
+import { CONTROLS, moveMode } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, intro, notify, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inFight, intro, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -38,13 +38,15 @@ export function drawLabels(list) {
 }
 
 // Markers at the screen edge for things off screen, pointing their way: an arrow in the item's
-// colour, a ring round it when `ring` (a colour) is set, and its label set inward from the arrow
-// so it never covers it. items: [{ ref, x, y (world), color, ring, label, alpha }], alpha (optional)
-// fading that one further than the `alpha` they all share. bottom: how far up
+// colour, a ring round it when `ring` (a colour) is set, and its label (if it has one) set inward
+// from the arrow so it never covers it. items: [{ ref, x, y (world), color, ring, label, alpha }],
+// alpha (optional) fading that one further than the `alpha` they all share. bottom: how far up
 // from the bottom edge to stay (the speed bar, or the panel when one is open); the other margins
-// keep clear of the HUD text and the buttons. Returns where each was drawn, for markerAt().
+// keep clear of the HUD text, the buttons and the screen's safe area. Returns where each was
+// drawn, for markerAt().
 export function edgeMarkers(items, bottom, alpha) {
-  const inset = { l: 26, r: 26, t: 70, b: bottom };
+  const I = view.inset;
+  const inset = { l: 26 + I.l, r: 26 + I.r, t: Math.max(70, hudBottom + 16), b: bottom + I.b };
   const cx = view.w / 2, cy = view.h / 2;
   const hits = [];
   ctx.save();
@@ -75,13 +77,18 @@ export function edgeMarkers(items, bottom, alpha) {
     }
     ctx.rotate(-a);
     ctx.translate(-x, -y);
+    if (!m.label) { // a bare arrow: tapped by the arrow alone
+      hits.push({ ref: m.ref, x, y, box: [x - 18, y - 18, x + 18, y + 18], text: [x, y, x, y] });
+      continue;
+    }
     const tw = ctx.measureText(m.label).width;
     const tx = clamp(x - Math.cos(a) * (tw / 2 + 16) - tw / 2, 8, view.w - tw - 8);
     // A label that would overlap one already drawn (two things in about the same direction)
     // moves a line further in from the edge.
     const overlaps = (t) => hits.some((h) => tx < h.text[2] && tx + tw > h.text[0] && t - 11 < h.text[3] && t + 3 > h.text[1]);
+    const lh = Math.round(15 * Theme.scale);
     let ty = clamp(y - Math.sin(a) * 18 + 4, 14, view.h - 8);
-    for (let i = 0; i < hits.length && overlaps(ty); i++) ty += y < cy ? 15 : -15;
+    for (let i = 0; i < hits.length && overlaps(ty); i++) ty += y < cy ? lh : -lh;
     ctx.fillText(m.label, tx, ty);
     hits.push({ ref: m.ref, x, y, box: [tx - 6, ty - 15, tx + tw + 6, ty + 7], text: [tx, ty - 11, tx + tw, ty + 3] });
   }
@@ -98,8 +105,10 @@ export function markerAt(hits, sx, sy) {
   return null;
 }
 
-// Off-screen stations and gates within NAV_RANGE get an edge marker with their name and distance; a tap on
-// one selects its station.
+// Off-screen stations and gates within NAV_RANGE get an edge marker; a tap on one selects its
+// station. Only the selected one, the objective and the player's own marker carry a name and a
+// distance: the rest are bare arrows, so the screen's edge doesn't fill with text near busy
+// systems. (A tap names one: it becomes the selected one.)
 export let navHits = [];
 
 // How strongly an edge marker shows at distance d: in full close by, fading to `far` at `range`
@@ -127,7 +136,8 @@ export function drawNavMarkers() {
     const chosen = selected && selected.key === entityKey(st), goal = obj && obj.station === st;
     const ring = chosen ? SELECT_COLOR : goal ? COLORS.amber : null;
     const alpha = Math.max(markerFade(d, NAV_RANGE, goal ? 0.4 : 0.22), chosen ? MARKED : 0);
-    stations.push({ ref: st, x: st.x, y: st.y, d, color: st.color, ring, alpha, label: `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` }); // to its edge, as the card shows
+    const label = chosen || goal ? `${st.name.toUpperCase()} · ${fmtDist(d - st.radius)}` : ''; // to its edge, as the card shows
+    stations.push({ ref: st, x: st.x, y: st.y, d, color: st.color, ring, alpha, label });
   };
   world.scene.stations.forEach(mark);
   world.scene.gates.forEach(mark);
@@ -147,6 +157,7 @@ export function drawNavMarkers() {
     } else drawMarkerPin(...worldToScreen(mk.x, mk.y));
   }
   stations.sort((a, b) => a.d - b.d); // the nearest keep their place at the edge when labels collide
+  stations.sort((a, b) => (b.label ? 1 : 0) - (a.label ? 1 : 0)); // named ones first, so they keep their place
   navHits = edgeMarkers(stations, 64, 0.95);
 }
 
@@ -217,11 +228,14 @@ export function drawDragIndicator() {
 // The minimap: a radar of the space around the ship, RADAR world units each way, framed in the
 // colour of the security there. Hidden wrecks show once the sensors have found them.
 export const RADAR = 6000;
+// Where the minimap is on screen (px), for the HUD text beside it.
+export const minimap = { x: 0, y: 0, size: 0 };
 export function drawMinimap(list) {
   const size = Math.round(clamp(view.w * 0.28, 90, 150));
   const pad = 12;
-  const x0 = view.w - size - pad;
-  const y0 = pad;
+  const x0 = view.w - size - pad - view.inset.r;
+  const y0 = pad + view.inset.t;
+  Object.assign(minimap, { x: x0, y: y0, size });
   const s = size / (RADAR * 2);
   const ox = ship.x - RADAR, oy = ship.y - RADAR;
   const security = Security.LEVELS[here.region.security];
@@ -273,14 +287,6 @@ export function drawMinimap(list) {
     ctx.fill();
   }
 
-  // Camera viewport.
-  const vw = (view.w / view.zoom) * s;
-  const vh = (view.h / view.zoom) * s;
-  ctx.strokeStyle = COLORS.hud;
-  ctx.globalAlpha = 0.3;
-  ctx.strokeRect(x0 + (cam.x - ox) * s - vw / 2, y0 + (cam.y - oy) * s - vh / 2, vw, vh);
-  ctx.globalAlpha = 1;
-
   ctx.translate(x0 + (ship.x - ox) * s, y0 + (ship.y - oy) * s);
   ctx.rotate(ship.angle);
   ctx.fillStyle = COLORS.cyan;
@@ -297,64 +303,102 @@ export function drawMinimap(list) {
 // first launches.
 export const hudShown = () => !intro.on;
 
+// Where the top-left text ends on screen (px): the edge markers keep below it.
+export let hudBottom = 0;
+// The location line shows for LOCATION_TIME seconds on entering a system, a region of another
+// security or a nebula, then fades: the minimap's frame keeps the security's colour.
+export const LOCATION_TIME = 5;
+const shownLocation = { key: '', at: -Infinity };
+
+// Text wrapped to a width, in the current font: lines.
+function wrap(text, width) {
+  const words = text.split(' '), lines = [];
+  let line = '';
+  for (const w of words) {
+    const next = line ? `${line} ${w}` : w;
+    if (line && ctx.measureText(next).width > width) { lines.push(line); line = w; } else line = next;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// The HUD: top left, where you are (for a moment) and the mission's next step, with the flight
+// hints until the first touch; bottom left, the speed bar with its throttle mark, the hold once
+// anything is in it, and the hull while it is damaged (in a fight the combat panel shows it).
+// Text sits on a dark backing so it reads over nebulae and stars, and wraps short of the minimap.
 export function drawHud() {
+  const k = Theme.scale, I = view.inset;
+  const pad = 12, left = pad + I.l, lh = Math.round(19 * k);
+  const now = performance.now() / 1000;
   const speed = Math.hypot(ship.vx, ship.vy);
-  const pad = 12;
-  const barW = Math.min(160, view.w * 0.4);
-  const y = view.h - pad - 8;
 
   ctx.save();
-  ctx.font = Theme.font(12);
-  ctx.fillStyle = COLORS.hud;
-  ctx.globalAlpha = 0.85;
-  ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
-  if (cargo.items.length) ctx.fillText(`HOLD ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
-  if (cargo.hull < SHIP.hull) { // damage shows until it's repaired at a station
-    ctx.fillStyle = cargo.hull < SHIP.hull * 0.35 ? COLORS.hostile : COLORS.flame;
-    ctx.fillText(`HULL ${Math.ceil(cargo.hull)}/${SHIP.hull}`, pad + 180, y - 12);
-    ctx.fillStyle = COLORS.hud;
-  }
+  ctx.font = Theme.font(14);
+  ctx.textBaseline = 'alphabetic';
+  const room = (minimap.size ? minimap.x - 12 : view.w - pad - I.r) - left;
 
-  // Actual speed (filled) vs set throttle (marker).
+  // Top left: the lines to show, each [text, colour, alpha].
+  const lines = [];
+  const r = here.region;
+  const key = `${r.system ? r.system.name : ''}|${r.security}|${r.nebula ? r.nebula.name : ''}`;
+  if (key !== shownLocation.key) { shownLocation.key = key; shownLocation.at = now; }
+  const locAlpha = clamp((LOCATION_TIME - (now - shownLocation.at)) / 0.8, 0, 1);
+  if (locAlpha > 0) {
+    const security = Security.LEVELS[r.security]; // how dangerous it is here (world/security.js)
+    lines.push([`${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · SECURITY ${security.label.toUpperCase()}`, security.color, locAlpha]);
+    if (r.nebula) lines.push([`${r.nebula.name} · sensors dampened`, r.nebula.color, locAlpha]);
+  }
+  const obj = here.objective;
+  if (obj) for (const t of wrap(`◇ ${obj.text}`, room)) lines.push([t, COLORS.amber, 1]);
+  if (!interacted && !intro.on) { // the introduction has its own hint
+    const pulse = 0.75 + 0.25 * Math.sin(now * 2.5);
+    for (const tip of CONTROLS[moveMode.value]) for (const t of wrap(tip, room)) lines.push([t, COLORS.hud, pulse]);
+  }
+  let y = pad + I.t + lh - 4;
+  if (lines.length) {
+    const w = Math.min(room, Math.max(...lines.map(([t]) => ctx.measureText(t).width)));
+    ctx.globalAlpha = 0.55 * Math.max(...lines.map((l) => l[2]));
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(left - 6, pad + I.t - 4, w + 12, lines.length * lh + 8);
+    for (const [t, color, a] of lines) {
+      ctx.globalAlpha = 0.95 * a;
+      ctx.fillStyle = color;
+      ctx.fillText(t, left, y);
+      y += lh;
+    }
+  }
+  hudBottom = lines.length ? y - lh + 8 : pad + I.t;
+
+  // Bottom left: the speed bar (actual speed filled, set throttle marked), and above it the hold
+  // and a damaged hull.
+  const barW = Math.min(160, view.w * 0.4);
+  const by = view.h - pad - 8 - I.b;
   ctx.globalAlpha = 0.25;
-  ctx.fillRect(pad, y, barW, 6);
+  ctx.fillStyle = COLORS.hud;
+  ctx.fillRect(left, by, barW, 6);
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = COLORS.cyan;
-  ctx.fillRect(pad, y, barW * (speed / SHIP.maxSpeed), 6);
+  ctx.fillRect(left, by, barW * Math.min(1, speed / SHIP.maxSpeed), 6);
   ctx.fillStyle = COLORS.flame;
-  ctx.fillRect(pad + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, y - 3, 2, 12);
-
-  // Where you are: the system, the security here, and the nebula you're in or what you're near.
-  const r = here.region;
-  ctx.globalAlpha = 0.85;
-  ctx.fillStyle = COLORS.dim;
-  const head = `${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · `;
-  ctx.fillText(head, pad, pad + 12);
-  const security = Security.LEVELS[r.security]; // how dangerous it is here (world/security.js)
-  ctx.fillStyle = security.color;
-  ctx.fillText(`SECURITY ${security.label.toUpperCase()}`, pad + ctx.measureText(head).width, pad + 12);
-  if (r.nebula) {
-    ctx.fillStyle = r.nebula.color;
-    ctx.fillText(`${r.nebula.name} · sensors dampened`, pad, pad + 28);
-  } else if (r.near) {
-    ctx.fillStyle = COLORS.neutral;
-    ctx.fillText(`Near ${r.near.name}`, pad, pad + 28);
+  ctx.fillRect(left + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, by - 3, 2, 12);
+  let x = left;
+  const ty = by - 10;
+  ctx.globalAlpha = 0.9;
+  if (cargo.items.length) {
+    ctx.fillStyle = cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud;
+    const t = `HOLD ${cargo.items.length}/${SHIP.cargo}`;
+    ctx.fillText(t, x, ty);
+    x += ctx.measureText(t).width + 16;
   }
-  // The mission's next step.
-  const obj = here.objective;
-  if (obj) {
-    ctx.fillStyle = COLORS.amber;
-    ctx.fillText(`◇ ${obj.text}`, pad, pad + 46);
-  }
-
-  if (!interacted && !intro.on) { // the introduction has its own hint
-    const y0 = pad + (obj ? 74 : 56);
-    ctx.fillStyle = COLORS.hud;
-    ctx.globalAlpha = 0.6 + 0.3 * Math.sin(performance.now() / 400);
-    const direct = moveMode.value === 'direct';
-    ctx.fillText(direct ? 'Hold and drag to fly; drag length sets speed' : 'Drag to fly; drag length sets speed', pad, y0);
-    ctx.fillText(direct ? 'Let go to stop' : 'Tap empty space to stop', pad, y0 + 16);
-    ctx.fillText('Tap a station, asteroid or ship for options', pad, y0 + 32);
+  if (cargo.hull < SHIP.hull && !inFight()) { // damage shows until it's repaired at a station
+    const f = cargo.hull / SHIP.hull, tone = f < 0.35 ? COLORS.hostile : COLORS.flame;
+    ctx.fillStyle = tone;
+    ctx.fillText('HULL', x, ty);
+    const gx = x + ctx.measureText('HULL').width + 6, gw = 56 * k, gh = Math.round(5 * k);
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(gx, ty - gh - 2, gw, gh);
+    ctx.globalAlpha = 0.95;
+    ctx.fillRect(gx, ty - gh - 2, gw * f, gh);
   }
   ctx.restore();
 }

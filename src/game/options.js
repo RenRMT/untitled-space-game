@@ -111,8 +111,8 @@ export const ART_HINT = {
 
 // The controls, as the Controls section of Settings lists them (and the flight hints show them).
 export const CONTROLS = {
-  cruise: ['Drag anywhere to fly: the direction you drag is your heading, its length your speed.', 'You keep going when you let go; double-tap empty space to stop.', 'Tap a station, asteroid or ship for what you can do with it.'],
-  direct: ['Hold and drag to fly: the direction you drag is your heading, its length your speed.', 'Let go to brake to a stop.', 'Tap a station, asteroid or ship for what you can do with it.'],
+  cruise: ['Drag to fly; drag length sets speed.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
+  direct: ['Hold and drag to fly; drag length sets speed.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
@@ -154,7 +154,7 @@ export function init() {
   Settings.add({
     id: 'move', label: 'Movement', shortcut: 'C',
     choices: [
-      { value: 'cruise', label: 'Cruise', hint: 'Keeps your speed after you let go. Tap empty space to stop.' },
+      { value: 'cruise', label: 'Cruise', hint: 'Keeps your speed after you let go. Double-tap empty space to stop.' },
       { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to brake to a stop.' },
     ],
     get: () => moveMode.value, set: (v) => moveMode.set(v),
