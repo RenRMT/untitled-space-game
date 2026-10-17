@@ -3,8 +3,8 @@
 // Part of the flight view; src/main.js starts it.
 
 import { CombatCore } from '../combat/combat-core.js';
-import { Feedback } from '../core/feedback.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
+import { Feedback } from '../core/feedback.js';
 import { mulberry32 } from '../core/rng.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
@@ -92,6 +92,29 @@ export function packOf(target) {
     && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange)];
 }
 
+// How a fight with this pirate's pack would go, as one word: each side's time to wear the other down
+// (shields and hull over firepower that hits, against the other side's evasion), compared. It
+// stands in for the gear tier and pack size on the pirate's card, which the player would otherwise
+// have to weigh up; those stay in its detail line.
+//   threat(target) -> { word: 'Weak' | 'Even' | 'Outmatched', tone, detail }
+export const THREAT = { weak: 1.6, even: 0.7 }; // our edge (their time to beat us over ours to beat them)
+export function threat(target) {
+  const pack = packOf(target);
+  const theirs = pack.map((e) => ({ stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)) }));
+  const ours = [{ stats: SHIP, hull: cargo.hull }, ...allySpecs()];
+  const hp = (side) => side.reduce((t, c) => t + (c.hull ?? c.stats.hull) + (c.stats.shield || 0), 0);
+  const avg = (side, k) => side.reduce((t, c) => t + (c.stats[k] || 0), 0) / side.length;
+  const dps = (side, other) => side.reduce((t, c) => t + c.stats.firepower * CombatCore.limitHit((c.stats.accuracy || 0) - avg(other, 'evasion')), 0);
+  const toBeatThem = hp(theirs) / Math.max(1e-6, dps(ours, theirs));
+  const toBeatUs = hp(ours) / Math.max(1e-6, dps(theirs, ours));
+  const edge = toBeatUs / toBeatThem;
+  const tier = Math.max(...pack.map((e) => e.tier || 1));
+  const detail = `${pack.length === 1 ? 'Alone' : `Pack of ${pack.length}`} · ${Loadout.MK[tier]} gear`;
+  if (edge >= THREAT.weak) return { word: 'Weak', tone: 'good', detail };
+  if (edge >= THREAT.even) return { word: 'Even', tone: 'warn', detail };
+  return { word: 'Outmatched', tone: 'hostile', detail };
+}
+
 export function engage(target, ambushed = false) {
   if (inFight() || docked || !isHostile(target) || fight.dying.has(target.key)) return;
   if (!ambushed && !actions.state('attack', target).ok) return;
@@ -113,12 +136,13 @@ export function engage(target, ambushed = false) {
   const attackers = target.android ? `${target.name} attacks!` : `${target.crew || 'Pirates'} attack!`;
   fight.log = [ambushed ? attackers : `You engage the ${names[0]}.`];
   fight.lowHull = false;
+  fight.lockers = new Set(); // enemies locking on the player, to buzz once as each starts
   fight.result = null;
   stopMining();
   autopilot.key = null;
   select(null);
   setMode('in-combat', true);
-  notify(ambushed ? attackers : 'Combat', 2, { priority: 2, tone: 'hostile' });
+  if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
 }
 
 // A pirate flying into range joins a fight under way (in modes where ships can join).
@@ -342,6 +366,12 @@ export function tickFight(dt) {
     }
   }
   playEvents(s, events);
+  // An enemy starting to lock on you: felt once as it starts.
+  for (const it of CombatCore.intents(s)) {
+    const on = it.target === 'player' && it.lock > 0;
+    if (on && !fight.lockers.has(it.id)) { fight.lockers.add(it.id); if (it.lock < 1) Feedback.emit('targeted'); }
+    else if (!on) fight.lockers.delete(it.id);
+  }
   // Hull damage is saved when the fight ends (endFight) or the page is hidden (saveAll), not on
   // every hit: a save writes the whole cargo.
   cargo.hull = Math.max(0, s.player.hull);
@@ -391,13 +421,20 @@ export function updateCombatPanel() {
   if (!s) return;
   const over = !fight.s;
   const allies = s.allies || [];
-  const rows = [s.player, ...allies, ...s.enemies].map((c) => ({
-    id: c.id, name: c.name, you: c === s.player, ally: allies.includes(c), hull: c.hull, maxHull: c.stats.hull,
-    shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
-    run: !over && allies.includes(c) && c.hull > 0 && c.line !== undefined ? (c.line >= 0 ? `L${c.line + 1}` : 'else') : null,
-  }));
+  // Whom each enemy is after, and whether it has locked on yet: shown on its row.
+  const aims = new Map(over ? [] : CombatCore.intents(s).map((it) => [it.id, it]));
+  const nameOf = (id) => (id === 'player' ? 'you' : (allies.find((a) => a.id === id) || {}).name || '');
+  const rows = [s.player, ...allies, ...s.enemies].map((c) => {
+    const it = aims.get(c.id);
+    return {
+      id: c.id, name: c.name, you: c === s.player, ally: allies.includes(c), hull: c.hull, maxHull: c.stats.hull,
+      shield: c.shield, maxShield: c.stats.shield, focus: !over && c.id === s.focus,
+      run: !over && allies.includes(c) && c.hull > 0 && c.line !== undefined ? (c.line >= 0 ? `L${c.line + 1}` : 'else') : null,
+      aim: it && c.hull > 0 ? { at: nameOf(it.target), you: it.target === 'player', locked: it.lock >= 1 } : null,
+    };
+  });
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
-  CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log, abilities: over ? [] : abilityButtons(s) });
+  CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log.slice(-1), abilities: over ? [] : abilityButtons(s) });
 }
 
 // Real time: the guns' field of fire ahead of the ship, out to their range; brighter while the
@@ -423,7 +460,22 @@ export function drawFieldOfFire(s) {
   ctx.lineWidth = 1.5 / view.zoom;
   ctx.setLineDash([8 / view.zoom, 10 / view.zoom]);
   ctx.stroke();
+  // An enemy locking on: an arc round your ship on its side, growing as the lock comes on.
+  ctx.setLineDash([]);
   ctx.strokeStyle = HOSTILE_COLOR;
+  ctx.lineWidth = 2.5 / view.zoom;
+  for (const it of CombatCore.intents(s)) {
+    if (it.target !== 'player' || it.lock <= 0 || it.lock >= 1) continue;
+    const e = s.enemies.find((c) => c.id === it.id);
+    if (!e) continue;
+    const a = Math.atan2(e.y - ship.y, e.x - ship.x), spread = (Math.PI / 4) * it.lock;
+    ctx.globalAlpha = 0.35 + 0.4 * it.lock;
+    ctx.beginPath();
+    ctx.arc(x, y, SHIP.radius + 18 / view.zoom, a - spread, a + spread);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 1.5 / view.zoom;
+  ctx.setLineDash([8 / view.zoom, 10 / view.zoom]);
   ctx.globalAlpha = 0.3;
   for (const e of CombatCore.alive(s)) {
     if (CombatCore.aimAt(s, e) !== s.player) continue; // after a wingman

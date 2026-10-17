@@ -7,7 +7,7 @@ import { clamp } from '../core/math.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
-import { packOf } from './combat.js';
+import { threat } from './combat.js';
 import { actions, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
@@ -83,11 +83,12 @@ export function describe(e) {
   const card = KINDS[e.kind].card(e, world.galaxy);
   const states = actions.of(e).map((a) => [a, actions.state(a, e)]);
   const inRange = states.length > 0 && states.every(([, s]) => s.inRange);
-  // A pirate's card says how many would fight with it, so a pack can be told from a lone ship.
-  const n = isHostile(e) ? packOf(e).length : 0;
-  const pack = n ? ` · ${n === 1 ? 'alone' : `pack of ${n}`}` : '';
+  // A pirate's card says in one word how a fight would go (Weak, Even, Outmatched); its pack and
+  // gear are a tap away, in the card's detail line.
+  const t = isHostile(e) ? threat(e) : null;
   return {
-    title: card.title, subtitle: `${card.sub}${pack} · ${fmtDist(gapTo(e))}`, color: card.color, tag: card.tag || '', tone: card.tone || '',
+    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
+    tag: t ? t.word : card.tag || '', tone: t ? t.tone : card.tone || '', detail: t ? t.detail : '',
     actions: [...states.map(([a, s]) => primary(a.id, s)), ...approachActions(e, inRange)],
   };
 }

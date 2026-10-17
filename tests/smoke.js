@@ -338,7 +338,9 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   assert.ok(game('frameList.includes(mission.hostile)'), 'the hostile android is there');
   game('select(mission.hostile)');
   browser.frames(1);
-  assert.match(game('describe(selected.e).subtitle'), /^Android · unregistered · Mk III gear/);
+  assert.match(game('describe(selected.e).subtitle'), /^Android · unregistered · /);
+  assert.match(game('describe(selected.e).detail'), /^Alone · Mk III gear$/, 'its pack and gear, a tap away');
+  assert.match(game('describe(selected.e).tag'), /^(Weak|Even|Outmatched)$/, 'how a fight would go, in a word');
   game('select(null)');
   const toIt = 'ship.targetAngle = Math.atan2(mission.hostile.y - ship.y, mission.hostile.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5;';
   assert.ok(until('!!fight.s', 60 * 20, toIt), 'it attacks');
@@ -1186,10 +1188,12 @@ function meetPirate() {
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
   game(`cargo.hull = SHIP.hull; fight.grace = 1e9; { const a = Math.atan2(__pirate.y, __pirate.x); placeShip(__pirate.x + Math.cos(a) * (800 + __pirate.radius), __pirate.y + Math.sin(a) * (800 + __pirate.radius)); }`);
   browser.frames(1);
-  // Its card says how many would fight with it, and that's who the fight takes on.
-  const sub = game('describe(frameList.find((x) => x.key === __pirate.key)).subtitle');
-  const m = sub.match(/· (alone|pack of (\d+)) ·/);
-  assert.ok(m, `the card shows the pack: ${sub}`);
+  // Its card says how a fight would go, and (a tap away) how many would fight with it: that's who
+  // the fight takes on.
+  const card = game('describe(frameList.find((x) => x.key === __pirate.key))');
+  assert.match(card.tag, /^(Weak|Even|Outmatched)$/, 'the threat, in a word');
+  const m = card.detail.match(/^(Alone|Pack of (\d+)) · Mk [IV]+ gear$/);
+  assert.ok(m, `the card's detail shows the pack: ${card.detail}`);
   game(`fight.grace = 0; { const e = frameList.find((x) => x.key === __pirate.key); engage(e); }`);
   assert.ok(game('!!fight.s'), 'the fight starts');
   assert.strictEqual(game('fight.s.enemies.length'), m[2] ? Number(m[2]) : 1, 'the whole pack, and only the pack, fights');

@@ -5,7 +5,8 @@
 // calls place() each frame with where the thing is on screen. The DOM is only rebuilt when
 // something visible changes, apart from progress rings and positions.
 //
-//   ContextCard.show({ title, subtitle, tag, tone, color, actions: [{ id, label, enabled, busy, progress, title }] })
+//   ContextCard.show({ title, subtitle, tag, tone, color, detail?, actions: [{ id, label, enabled, busy, progress, title }] })
+//     detail: a line folded under the title until the title row is tapped (its tag shows ▾)
 //     each action's icon is its id's line icon (ui/glyphs.js); its label is its name to screen
 //     readers and as a tooltip, and the first that can't be done says why above the thing
 //   ContextCard.place(x, y, r)           anchor it on (x, y), screen px, around something r px across
@@ -37,6 +38,15 @@ const ContextCard = (() => {
   let onAction = null, onClose = null;
   let anchor = null; // { x, y, r } from place()
 
+  // A detail line (a pirate pack's size and gear) folds away under the title; a tap on the title
+  // row shows it.
+  const headEl = el('.cx-head'), detailEl = el('.cx-detail');
+  let detail = '', detailOpen = false, shownTitle = null;
+  headEl.addEventListener('click', (e) => {
+    if (!detail || e.target.closest('.cx-close')) return;
+    detailOpen = !detailOpen;
+    view.reset(); // redrawn on the next frame
+  });
   el('.cx-close').addEventListener('click', () => onClose && onClose());
   actionsEl.addEventListener('click', (e) => {
     const b = e.target.closest('button[data-id]');
@@ -65,12 +75,18 @@ const ContextCard = (() => {
 
   function show(d) {
     const why = d.actions.find((a) => !a.enabled || a.busy);
-    if (view.changed([d.title, d.subtitle, d.tag, d.tone, d.color, why ? why.label : '', d.actions.map((a) => [a.id, a.label, a.enabled, a.busy, a.title])])) {
+    if (d.title !== shownTitle) { shownTitle = d.title; detailOpen = false; } // a new thing: its detail folded
+    detail = d.detail || '';
+    if (view.changed([d.title, d.subtitle, d.tag, d.tone, d.color, why ? why.label : '', detail, detailOpen, d.actions.map((a) => [a.id, a.label, a.enabled, a.busy, a.title])])) {
       root.hidden = false;
       root.style.setProperty('--accent', d.color || '');
       titleEl.textContent = d.title;
-      tagEl.textContent = d.tag || '';
+      tagEl.textContent = d.tag ? `${d.tag}${detail ? (detailOpen ? ' ▴' : ' ▾') : ''}` : '';
       tagEl.hidden = !d.tag;
+      headEl.classList.toggle('more', !!detail);
+      headEl.setAttribute('aria-expanded', detail ? String(detailOpen) : '');
+      detailEl.textContent = detail;
+      detailEl.hidden = !detail || !detailOpen;
       tagEl.className = `cx-tag ${d.tone || ''}`;
       subEl.textContent = d.subtitle || '';
       stateEl.textContent = why ? why.label : '';

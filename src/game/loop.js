@@ -18,7 +18,7 @@ import { drawDebris, drawMining, drawMiningCountdown } from './mining.js';
 import { drawGateWork, objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
-import { cam, ctx, flash, here, intro, ship, view } from './state.js';
+import { cam, ctx, fight, flash, here, intro, ship, view } from './state.js';
 import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
 import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
@@ -139,6 +139,21 @@ export function drawPerf() {
 export let stillDrawn = false;
 export function invalidate() { stillDrawn = false; }
 
+// Coming back to a fight: if the page was hidden mid-fight (a call, another app), flight stays
+// paused behind a "tap to resume" screen, so the player isn't dropped straight back under fire.
+export const resume = { el: null, on: false };
+export function pauseForResume() {
+  resume.el ||= document.getElementById('resume');
+  resume.on = true;
+  resume.el.hidden = false;
+  invalidate();
+}
+function resumePlay() {
+  resume.on = false;
+  resume.el.hidden = true;
+  last = performance.now();
+}
+
 export let last = performance.now();
 export function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
@@ -148,7 +163,7 @@ export function frame(now) {
   Messages.tick(dt);
   tickTravel(dt);
   if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
-    const paused = Settings.isOpen; // the settings menu pauses it too, but keeps it drawn
+    const paused = Settings.isOpen || resume.on; // the settings menu pauses it too, but keeps it drawn
     if (!paused) {
       update(dt);
       stillDrawn = false;
@@ -162,4 +177,13 @@ export function frame(now) {
     }
   }
   requestAnimationFrame(frame);
+}
+
+// Wiring, run once every module has loaded (src/main.js).
+export function init() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && fight.s) pauseForResume();
+  });
+  const el = document.getElementById('resume');
+  el.addEventListener('click', resumePlay);
 }

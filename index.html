@@ -128,6 +128,10 @@
   .cx-tag { font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
   .cx-tag.hostile { color: var(--hostile); }
   .cx-tag.good { color: var(--good); }
+  .cx-tag.warn { color: var(--warn); }
+  .cx-head.more { cursor: pointer; }
+  .cx-detail { font: 12px var(--mono); color: var(--hud); margin-top: 1px; white-space: nowrap; }
+  .cx-detail[hidden] { display: none; }
   /* Drawn 28 px, but a full touch target: the button overhangs the card by its margins. */
   .cx-close {
     width: var(--hit); height: var(--hit); flex: none; display: grid; place-items: center;
@@ -194,7 +198,7 @@
   #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
   .cb-rows { display: flex; flex-direction: column; }
   .cb-row {
-    display: grid; grid-template-columns: minmax(0, 1fr) 110px 62px; align-items: center; column-gap: 8px;
+    display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; align-items: center; column-gap: 8px;
     width: 100%; min-height: 36px; box-sizing: border-box; padding: 6px 4px 6px 14px; margin: 0; border: 0; border-top: 1px solid var(--line-soft);
     background: none; color: var(--hud); font: inherit; text-align: left; position: relative;
   }
@@ -206,6 +210,9 @@
   .cb-row.focus .cb-name { color: var(--bright); }
   .cb-row.you .cb-name { color: var(--cyan); }
   .cb-run { font: 500 11px var(--mono); color: var(--good); }
+  .cb-aim { font: 500 12px var(--sans); color: var(--dim); }
+  .cb-aim.you { color: var(--hostile); }
+  .cb-aim.locking { opacity: 0.55; }
   .cb-row.down { opacity: 0.45; }
   .cb-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hud); }
   .cb-bars { display: flex; flex-direction: column; gap: 2px; }
@@ -215,7 +222,7 @@
   .cb-bar.hul > span { background: var(--hul); }
   .cb-row:not(.you) .cb-bar.hul > span { background: var(--hostile); }
   .cb-nums { font: 500 12px var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
-  .cb-log { font-size: 13px; color: var(--dim); margin-top: 6px; min-height: 2.6em; line-height: 1.3; }
+  .cb-log { font-size: 13px; color: var(--dim); margin-top: 6px; min-height: 1.3em; line-height: 1.3; }
   .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
   body.in-combat #context, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
@@ -524,6 +531,13 @@
   .cm-choice:hover { background: var(--cyan-tint); }
   .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
   .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+  #resume {
+    position: fixed; inset: 0; z-index: 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    border: 0; background: rgba(2, 3, 6, 0.72); color: var(--bright); cursor: pointer; touch-action: manipulation; font-family: var(--sans);
+  }
+  #resume[hidden] { display: none; }
+  #resume .t { font: 700 calc(26px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
+  #resume .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); }
   body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
   /* Someone talking on the comms during flight: the box covers the bottom of the screen and the
      corner buttons on a narrow screen; the context menu waits until they're done. */
@@ -579,6 +593,7 @@
       <button class="cx-close" type="button" aria-label="Close" title="Close (Esc)">×</button>
     </div>
     <div class="cx-sub"></div>
+    <div class="cx-detail" hidden></div>
     <div class="cx-state" hidden></div>
   </div>
   <div class="cx-actions" role="group" aria-label="Actions"></div>
@@ -595,6 +610,8 @@
 </div>
 
 <div id="comms" role="region" aria-label="Comms" aria-live="polite" hidden></div>
+<!-- Back from another app mid-fight: paused until tapped (game/loop.js). -->
+<button id="resume" type="button" hidden><span class="t">Paused</span><span class="s">Tap to resume the fight</span></button>
 
 <div id="station" class="ui" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
   <header class="st-head">
