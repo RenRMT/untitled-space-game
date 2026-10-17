@@ -11,10 +11,12 @@
 //   inside the rect) instead of the whole rect, so it can follow a shape like a solar system's
 //   nebula (world/solar-system.js). The density field is anchored in world space and drawn in cached
 //   chunks, so any size works, and without blobs resizing the rect leaves its interior unchanged.
-//   ArtBodies.drawNebula(ctx, nebula, style, { view: [x0, y0, x1, y1], texel, force })
+//   ArtBodies.drawNebula(ctx, nebula, style, { view: [x0, y0, x1, y1], texel, force, layer })
 //   ctx must map world units; `view` culls to the visible world rect (without it the whole nebula
 //   is drawn). It's drawn in tiles built once in world units and drawn at any zoom (see Tiles
-//   below); a tile that isn't built yet is left out while the frame's budget is spent.
+//   below); a tile that isn't built yet is left out while the frame's budget is spent. layer: for
+//   a view that moves a little each frame (the flight view), the tiles are drawn into a cached
+//   layer and the frame draws that (see Layer below).
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
 // ES module (`ArtBodies`); needs a browser.
 
@@ -335,7 +337,7 @@ const ArtBodies = (() => {
   // used to be chunks rasterised per pixel at the screen's scale: slow to build, rebuilt at every
   // zoom step, and in low-poly so padded that the cache couldn't hold them.)
   const TILE = 8; // lattice cells per tile side
-  const RES_WU = 2; // world units per raster pixel (pixel art: its texel)
+  const RES_WU = 3; // world units per raster pixel (pixel art: its texel)
 
   // Density and hue on the tile's lattice points, with a ring of one more cell all round.
   function tileField(neb, G, ti, tj) {
@@ -448,9 +450,8 @@ const ArtBodies = (() => {
   }
 
   // The tiles in view are drawn raster by raster, then their vector parts all at once: the line
-  // style's isolines as one path per density band, low-poly's facets as one path per colour. The
-  // merged paths are kept until the tiles in view change, so a frame strokes 4 paths (line) or a
-  // few dozen (low-poly), however many tiles it covers.
+  // style's isolines as one path per density band, low-poly's facets as one path per colour, so a
+  // draw strokes 4 paths (line) or a few dozen (low-poly), however many tiles it covers.
   function drawRaster(ctx, t, x0, y0, W) {
     const N = t.canvas.width;
     ctx.drawImage(t.canvas, 1, 1, N - 2, N - 2, x0, y0, W, W);
@@ -500,49 +501,164 @@ const ArtBodies = (() => {
     return base;
   }
 
-  function drawNebula(ctx, neb, style, o = {}) {
+  const tileInside = (neb, W, ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+  // Low-poly facets reach past their tile's right and bottom edges (a cell belongs to the tile
+  // holding its origin), so the tiles left of and above a rect draw into it too.
+  const overhang = (style) => (style === 'lowpoly' ? 1 : 0);
+  // The tiles covering the world rect v (clipped to the cloud), drawn into ctx (which maps world
+  // units). Those left out while the frame's budget is spent go in `missing` (a Map, if given),
+  // by key: { build, ti, tj } for a later frame.
+  function drawTiles(ctx, neb, style, v, force, missing) {
     const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb);
-    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b), texel = o.texel || conf().texel;
-    const v = o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h];
+    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b), texel = v.texel || conf().texel;
     const vx0 = Math.max(v[0], neb.x), vy0 = Math.max(v[1], neb.y), vx1 = Math.min(v[2], neb.x + neb.w), vy1 = Math.min(v[3], neb.y + neb.h);
     if (vx0 >= vx1 || vy0 >= vy1) return;
     ctx.save();
     const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat, W = TILE * G.g;
     const base = tileBase(neb, G, style, texel);
-    const ti0 = Math.floor(vx0 / W), ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W), tj1 = Math.floor((vy1 - 1e-6) / W);
-    const inside = (ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+    const over = overhang(style);
+    const ti0 = Math.floor(vx0 / W) - over, ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W) - over, tj1 = Math.floor((vy1 - 1e-6) / W);
     const tiles = [];
-    let complete = true;
     ctx.imageSmoothingEnabled = false;
     for (let tj = tj0; tj <= tj1; tj++) for (let ti = ti0; ti <= ti1; ti++) {
-      const key = `${base}|${ti},${tj}`;
-      if (!o.force && budget.over && !cache.has(key)) { complete = false; continue; } // built in a later frame
-      const t = cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+      if (!tileInside(neb, W, ti, tj)) continue;
+      const key = `${base}|${ti},${tj}`, build = () => make(neb, G, T, ti, tj);
+      if (!force && budget.over && !cache.has(key)) { if (missing) missing.set(key, { build, ti, tj }); continue; } // built in a later frame
+      const t = cache.get(key, build, { force: true });
       if (t.canvas) drawRaster(ctx, t, ti * W, tj * W, W);
       if (t.paths || t.facets) tiles.push(t);
     }
-    if (tiles.length) {
-      // Kept while the same tiles are in view (and none was rebuilt, or still to be built).
-      const range = `${base}|${ti0},${tj0},${ti1},${tj1}`, m = neb._merged;
-      const same = complete && m && m.range === range && m.tiles.length === tiles.length && m.tiles.every((t, i) => t === tiles[i]);
-      const vectors = same ? m.vectors : mergeVectors(tiles);
-      if (!same && complete) neb._merged = { range, tiles, vectors };
-      drawVectors(ctx, vectors, ppu);
-    }
-    // Build ahead: the ring of tiles just outside the view, while the frame has budget to spare.
-    if (!o.force) {
-      for (let tj = tj0 - 1; tj <= tj1 + 1 && !budget.over; tj++) for (let ti = ti0 - 1; ti <= ti1 + 1 && !budget.over; ti++) {
-        const key = `${base}|${ti},${tj}`;
-        if (inside(ti, tj) && !cache.has(key)) cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
-      }
-    }
+    if (tiles.length) drawVectors(ctx, mergeVectors(tiles), ppu);
     ctx.restore();
+  }
+  // Build ahead: the ring of tiles just outside the world rect v, while the frame has budget to spare.
+  function buildAhead(neb, style, v, texel) {
+    const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb), W = TILE * G.g;
+    const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat;
+    const base = tileBase(neb, G, style, texel);
+    const ti0 = Math.floor(v[0] / W) - 1, ti1 = Math.floor(v[2] / W) + 1, tj0 = Math.floor(v[1] / W) - 1, tj1 = Math.floor(v[3] / W) + 1;
+    for (let tj = tj0; tj <= tj1 && !budget.over; tj++) for (let ti = ti0; ti <= ti1 && !budget.over; ti++) {
+      if (ti > ti0 && ti < ti1 && tj > tj0 && tj < tj1) continue; // only the ring
+      const key = `${base}|${ti},${tj}`;
+      if (tileInside(neb, W, ti, tj) && !cache.has(key)) cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+    }
+  }
+
+  // ---------- Layer ----------
+  // In flight the view moves a little each frame, and drawing every tile in it each frame (and
+  // stroking the line style's isolines, filling low-poly's facets) costs far more than the cloud,
+  // which barely changes on screen, is worth. So with `layer`, the tiles are drawn into a canvas at
+  // the screen's scale covering the view and a margin round it, and a frame only copies the part
+  // in view. The canvas wraps round (a world point's pixel is its position modulo the canvas
+  // size), so when the view leaves it, it moves to centre on the view by drawing just the strips
+  // newly uncovered over the ones left behind; nothing already drawn is copied. Tiles it lacked
+  // (waiting for the build budget) are built in the frames after, each drawing its part of the
+  // layer as it arrives; while it lacks none, the tiles just outside it are built ahead. It's
+  // drawn afresh when the scale, style, texel or view size changes. One layer per cloud, for the last two clouds drawn;
+  // positions in its own pixels (world units × its scale), whole ones, so drawing it never
+  // resamples between its pieces. (Drawing the tiles every frame cost a nebula filling the screen
+  // a third to half of the frame rate on a phone.)
+  const LAYER_MARGIN = 0.25; // of the view's size, each side
+  const LAYER_MAX_PX = 6e6; // the layer's pixels at most (a finer screen draws it a little coarser)
+  let layerGen = 0; // bumped by clearCache, so no layer outlives the tiles it was drawn from
+  const layered = []; // the clouds holding a layer, the most recently made last
+  const mod = (a, n) => ((a % n) + n) % n;
+  // The pieces of the layer-pixel rect [X0, X1) × [Y0, Y1) (no larger than the canvas) where it
+  // wraps: fn(canvas x, canvas y, width, height, X, Y) for each.
+  function wrapped(L, X0, Y0, X1, Y1, fn) {
+    for (let X = X0; X < X1;) {
+      const cx = mod(X, L.w), pw = Math.min(X1 - X, L.w - cx);
+      for (let Y = Y0; Y < Y1;) {
+        const cy = mod(Y, L.h), ph = Math.min(Y1 - Y, L.h - cy);
+        fn(cx, cy, pw, ph, X, Y);
+        Y += ph;
+      }
+      X += pw;
+    }
+  }
+  // Draw the tiles in a layer-pixel rect over what the layer held there.
+  function fillLayer(L, neb, X0, Y0, X1, Y1) {
+    if (X1 <= X0 || Y1 <= Y0) return;
+    const c = L.canvas.getContext('2d'), s = L.s;
+    wrapped(L, X0, Y0, X1, Y1, (cx, cy, pw, ph, X, Y) => {
+      c.save();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(cx, cy, pw, ph);
+      c.beginPath();
+      c.rect(cx, cy, pw, ph);
+      c.clip();
+      c.setTransform(s, 0, 0, s, cx - X, cy - Y);
+      drawTiles(c, neb, L.style, Object.assign([X / s, Y / s, (X + pw) / s, (Y + ph) / s], { texel: L.texel }), false, L.missing);
+      c.restore();
+    });
+  }
+  function drawLayered(ctx, neb, style, view, texel) {
+    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b);
+    const seen = [Math.max(view[0], neb.x), Math.max(view[1], neb.y), Math.min(view[2], neb.x + neb.w), Math.min(view[3], neb.y + neb.h)];
+    if (seen[0] >= seen[2] || seen[1] >= seen[3]) return;
+    const vw = view[2] - view[0], vh = view[3] - view[1], mx = vw * LAYER_MARGIN, my = vh * LAYER_MARGIN;
+    let L = neb._layer;
+    if (!L || L.gen !== layerGen || L.ppu !== ppu || L.style !== style || L.texel !== texel || Math.abs(L.vw - vw) > 1 || Math.abs(L.vh - vh) > 1) { // (the view's size, give or take rounding)
+      const s = Math.min(ppu, Math.sqrt(LAYER_MAX_PX / ((vw + 2 * mx) * (vh + 2 * my)))); // layer px per world unit
+      const w = Math.ceil((vw + 2 * mx) * s), h = Math.ceil((vh + 2 * my) * s);
+      const cv = L && L.canvas.width === w && L.canvas.height === h ? L.canvas : canvas(w, h);
+      L = neb._layer = { gen: layerGen, ppu, style, texel, vw, vh, s, w, h, canvas: cv, X: 0, Y: 0, missing: new Map(), fresh: true };
+      if (layered.includes(neb)) layered.splice(layered.indexOf(neb), 1);
+      layered.push(neb);
+      while (layered.length > 2) delete layered.shift()._layer;
+    }
+    const s = L.s;
+    // Where the layer should be: centred on the view, in its pixels.
+    const X = Math.round((view[0] - mx) * s), Y = Math.round((view[1] - my) * s);
+    const covers = !L.fresh && view[0] * s >= L.X && view[1] * s >= L.Y && view[2] * s <= L.X + L.w && view[3] * s <= L.Y + L.h;
+    if (L.fresh || !covers) {
+      const dx = X - L.X, dy = Y - L.Y;
+      if (L.fresh || Math.abs(dx) >= L.w || Math.abs(dy) >= L.h) {
+        L.missing.clear();
+        fillLayer(L, neb, X, Y, X + L.w, Y + L.h);
+      } else {
+        // The columns newly uncovered, full height, then the rows newly uncovered between them.
+        if (dx > 0) fillLayer(L, neb, L.X + L.w, Y, X + L.w, Y + L.h);
+        else fillLayer(L, neb, X, Y, L.X, Y + L.h);
+        const cx0 = Math.max(X, L.X), cx1 = Math.min(X, L.X) + L.w;
+        if (dy > 0) fillLayer(L, neb, cx0, L.Y + L.h, cx1, Y + L.h);
+        else fillLayer(L, neb, cx0, Y, cx1, L.Y);
+      }
+      L.X = X;
+      L.Y = Y;
+      L.fresh = false;
+    }
+    // Build what it lacks, each drawing its part of the layer (with what overhangs from it).
+    const W = TILE * nebGrid(neb).g, over = overhang(style);
+    for (const [key, m] of L.missing) {
+      if (budget.over) break;
+      L.missing.delete(key);
+      if (!cache.has(key)) cache.get(key, m.build, { force: true });
+      fillLayer(L, neb, Math.max(L.X, Math.floor(m.ti * W * s)), Math.max(L.Y, Math.floor(m.tj * W * s)),
+        Math.min(L.X + L.w, Math.ceil((m.ti + 1 + over) * W * s)), Math.min(L.Y + L.h, Math.ceil((m.tj + 1 + over) * W * s)));
+    }
+    if (!L.missing.size) buildAhead(neb, style, [L.X / s, L.Y / s, (L.X + L.w) / s, (L.Y + L.h) / s], texel);
+    // Only the part in view.
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    const X0 = Math.max(L.X, Math.floor(seen[0] * s)), Y0 = Math.max(L.Y, Math.floor(seen[1] * s));
+    const X1 = Math.min(L.X + L.w, Math.ceil(seen[2] * s)), Y1 = Math.min(L.Y + L.h, Math.ceil(seen[3] * s));
+    wrapped(L, X0, Y0, X1, Y1, (cx, cy, pw, ph, px, py) => ctx.drawImage(L.canvas, cx, cy, pw, ph, px / s, py / s, pw / s, ph / s));
+    ctx.restore();
+  }
+
+  function drawNebula(ctx, neb, style, o = {}) {
+    const texel = o.texel || conf().texel;
+    if (o.layer && o.view && !o.force) { drawLayered(ctx, neb, style, o.view, texel); return; }
+    const v = Object.assign([...(o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h])], { texel });
+    drawTiles(ctx, neb, style, v, o.force);
+    if (!o.force) buildAhead(neb, style, v, texel);
   }
 
   return {
     MOONS, MOON_TYPES: Object.keys(MOONS), NEBULAE, NEBULA_TYPES: Object.keys(NEBULAE),
     drawMoon, drawNebula,
-    clearCache: () => cache.clear(),
+    clearCache: () => { cache.clear(); layerGen++; },
     stats: () => cache.stats(),
   };
 })();

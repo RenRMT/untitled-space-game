@@ -24,11 +24,11 @@ import { world } from './world.js';
 
 // ---------- Main loop ----------
 
-// What follows from where things are after a step: pickups, the selection, pirates noticing the
-// ship, reaching the player's marker, and the objective shown on the map. Not while paused, so nothing is picked up behind the
-// settings menu.
-export function react(list) {
-  collectItems(list);
+// What follows from where things are after a step (of dt seconds): items pulled in and picked
+// up, the selection, pirates noticing the ship, reaching the player's marker, and the objective
+// shown on the map. Not while paused, so nothing is picked up behind the settings menu.
+export function react(list, dt = 0) {
+  collectItems(list, dt);
   updateSelection(list);
   checkAggro(list);
   checkMarker();
@@ -158,7 +158,7 @@ export function frame(now) {
     }
     if (!stillDrawn) {
       const list = nearbyEntities(simTime);
-      if (!paused) react(list);
+      if (!paused) react(list, dt);
       render(list);
       stillDrawn = paused;
       recordFrame(performance.now() - t0, gap);
