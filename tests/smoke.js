@@ -280,8 +280,10 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
   assert.deepStrictEqual(game('cargo.squad[0].program'), [], 'with no program yet');
   game(`StationMenu.showTab('squad')`);
-  assert.strictEqual(game('StationMenu.tab'), 'squad');
-  assert.match(tab(), new RegExp(game('mission.vars.ship')));
+  assert.strictEqual(game('StationMenu.tab'), 'ship', 'the squad is on the Ship tab');
+  assert.strictEqual(game('StationMenu.viewing'), game('cargo.squad[0].id'), 'on the wingman: your own ship is still locked');
+  assert.match(tab(), new RegExp(`${game('mission.vars.ship')}.*Instructions.*Add instruction`), 'its program');
+  assert.doesNotMatch(tab(), /Performance/, 'its loadout waits until the station opens');
   game(`StationMenu.showTab('missions')`);
 });
 
@@ -813,7 +815,7 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
     placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Refinery here.*Research.*Production.*Orders here.*0\/1.*New order.*Storage/, 'nothing placed yet');
+  assert.match(onStation(), /Refinery here.*Orders here.*0\/1.*New order.*Storage/, 'nothing placed yet');
   assert.doesNotMatch(onStation(), /Production pipeline/, 'no pipeline without orders');
   game('cargo.items = []');
   // Iron aboard, stored.
@@ -1326,14 +1328,16 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   const ship = () => textOf(browser.document.getElementById('st-body'));
   const name = game('cargo.squad[0].name');
   game(`StationMenu.showTab('ship')`);
-  assert.strictEqual(game('StationMenu.viewing'), null, 'your ship first');
+  assert.strictEqual(game('StationMenu.viewing'), id, 'the Ship tab stays on the wingman it showed');
+  game('StationMenu.stepShip(1)');
+  assert.strictEqual(game('StationMenu.viewing'), null, 'and steps round to your ship');
   assert.match(ship(), /Your ship 1\/2/);
   assert.match(ship(), /Shipyard|sell new hulls/, 'with the shipyard');
   game('StationMenu.stepShip(1)');
   assert.strictEqual(game('StationMenu.viewing'), id, 'then the wingman');
   assert.match(ship(), new RegExp(`${name} 2/2`));
   assert.match(ship(), /Fighter · 5\/5 fitted/);
-  assert.match(ship(), /Performance.*Program/, 'its performance and program');
+  assert.match(ship(), /Performance.*Instructions.*ELSE/, 'its performance, then its program');
   assert.doesNotMatch(ship(), /Shipyard|Hold/, 'not your ship\'s hold or the shipyard');
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
   // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.

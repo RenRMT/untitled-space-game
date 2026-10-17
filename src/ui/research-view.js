@@ -8,8 +8,8 @@
 //     env: { ctx() (the station's open() options), refresh(), show(id) (open a package's sheet),
 //            act(fn, after), costChips(cost, credits, ...more), componentsGrid(components),
 //            section(label, ...children), lead(text) (the tab's first line), explain(key, text) (a note
-//            that folds away after a few visits), fold(key, label, content), switcher() (Research |
-//            Production), openId() (the package whose sheet is open) }
+//            that folds away after a few visits), fold(key, label, content), openId() (the package
+//            whose sheet is open) }
 //     render(): the tab's contents; sheet(id): the options for its Kit.sheet; tick(): the bench's
 //     numbers, every second without drawing again; reset(): back to the first group, chips closed.
 // ES module (`ResearchView`); needs a browser.
@@ -162,7 +162,6 @@ const ResearchView = {
       const count = (g) => `${inGroup(g).filter((p) => isDone(p.id)).length}/${inGroup(g).length}`;
       env.lead(`${Research.LIST.filter((p) => isDone(p.id)).length}/${Research.LIST.length} done`);
       return [
-        env.switcher(),
         env.explain('research', 'Paid for when queued; builds in real time, even while you\'re away.'),
         env.section('Lab', bench()),
         env.section('Groups', Kit.choices(groups.map((g) => ({ id: g.id, label: `${g.label} ${count(g.id)}`, on: g.id === group })),

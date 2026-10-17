@@ -1,5 +1,5 @@
-// The docked screen: the station header, one of the Trade / Ship / Research / Production / Squad /
-// Missions tabs,
+// The docked screen: the station header, one of the Trade / Ship / Research / Production / Missions
+// tabs,
 // and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
 // (with a squad, a switcher above it steps through the members' ships too, outfitted the same way);
@@ -82,19 +82,15 @@ const StationMenu = (() => {
   const { h } = UI; // ui/ui.js
 
   // ---------- The tab bar ----------
-  // Five tabs, each named under its icon. Industry holds two screens, Research and Production
-  // (both spend materials and wait on the real clock), with a switch between them at the top; the
-  // tab remembers which was open. Internally the screens keep their own names ('research',
-  // 'industry'), so showTab() reaches either.
+  // Five tabs, each named under its icon (Production goes by Industry there: it fits). The squad lives on the Ship tab: it steps through your
+  // ship and each wingman's, and a wingman's page carries its program under its loadout (named
+  // Ships once there is a squad). showTab('squad') opens it on a wingman.
   const TABS = {
-    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, industry: { code: 'IND', label: 'Industry' },
-    squad: { code: 'SQD', label: 'Squad' }, missions: { code: 'MSN', label: 'Missions' },
+    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, research: { code: 'RSC', label: 'Research' },
+    industry: { code: 'IND', label: 'Industry' }, missions: { code: 'MSN', label: 'Missions' },
   };
-  const INDUSTRY = ['research', 'industry'];
-  const barTab = (name) => (INDUSTRY.includes(name) ? 'industry' : name);
-  let industrySub = 'research';
   // A dot on a tab with something waiting: a mission to hand in or a story mission offered; research
-  // finished since the Research screen was last open, or a production order done or stuck.
+  // finished since the Research tab was last open; a production order done or stuck.
   const tabDots = {};
   for (const t of tabs) {
     const { code, label } = TABS[t.dataset.tab];
@@ -104,12 +100,14 @@ const StationMenu = (() => {
     t.setAttribute('aria-label', label);
   }
   let researchSeen = Store.getJSON('researchSeen', 0) || 0; // how many packages were done when Research was last open
-  function industryWaiting() {
-    const lab = ctx.lab && ctx.lab.state, ind = ctx.industry;
+  function researchWaiting() {
+    const lab = ctx.lab && ctx.lab.state;
     if (lab && Array.isArray(lab.done) && lab.done.length < researchSeen) researchSeen = lab.done.length; // another galaxy's save
-    const research = lab && Array.isArray(lab.done) && lab.done.length > researchSeen;
-    const orders = ind && ind.state && ind.state.orders.some((o) => ['done', 'blocked'].includes(Industry.status(ind.state, o).id));
-    return !!(research || orders);
+    return !!(lab && Array.isArray(lab.done) && lab.done.length > researchSeen);
+  }
+  function ordersWaiting() {
+    const ind = ctx.industry;
+    return !!(ind && ind.state && ind.state.orders.some((o) => ['done', 'blocked'].includes(Industry.status(ind.state, o).id)));
   }
 
   function renderHeader() {
@@ -149,10 +147,6 @@ const StationMenu = (() => {
     const open = unfolded.has(key);
     return [Kit.disclosure({ label, open, onToggle: () => { if (open) unfolded.delete(key); else unfolded.add(key); refresh(); } }), open ? content : null];
   }
-  // The switch at the top of the Industry tab, between its two screens.
-  const industrySwitch = () => Kit.choices(INDUSTRY.map((id) => ({
-    id, label: id === 'research' ? 'Research' : 'Production', on: tab === id, locked: isLocked(id), title: isLocked(id) ? locks().reason : undefined,
-  })), (id) => pick(id), { label: 'Industry' });
   function leadLine() {
     if (!leadText && !folded && !infoOpen) return null;
     const info = folded || infoOpen ? h('button', {
@@ -531,15 +525,18 @@ const StationMenu = (() => {
 
   // ---------- Ship: which ship it shows ----------
 
-  // The ships the Ship tab can show: yours (null), then each squad member's (by id).
+  // The ships the Ship tab can show: yours (null), then each squad member's (by id). Either part can
+  // be locked on its own (early on the squad opens before the rest of the station: locks()).
   const squadMembers = () => (ctx && ctx.squad ? ctx.squad.members : []);
-  const shipViews = () => [null, ...squadMembers().map((m) => m.id)];
-  // The squad member shown, or null for your own ship (also when the one shown has left the squad).
+  const shipViews = () => [...(isLocked('ship') ? [] : [null]), ...(isLocked('squad') ? [] : squadMembers().map((m) => m.id))];
+  const shipTabOpen = () => shipViews().length > 0;
+  // The squad member shown, or null for your own ship (also when the one shown has left the squad);
+  // the first wingman when your own ship can't be shown.
   function viewedMember() {
+    const views = shipViews();
+    if (!views.includes(viewing)) viewing = views.includes(null) ? null : views[0] ?? null;
     if (viewing === null) return null;
-    const m = squadMembers().find((x) => x.id === viewing);
-    if (!m) viewing = null;
-    return m || null;
+    return squadMembers().find((x) => x.id === viewing) || null;
   }
   function showShip(id) {
     const next = shipViews().includes(id) ? id : null;
@@ -575,11 +572,13 @@ const StationMenu = (() => {
   }
 
   // The Ship tab for a squad member: its hull, its loadout (each slot opening a sheet to fit gear
-  // from the spare gear, as on your ship), what it can do, and the spare gear.
+  // from the spare gear, as on your ship), what it can do, then its program (instructions, tried
+  // out, its last fight) and the spare gear. Its loadout is only shown once the rest of the
+  // station is open (early on, only the program can be changed).
   function renderMemberShip(m) {
     const slots = Loadout.slots(m.loadout), st = Squad.stats(m);
     const k = m.disabled ? 0 : m.hullPoints / st.hull;
-    const squadOpen = !isLocked('squad');
+    const canOutfit = !isLocked('ship');
     return [
       shipSwitcher(),
       section(m.name, titleRow(m.name, `${st.name} · ${slots.filter((s) => s.item).length}/${slots.length} fitted`),
@@ -588,12 +587,12 @@ const StationMenu = (() => {
             h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
-      schematic(slots),
-      performance(perfStats(st, slots, m.hull)),
-      section('Program', Kit.head('Program', h('span', { class: 'aside num' }, `${m.program.length} instruction${m.program.length === 1 ? '' : 's'}`)),
-        explain('member-program', 'Androids are repaired at every dock. What they do in a fight is set by their instructions.'),
-        squadOpen ? Kit.button('Edit instructions', () => pick('squad'), { kind: 'ghost', wide: true, aria: `Edit ${m.name}'s instructions on the Squad tab` }) : null),
-      renderGear(),
+      canOutfit ? schematic(slots) : null,
+      canOutfit ? performance(perfStats(st, slots, m.hull)) : null,
+      section('Program',
+        explain('squad', 'Your wingmen check their instructions from the top and follow the first one that applies; if none does, they keep formation with you. Tap an instruction to change it. In combat they show the instruction they are running as code. Androids are repaired at every dock.'),
+        programBlock(m), testBench(m), fightLog(m)),
+      canOutfit ? renderGear() : null,
     ];
   }
 
@@ -639,13 +638,13 @@ const StationMenu = (() => {
 
   const research = ResearchView.create({
     ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, lead, explain, fold,
-    switcher: () => industrySwitch(), openId: () => openNode,
+    openId: () => openNode,
   });
 
   // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, switcher: () => industrySwitch(), itemIcon,
+    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon,
     showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 
@@ -840,27 +839,6 @@ const StationMenu = (() => {
       h('div', { class: 'st-steps', role: 'list', 'aria-label': `${m.name}'s program, tried out` }, rows)]);
   }
 
-  // The squad: each member, its status, and its program.
-  function renderSquad() {
-    const members = ctx.squad ? ctx.squad.members : [];
-    // Each member: its name, one status word and its program (its hull and gear are on the Ship
-    // tab, a tap away).
-    lead('');
-    return [
-      members.length ? explain('squad', 'Your wingmen check their instructions from the top and follow the first one that applies; if none does, they keep formation with you. Tap an instruction to change it. In combat they show the instruction they are running as code.') : null,
-      members.length ? members.map((m) => {
-        const st = Squad.stats(m);
-        const k = m.disabled ? 0 : m.hullPoints / st.hull;
-        const status = m.disabled ? ['Disabled', 'var(--hostile)'] : k < 1 ? ['Damaged', 'var(--warn)'] : ['Intact', 'var(--good)'];
-        return section(m.name,
-          h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND' }),
-            h('span', { class: 'main' }, h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), Kit.tag(...status))),
-            Kit.button('Ship', () => { pick('ship'); showShip(m.id); }, { kind: 'ghost', aria: `${m.name}'s ship and gear` })),
-          programBlock(m), testBench(m), fightLog(m));
-      }) : h('p', { class: 'ui-empty' }, 'No squad members yet.'),
-    ];
-  }
-
   // The sheet for one instruction: the card as it will read, then a row of choices for each part
   // of it (who, which one, each condition, then what). Blocks not yet researched are dashed.
   // Changes go to a draft; Save puts it in the program if it checks.
@@ -1006,13 +984,14 @@ const StationMenu = (() => {
   const locks = () => (ctx && ctx.locks ? ctx.locks() : { tabs: [], reason: '', launch: null });
   const isLocked = (name) => locks().tabs.includes(name);
   const tabNames = () => (tabs.length ? tabs.map((t) => t.dataset.tab) : Object.keys(RENDER));
-  const firstOpen = () => tabNames().find((name) => !isLocked(name)) || 'trade';
+  const tabOpen = (name) => (name === 'ship' ? shipTabOpen() : !isLocked(name));
+  const firstOpen = () => tabNames().find(tabOpen) || 'trade';
 
-  const RENDER = { trade: () => renderTrade(), ship: () => renderShip(), research: () => research.render(), industry: () => industryView.render(), squad: () => renderSquad(), missions: () => renderMissions() };
+  const RENDER = { trade: () => renderTrade(), ship: () => renderShip(), research: () => research.render(), industry: () => industryView.render(), missions: () => renderMissions() };
   function refresh() {
     if (!ctx) return;
     const lock = locks();
-    if (lock.tabs.includes(tab)) tab = firstOpen();
+    if (!tabOpen(tab)) tab = firstOpen();
     renderHeader();
     if (tab === 'research' && ctx.lab && ctx.lab.state && Array.isArray(ctx.lab.state.done) && ctx.lab.state.done.length !== researchSeen) {
       researchSeen = ctx.lab.state.done.length;
@@ -1020,15 +999,20 @@ const StationMenu = (() => {
     }
     for (const t of tabs) {
       const name = t.dataset.tab;
-      const on = name === barTab(tab), locked = name === 'industry' ? INDUSTRY.every((x) => lock.tabs.includes(x)) : lock.tabs.includes(name);
+      const on = name === tab, locked = !tabOpen(name);
+      const label = name === 'ship' && squadMembers().length ? 'Ships' : TABS[name].label;
       t.setAttribute('aria-selected', String(on));
       t.tabIndex = on ? 0 : -1;
       t.disabled = locked;
-      t.title = locked ? lock.reason : TABS[name].label;
+      t.title = locked ? lock.reason : label;
+      t.setAttribute('aria-label', label);
+      const lbl = t.querySelector('.lbl');
+      if (lbl && lbl.textContent !== label) lbl.textContent = label;
     }
     // Something to hand in here, or a story mission offered (every station always has jobs posted).
     if (tabDots.missions) tabDots.missions.hidden = !missions().some((m) => m.here && (m.status === 'ready' || (m.status === 'offered' && !m.tier)));
-    if (tabDots.industry) tabDots.industry.hidden = !industryWaiting();
+    if (tabDots.research) tabDots.research.hidden = !researchWaiting();
+    if (tabDots.industry) tabDots.industry.hidden = !ordersWaiting();
     const launch = el('st-launch');
     launch.disabled = !!lock.launch;
     launch.title = lock.launch || '';
@@ -1050,12 +1034,14 @@ const StationMenu = (() => {
 
   // The station reopens on the tab last used (saved), unless the flight view asks for another.
   let lastTab = Store.get('stationTab', 'trade');
+  // 'squad' is the Ship tab on a wingman.
   function pick(name) {
-    if (name === 'industry-bar') name = isLocked(industrySub) ? INDUSTRY.find((x) => !isLocked(x)) || industrySub : industrySub;
-    if (isLocked(name)) return;
+    const wingman = name === 'squad';
+    if (wingman) name = 'ship';
+    if (!tabOpen(name)) return;
     closeSheet();
     tab = name;
-    if (INDUSTRY.includes(name)) industrySub = name;
+    if (wingman && !viewedMember() && squadMembers().length && !isLocked('squad')) viewing = squadMembers()[0].id;
     lastTab = name;
     Store.set('stationTab', name);
     infoOpen = false;
@@ -1066,7 +1052,7 @@ const StationMenu = (() => {
     refresh();
   }
   for (const t of tabs) {
-    t.addEventListener('click', () => pick(t.dataset.tab === 'industry' ? 'industry-bar' : t.dataset.tab));
+    t.addEventListener('click', () => pick(t.dataset.tab));
     // Arrow keys move between the tabs that can be opened.
     t.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
@@ -1075,7 +1061,7 @@ const StationMenu = (() => {
         i = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
         if (!tabs[i].disabled) break;
       }
-      pick(tabs[i].dataset.tab === 'industry' ? 'industry-bar' : tabs[i].dataset.tab);
+      pick(tabs[i].dataset.tab);
       tabs[i].focus();
     });
   }
@@ -1103,7 +1089,7 @@ const StationMenu = (() => {
     open(options) {
       ctx = options;
       tab = options.tab || lastTab || 'trade';
-      if (INDUSTRY.includes(tab)) industrySub = tab;
+      if (tab === 'squad') tab = 'ship';
       seenThisDock.clear();
       infoOpen = false;
       viewing = null;
@@ -1130,8 +1116,8 @@ const StationMenu = (() => {
       body.replaceChildren();
     },
     get isOpen() { return !!ctx; },
-    // Switch to a tab ('trade' | 'ship' | 'research' | 'industry' | 'squad' | 'missions') while open, unless
-    // it's locked.
+    // Switch to a tab ('trade' | 'ship' | 'research' | 'industry' | 'missions') while open, unless
+    // it's locked; 'squad' is the Ship tab on a wingman.
     showTab: pick,
     get tab() { return tab; },
     refresh,

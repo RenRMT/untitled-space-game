@@ -8,7 +8,7 @@
 //   IndustryView.create(env) -> { render(), sheet(open), tick(), reset() }
 //     env: { ctx() (the station's open() options; ctx.industry: game/industry.js), refresh(), act(fn, after),
 //            section(label, ...children), lead(text), explain(key, text), fold(key, label, content),
-//            switcher(), itemIcon(kind, size),
+//            itemIcon(kind, size),
 //            showOrder(open), setOrder(changes), closeSheet() }
 //     sheet(open): the options for an order's Kit.sheet, open being
 //       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last), peek (an input whose own lineage is unfolded) }
@@ -255,7 +255,6 @@ const IndustryView = {
       const B = Recipes.BAYS[ind().stage()];
       env.lead(B ? `${B.label} here` : '');
       return [
-        env.switcher(),
         env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.'),
         ordersHere(),
         storage(),

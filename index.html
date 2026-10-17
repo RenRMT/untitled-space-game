@@ -633,8 +633,8 @@
   /* Larger text on a narrow phone: the tab names drop their capitals and spacing, and Launch
      narrows, so all five names still fit. */
   @media (max-width: 480px) {
-    :root:not([data-textsize="100"]) .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 11px; }
-    :root:not([data-textsize="100"]) #st-launch { min-width: 0; padding: 0 10px; letter-spacing: 0.06em; }
+    :root:not([data-textsize="100"]) .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+    :root:not([data-textsize="100"]) #st-launch { min-width: 0; padding: 0 8px; letter-spacing: 0.04em; }
     :root:not([data-textsize="100"]) .ui-nav { gap: 6px; padding-left: 8px; padding-right: 8px; }
   }
 
@@ -694,8 +694,8 @@
     <div class="ui-tabs" role="tablist" aria-label="Station services">
       <button class="ui-tab" type="button" role="tab" data-tab="trade">Trade</button>
       <button class="ui-tab" type="button" role="tab" data-tab="ship">Ship</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="research">Research</button>
       <button class="ui-tab" type="button" role="tab" data-tab="industry">Industry</button>
-      <button class="ui-tab" type="button" role="tab" data-tab="squad">Squad</button>
       <button class="ui-tab" type="button" role="tab" data-tab="missions">Missions</button>
     </div>
     <button id="st-launch" class="ui-btn primary lg" type="button">Launch</button>
