@@ -120,7 +120,7 @@ export function jump(gate) {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
-  actions.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: () => DOCK.range, maxSpeed: () => DOCK.maxSpeed, allowed: canDock, run: dock });
+  actions.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: () => DOCK.range, maxSpeed: () => DOCK.maxSpeed, allowed: canDock, hold: true, run: dock });
   actions.add({
     id: 'jump', kind: 'gate', verb: 'Jump', key: 'j', range: () => GATE.range, maxSpeed: () => GATE.maxSpeed, run: jump,
     allowed: () => (gatesOnline() ? { ok: true, reason: '' } : { ok: false, reason: 'Gate offline' }),

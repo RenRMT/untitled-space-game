@@ -48,9 +48,10 @@
   /* Map and settings: icon buttons side by side in the bottom-right corner, level with the speed
      bar and clear of the panels above it; a full touch target each (--hit, ui/kit.css). */
   .icon-btn {
-    position: absolute; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    position: absolute; z-index: 4; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
     width: var(--hit); height: var(--hit); min-height: 0; padding: 0; display: grid; place-items: center;
   }
+  .icon-btn[aria-expanded="true"] { border-color: var(--cyan); color: var(--cyan); }
   .icon-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
   #map-btn { right: calc(12px + var(--hit) + 8px + env(safe-area-inset-right, 0px)); }
   #settings-btn { right: calc(12px + env(safe-area-inset-right, 0px)); }
@@ -64,8 +65,10 @@
   }
   #map-overlay .bar > * { pointer-events: auto; }
   #map-overlay .top { top: 0; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
+  /* The bottom bar stops short of the map and settings buttons, which stay above the map. */
   #map-overlay .bottom {
     bottom: 0; flex-wrap: wrap; gap: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-right: calc(12px + var(--hit) * 2 + 8px + 12px + env(safe-area-inset-right, 0px));
     background: linear-gradient(rgba(5, 6, 10, 0), var(--bg));
   }
   #map-overlay .bottom .spacer { flex: 1; pointer-events: none; }
@@ -89,7 +92,6 @@
   .co-name { font: 600 14px var(--sans); color: var(--bright); }
   .co-meta { font: 12px var(--mono); color: var(--dim); }
   #map-overlay [hidden] { display: none !important; }
-  #map-travel-status { font: 12px var(--mono); color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   #map-prompt {
     position: absolute; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
     width: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px;
@@ -113,15 +115,14 @@
   }
   .panel[hidden] { display: none; }
 
-  /* Context menu (ui/context.js): tap a station, asteroid or ship and it shows around it, like the
-     map's callout: its name and details above it, what you can do there as round icon buttons
-     fanned out below it. Docked, the flight controls go away. */
+  /* Context menu (ui/context.js): tap a station, asteroid or ship and what you can do there shows
+     as round icon buttons fanned out below it. Nothing shows above it: what it is stays in the
+     page for screen readers only. Docked, the flight controls go away. */
   #context { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
   #context[hidden] { display: none; }
   .cx-info {
-    position: absolute; left: 0; top: 0; max-width: min(300px, calc(100vw - 16px)); box-sizing: border-box;
-    padding: 4px 4px 5px 9px; background: rgba(5, 6, 10, 0.78); border-left: 3px solid var(--accent, var(--cyan)); border-radius: var(--r-md);
-    font: 14px var(--sans); color: var(--hud); pointer-events: auto;
+    position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap; pointer-events: none;
   }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .cx-title { flex: 1; min-width: 0; color: var(--bright); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -267,6 +268,7 @@
   .st-info[aria-expanded="true"] { color: var(--cyan); }
   .st-holdn { font-size: 12px; color: var(--hud); white-space: nowrap; }
   .st-holdbar .ui-btn { min-height: 36px; padding: 0 10px; font-size: 12px; }
+  .st-holdbar .ui-btn:disabled { opacity: 0.4; } /* greyed out: nothing in the hold for it */
   .ui-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* held down to repeat */
   /* A wingman's last fight (Squad tab): a step per line switch, its time, what it did, its hull. */
   .st-steps { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--r-lg); overflow: hidden; }
@@ -348,6 +350,17 @@
   .st-costs .cost { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--hud); }
   .st-costs .cost.short { color: var(--warn); }
   .st-costs .icon { margin: -2px 0; }
+  /* A mission's reward on its card: the credits diamond and amount, then item icons (×n). */
+  .st-pays { display: inline-flex; align-items: center; gap: 10px; min-width: 0; color: var(--hud); }
+  .st-pay { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; }
+  .st-pay .icon { margin: -2px 0; }
+  .st-also { display: block; margin-top: 2px; font-size: 13px; color: var(--dim); }
+  /* A mission's briefing, straight on its sheet: who says it, then every line. */
+  .st-brief { display: flex; flex-direction: column; gap: 8px; }
+  .st-brief .from { display: flex; align-items: center; gap: 10px; }
+  .st-brief .from .ui-label { color: var(--culture, var(--cyan)); }
+  .st-brief p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--bright); overflow-wrap: anywhere; }
+  .st-brief strong { color: var(--culture, var(--cyan)); font-weight: 600; }
   /* Research: the lab bench (what's building, then the queue as a pipeline of slots), and the
      group's tree of packages (a schematic like the ship's, as tall as the tree). */
   .st-bench { display: flex; align-items: stretch; gap: 12px; }
@@ -478,7 +491,8 @@
      show right away). One group per option: a row of choices and a line about the selected one. */
   #settings {
     position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
-    padding: 16px; box-sizing: border-box; background: rgba(2, 3, 6, 0.66);
+    /* clear of the map and settings buttons in the bottom-right corner, which stay above it */
+    padding: 16px 16px calc(12px + var(--hit) + 12px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; background: rgba(2, 3, 6, 0.66);
     font: 15px/1.4 var(--sans); color: var(--hud);
   }
   #settings[hidden] { display: none; }
@@ -578,7 +592,7 @@
   #station .ui-sheet { left: calc(50vw / var(--ui-scale)); width: min(560px, calc(100vw / var(--ui-scale))); max-height: calc(80dvh / var(--ui-scale)); }
   #station .ui-sheet.tall { height: calc(88dvh / var(--ui-scale)); }
   #station .ui-scrim { inset: 0 auto auto 0; width: calc(100vw / var(--ui-scale)); height: calc(100dvh / var(--ui-scale)); }
-  .set-panel { zoom: var(--ui-scale); width: min(420px, calc((100vw - 32px) / var(--ui-scale))); max-height: calc((100dvh - 32px) / var(--ui-scale)); }
+  .set-panel { zoom: var(--ui-scale); width: min(420px, calc((100vw - 32px) / var(--ui-scale))); max-height: calc((100dvh - 40px - var(--hit) * var(--ui-scale) - env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #comms { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); width: min(560px, calc((100vw - 24px) / var(--ui-scale)));
     bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
@@ -648,7 +662,7 @@
 </head>
 <body>
 <canvas id="game"></canvas>
-<button id="map-btn" class="btn icon-btn" type="button" aria-label="Map" title="Map">
+<button id="map-btn" class="btn icon-btn" type="button" aria-expanded="false" aria-label="Map" title="Map (M)">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5l6-2.5 6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
 </button>
 <button id="settings-btn" class="btn icon-btn" type="button" aria-haspopup="dialog" aria-label="Settings" title="Settings">
@@ -718,19 +732,18 @@
   <canvas id="map-canvas"></canvas>
   <div class="bar top">
     <span id="map-title">SYSTEM</span>
+  </div>
+  <div class="bar bottom">
     <div id="map-view" class="seg" role="radiogroup" aria-label="Map view">
       <button id="map-view-local" class="btn" type="button" role="radio" aria-checked="true" title="This system (L)">Local</button>
       <button id="map-view-galaxy" class="btn" type="button" role="radio" aria-checked="false" title="Every system charted, and the gates between them (G)">Galaxy</button>
     </div>
-  </div>
-  <div class="bar bottom">
     <button id="map-reset" class="btn" type="button">Reset view</button>
+    <button id="map-erase" class="btn" type="button" title="Remove your marker" hidden>Erase marker</button>
     <button id="map-contacts" class="btn" type="button" aria-pressed="false" title="Testing: show every deep-space contact" hidden>Contacts</button>
-    <span id="map-travel-status" hidden></span>
     <span class="spacer"></span>
     <button id="map-fast" class="btn" type="button" aria-pressed="false" title="Fast-forward the trip" hidden>×4</button>
     <button id="map-stop" class="btn" type="button" title="Drop out of cruise here" hidden>Stop</button>
-    <button id="map-close" class="btn" type="button">Close</button>
   </div>
   <div id="map-prompt" hidden>
     <span id="map-prompt-text"></span>

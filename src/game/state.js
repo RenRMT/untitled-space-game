@@ -62,8 +62,9 @@ export const debris = []; // rock fragments thrown off by mining, in world units
 export const wings = new Map();
 export const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds mined so far
 // Approach: fly to the selected object and stop beside it (or keep station with a moving ship).
-// key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes.
-export const autopilot = { key: null, e: null, stop: 0, follow: false };
+// key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes;
+// then: the id of the action to do once there (game/selection.js act), or null.
+export const autopilot = { key: null, e: null, stop: 0, follow: false, then: null };
 // Combat (combat/combat-core.js; the modes in combat/combat.js and combat/combat-realtime.js): s is the fight in progress
 // (null when none) and mode the kind it is (a COMBAT key); ships holds the enemies' poses by key
 // (held in rounds, flown in real time); fx the queued and running effects (beams, flashes, numbers, explosions);

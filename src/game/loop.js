@@ -13,6 +13,7 @@ import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPa
 import { docked } from './docking.js';
 import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
+import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
 import { drawDebris, drawMining, drawMiningCountdown } from './mining.js';
 import { drawGateWork, objective } from './missions.js';
@@ -27,11 +28,12 @@ import { world } from './world.js';
 // ---------- Main loop ----------
 
 // What follows from where things are after a step (of dt seconds): items pulled in and picked
-// up, the selection, pirates noticing the ship, reaching the player's marker, and the objective
+// up, the selection, a long press, pirates noticing the ship, reaching the player's marker, and the objective
 // shown on the map. Not while paused, so nothing is picked up behind the settings menu.
 export function react(list, dt = 0) {
   collectItems(list, dt);
   updateSelection(list);
+  tickHold(dt);
   checkAggro(list);
   checkMarker();
   const obj = here.objective = objective();

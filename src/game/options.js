@@ -206,7 +206,19 @@ export function init() {
   }
   Feedback.on(buzz);
   applyAccess();
-  settingsBtn.addEventListener('click', () => { if (!inFight() && !docked && !intro.on) Settings.open(); });
+  // The map and settings buttons stay above both (index.html): a second tap closes what the first
+  // opened, and either one swaps the other's menu for its own.
+  settingsBtn.addEventListener('click', () => {
+    if (Settings.isOpen) { Settings.close(); return; }
+    if (inFight() || docked || intro.on) return;
+    SystemMap.close();
+    Settings.open();
+  });
+  // The map's own handler (ui/map.js) toggles it; the settings menu blocks the map, so a tap on the
+  // map button there closes the menu and then opens the map.
+  document.getElementById('map-btn').addEventListener('click', () => {
+    if (Settings.isOpen) { Settings.close(); SystemMap.open(); }
+  });
   Settings.onToggle = (open) => {
     setMode('settings', open); // no map on top of the menu
     invalidate(); // a changed setting shows behind the panel

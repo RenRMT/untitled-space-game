@@ -694,14 +694,14 @@ test('sprite cache: once the frame\'s budget is spent, an object keeps its last 
 test('actions: one registry gives each its button state, the things it applies to and its shortcut target', () => {
   let speed = 0, refused = false, mining = null;
   const A = Interactions.create({ gap: (e) => e.gap, speed: () => speed });
-  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), run() {} });
+  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), hold: true, run() {} });
   A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => 160, busy: (e) => (mining && { ok: false, label: mining === e ? 'Mining · 3 sec' : 'Mine · busy', inRange: true, busy: mining === e }), run() {} });
   A.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => e.hostile, range: 900, run() {} });
   const st = { kind: 'station', gap: 400 };
-  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false });
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false, approach: true });
   st.gap = 300;
   speed = 200;
-  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true });
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true, approach: true });
   speed = 100;
   assert.deepStrictEqual(A.state(A.get('dock'), st), { ok: true, label: 'Dock', inRange: true });
   refused = true;
@@ -719,6 +719,9 @@ test('actions: one registry gives each its button state, the things it applies t
   assert.strictEqual(A.forKey('F').id, 'dock');
   assert.strictEqual(A.forKey('x'), null);
   assert.strictEqual(A.range(A.get('mine')), 160);
+  // A long press does the action marked hold; nothing for things without one.
+  assert.strictEqual(A.held({ kind: 'station' }).id, 'dock');
+  assert.strictEqual(A.held({ kind: 'ship', hostile: true }), null);
   // A shortcut acts on the selected thing if the action applies to it, else on the nearest in reach.
   const near = { kind: 'station', gap: 100 }, mid = { kind: 'station', gap: 250 }, far = { kind: 'station', gap: 1000 };
   assert.strictEqual(A.target(A.get('dock'), null, [far, mid, near, other]), near);
