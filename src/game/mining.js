@@ -196,10 +196,10 @@ export function drawDebris() {
 export function init() {
   actions.add({
     id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
-    busy: miningBusy, run: startMining,
+    busy: miningBusy, hold: true, run: startMining,
   });
   actions.add({
     id: 'collect', kind: 'gas', verb: 'Collect', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
-    busy: miningBusy, run: startMining,
+    busy: miningBusy, hold: true, run: startMining,
   });
 }

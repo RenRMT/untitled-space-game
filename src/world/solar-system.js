@@ -58,9 +58,9 @@ const SolarSystem = (() => {
     // capital, major, yard: whether the system has its capital, its major hub and a salvage yard.
     stations: { capital: true, major: true, minor: [2, 3], miningCamps: [1, 2], yard: true },
     // Security by distance (world units) to the nearest station: at most `high` away is high
-    // security, then medium, then low; further than `low` is lawless. A nebula takes a level off,
+    // security, then low; further than `low` is lawless. A nebula takes a level off,
     // except right by a station.
-    security: { high: 8000, medium: 16000, low: 26000 },
+    security: { high: 8000, low: 26000 },
     // Pirates: the system is split into cells this big, each rolling for packs as world/security.js
     // says for the security at its centre, scaled by `density`. Plus ambushes: one per nebula
     // and a few in lawless space.
@@ -354,8 +354,8 @@ const SolarSystem = (() => {
     const stationDist = (x, y) => stations.reduce((m, s) => Math.min(m, Math.hypot(x - s.x, y - s.y)), Infinity);
     function securityAt(x, y) {
       const d = stationDist(x, y);
-      const level = d <= SEC.high ? 3 : d <= SEC.medium ? 2 : d <= SEC.low ? 1 : 0;
-      return level < 3 && nebulaAt(x, y) ? Math.max(0, level - 1) : level;
+      const level = d <= SEC.high ? 2 : d <= SEC.low ? 1 : 0;
+      return level < 2 && nebulaAt(x, y) ? Math.max(0, level - 1) : level;
 
     }
 
@@ -460,7 +460,7 @@ const SolarSystem = (() => {
     };
     for (let n = count(rd, P.derelicts.count), tries = 0; n > 0 && tries < 400; tries++) {
       const at = derelictSpot();
-      if (Math.hypot(at.x, at.y) > R - 1500 || securityAt(at.x, at.y) >= 3 || !clear(at, 1200)
+      if (Math.hypot(at.x, at.y) > R - 1500 || securityAt(at.x, at.y) >= 2 || !clear(at, 1200)
         || stations.some((s) => dist(s, at) < 4000) || contacts.some((c) => dist(c, at) < P.derelicts.spacing)) continue;
       const c = addContact('derelict', at.x, at.y, 700);
       const culture = randomCulture(rd);

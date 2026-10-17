@@ -149,7 +149,7 @@ test('systems far apart joined by gates, grown from the capital by region; the t
     for (const p of b.planets) assert(Math.abs(dist(p, b.origin) - p.orbit) < 1e-6, `${where}: ${p.name} is off its orbit`);
     assert(b.planets.length >= 2 && b.stations.length >= 3, `${where}: ${b.planets.length} planets, ${b.stations.length} stations`);
     assert.strictEqual(b.stations.filter((x) => x.market.type === 'capital').length, 1, `${where}: one capital`);
-    for (const st of b.stations) assert.strictEqual(g.securityAt(st.x, st.y), 3, `${where}: ${st.name} is not high security`);
+    for (const st of b.stations) assert.strictEqual(g.securityAt(st.x, st.y), 2, `${where}: ${st.name} is not high security`);
     // Lists together, every id an index into them, every reference to the right system.
     for (const k of ['planets', 'moons', 'stations', 'packs', 'gates']) g[k].forEach((o, i) => assert.strictEqual(o.id, i, `${where}: ${k} ${i}`));
     for (const m of g.moons) assert(g.planets[m.parent].moons.includes(m.id) && g.planets[m.parent].system === m.system, `${where}: moon ${m.name}'s planet`);
@@ -198,10 +198,10 @@ test('the first system is the tutorial: one planet, a belt, a nebula, the waysta
     assert(dist(W, O) / s.radius > 0.85, `${where}: the waystation isn't on the edge`);
     assert(dist(gate, O) / s.radius > 0.7, `${where}: the gate isn't on the edge`);
     assert(dist(W, s.nebulae[0]) > s.nebulae[0].r + 6000, `${where}: the nebula crowds the waystation`);
-    // Safe throughout: high security, medium in the nebula only if anywhere.
+    // Safe throughout: high security, low in the nebula only if anywhere.
     for (let i = 0; i < 200; i++) {
       const a = i * 2.39996, d = Math.sqrt(i / 200) * s.radius, x = O.x + Math.cos(a) * d, y = O.y + Math.sin(a) * d;
-      assert(s.securityAt(x, y) >= 2, `${where}: security ${s.securityAt(x, y)} at ${x.toFixed(0)},${y.toFixed(0)}`);
+      assert(s.securityAt(x, y) >= 1, `${where}: security ${s.securityAt(x, y)} at ${x.toFixed(0)},${y.toFixed(0)}`);
     }
     assert(g.pockets.filter((q) => q.system === 0).length >= 3, `${where}: gas pockets`);
   }
@@ -260,7 +260,7 @@ test('stations orbit planets in all three cultures, with bases out in space; the
       for (const a of s.asteroids) assert(dist(st, a) > st.reach + 100, `${where}: an asteroid under ${st.name}`);
       // A mining camp lives among rocks.
       if (st.market.type === 'mining camp') assert(s.asteroids.filter((a) => dist(a, st) < 1600).length >= 15, `${where}: ${st.name} has no rocks`);
-      assert.strictEqual(s.securityAt(st.x, st.y), 3, `${where}: ${st.name} is not high security`);
+      assert.strictEqual(s.securityAt(st.x, st.y), 2, `${where}: ${st.name} is not high security`);
     }
   }
 });
@@ -398,7 +398,7 @@ test('contacts: derelicts are hidden wrecks away from the stations; ambushes are
       assert(wrecks.length >= 1, `${where}: ${c.type} ${c.id} has no wreck`);
       for (const w of wrecks) assert(dist(w, c) <= c.r, `${where}: a wreck of ${c.id} lies outside its reach`);
       if (c.type === 'derelict') {
-        assert(s.securityAt(c.x, c.y) < 3, `${where}: a derelict in high security`);
+        assert(s.securityAt(c.x, c.y) < 2, `${where}: a derelict in high security`);
         for (const st of s.stations) assert(dist(st, c) >= 4000, `${where}: a derelict by ${st.name}`);
       } else {
         const k = s.packs[c.pack];
@@ -694,14 +694,14 @@ test('sprite cache: once the frame\'s budget is spent, an object keeps its last 
 test('actions: one registry gives each its button state, the things it applies to and its shortcut target', () => {
   let speed = 0, refused = false, mining = null;
   const A = Interactions.create({ gap: (e) => e.gap, speed: () => speed });
-  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), run() {} });
+  A.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: 320, maxSpeed: () => 150, allowed: () => (refused ? { ok: false, reason: 'Docking refused' } : { ok: true }), hold: true, run() {} });
   A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => 160, busy: (e) => (mining && { ok: false, label: mining === e ? 'Mining · 3 sec' : 'Mine · busy', inRange: true, busy: mining === e }), run() {} });
   A.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => e.hostile, range: 900, run() {} });
   const st = { kind: 'station', gap: 400 };
-  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false });
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · too far', inRange: false, approach: true });
   st.gap = 300;
   speed = 200;
-  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true });
+  assert.deepStrictEqual(A.state('dock', st), { ok: false, label: 'Dock · slow down', inRange: true, approach: true });
   speed = 100;
   assert.deepStrictEqual(A.state(A.get('dock'), st), { ok: true, label: 'Dock', inRange: true });
   refused = true;
@@ -719,6 +719,9 @@ test('actions: one registry gives each its button state, the things it applies t
   assert.strictEqual(A.forKey('F').id, 'dock');
   assert.strictEqual(A.forKey('x'), null);
   assert.strictEqual(A.range(A.get('mine')), 160);
+  // A long press does the action marked hold; nothing for things without one.
+  assert.strictEqual(A.held({ kind: 'station' }).id, 'dock');
+  assert.strictEqual(A.held({ kind: 'ship', hostile: true }), null);
   // A shortcut acts on the selected thing if the action applies to it, else on the nearest in reach.
   const near = { kind: 'station', gap: 100 }, mid = { kind: 'station', gap: 250 }, far = { kind: 'station', gap: 1000 };
   assert.strictEqual(A.target(A.get('dock'), null, [far, mid, near, other]), near);
@@ -836,14 +839,14 @@ test('empty slots contribute nothing', () => {
 });
 
 test('security falls with the distance to the nearest station, a level lower in a nebula (but not by a station)', () => {
-  const { high, medium, low } = SolarSystem.params.security;
+  const { high, low } = SolarSystem.params.security;
   for (const [seed, s] of systems) {
     const r = mulberry32(seedToInt(seed));
     for (let i = 0; i < 400; i++) {
       const x = (r() * 2 - 1) * s.radius, y = (r() * 2 - 1) * s.radius;
       if (Math.hypot(x, y) > s.radius) continue;
-      const d = s.stationDist(x, y), want = d <= high ? 3 : d <= medium ? 2 : d <= low ? 1 : 0;
-      assert.strictEqual(s.securityAt(x, y), want < 3 && s.nebulaAt(x, y) ? Math.max(0, want - 1) : want, `seed ${seed} at ${x.toFixed(0)},${y.toFixed(0)}`);
+      const d = s.stationDist(x, y), want = d <= high ? 2 : d <= low ? 1 : 0;
+      assert.strictEqual(s.securityAt(x, y), want < 2 && s.nebulaAt(x, y) ? Math.max(0, want - 1) : want, `seed ${seed} at ${x.toFixed(0)},${y.toFixed(0)}`);
     }
   }
 });
@@ -1477,8 +1480,8 @@ test('security falls from the stations to the outer system, and sets how dangero
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
   assert(mean(by.inner) > mean(by.middle) && mean(by.middle) > mean(by.outer), JSON.stringify(Object.fromEntries(Object.entries(by).map(([k, v]) => [k, mean(v).toFixed(2)]))));
   assert(by.outer.filter((v) => v <= 1).length / by.outer.length > 0.6, 'the outer system is mostly low security or lawless');
-  for (const l of [0, 1, 2, 3]) assert(by.inner.concat(by.middle, by.outer).includes(l), `no space at security ${l}`);
-  for (let level = 0; level < 3; level++) {
+  for (const l of [0, 1, 2]) assert(by.inner.concat(by.middle, by.outer).includes(l), `no space at security ${l}`);
+  for (let level = 0; level < 2; level++) {
     const lo = Security.pirates(level), hi = Security.pirates(level + 1);
     const max = (t) => Math.max(...t.map(([v]) => v)), min = (t) => Math.min(...t.map(([v]) => v));
     assert(lo.chance > hi.chance && max(lo.size) >= max(hi.size) && min(lo.tier) >= min(hi.tier), `pirates at ${level} vs ${level + 1}`);
@@ -1487,7 +1490,7 @@ test('security falls from the stations to the outer system, and sets how dangero
 });
 
 test('pirates come in packs that follow the security level and can be fought one at a time', () => {
-  const packs = [[], [], [], []]; // pack sizes, by security level
+  const packs = [[], [], []]; // pack sizes, by security level
   const { orbit: [, o1] } = Security.PACK;
   // Standalone systems (not in a scene) for the numbers; the galaxies' second systems, in their
   // scenes, for the ships too.
@@ -1521,9 +1524,9 @@ test('pirates come in packs that follow the security level and can be fought one
   const mean = (a) => a.reduce((n, v) => n + v, 0) / a.length;
   const share = (a, n) => a.filter((v) => v === n).length / a.length;
   assert(packs[0].length > 2 * systems.size && packs[1].length > 2 * systems.size, `packs per level: ${packs.map((b) => b.length)}`);
-  assert(packs[2].length > packs[3].length, `packs per level: ${packs.map((b) => b.length)}`);
+  assert(packs[1].length > packs[2].length, `packs per level: ${packs.map((b) => b.length)}`);
   assert(mean(packs[0]) > mean(packs[1]) && mean(packs[1]) > mean(packs[2]), `pack sizes: ${packs.map((b) => (b.length ? mean(b).toFixed(1) : '-'))}`);
-  assert(share(packs[2], 1) > 0.6 && packs[3].every((n) => n === 1), 'safe space has mostly lone pirates');
+  assert(share(packs[1], 1) > 0.35 && packs[2].every((n) => n === 1), 'safer space has mostly lone pirates');
   assert(Security.PACK.spacing > CombatCore.config.groupRange + 2 * o1, 'pack spacing keeps packs out of each other\'s fights');
 });
 
@@ -1883,7 +1886,7 @@ test('the first system has an android waystation alone on its outer edge, in a s
     assert.deepStrictEqual(w.market, { kind: 'outpost', type: 'waystation' });
     const out = Math.hypot(w.x - s.origin.x, w.y - s.origin.y) / s.radius;
     assert(out > 0.85 && out < 0.95, `${where}: ${out.toFixed(2)} of the radius out`);
-    assert.strictEqual(g.securityAt(w.x, w.y), 3, `${where}: high security`);
+    assert.strictEqual(g.securityAt(w.x, w.y), 2, `${where}: high security`);
     for (const o of g.stations) if (o !== w) assert(dist(o, w) > 7000, `${where}: ${o.name} too close`);
     for (const o of g.gates) assert(dist(o, w) > 7000, `${where}: ${o.name} too close`);
     for (const n of s.nebulae) assert(dist(n, w) > n.r + 6000, `${where}: ${n.name} too close`);

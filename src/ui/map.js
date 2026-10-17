@@ -1,10 +1,10 @@
 // Full-screen map overlay of the galaxy the flight view gives it (SystemMap.galaxy = ...). Two
-// views, switched with the Local / Galaxy toggle (or L and G):
-// - Local: the system the ship is in (or nearest to, in deep space): the star, orbits, planets and
+// views, switched with the Local / Galaxy toggle at the bottom (or L and G):
+// - Local: the system the ship is in (off in deep space and during map travel): the star, orbits, planets and
 //   moons, belts and fields, nebulae, every station and gate, and the contacts the player knows
 //   of (SystemMap.knowledge, see rules/knowledge.js): identified ones by type, pinged ones as signals.
-// - Galaxy: the star of every system charted (entered at least once), by name and who holds it
-//   (world/regions.js), and the gate links between them; a link to a system not yet charted leads
+// - Galaxy: the star of every system charted (entered at least once), by name (who holds it
+//   shows on its callout: world/regions.js), and the gate links between them; a link to a system not yet charted leads
 //   to a '?'. The system the ship is in is ringed; in deep space, the ship shows where it is.
 // ?dev shows every system and contact, plus the testing buttons (Jump, Contacts).
 // A mission's objective (SystemMap.objective, set by the flight view) shows as an amber ring; it
@@ -12,14 +12,14 @@
 // Selecting a place shows its name and security above it and what can be done below it
 // (ui/callout.js):
 // - Local view: a station, gate, planet, known contact, the objective or any point: Set marker
-//   (SystemMap.marker, one at a time, which the flight view points to) or Clear marker.
+//   (SystemMap.marker, one at a time, which the flight view points to) or Clear marker. While a
+//   marker is set, Erase marker in the bottom bar clears it from either view.
 // - Galaxy view, map travel: a system or any point in space, and Travel. The flight view runs the
-//   trip (flight/travel.js) and the map shows the route, progress, signal prompts, Stop and
-//   fast-forward. Slower than the jump gates, on purpose.
+//   trip (flight/travel.js) and the map shows the route (its dashed line is the progress), signal
+//   prompts, Stop and fast-forward. Slower than the jump gates, on purpose.
 
 import { ArtUtil } from '../art/util.js';
 import { Display } from '../core/display.js';
-import { Format } from '../core/format.js';
 import { MathUtil } from '../core/math.js';
 import { Params } from '../core/store.js';
 import { Theme } from '../core/theme.js';
@@ -36,7 +36,7 @@ const SystemMap = (() => {
   const contactsBtn = document.getElementById('map-contacts');
   const stopBtn = document.getElementById('map-stop');
   const fastBtn = document.getElementById('map-fast');
-  const travelStatus = document.getElementById('map-travel-status');
+  const eraseBtn = document.getElementById('map-erase');
   const promptEl = document.getElementById('map-prompt');
   const promptText = document.getElementById('map-prompt-text');
   const ACTIONS = { travel: () => travelTo(), jump: () => jumpTo(), mark: () => setMarker(), unmark: () => clearMarker() };
@@ -49,7 +49,7 @@ const SystemMap = (() => {
   const MOON_COLOR = { grey: '#8e8a84', ice: '#bcd3e2', sulfur: '#d6bf55', rust: '#a35a3b', dark: '#86838e' };
   const UNCHARTED = '#8a95b3';
   const TOP_BAR = 52;
-  const BOTTOM_BAR = 56;
+  const BOTTOM_BAR = 56; // at least; the bar wraps on narrow screens (bottomBar() measures it)
   const ARRIVE_EDGE = 0.95; // travel to a system ends this far out from its star, in system radii
   const { clamp } = MathUtil;
 
@@ -145,10 +145,13 @@ const SystemMap = (() => {
   const linked = (s) => galaxy.links.flatMap(([a, b]) => (a === s.index ? [galaxy.systems[b]] : b === s.index ? [galaxy.systems[a]] : []));
 
   // Frame the local system, or every system the galaxy view shows.
+  function bottomBar() {
+    const bar = overlay.querySelector('.bar.bottom');
+    return Math.max(BOTTOM_BAR, bar && !overlay.hidden ? bar.getBoundingClientRect().height : 0);
+  }
   function fit() {
     const pad = 12;
-    const bar = overlay.querySelector('.bar.bottom');
-    const bottom = Math.max(BOTTOM_BAR, bar && !overlay.hidden ? bar.getBoundingClientRect().height : 0);
+    const bottom = bottomBar();
     const availW = view.w - pad * 2, availH = view.h - TOP_BAR - bottom;
     let x0, y0, x1, y1;
     if (mode === 'galaxy') {
@@ -462,11 +465,6 @@ const SystemMap = (() => {
       ctx.font = Theme.font(12);
       ctx.fillStyle = '#e6ebff';
       ctx.fillText(s.name.toUpperCase(), x, y + STAR_DOT + 20);
-      // Who holds it, in their colour.
-      const holder = s.holder && Factions.get(s.holder);
-      ctx.font = Theme.font(10);
-      ctx.fillStyle = holder ? holder.color : UNCHARTED;
-      ctx.fillText(holder ? holder.name : 'Unclaimed', x, y + STAR_DOT + 34);
     }
     ctx.textAlign = 'left';
   }
@@ -504,7 +502,7 @@ const SystemMap = (() => {
       row(question, 'unidentified signal');
       row((cx, cy) => { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 7); g.addColorStop(0, 'rgba(138, 92, 255, 0.6)'); g.addColorStop(1, 'rgba(138, 92, 255, 0)'); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 7, 0, 7); ctx.fill(); }, 'nebula');
     }
-    let y = view.h - BOTTOM_BAR - rows.length * 18 + 6;
+    let y = view.h - bottomBar() - rows.length * 18 + 6;
     ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
     ctx.fillRect(x - 6, y - 14, 170, rows.length * 18 + 10);
     ctx.font = Theme.font(11);
@@ -548,7 +546,6 @@ const SystemMap = (() => {
   const samePick = (a, b) => !!a && !!b && (a.point && b.point ? a.point.x === b.point.x && a.point.y === b.point.y
     : !a.point && !b.point && pickedOf(a) === pickedOf(b));
 
-  const km = Format.dist;
 
   // Travel destination for a pick.
   function destOf(p) {
@@ -577,14 +574,20 @@ const SystemMap = (() => {
     return null;
   }
 
+  // The local view is off outside a system (deep space, map travel): the galaxy view shows instead.
+  const localOff = () => !!(trip && trip.active) || (!!player && !galaxy.systemAt(player.x, player.y));
+
+  // The bottom bar: the view toggle, Erase marker, and during map travel Stop, ×4 and any signal.
   function updateTravelUI() {
     const travelling = !!(trip && trip.active);
-    stopBtn.hidden = fastBtn.hidden = travelStatus.hidden = !travelling;
-    for (const b of viewBtns) b.el.disabled = travelling && b.view !== 'galaxy';
+    stopBtn.hidden = fastBtn.hidden = !travelling;
+    eraseBtn.hidden = !marker;
+    const off = localOff();
+    for (const b of viewBtns) b.el.disabled = off && b.view === 'local';
+    if (off && mode === 'local' && isOpen) { setMode('galaxy'); return; }
     fastBtn.setAttribute('aria-pressed', String(travelling && trip.fast));
     promptEl.hidden = !(travelling && trip.prompt);
     if (!travelling) return;
-    travelStatus.textContent = `Travelling to ${trip.dest.name} · ${km(trip.remaining)} · ${Math.ceil(trip.eta)} s`;
     if (trip.prompt) promptText.textContent = `Signal detected: ${CONTACT[trip.prompt.contact.type]?.prompt || 'a contact'} nearby.`;
   }
 
@@ -736,10 +739,13 @@ const SystemMap = (() => {
   // ---------- Open / close & controls ----------
 
   let blocked = false; // set by the flight view while docked or fighting
+  // The flight view's map button stays above the overlay: a second tap closes the map.
+  const mapBtn = document.getElementById('map-btn');
   function open() {
     if (isOpen || blocked) return;
     isOpen = true;
     overlay.hidden = false;
+    mapBtn.setAttribute('aria-expanded', 'true');
     resize();
     if (!fitted) { fit(); fitted = true; }
     updateCallout();
@@ -749,13 +755,14 @@ const SystemMap = (() => {
     if (!isOpen) return;
     isOpen = false;
     overlay.hidden = true;
+    mapBtn.setAttribute('aria-expanded', 'false');
     pointers.clear();
     gesture = null;
   }
 
-  document.getElementById('map-btn').addEventListener('click', open);
-  document.getElementById('map-close').addEventListener('click', close);
-  for (const b of viewBtns) b.el.addEventListener('click', () => setMode(b.view));
+  mapBtn.addEventListener('click', () => (isOpen ? close() : open()));
+  eraseBtn.addEventListener('click', () => clearMarker());
+  for (const b of viewBtns) b.el.addEventListener('click', () => { if (!b.el.disabled) setMode(b.view); });
   function travelTo() {
     if (!selected || mode !== 'galaxy' || cantTravel(selected)) return;
     hooks.travel(destOf(selected));
@@ -792,7 +799,7 @@ const SystemMap = (() => {
     else if (e.key === 'Escape') close();
     else if (e.key === 'p' || e.key === 'P') { perf = !perf; requestDraw(); }
     else if (isOpen && (e.key === 'g' || e.key === 'G')) setMode('galaxy');
-    else if (isOpen && (e.key === 'l' || e.key === 'L') && !(trip && trip.active)) setMode('local');
+    else if (isOpen && (e.key === 'l' || e.key === 'L') && !localOff()) setMode('local');
   });
 
   return {
@@ -808,9 +815,11 @@ const SystemMap = (() => {
     // The local view follows the ship to whichever system it is nearest.
     setPlayer(x, y) {
       const moved = !player || Math.abs(player.x - x) * view.scale > 1 || Math.abs(player.y - y) * view.scale > 1;
+      const wasOff = localOff();
       player = { x, y };
       if (!(trip && trip.active)) setLocal(galaxy.nearestSystem(x, y));
-      if (moved && isOpen) { updateCallout(); requestDraw(); } // open() brings both up to date
+      // Crossing a system's edge turns the local view off or on.
+      if ((moved || wasOff !== localOff()) && isOpen) { updateCallout(); requestDraw(); } // open() brings both up to date
     },
     set onJump(fn) { onJump = fn; updateCallout(); },
     set knowledge(k) { knowledge = k; updateCallout(); requestDraw(); },

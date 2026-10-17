@@ -1,6 +1,6 @@
-// The context menu: tap something in space and it shows around it, as the map's callout does
-// (ui/callout.js): what it is above it (name, details, why an action can't be done yet), and what
-// you can do with it (Dock, Mine, Jump, Approach, ...) as round icon buttons fanned out below it.
+// The context menu: tap something in space and what you can do with it (Dock, Mine, Jump,
+// Approach, ...) shows as round icon buttons fanned out below it. What it is (name, details, why
+// an action can't be done yet) is kept in the page for screen readers but not shown (index.html).
 // game/selection.js decides the contents every frame and calls show(); the flight view's renderer
 // calls place() each frame with where the thing is on screen. The DOM is only rebuilt when
 // something visible changes, apart from progress rings and positions.
@@ -125,7 +125,7 @@ const ContextCard = (() => {
     const W = window.innerWidth / k, H = window.innerHeight / k;
     const clampX = (v, w) => Math.max(EDGE, Math.min(W - EDGE - w, v));
     const clampY = (v, h) => Math.max(EDGE, Math.min(H - EDGE - h, v));
-    const iw = infoEl.offsetWidth || 0, ih = infoEl.offsetHeight || 0;
+    const iw = infoEl.offsetWidth || 0, ih = infoEl.offsetHeight || 0; // 1 px: hidden (index.html)
     const x = Math.max(EDGE + BTN, Math.min(W - EDGE - BTN, x0));
     const y = Math.max(EDGE + ih + 12 + r0, Math.min(H - EDGE - BTN * 2 - 14 - r0 - (gap > GAP ? 16 : 0), y0));
     const r = x === x0 && y === y0 ? r0 : Math.min(r0, 24);

@@ -46,6 +46,9 @@
 }
 .ui-btn > span { position: relative; }
 .ui-btn .price { font: 500 11px/1.4 var(--mono); letter-spacing: 0; text-transform: none; }
+/* Credits (Kit.credits): the diamond the station header shows, before the number. */
+.ui-cr { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-family: var(--mono); }
+.ui-cr > i { flex: none; width: 6px; height: 6px; background: currentColor; transform: rotate(45deg); }
 .ui-btn:hover { background: var(--cyan-tint); }
 .ui-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 .ui-btn.primary { background: var(--cyan); color: var(--bg); border-color: var(--cyan); }

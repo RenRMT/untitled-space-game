@@ -52,7 +52,7 @@ const Galaxy = (() => {
     // The first system is the tutorial: a small system with one planet, the main belt, one nebula,
     // the android waystation on one edge and the jump gate on the other, and nothing else: no
     // other stations, no derelicts, no pirates (the opening missions bring their own), high
-    // security throughout (medium in the nebula). It is the system the seed always gave, at the
+    // security throughout (low in the nebula). It is the system the seed always gave, at the
     // origin, with its one gate to the second system: the gateway, a Spoke frontier colony half
     // the usual size (fewer, closer planets, smaller nebulae, fewer stations and derelicts, and
     // security falling off over shorter distances), on the galaxy's rim.
@@ -63,7 +63,7 @@ const Galaxy = (() => {
       fields: { count: [0, 0] },
       nebulae: { count: [1, 1], r: [3500, 4500] },
       stations: { capital: false, major: false, minor: [0, 0], miningCamps: [0, 0], yard: false },
-      security: { high: 1e9, medium: 2e9, low: 3e9 },
+      security: { high: 1e9, low: 3e9 },
       pirates: { density: 0, lawlessAmbushes: [0, 0], nebulaAmbushes: false },
       derelicts: { count: [0, 0] },
     },
@@ -74,7 +74,7 @@ const Galaxy = (() => {
       fields: { count: [1, 2], spread: [800, 1200] },
       nebulae: { count: [0, 1], r: [2800, 4000] },
       stations: { minor: [1, 2], miningCamps: [1, 1] },
-      security: { high: 5000, medium: 10000, low: 16000 },
+      security: { high: 5000, low: 16000 },
       pirates: { cell: 9000, lawlessAmbushes: [0, 1] },
       derelicts: { count: [3, 5], spacing: 4000 },
     },

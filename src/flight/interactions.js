@@ -5,14 +5,17 @@
 //
 //   const actions = Interactions.create({ gap(e), speed() })
 //     gap(e): distance from the ship to e's edge; speed(): the ship's speed
-//   actions.add({ id, kind, verb, key?, when?(e), range, maxSpeed?, allowed?(e), busy?(e), run(e) })
+//   actions.add({ id, kind, verb, key?, when?(e), range, maxSpeed?, allowed?(e), busy?(e), hold?, run(e) })
 //     kind: the entity kind it applies to, when: and only to these (e.g. hostile ships)
+//     hold: the action a long press on the thing does (dock at a station, mine an asteroid)
 //     range, maxSpeed: numbers or functions; how close the ship must be (beyond e's radius) and
 //       how slow it must go to start
 //     allowed(e) -> { ok, reason }: whether it may be done here at all (e.g. docking refused)
 //     busy(e) -> a state, or null: while the action is under way (mining's countdown)
-//   actions.state(action | id, e) -> { ok, label, inRange, busy?, progress? }
+//   actions.state(action | id, e) -> { ok, label, inRange, approach?, busy?, progress? }
 //     label as the button shows it: 'Dock', 'Dock · too far', 'Dock · slow down', ...
+//     approach: not yet, but it can be once the ship has come closer or slowed down
+//   actions.held(e)                  the action a long press on e does, or null
 //   actions.of(e)                    the actions that apply to e, in the order they were added
 //   actions.get(id), actions.forKey(key), actions.forKeys(key) (all with that key, in order)
 //   actions.target(action, selected, list)   what a shortcut acts on: the selected thing if the
@@ -43,8 +46,9 @@ const Interactions = (() => {
       if (busy) return busy;
       const allowed = a.allowed ? a.allowed(e) : null;
       if (allowed && !allowed.ok) return { ok: false, label: allowed.reason, inRange: true };
-      if (env.gap(e) > value(a.range)) return { ok: false, label: `${a.verb} · too far`, inRange: false };
-      if (a.maxSpeed !== undefined && env.speed() > value(a.maxSpeed)) return { ok: false, label: `${a.verb} · slow down`, inRange: true };
+      // Too far or too fast: an approach (game/selection.js) brings the ship to where it can start.
+      if (env.gap(e) > value(a.range)) return { ok: false, label: `${a.verb} · too far`, inRange: false, approach: true };
+      if (a.maxSpeed !== undefined && env.speed() > value(a.maxSpeed)) return { ok: false, label: `${a.verb} · slow down`, inRange: true, approach: true };
       return { ok: true, label: a.verb, inRange: true };
     }
 
@@ -59,7 +63,9 @@ const Interactions = (() => {
       return best;
     }
 
-    return { add, get, of, forKey, forKeys, state, target, range: (a) => value(a.range) };
+    const held = (e) => of(e).find((a) => a.hold) || null;
+
+    return { add, get, of, forKey, forKeys, state, target, held, range: (a) => value(a.range) };
   }
 
   return { create };

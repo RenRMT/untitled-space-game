@@ -1,16 +1,35 @@
 // Touch and mouse input on the flight view: a drag sets the heading and its length the speed; a
-// tap selects (or, in a fight, focuses fire).
+// tap selects (or, in a fight, focuses fire); a long press on something does what you'd most
+// likely do there (dock at a station, mine an asteroid, collect a gas pocket), flying there first.
 // Part of the flight view; src/main.js starts it.
 
 import { focusOn, foeMarkerAt } from './combat.js';
+import { actions } from './docking.js';
 import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
-import { pickAt, select } from './selection.js';
+import { act, pickAt, select } from './selection.js';
 import { SHIP, autopilot, canvas, fight, flyingFight, inFight, intro, ship, view } from './state.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
-export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
+// held: seconds the finger has stayed put; long: a long press acted, so letting go does nothing more.
+export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0, held: 0, long: false };
+export const LONG_PRESS = 0.5; // seconds
+
+// Each step (game/loop.js react): a finger held still on something for LONG_PRESS does its long
+// press action (flight/interactions.js `hold`), approaching first if it's out of reach.
+export function tickHold(dt) {
+  if (!drag.active || drag.long || drag.moved >= DEADZONE || inFight() || intro.on || warp.on) return;
+  drag.held += dt;
+  if (drag.held < LONG_PRESS) return;
+  const hit = pickAt(drag.x0, drag.y0);
+  const a = hit && actions.held(hit);
+  drag.held = -Infinity; // once per press, whatever it found
+  if (!a) return;
+  drag.long = true;
+  select(hit);
+  act(hit, a.id);
+}
 export let interacted = false;
 // Bring the flight hints back (Settings' Controls): they show until the next touch on space.
 export function showHints() { interacted = false; }
@@ -46,6 +65,7 @@ export function endDrag(e) {
   if (!drag.active || e.pointerId !== drag.id) return;
   drag.active = false;
   held.clear();
+  if (drag.long) return; // the long press did its action
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
   if (intro.on) { // nothing to select yet: only flying
@@ -75,7 +95,7 @@ export function init() {
     held.clear();
     Object.assign(drag, {
       active: true, id: e.pointerId,
-      x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0,
+      x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0, held: 0, long: false,
     });
     interacted = true;
   });
