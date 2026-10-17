@@ -15,6 +15,9 @@ const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
 const { UI } = await import('../src/ui/ui.js');
+const { Messages } = await import('../src/ui/messages.js');
+const { Store } = await import('../src/core/store.js');
+const { Theme } = await import('../src/core/theme.js');
 
 // game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
 // function, for `with`.
@@ -1501,6 +1504,105 @@ test('jobs: an escort with a twist on the comms, handed in where it delivers; go
 test('text with **bold** runs becomes text and <strong> elements', () => {
   const parts = UI.rich('It has been **793** solar cycles');
   assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
+});
+
+test('notices queue: two at a time, combat first, none repeated', () => {
+  Messages.clear();
+  for (const t of ['one', 'two', 'three', 'one']) Messages.push(t, { time: 1.5 });
+  assert.deepStrictEqual(Messages.shown, ['one', 'two'], 'two show; the repeat is dropped');
+  Messages.push('Pirates attack!', { priority: 2 });
+  assert.deepStrictEqual(Messages.shown, ['two', 'Pirates attack!'], 'combat news takes the oldest place at once');
+  Messages.tick(2);
+  assert.deepStrictEqual(Messages.shown, ['Pirates attack!', 'three'], 'the rest, once time is up');
+  Messages.push('Hull repaired', { now: true });
+  assert.ok(Messages.shown.includes('Hull repaired'), 'what the player just did shows straight away');
+  Messages.clear();
+});
+
+test('a save exported to a file comes back in, and nothing else does', () => {
+  game('saveAll()');
+  const data = Store.dump();
+  assert.ok(Object.keys(data).some((k) => k.startsWith('cargo:')), 'the cargo is in it');
+  const text = JSON.stringify({ game: 'untitled-space-game', saved: '2026-10-17', data });
+  assert.deepStrictEqual(game(`readBackup(${JSON.stringify(text)})`), data, 'read back as it was');
+  assert.strictEqual(game(`readBackup('{"game":"another","data":{}}')`), null, 'not another game\'s file');
+  assert.strictEqual(game(`readBackup('not json')`), null, 'not a damaged one');
+  assert.ok(Store.load(data));
+  assert.deepStrictEqual(Store.dump(), data, 'written back whole');
+});
+
+test('in Cruise a tap on empty space keeps your speed; a double-tap stops', () => {
+  game(`moveMode.set('cruise'); select(null); fight.grace = 1e9; { const st = __startStation(); placeShip(st.x + st.radius + 5000, st.y); }`);
+  browser.frames(1);
+  const canvas = browser.document.getElementById('game');
+  const tap = (pointerId, timeStamp) => {
+    const at = { pointerId, pointerType: 'touch', button: 0, clientX: 60, clientY: 520, timeStamp };
+    canvas.dispatch('pointerdown', at);
+    canvas.dispatch('pointerup', at);
+  };
+  game('ship.targetSpeed = 200');
+  tap(21, 50000);
+  assert.strictEqual(game('ship.targetSpeed'), 200, 'one tap: still flying');
+  tap(22, 50250);
+  assert.strictEqual(game('ship.targetSpeed'), 0, 'a double-tap: stopped');
+  game('ship.targetSpeed = 200');
+  tap(23, 60000);
+  tap(24, 61000);
+  assert.strictEqual(game('ship.targetSpeed'), 200, 'two taps a second apart are two taps');
+  game('ship.targetSpeed = 0');
+});
+
+test('text size, colours and motion apply at once and are remembered', () => {
+  game(`textSize.set('130')`);
+  assert.strictEqual(Theme.scale, 1.3);
+  assert.match(Theme.font(10), /^13px /, 'canvas text scales with it');
+  const red = Theme.color.hostile;
+  game(`palette.set('safe')`);
+  assert.notStrictEqual(Theme.color.hostile, red, 'hostile is no longer red');
+  assert.strictEqual(game('HOSTILE_COLOR'), Theme.color.hostile, 'and what copied it follows');
+  assert.strictEqual(browser.storage.get('palette'), 'safe', 'remembered');
+  game(`motion.set('reduce'); whiteOut()`);
+  assert.ok(game('flash') < 0.5, 'a soft fade instead of a white-out');
+  game(`textSize.set('100'); palette.set('standard'); motion.set('full'); fadeFlash(10)`);
+  assert.strictEqual(Theme.color.hostile, red);
+});
+
+test('back from another app mid-fight, flight waits for a tap', () => {
+  game('pauseForResume()');
+  const t0 = game('simTime');
+  browser.frames(5);
+  assert.strictEqual(game('simTime'), t0, 'paused');
+  browser.document.getElementById('resume').dispatch('click');
+  browser.frames(3);
+  assert.ok(game('simTime') > t0, 'going again after the tap');
+});
+
+test('docked: what finished since the last dock, Sell all, and a program tried out', () => {
+  game(`globalThis.__sellable = Economy.market(world.galaxy.seed, __startStation()).goods.find((g) => g.sell !== null && g.buy !== null)`);
+  game(`cargo.items = []; for (let i = 0; i < 3; i++) cargo.items.push({ kind: __sellable.kind, label: 'x', category: 'trade' });
+    addNews('Research done · Test package', 'research');
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.match(onStation(), /Since you last docked.*Research done · Test package/, 'what finished, on docking');
+  pressOnStation('Done');
+  game(`StationMenu.showTab('trade')`);
+  const credits = game('cargo.credits');
+  pressOnStation('Sell all');
+  assert.strictEqual(game('cargo.items.length'), 0, 'the hold sold');
+  assert.strictEqual(game('cargo.credits'), credits + 3 * game('__sellable.sell'));
+  // The squad's program tried in fights on paper: one result per fight, the first instruction
+  // that holds.
+  const id = game('cargo.squad[0] && cargo.squad[0].id');
+  if (id) {
+    game(`programs.set('${id}', 0, Logic.PRESETS['assist.leader'])`);
+    const results = game(`programs.test('${id}')`);
+    assert.strictEqual(results.length, game('TEST_FIGHTS.length'));
+    assert.deepStrictEqual([results[0].line, results[0].act], [0, 'attack'], 'a lone pirate on you: it assists');
+    game(`StationMenu.showTab('squad')`);
+    pressOnStation(/^Try it out/);
+    assert.match(onStation(), /A lone pirate attacks you1\. Attacks Fighter A/);
+  }
+  game('launch()');
+  browser.frames(2);
 });
 
 test('settings open and close', () => {

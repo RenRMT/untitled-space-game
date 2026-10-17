@@ -77,6 +77,7 @@ export function applyAccess() {
   const root = document.documentElement;
   root.style.setProperty('--ui-scale', String(k));
   root.setAttribute('data-palette', palette.value);
+  root.setAttribute('data-textsize', textSize.value);
   root.setAttribute('data-motion', motion.value);
   Art.clearCache(); // sprites drawn in the old colours
   invalidate();

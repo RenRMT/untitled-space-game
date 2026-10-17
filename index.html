@@ -630,6 +630,14 @@
     #station .ui-sheet.tall { height: calc(94dvh / var(--ui-scale)); }
   }
 
+  /* Larger text on a narrow phone: the tab names drop their capitals and spacing, and Launch
+     narrows, so all five names still fit. */
+  @media (max-width: 480px) {
+    :root:not([data-textsize="100"]) .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 11px; }
+    :root:not([data-textsize="100"]) #st-launch { min-width: 0; padding: 0 10px; letter-spacing: 0.06em; }
+    :root:not([data-textsize="100"]) .ui-nav { gap: 6px; padding-left: 8px; padding-right: 8px; }
+  }
+
   /* Colour-safe palette (Settings > Accessibility): hostile magenta, good pale yellow, so the two are
      told apart without red and green (core/theme.js swaps the canvas colours to match). */
   :root[data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
