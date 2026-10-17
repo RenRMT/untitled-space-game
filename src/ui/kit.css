@@ -1,8 +1,16 @@
 /* UI kit: the colour, type and spacing tokens and the components every DOM panel is built from
    (station screens, the context menu, combat, comms, settings, the map's bars). Builders for the
    components are in kit.js. core/theme.js keeps the canvas in step with the colour tokens.
-   Words are Barlow Semi Condensed, numbers IBM Plex Mono (index.html loads both; the fallbacks
-   keep everything readable without them). Touch targets are at least 44 px. */
+   Words are Barlow Semi Condensed, numbers IBM Plex Mono, both served from assets/fonts (OFL, latin
+   subset) so the game needs no outside requests; the fallbacks keep everything readable without
+   them. Touch targets are at least 44 px. */
+@font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 500; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../assets/fonts/ibm-plex-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('../../assets/fonts/ibm-plex-mono-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../assets/fonts/ibm-plex-mono-latin-600-normal.woff2') format('woff2'); }
 :root {
   --bg: #05060a; --s1: #0b0e17; --s2: #111522; --nav: #080a12;
   --panel: rgba(12, 15, 24, 0.92);
@@ -294,7 +302,7 @@
 .ui-sheet .foot[hidden] { display: none; }
 .ui-sheet .foot .ui-note { color: var(--hud); text-align: center; }
 
-/* Tab bar: icon-only tabs (the selected one shows its label) beside the screen's main action. */
+/* Tab bar: icon tabs, each named under its icon, beside the screen's main action. */
 .ui-nav { display: flex; align-items: center; gap: 10px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line-soft); background: var(--nav); }
 .ui-tabs { flex: 1; min-width: 0; display: flex; }
 .ui-tab {
@@ -302,7 +310,7 @@
   background: none; border: 0; color: var(--line-strong); cursor: pointer; touch-action: manipulation; --tier: var(--line-strong);
 }
 .ui-tab .ui-icon.ph { font-size: 7px; color: var(--line-strong); border-color: var(--line-strong); }
-.ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: transparent; white-space: nowrap; }
+.ui-tab .lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font: 700 10px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
 .ui-tab:hover .ui-icon.ph { color: var(--dim); border-color: var(--dim); }
 .ui-tab .ui-icon.gl { color: var(--dim); }
 .ui-tab:hover .ui-icon.gl { color: var(--hud); }
@@ -313,16 +321,24 @@
 .ui-tab:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; border-radius: var(--r-md); }
 .ui-tab:disabled { opacity: 0.35; cursor: default; }
 
-/* Toast: a short message that goes by itself. */
-.ui-toast {
-  position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(96px + env(safe-area-inset-bottom, 0px)); z-index: 6;
-  width: min(528px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 14px;
-  background: var(--s2); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--good)); border-radius: var(--r-md);
-  font: 14px/1.4 var(--sans); color: var(--bright); pointer-events: none; animation: ui-toast-in 0.18s ease-out;
+/* Messages (ui/messages.js): short notices that go by themselves, at most two at once, newest last.
+   In flight they sit high in the middle, clear of the HUD's corners and the panels at the foot; docked,
+   just above the tab bar. Taps pass through. */
+.ui-messages {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none;
+  top: calc(env(safe-area-inset-top, 0px) + max(96px, 18vh)); width: min(440px, calc(100vw - 32px));
+  display: flex; flex-direction: column; gap: 6px; align-items: center;
 }
-.ui-toast[hidden] { display: none; }
-@keyframes ui-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+body.docked .ui-messages { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); width: min(528px, calc(100vw - 32px)); }
+.ui-toast {
+  box-sizing: border-box; max-width: 100%; padding: 8px 12px; text-align: center;
+  background: rgba(17, 21, 34, 0.9); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--good)); border-radius: var(--r-md);
+  font: 14px/1.35 var(--sans); color: var(--bright); animation: ui-toast-in 0.18s ease-out;
+}
+body.docked .ui-toast { width: 100%; padding: 12px 14px; text-align: left; }
+@keyframes ui-toast-in { from { opacity: 0; transform: translateY(6px); } }
 @media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }
+:root[data-motion="reduce"] .ui-toast { animation: none; }
 
 /* Code: logic programs as numbered lines of mono text, coloured by token kind. */
 .ui-code { display: flex; flex-direction: column; padding: 4px 0; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); font: 400 13px/1.5 var(--mono); }

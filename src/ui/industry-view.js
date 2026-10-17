@@ -7,7 +7,8 @@
 //
 //   IndustryView.create(env) -> { render(), sheet(open), tick(), reset() }
 //     env: { ctx() (the station's open() options; ctx.industry: game/industry.js), refresh(), act(fn, after),
-//            section(label, ...children), titleRow(title, aside), itemIcon(kind, size),
+//            section(label, ...children), lead(text), explain(key, text), fold(key, label, content),
+//            itemIcon(kind, size),
 //            showOrder(open), setOrder(changes), closeSheet() }
 //     sheet(open): the options for an order's Kit.sheet, open being
 //       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last), peek (an input whose own lineage is unfolded) }
@@ -159,7 +160,8 @@ const IndustryView = {
           [h('button', { class: 'ui-link pr-uses-link', type: 'button', 'aria-expanded': String(uses === k), onclick: () => { uses = uses === k ? null : k; env.refresh(); } }, 'What uses this?'),
             uses === k ? usesOf(k) : null])))
           : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
-        h('p', { class: 'ui-note' }, `One storage for every station: what an order makes here can be taken out anywhere.${held ? ` ${held} kept free for runs under way.` : ''}`));
+        env.explain('storage', 'One storage for every station: what an order makes here can be taken out anywhere.'),
+        held ? h('p', { class: 'ui-note' }, `${held} kept free for runs under way.`) : null);
     }
     function aboard() {
       const { hold } = env.ctx(), counts = {};
@@ -235,23 +237,25 @@ const IndustryView = {
     function pipeline() {
       const groups = Industry.pipelines(state());
       const chains = groups.filter((g) => !g.standalone), lone = groups.filter((g) => g.standalone);
-      return env.section('Production pipeline',
-        Kit.head('Production pipeline', h('span', { class: 'aside num' }, `${state().orders.length} order${state().orders.length === 1 ? '' : 's'}`)),
-        groups.length ? h('p', { class: 'ui-note' }, 'Every order you have placed, linked by what one makes and the next uses. The first in line (#1) gets inputs first.')
-          : h('p', { class: 'ui-empty' }, 'No production orders yet. Place one at a station: what it makes goes into storage, where the next order in the chain picks it up.'),
+      // Every order in the galaxy: folded, its heading saying how many and any gap no order fills.
+      if (!groups.length) return null;
+      const gaps = groups.reduce((t, g) => t + g.gaps.length, 0);
+      const n = state().orders.length;
+      return env.section('Production pipeline', env.fold('pipeline', `Production pipeline · ${n} order${n === 1 ? '' : 's'}${gaps ? ` · ${gaps} gap${gaps === 1 ? '' : 's'}` : ''}`, [
+        env.explain('pipeline', 'Every order you have placed, linked by what one makes and the next uses. The first in line (#1) gets inputs first.'),
         chains.map(graph),
         lone.length ? [h('span', { class: 'ui-label' }, 'Standalone'), h('div', { class: 'pr-lone' }, lone.map((g) => {
-          const gaps = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs a ${stationsFor(x.stage)}` : ''}`));
-          return h('div', { class: 'pr-lone-row' }, node(g.orders[0], []), gaps);
-        }))] : null);
+          const gapNotes = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs a ${stationsFor(x.stage)}` : ''}`));
+          return h('div', { class: 'pr-lone-row' }, node(g.orders[0], []), gapNotes);
+        }))] : null]));
     }
 
     function render() {
       live = [];
       const B = Recipes.BAYS[ind().stage()];
+      env.lead(B ? `${B.label} here` : '');
       return [
-        env.titleRow('Production', B ? `${B.label} here` : ''),
-        h('p', { class: 'ui-note' }, 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.'),
+        env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.'),
         ordersHere(),
         storage(),
         aboard(),
@@ -308,11 +312,11 @@ const IndustryView = {
     }
 
     // What to make here, grouped by what comes out, recycling last.
-    const GROUPS = ['Refined goods', 'Advanced goods', 'Parts', 'Gear', 'Mods', 'Consumables', 'Recycling'];
+    const GROUPS = ['Refined goods', 'Advanced goods', 'Parts', 'Gear', 'Mods', 'Kit', 'Recycling'];
     function groupOf(R) {
       if (R.id.startsWith('recycle.')) return 'Recycling';
       const it = Recipes.item(Object.keys(R.out)[0]);
-      return { gear: 'Gear', mod: 'Mods', consumable: 'Consumables' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
+      return { gear: 'Gear', mod: 'Mods', consumable: 'Kit' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
     }
     function orderSheet(open) {
       const stage = ind().stage(), B = Recipes.BAYS[stage], here = ind().here;

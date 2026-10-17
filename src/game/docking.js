@@ -2,12 +2,14 @@
 // other end), and the action registry every interaction adds to (flight/interactions.js).
 // Part of the flight view; src/main.js starts it.
 
+import { Feedback } from '../core/feedback.js';
+import { Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
 import { Interactions } from '../flight/interactions.js';
 import { Economy } from '../rules/economy.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
-import { cargo, gatesOnline, hold, opening, repairs, saveCargo } from './cargo.js';
+import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
 import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
@@ -43,6 +45,7 @@ export const actions = Interactions.create({ gap: gapTo, speed: shipSpeed });
 
 export function dock(station) {
   if (docked || inFight() || !actions.state('dock', station).ok) return;
+  Feedback.emit('docked');
   stopMining();
   select(null);
   autopilot.key = null;
@@ -75,7 +78,8 @@ export function dock(station) {
     squad: programs,
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
-    tab: opening() ? 'missions' : 'trade', // the opening missions are all there is to do at first
+    tab: opening() ? 'missions' : null, // the opening missions are all there is to do at first; else the last tab used
+    news: opening() ? [] : news.splice(0), // what finished since the last dock, shown once
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
@@ -84,6 +88,7 @@ export function dock(station) {
 // Back to space just outside the station, on the side the ship came in from, at rest.
 export function launch() {
   const st = docked.station;
+  Store.persist(); // a tap on Launch: a good moment to ask the browser to keep the save
   docked = null;
   industry.here = null;
   StationMenu.close();
@@ -92,6 +97,7 @@ export function launch() {
   const d = st.radius + 180;
   placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
   notify(`Launched from ${st.name}`, 2.5);
+  Feedback.emit('launched');
   missionLaunched();
 }
 

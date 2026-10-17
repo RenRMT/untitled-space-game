@@ -37,7 +37,7 @@ export const TRACTOR = { start: 560, range: 260, hold: 90, speed: 150, zoom: 0.6
 export const ARRIVE = { dist: 700, time: 5, zoom: 3, hold: 0.2 };
 export const INTRO_FROM = Intro.STATION;
 export const APPROACH_HINT = {
-  cruise: 'Drag anywhere to set a heading: the further you drag, the faster you go. The pod keeps drifting when you let go; tap empty space to stop.',
+  cruise: 'Drag anywhere to set a heading: the further you drag, the faster you go. The pod keeps drifting when you let go; double-tap empty space to stop.',
   direct: 'Drag anywhere to steer: the further you drag, the faster you go. Let go and the pod stops.',
 };
 

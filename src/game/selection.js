@@ -4,10 +4,10 @@
 
 import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
-import { COLORS } from '../core/theme.js';
+import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
-import { packOf } from './combat.js';
+import { threat } from './combat.js';
 import { actions, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
@@ -24,7 +24,8 @@ import { world } from './world.js';
 // selection (and, in Cruise mode, stops the ship as before).
 export const TAP_SLOP = 26; // CSS px of forgiveness around a tap target
 export const SELECT_COLOR = COLORS.cyan;
-export const HOSTILE_COLOR = COLORS.hostile;
+export let HOSTILE_COLOR = COLORS.hostile;
+Theme.onPalette(() => { HOSTILE_COLOR = COLORS.hostile; }); // the colour-safe palette changes it
 export let selected = null; // { key, e }: the selected entity, found again by key every frame
 export let frameList = []; // the entities posed last frame, for hit-testing taps
 
@@ -82,11 +83,12 @@ export function describe(e) {
   const card = KINDS[e.kind].card(e, world.galaxy);
   const states = actions.of(e).map((a) => [a, actions.state(a, e)]);
   const inRange = states.length > 0 && states.every(([, s]) => s.inRange);
-  // A pirate's card says how many would fight with it, so a pack can be told from a lone ship.
-  const n = isHostile(e) ? packOf(e).length : 0;
-  const pack = n ? ` · ${n === 1 ? 'alone' : `pack of ${n}`}` : '';
+  // A pirate's card says in one word how a fight would go (Weak, Even, Outmatched); its pack and
+  // gear are a tap away, in the card's detail line.
+  const t = isHostile(e) ? threat(e) : null;
   return {
-    title: card.title, subtitle: `${card.sub}${pack} · ${fmtDist(gapTo(e))}`, color: card.color, tag: card.tag || '', tone: card.tone || '',
+    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
+    tag: t ? t.word : card.tag || '', tone: t ? t.tone : card.tone || '', detail: t ? t.detail : '',
     actions: [...states.map(([a, s]) => primary(a.id, s)), ...approachActions(e, inRange)],
   };
 }

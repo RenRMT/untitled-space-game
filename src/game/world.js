@@ -6,7 +6,7 @@ import { ArtAndroids } from '../art/androids.js';
 import { ArtBodies } from '../art/bodies.js';
 import { ArtCulture } from '../art/culture.js';
 import { Art } from '../art/render.js';
-import { Params } from '../core/store.js';
+import { Params, Store } from '../core/store.js';
 import { Scene } from '../flight/scene.js';
 import { Travel } from '../flight/travel.js';
 import { Knowledge } from '../rules/knowledge.js';
@@ -18,7 +18,7 @@ import { GATE_JOB, OPENING, SALVAGE, cargo, loadCargo, opening, saveCargoNow } f
 import { endIntro, introDue, startIntro, waystation } from './intro.js';
 import { buildMission, endTalk, mission, settleOpeningLoyalty, showGates, skipOpening } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
-import { SHIP, intro, ship } from './state.js';
+import { SHIP, intro, notify, ship } from './state.js';
 import { arriveAt } from './travel.js';
 
 export const world = { galaxy: null, cultures: null, scene: null, knowledge: null, travel: null };
@@ -65,9 +65,58 @@ export function loadGalaxy(galaxy) {
 }
 // Knowledge and cargo save on a short debounce; everything is written out when the page is hidden
 // or closed (a fight's hull damage isn't saved until then or the fight's end).
+// keep: false while a backup is being put back, so leaving the page doesn't write the old game over it.
+let keep = true;
 export function saveAll() {
+  if (!keep) return;
   world.knowledge.save();
   saveCargoNow();
+}
+
+// A backup of everything saved (every galaxy's cargo and charts, and the settings) as a file to
+// keep, and putting one back. The browser's own storage can be cleared (Safari does after a week
+// without a visit), so this is the player's way to keep a game safe or move it to another device.
+export const BACKUP_TAG = 'untitled-space-game';
+export function exportSave() {
+  saveAll();
+  const text = JSON.stringify({ game: BACKUP_TAG, saved: new Date().toISOString(), data: Store.dump() });
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `space-game-save-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  notify('Save exported', 2.5, { tone: 'good' });
+}
+// Read a backup's text: its saved data, or null if it isn't one of this game's.
+export function readBackup(text) {
+  try {
+    const d = JSON.parse(text);
+    if (!d || d.game !== BACKUP_TAG || !d.data || typeof d.data !== 'object') return null;
+    return Object.fromEntries(Object.entries(d.data).filter(([, v]) => typeof v === 'string'));
+  } catch (e) {
+    return null;
+  }
+}
+export function importSave() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json,application/json';
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    file.text().then((text) => {
+      const data = readBackup(text);
+      if (!data) { notify('That file is not a saved game', 3, { tone: 'warn' }); return; }
+      if (!window.confirm('Replace the game in this browser with the one in the file? The current game will be lost unless you exported it.')) return;
+      keep = false;
+      if (!Store.load(data)) { keep = true; notify('Could not write the save here', 3, { tone: 'warn' }); return; }
+      location.reload();
+    });
+  });
+  input.click();
 }
 
 // Wiring, run once every module has loaded (src/main.js).
@@ -80,6 +129,14 @@ export function init() {
       run: () => { const seed = 1 + Math.floor(Math.random() * 999999); Params.set('seed', seed); newGalaxy(seed); },
     },
     locked: () => (world.travel && world.travel.active ? 'Not during map travel.' : null),
+  });
+  Settings.add({
+    id: 'save', label: 'Saved game',
+    actions: [
+      { label: 'Export', run: exportSave, stay: true },
+      { label: 'Import', run: importSave, stay: true },
+    ],
+    note: 'Your game is saved in this browser. Export a copy now and then, or add the game to your home screen, so clearing site data or a long break can\'t lose it.',
   });
   window.addEventListener('pagehide', saveAll);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveAll(); });

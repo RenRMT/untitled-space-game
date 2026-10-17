@@ -32,14 +32,15 @@ URL parameters:
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings) and the map, built from the UI kit (`kit.js`, `kit.css`) |
+| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings), the notices (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`) |
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in four styles (line, pixel, flat, low-poly) and the sprite caches |
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, regions and their politics, security levels |
-| `src/core/` | maths, seeded randomness, saved data, the screen's pixel ratio, colours, number formats |
+| `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
+| `assets/` | the two fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |
 
 Modules under `src/game/` import each other freely. None of them does anything as it loads beyond
 declaring its names: each part's wiring (event listeners, settings, actions, panel hooks) is in its
@@ -58,11 +59,18 @@ Each file starts with a comment saying what it does and, for modules other parts
 - **A combat mode:** a module with the shape `src/combat/combat-core.js` describes, added to `COMBAT`
   in `src/game/options.js`.
 - **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,
-  meters, rows that expand, bottom sheets, the tab bar, toasts) and its tokens (`src/ui/kit.css`:
+  meters, rows that expand, bottom sheets, the tab bar, folding sections) and its tokens (`src/ui/kit.css`:
   colours, the two fonts, radii, the 44 px touch target). Words are Barlow Semi Condensed, numbers
   IBM Plex Mono. Icons are line icons by their short code (`src/ui/glyphs.js`: a 24 px grid, 1.6 px
   strokes in the text colour, like the map and settings buttons); a code without one shows as a dashed
   placeholder until it gets one.
+- **A notice:** `notify(text, seconds, { priority, tone })` (`src/game/state.js`) or `Kit.toast` for the
+  answer to a button; both go through the one queue in `src/ui/messages.js` (two at a time, combat first).
+- **Something the player should feel:** `Feedback.emit(event)` (`src/core/feedback.js`) where it
+  happens; `src/game/options.js` turns events into vibration (switched off in Settings), and sound
+  can listen to the same events later.
+- **Text on a station screen that explains it:** `explain(key, text)` in `src/ui/station.js`: shown on
+  the first three visits, then behind the tab's ⓘ.
 - **A change to what is saved:** a step at the end of `CARGO_MIGRATIONS` in `src/game/cargo.js`, so
   older saves are brought up to date (`Save.migrate`, `src/core/save.js`).
 

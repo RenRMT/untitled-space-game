@@ -15,6 +15,9 @@ const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
 const { UI } = await import('../src/ui/ui.js');
+const { Messages } = await import('../src/ui/messages.js');
+const { Store } = await import('../src/core/store.js');
+const { Theme } = await import('../src/core/theme.js');
 
 // game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
 // function, for `with`.
@@ -277,8 +280,10 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.strictEqual(game('cargo.squad[0].name'), game('mission.vars.ship'), 'the same android');
   assert.deepStrictEqual(game('cargo.squad[0].program'), [], 'with no program yet');
   game(`StationMenu.showTab('squad')`);
-  assert.strictEqual(game('StationMenu.tab'), 'squad');
-  assert.match(tab(), new RegExp(game('mission.vars.ship')));
+  assert.strictEqual(game('StationMenu.tab'), 'ship', 'the squad is on the Ship tab');
+  assert.strictEqual(game('StationMenu.viewing'), game('cargo.squad[0].id'), 'on the wingman: your own ship is still locked');
+  assert.match(tab(), new RegExp(`${game('mission.vars.ship')}.*Instructions.*Add instruction`), 'its program');
+  assert.doesNotMatch(tab(), /Performance/, 'its loadout waits until the station opens');
   game(`StationMenu.showTab('missions')`);
 });
 
@@ -338,7 +343,9 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   assert.ok(game('frameList.includes(mission.hostile)'), 'the hostile android is there');
   game('select(mission.hostile)');
   browser.frames(1);
-  assert.match(game('describe(selected.e).subtitle'), /^Android · unregistered · Mk III gear/);
+  assert.match(game('describe(selected.e).subtitle'), /^Android · unregistered · /);
+  assert.match(game('describe(selected.e).detail'), /^Alone · Mk III gear$/, 'its pack and gear, a tap away');
+  assert.match(game('describe(selected.e).tag'), /^(Weak|Even|Outmatched)$/, 'how a fight would go, in a word');
   game('select(null)');
   const toIt = 'ship.targetAngle = Math.atan2(mission.hostile.y - ship.y, mission.hostile.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5;';
   assert.ok(until('!!fight.s', 60 * 20, toIt), 'it attacks');
@@ -711,7 +718,8 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.strictEqual(game('SHIP.hull'), maxHull, 'not until it is built');
   game(`__T += Research.timeOf('hull.armour-1'); StationMenu.tick()`);
   assert.ok(game(`cargo.lab.done.includes('hull.armour-1')`));
-  assert.match(onStation(), /\+15%Hull/, 'research adds it, as a stat chip');
+  pressOnStation(/^What research adds/);
+  assert.match(onStation(), /\+15%Hull/, 'research adds it, as a stat chip (folded under "What research adds")');
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -807,7 +815,8 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
     placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Production.*Refinery here.*Orders here.*0\/1.*New order.*Storage.*Production pipeline.*No production orders yet/, 'nothing placed yet');
+  assert.match(onStation(), /Refinery here.*Orders here.*0\/1.*New order.*Storage/, 'nothing placed yet');
+  assert.doesNotMatch(onStation(), /Production pipeline/, 'no pipeline without orders');
   game('cargo.items = []');
   // Iron aboard, stored.
   game(`for (let i = 0; i < 10; i++) cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' }); StationMenu.refresh()`);
@@ -823,6 +832,7 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   pressOnStation('Place order');
   assert.ok(game(`industry.orders()[0].recipe === 'make.steel-pipe' && industry.orders()[0].next > __T`), 'running');
   assert.match(onStation(), /Iron.*✓ 8.*Refinery · .* Camp.*Steel pipe.*Running.*left/);
+  pressOnStation(/^Production pipeline · 1 order/); // folded until opened
   assert.match(onStation(), /Production pipeline.*Standalone/, 'a lone order');
   // Away for an hour: on load, everything the iron makes is made.
   game('launch(); saveCargoNow(); __T += 3600e3; loadCargo(world.galaxy)');
@@ -1186,10 +1196,12 @@ function meetPirate() {
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
   game(`cargo.hull = SHIP.hull; fight.grace = 1e9; { const a = Math.atan2(__pirate.y, __pirate.x); placeShip(__pirate.x + Math.cos(a) * (800 + __pirate.radius), __pirate.y + Math.sin(a) * (800 + __pirate.radius)); }`);
   browser.frames(1);
-  // Its card says how many would fight with it, and that's who the fight takes on.
-  const sub = game('describe(frameList.find((x) => x.key === __pirate.key)).subtitle');
-  const m = sub.match(/· (alone|pack of (\d+)) ·/);
-  assert.ok(m, `the card shows the pack: ${sub}`);
+  // Its card says how a fight would go, and (a tap away) how many would fight with it: that's who
+  // the fight takes on.
+  const card = game('describe(frameList.find((x) => x.key === __pirate.key))');
+  assert.match(card.tag, /^(Weak|Even|Outmatched)$/, 'the threat, in a word');
+  const m = card.detail.match(/^(Alone|Pack of (\d+)) · Mk [IV]+ gear$/);
+  assert.ok(m, `the card's detail shows the pack: ${card.detail}`);
   game(`fight.grace = 0; { const e = frameList.find((x) => x.key === __pirate.key); engage(e); }`);
   assert.ok(game('!!fight.s'), 'the fight starts');
   assert.strictEqual(game('fight.s.enemies.length'), m[2] ? Number(m[2]) : 1, 'the whole pack, and only the pack, fights');
@@ -1302,6 +1314,11 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.match(tab, /ELSE ▶Follow leader/, 'and what it does when none applies');
   assert.match(tab, /1\/3 run/);
   assert.match(tab, /Used \d+× last fight/, 'how often the instruction was used');
+  // The last fight, step by step: folded, then each line switch with its time, what it did and on whom.
+  assert.match(tab, /Last fight · \d+ steps?/, 'the fight\'s timeline, folded');
+  pressOnStation(/^Last fight/);
+  assert.match(textOf(browser.document.getElementById('st-body')), /\d:\d\d1\. If Enemy is the leader's target: Attack Enemy\. → \w.*\d+%.*Disabled/, 'a step: when, which instruction, on whom, its hull; and when it was disabled');
+  game(`StationMenu.showTab('squad')`);
   // A line after one that always holds never runs, and says so.
   assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.blank()) && programs.set(cargo.squad[0].id, 1, Logic.PRESETS['assist.leader'])`));
   game(`StationMenu.refresh()`);
@@ -1311,14 +1328,16 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   const ship = () => textOf(browser.document.getElementById('st-body'));
   const name = game('cargo.squad[0].name');
   game(`StationMenu.showTab('ship')`);
-  assert.strictEqual(game('StationMenu.viewing'), null, 'your ship first');
+  assert.strictEqual(game('StationMenu.viewing'), id, 'the Ship tab stays on the wingman it showed');
+  game('StationMenu.stepShip(1)');
+  assert.strictEqual(game('StationMenu.viewing'), null, 'and steps round to your ship');
   assert.match(ship(), /Your ship 1\/2/);
   assert.match(ship(), /Shipyard|sell new hulls/, 'with the shipyard');
   game('StationMenu.stepShip(1)');
   assert.strictEqual(game('StationMenu.viewing'), id, 'then the wingman');
   assert.match(ship(), new RegExp(`${name} 2/2`));
   assert.match(ship(), /Fighter · 5\/5 fitted/);
-  assert.match(ship(), /Performance.*Program/, 'its performance and program');
+  assert.match(ship(), /Performance.*Instructions.*ELSE/, 'its performance, then its program');
   assert.doesNotMatch(ship(), /Shipyard|Hold/, 'not your ship\'s hold or the shipyard');
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
   // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.
@@ -1331,6 +1350,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.strictEqual(game(`wings.get('${id}').stats.firepower`), game('Squad.stats(cargo.squad[0]).firepower'), 'and flies with it');
   assert.deepStrictEqual(game(`[cargo.gear['pulse-laser-2'] || 0, cargo.gear['pulse-laser-1']]`), [0, 1], 'its Mk I to the spare gear');
   game(`StationMenu.closeSheet()`);
+  pressOnStation(/^Spare gear · /); // folded until opened
   assert.match(ship(), /Spare gear.*Pulse laserMk I.*Sell/, 'spare gear like any other');
   assert.ok(game(`outfitting.member('${id}').unfit('shield') && cargo.squad[0].loadout.fitted.shield === null && Squad.stats(cargo.squad[0]).shield === 0`), 'a slot emptied');
   assert.ok(game(`outfitting.member('${id}').fit('shield', 'deflector-1') && outfitting.member('${id}').fit('weapon-1', 'pulse-laser-1')`), 'and its own gear back');
@@ -1488,6 +1508,105 @@ test('jobs: an escort with a twist on the comms, handed in where it delivers; go
 test('text with **bold** runs becomes text and <strong> elements', () => {
   const parts = UI.rich('It has been **793** solar cycles');
   assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
+});
+
+test('notices queue: two at a time, combat first, none repeated', () => {
+  Messages.clear();
+  for (const t of ['one', 'two', 'three', 'one']) Messages.push(t, { time: 1.5 });
+  assert.deepStrictEqual(Messages.shown, ['one', 'two'], 'two show; the repeat is dropped');
+  Messages.push('Pirates attack!', { priority: 2 });
+  assert.deepStrictEqual(Messages.shown, ['two', 'Pirates attack!'], 'combat news takes the oldest place at once');
+  Messages.tick(2);
+  assert.deepStrictEqual(Messages.shown, ['Pirates attack!', 'three'], 'the rest, once time is up');
+  Messages.push('Hull repaired', { now: true });
+  assert.ok(Messages.shown.includes('Hull repaired'), 'what the player just did shows straight away');
+  Messages.clear();
+});
+
+test('a save exported to a file comes back in, and nothing else does', () => {
+  game('saveAll()');
+  const data = Store.dump();
+  assert.ok(Object.keys(data).some((k) => k.startsWith('cargo:')), 'the cargo is in it');
+  const text = JSON.stringify({ game: 'untitled-space-game', saved: '2026-10-17', data });
+  assert.deepStrictEqual(game(`readBackup(${JSON.stringify(text)})`), data, 'read back as it was');
+  assert.strictEqual(game(`readBackup('{"game":"another","data":{}}')`), null, 'not another game\'s file');
+  assert.strictEqual(game(`readBackup('not json')`), null, 'not a damaged one');
+  assert.ok(Store.load(data));
+  assert.deepStrictEqual(Store.dump(), data, 'written back whole');
+});
+
+test('in Cruise a tap on empty space keeps your speed; a double-tap stops', () => {
+  game(`moveMode.set('cruise'); select(null); fight.grace = 1e9; { const st = __startStation(); placeShip(st.x + st.radius + 5000, st.y); }`);
+  browser.frames(1);
+  const canvas = browser.document.getElementById('game');
+  const tap = (pointerId, timeStamp) => {
+    const at = { pointerId, pointerType: 'touch', button: 0, clientX: 60, clientY: 520, timeStamp };
+    canvas.dispatch('pointerdown', at);
+    canvas.dispatch('pointerup', at);
+  };
+  game('ship.targetSpeed = 200');
+  tap(21, 50000);
+  assert.strictEqual(game('ship.targetSpeed'), 200, 'one tap: still flying');
+  tap(22, 50250);
+  assert.strictEqual(game('ship.targetSpeed'), 0, 'a double-tap: stopped');
+  game('ship.targetSpeed = 200');
+  tap(23, 60000);
+  tap(24, 61000);
+  assert.strictEqual(game('ship.targetSpeed'), 200, 'two taps a second apart are two taps');
+  game('ship.targetSpeed = 0');
+});
+
+test('text size, colours and motion apply at once and are remembered', () => {
+  game(`textSize.set('130')`);
+  assert.strictEqual(Theme.scale, 1.3);
+  assert.match(Theme.font(10), /^13px /, 'canvas text scales with it');
+  const red = Theme.color.hostile;
+  game(`palette.set('safe')`);
+  assert.notStrictEqual(Theme.color.hostile, red, 'hostile is no longer red');
+  assert.strictEqual(game('HOSTILE_COLOR'), Theme.color.hostile, 'and what copied it follows');
+  assert.strictEqual(browser.storage.get('palette'), 'safe', 'remembered');
+  game(`motion.set('reduce'); whiteOut()`);
+  assert.ok(game('flash') < 0.5, 'a soft fade instead of a white-out');
+  game(`textSize.set('100'); palette.set('standard'); motion.set('full'); fadeFlash(10)`);
+  assert.strictEqual(Theme.color.hostile, red);
+});
+
+test('back from another app mid-fight, flight waits for a tap', () => {
+  game('pauseForResume()');
+  const t0 = game('simTime');
+  browser.frames(5);
+  assert.strictEqual(game('simTime'), t0, 'paused');
+  browser.document.getElementById('resume').dispatch('click');
+  browser.frames(3);
+  assert.ok(game('simTime') > t0, 'going again after the tap');
+});
+
+test('docked: what finished since the last dock, Sell all, and a program tried out', () => {
+  game(`globalThis.__sellable = Economy.market(world.galaxy.seed, __startStation()).goods.find((g) => g.sell !== null && g.buy !== null)`);
+  game(`cargo.items = []; for (let i = 0; i < 3; i++) cargo.items.push({ kind: __sellable.kind, label: 'x', category: 'trade' });
+    addNews('Research done · Test package', 'research');
+    { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.match(onStation(), /Since you last docked.*Research done · Test package/, 'what finished, on docking');
+  pressOnStation('Done');
+  game(`StationMenu.showTab('trade')`);
+  const credits = game('cargo.credits');
+  pressOnStation('Sell all');
+  assert.strictEqual(game('cargo.items.length'), 0, 'the hold sold');
+  assert.strictEqual(game('cargo.credits'), credits + 3 * game('__sellable.sell'));
+  // The squad's program tried in fights on paper: one result per fight, the first instruction
+  // that holds.
+  const id = game('cargo.squad[0] && cargo.squad[0].id');
+  if (id) {
+    game(`programs.set('${id}', 0, Logic.PRESETS['assist.leader'])`);
+    const results = game(`programs.test('${id}')`);
+    assert.strictEqual(results.length, game('TEST_FIGHTS.length'));
+    assert.deepStrictEqual([results[0].line, results[0].act], [0, 'attack'], 'a lone pirate on you: it assists');
+    game(`StationMenu.showTab('squad')`);
+    pressOnStation(/^Try it out/);
+    assert.match(onStation(), /A lone pirate attacks you1\. Attacks Fighter A/);
+  }
+  game('launch()');
+  browser.frames(2);
 });
 
 test('settings open and close', () => {
