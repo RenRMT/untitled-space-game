@@ -90,14 +90,15 @@ export let flash = 0; // white-out when the wrecked ship is towed home or jumps 
 export function whiteOut() { flash = reducedMotion() ? 0.22 : 0.8; }
 export function fadeFlash(dt) { flash = Math.max(0, flash - dt * 1.8); }
 export const toast = { text: '', t: 0 }; // the latest notice and how long it has left (the tests read it)
-// Show a notice for t seconds, through the one message queue (ui/messages.js). once: leave the same
-// notice alone while it's still showing, so something checked every frame doesn't keep restarting
-// it. priority: 0 information, 1 a mission's progress, 2 combat; tone: 'info' | 'good' | 'warn' | 'hostile'.
-export const notify = (text, t = 2, { once = false, priority = 0, tone = 'info' } = {}) => {
-  if (once && toast.text === text && toast.t >= 0.5) return;
+// Log a notice: a line of the event log (ui/messages.js) in its tone ('info' | 'good' | 'warn' |
+// 'hostile'). once: not again while the same line is still in the log, so something checked every
+// frame (Hold full) doesn't keep counting up. t (seconds) is how long toast.text holds it for the
+// tests; priority is from when notices queued, and no longer matters.
+export const notify = (text, t = 2, { once = false, tone = 'info' } = {}) => {
+  if (once && Messages.log.some((l) => l.text === text)) return;
   toast.text = text;
   toast.t = t;
-  Messages.push(text, { time: t, priority, tone });
+  Messages.push(text, { tone });
 };
 // What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'settings'. Each sets the
 // body class of the same name (index.html hides controls by it); the map can't open during any of

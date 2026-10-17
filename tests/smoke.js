@@ -675,7 +675,6 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.match(onStation(), /Open hardpoint/);
   pressOnStation('Fit');
   assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'fitted, and the sheet closed');
-  assert.match(textOf(browser.document.body), /Pulse laser Mk II fitted to Weapon 2/, 'a toast says so');
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
   // A mod in the Mk II's slot: a spare one fitted from the slot's sheet, changing the ship.
   game(`cargo.mods['mod.extended-barrel'] = 1`);
@@ -765,7 +764,7 @@ test('researches a logic package: paid up front, built on the real clock, and th
   assert.match(onStation(), /50% · 3m left/);
   game(`__T += Research.timeOf('core.bool'); StationMenu.tick()`);
   assert.ok(game(`cargo.lab.done.includes('core.bool') && !cargo.lab.active`), 'built');
-  assert.match(textOf(browser.document.body), /Build ok · import core\.bool@1\.0/);
+  assert.match(Messages.log.at(-1).text, /Build ok · import core\.bool@1\.0/, 'logged');
   assert.ok(game(`programs.set(firstMember().id, 0, { ...Logic.blank(), when: [Logic.clause(), Logic.clause({ join: 'and', not: true })] })`), 'and, not are known now');
   game('firstMember().program.splice(0, 1)');
   // Queued, then the game closed for an hour: done on load, and the next one has started.
@@ -1503,17 +1502,19 @@ test('text with **bold** runs becomes text and <strong> elements', () => {
   assert.deepStrictEqual(parts.map((p) => (typeof p === 'string' ? p : `<${p.tagName}>${textOf(p)}`)), ['It has been ', '<STRONG>793', ' solar cycles']);
 });
 
-test('notices queue: two at a time, combat first, none repeated', () => {
+test('notices are an event log: the last 5 lines, a repeat counted, each gone after 10 s', () => {
   Messages.clear();
-  for (const t of ['one', 'two', 'three', 'one']) Messages.push(t, { time: 1.5 });
-  assert.deepStrictEqual(Messages.shown, ['one', 'two'], 'two show; the repeat is dropped');
-  Messages.push('Pirates attack!', { priority: 2 });
-  assert.deepStrictEqual(Messages.shown, ['two', 'Pirates attack!'], 'combat news takes the oldest place at once');
-  Messages.tick(2);
-  assert.deepStrictEqual(Messages.shown, ['Pirates attack!', 'three'], 'the rest, once time is up');
-  Messages.push('Hull repaired', { now: true });
-  assert.ok(Messages.shown.includes('Hull repaired'), 'what the player just did shows straight away');
-  Messages.clear();
+  for (const t of ['a', 'b', 'b', 'c', 'd', 'e', 'f']) game(`notify(${JSON.stringify(t)})`);
+  assert.deepStrictEqual(Messages.log.map((l) => (l.n > 1 ? `${l.text}×${l.n}` : l.text)), ['b×2', 'c', 'd', 'e', 'f'], 'five lines, the oldest gone');
+  game(`notify('Hold full', 2.5, { once: true }); notify('Hold full', 2.5, { once: true })`);
+  assert.strictEqual(Messages.log.at(-1).n, 1, 'once: not counted up while it is in the log');
+  Messages.tick(6);
+  Messages.push('g');
+  Messages.tick(4.5);
+  assert.deepStrictEqual(Messages.log.map((l) => l.text), ['g'], 'ten seconds each');
+  Messages.tick(6);
+  assert.deepStrictEqual(Messages.log, []);
+  browser.frames(1); // the HUD draws it
 });
 
 test('a save exported to a file comes back in, and nothing else does', () => {

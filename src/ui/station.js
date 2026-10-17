@@ -51,6 +51,7 @@ import { Mods } from '../rules/mods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Kit } from './kit.js';
+import { Messages } from './messages.js';
 import { IndustryView } from './industry-view.js';
 import { ResearchView } from './research-view.js';
 import { UI } from './ui.js';
@@ -225,20 +226,15 @@ const StationMenu = (() => {
     // Sell all: everything in the hold this station buys, in one go.
     const sellable = market.goods.filter((g) => g.sell !== null && hold.count(g.kind) > 0);
     const sellAll = () => {
-      let n = 0, credits = 0;
-      for (const g of sellable) while (hold.count(g.kind) > 0 && hold.sell(g.kind, g.sell)) { n++; credits += g.sell; }
+      for (const g of sellable) while (hold.count(g.kind) > 0 && hold.sell(g.kind, g.sell));
       refresh();
-      if (n) Kit.toast(`Sold ${n} for ${credits.toLocaleString('en-US')} credits`);
     };
     // Store all: the whole hold into the shared storage (the Industry tab's), as much as fits.
     const room = storeRoom();
     const kinds = [...new Set(hold.items.map((it) => it.kind))];
     const storeAll = () => {
-      const before = hold.items.length;
       for (const k of kinds) ctx.industry.deposit(k);
-      const n = before - hold.items.length;
       refresh();
-      if (n) Kit.toast(n === before ? 'Hold stored' : `${n} stored · storage is full`, n === before ? undefined : 'warn');
     };
     const empty = hold.items.length < 1;
     lead('');
@@ -353,12 +349,12 @@ const StationMenu = (() => {
     const fitted = list.map((m, i) => Kit.optionRow({
       code: 'MOD', name: Mods.MODS[m].name, sub: Mods.MODS[m].note, current: true,
       rows: Kit.compare(asItem(list.filter((x, k) => k !== i)), now, METRICS[s.type]).filter((r) => r.diff),
-      action: Kit.button('Remove', act(() => o.removeMod(s.id, i), () => Kit.toast(`${Mods.MODS[m].name} back with the spare mods`)), { kind: 'ghost', aria: `Remove ${Mods.MODS[m].name}` }),
+      action: Kit.button('Remove', act(() => o.removeMod(s.id, i)), { kind: 'ghost', aria: `Remove ${Mods.MODS[m].name}` }),
     }));
     const spare = Object.keys(o.mods).filter((m) => Mods.fits(m, s.type)).map((m) => Kit.optionRow({
       code: 'MOD', name: Mods.MODS[m].name, tag: `Spare ×${o.mods[m]}`, tagTone: 'good', sub: Mods.MODS[m].note,
       rows: Kit.compare(asItem([]), asItem([m]), METRICS[s.type]).filter((r) => r.diff), // what it does on its own
-      action: Kit.button('Fit', act(() => o.fitMod(s.id, m), () => Kit.toast(`${Mods.MODS[m].name} fitted`)), {
+      action: Kit.button('Fit', act(() => o.fitMod(s.id, m)), {
         kind: 'primary', disabled: list.length >= room, title: list.length >= room ? 'No room for another mod' : undefined, aria: `Fit ${Mods.MODS[m].name}`,
       }),
     }));
@@ -404,7 +400,6 @@ const StationMenu = (() => {
         const fitted = () => {
           closeSheet();
           refresh();
-          Kit.toast(`${item.name} fitted to ${m ? `${m.name}'s ` : ''}${s.label}`);
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
@@ -425,7 +420,7 @@ const StationMenu = (() => {
         h('span', { class: 'ui-label' }, 'Fitted'),
         cur ? Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true,
-          action: Kit.button('Remove', act(() => o.unfit(s.id), () => Kit.toast(`${cur.name} moved to spare gear`)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
+          action: Kit.button('Remove', act(() => o.unfit(s.id)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
         modSection(s),
         h('span', { class: 'ui-label' }, 'Options'),
@@ -446,7 +441,7 @@ const StationMenu = (() => {
         h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, `${Math.ceil(repairs.hull)}/${repairs.max}`)),
         Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : damaged ? 'var(--warn)' : 'var(--good)' })),
       damaged
-        ? Kit.button(affordable < repairs.cost ? 'Repair part' : 'Repair', act(() => repairs.repair(), () => Kit.toast('Hull repaired')), {
+        ? Kit.button(affordable < repairs.cost ? 'Repair part' : 'Repair', act(() => repairs.repair()), {
           kind: 'warn', price: affordable, disabled: affordable <= 0, aria: `Repair the hull for ${affordable} credits`,
         })
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
@@ -474,7 +469,7 @@ const StationMenu = (() => {
         return Kit.optionRow({
           code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
           tag: [item.npc ? 'Android' : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '), tagTone: item.npc ? 'cyan' : null,
-          action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id), () => Kit.toast(`${item.name} sold`)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
+          action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
       }))));
   }
@@ -514,7 +509,7 @@ const StationMenu = (() => {
           vals: id === current ? HULL_METRICS.map((m) => [m.code, m.fmt(m.get(mine))]) : null,
           note: [hull.note, blocked].filter(Boolean).join(' · '),
           open: openHull === id, onToggle: id === current ? null : () => { openHull = openHull === id ? null : id; refresh(); },
-          action: id === current ? null : Kit.button('Buy', act(() => o.buyHull(id), () => Kit.toast(`Now flying a ${hull.name}`)), {
+          action: id === current ? null : Kit.button('Buy', act(() => o.buyHull(id)), {
             price: o.hullPrice(id), disabled: !!blocked, title: blocked || undefined, aria: `Buy a ${hull.name}`,
           }),
         });
@@ -758,8 +753,8 @@ const StationMenu = (() => {
         m.note && m.status === 'done' ? Kit.callout(m.note) : m.note && m.status === 'offered' ? h('p', { class: 'ui-note' }, m.note) : null,
       ],
       foot: [
-        accept ? Kit.button('Accept mission', act(() => { m.accept(); }, () => Kit.toast(`${m.title} accepted. It's marked on your map.`)), { kind: 'primary', lg: true, wide: true }) : null,
-        complete ? Kit.button('Complete mission', act(() => { m.complete(); }, () => Kit.toast(`${m.title} complete`)), { kind: 'good', lg: true, wide: true }) : null,
+        accept ? Kit.button('Accept mission', act(() => m.accept()), { kind: 'primary', lg: true, wide: true }) : null,
+        complete ? Kit.button('Complete mission', act(() => m.complete()), { kind: 'good', lg: true, wide: true }) : null,
         m.status === 'ready' && !complete ? h('p', { class: 'ui-note' }, `Hand it in at ${m.handIn || m.from}.`) : null,
         m.status === 'active' ? h('p', { class: 'ui-note' }, m.note ? `Launch to continue. ${m.note}` : 'Launch to continue.') : null,
         m.track || m.abandon ? h('div', { class: 'st-acts' },
@@ -941,7 +936,7 @@ const StationMenu = (() => {
       Kit.button('↓', act(() => sq.move(id, i, i + 1), closeSheet), { kind: 'ghost', disabled: i >= m.program.length - 1, aria: 'Move the instruction down' }),
       Kit.button(m.program[i].on ? 'Off' : 'On', act(() => sq.toggle(id, i), closeSheet), { kind: 'ghost', disabled: !!m.program[i].err, aria: m.program[i].on ? 'Switch the instruction off' : 'Switch the instruction on' }),
       Kit.button('Copy', act(() => sq.set(id, m.program.length, m.program[i]), closeSheet), { kind: 'ghost', disabled: m.program.length >= Squad.MAX_LINES || !!m.program[i].err, aria: 'Copy the instruction to the end' }),
-      Kit.button('Delete', act(() => sq.remove(id, i), () => { closeSheet(); Kit.toast(`Instruction ${i + 1} deleted`, 'warn'); }), { kind: 'warn', aria: 'Delete the instruction' }));
+      Kit.button('Delete', act(() => sq.remove(id, i), () => closeSheet()), { kind: 'warn', aria: 'Delete the instruction' }));
 
     return {
       title: isNew ? 'New instruction' : `Instruction ${i + 1}`, sub: m.name, code: 'LGC', tall: true,
@@ -958,7 +953,7 @@ const StationMenu = (() => {
           h('p', { class: 'ui-note' }, `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
       ],
       foot: [
-        Kit.button(isNew ? 'Add instruction' : 'Save instruction', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => { closeSheet(); Kit.toast(isNew ? 'Instruction added' : 'Instruction saved'); }), {
+        Kit.button(isNew ? 'Add instruction' : 'Save instruction', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => closeSheet()), {
           kind: 'primary', lg: true, wide: true, disabled: !check.ok,
         }),
         tools,
@@ -1099,7 +1094,7 @@ const StationMenu = (() => {
   }
   el('st-launch').addEventListener('click', () => ctx && !locks().launch && ctx.onLaunch());
 
-  // Every second while docked: research that finished and what industry made (announced, and the
+  // Every second while docked: research that finished and what industry made (logged, and the
   // screen drawn again, since what's known or stored changed), else the meters' numbers.
   let ticker = null;
   function tick() {
@@ -1109,8 +1104,8 @@ const StationMenu = (() => {
     if (done.length || made.length) refresh();
     if (done.length) {
       const logic = done.every((id) => Research.PACKAGES[id].kind === 'logic');
-      Kit.toast(`${logic ? 'Build ok · import' : 'Research done ·'} ${done.map(Research.title).join(', ')}`);
-    } else if (made.length) Kit.toast(`Made · ${Industry.summary(ctx.industry.state, made).join(' · ')}`);
+      Messages.push(`${logic ? 'Build ok · import' : 'Research done ·'} ${done.map(Research.title).join(', ')}`, { tone: 'good' });
+    } else if (made.length) Messages.push(`Made · ${Industry.summary(ctx.industry.state, made).join(' · ')}`, { tone: 'good' });
     else if (tab === 'research') research.tick();
     else if (tab === 'industry') industryView.tick();
   }

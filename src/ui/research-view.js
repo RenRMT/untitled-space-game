@@ -226,12 +226,12 @@ const ResearchView = {
       const why = st.state !== 'available' || st.ok ? null : st.full ? 'The queue is full.'
         : [env.ctx().hold.credits < st.credits ? `${(st.credits - env.ctx().hold.credits).toLocaleString('en-US')} cr short.` : '', lacking.length ? `Short of ${lacking.join(', ')}.` : ''].filter(Boolean).join(' ');
       const foot = st.state === 'available' ? [
-        Kit.button(idle ? 'Build' : 'Queue', env.act(() => L.enqueue(id), () => Kit.toast(idle ? `Started ${Research.title(id)}` : `${Research.title(id)} queued`)), {
+        Kit.button(idle ? 'Build' : 'Queue', env.act(() => L.enqueue(id)), {
           kind: st.ok ? 'primary' : '', disabled: !st.ok, lg: true, wide: true, aria: `${idle ? 'Build' : 'Queue'} ${Research.title(id)}`,
         }),
         why ? h('p', { class: 'ui-note' }, why) : null,
-      ] : st.state === 'active' ? Kit.button('Cancel build · half back', env.act(() => L.cancel(id), () => Kit.toast(`${Research.title(id)} cancelled · half refunded`, 'warn')), { kind: 'ghost', wide: true })
-        : st.state === 'queued' ? Kit.button('Cancel · all back', env.act(() => L.cancel(id), () => Kit.toast('Cancelled · refunded', 'warn')), { kind: 'ghost', wide: true })
+      ] : st.state === 'active' ? Kit.button('Cancel build · half back', env.act(() => L.cancel(id)), { kind: 'ghost', wide: true })
+        : st.state === 'queued' ? Kit.button('Cancel · all back', env.act(() => L.cancel(id)), { kind: 'ghost', wide: true })
           : st.state === 'locked' ? h('p', { class: 'ui-note' }, `Needs ${st.needs.map(Research.title).join(', ')} first.`) : null;
       return {
         title: Research.title(id), code: CAT_CODE[p.cat], kicker: S.tag, kickerColor: S.tone,

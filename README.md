@@ -32,7 +32,7 @@ URL parameters:
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings), the notices (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`) |
+| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`) |
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
@@ -64,8 +64,9 @@ Each file starts with a comment saying what it does and, for modules other parts
   IBM Plex Mono. Icons are line icons by their short code (`src/ui/glyphs.js`: a 24 px grid, 1.6 px
   strokes in the text colour, like the map and settings buttons); a code without one shows as a dashed
   placeholder until it gets one.
-- **A notice:** `notify(text, seconds, { priority, tone })` (`src/game/state.js`) or `Kit.toast` for the
-  answer to a button; both go through the one queue in `src/ui/messages.js` (two at a time, combat first).
+- **A notice:** `notify(text, seconds, { tone, once })` (`src/game/state.js`) adds a line to the event log
+  (`src/ui/messages.js`), which the HUD draws in the top-left corner: the last 5, each for 10 s. Station
+  buttons don't announce what they did: the screen shows it.
 - **Something the player should feel:** `Feedback.emit(event)` (`src/core/feedback.js`) where it
   happens; `src/game/options.js` turns events into vibration (switched off in Settings), and sound
   can listen to the same events later.

@@ -5,6 +5,7 @@
 import { COLORS, Theme } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
 import { SystemMap } from '../ui/map.js';
+import { Messages } from '../ui/messages.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { visible } from './draw-world.js';
@@ -310,6 +311,14 @@ export let hudBottom = 0;
 export const LOCATION_TIME = 5;
 const shownLocation = { key: '', at: -Infinity };
 
+// Text cut to fit a width, in the current font, ending in '…' if it had to be.
+function fit(text, width) {
+  if (ctx.measureText(text).width <= width) return text;
+  let n = text.length;
+  while (n > 1 && ctx.measureText(`${text.slice(0, n).trimEnd()}…`).width > width) n--;
+  return `${text.slice(0, n).trimEnd()}…`;
+}
+
 // Text wrapped to a width, in the current font: lines.
 function wrap(text, width) {
   const words = text.split(' '), lines = [];
@@ -323,7 +332,8 @@ function wrap(text, width) {
 }
 
 // The HUD: top left, where you are (for a moment) and the mission's next step, with the flight
-// hints until the first touch; bottom left, the speed bar with its throttle mark, the hold once
+// hints until the first touch, and under them the event log (ui/messages.js): plain text, the
+// last few notices, each fading as its time runs out; bottom left, the speed bar with its throttle mark, the hold once
 // anything is in it, and the hull while it is damaged (in a fight the combat panel shows it).
 // Text sits on a dark backing so it reads over nebulae and stars, and wraps short of the minimap.
 export function drawHud() {
@@ -367,7 +377,25 @@ export function drawHud() {
       y += lh;
     }
   }
-  hudBottom = lines.length ? y - lh + 8 : pad + I.t;
+  // The event log: one line per notice, no backing (a shadow keeps it readable), newest at the
+  // bottom. Below the minimap a line may run the screen's width; a longer one ends in '…'.
+  const TONE = { info: COLORS.hud, good: COLORS.good, warn: COLORS.amber, hostile: COLORS.hostile };
+  const logged = Messages.log;
+  if (logged.length) {
+    if (lines.length) y += 6;
+    ctx.font = Theme.font(13);
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+    ctx.shadowBlur = 4;
+    for (const l of logged) {
+      const below = !minimap.size || y - lh > minimap.y + minimap.size;
+      ctx.globalAlpha = 0.9 * clamp(Messages.LOG_TIME - l.age, 0, 1); // fades over its last second
+      ctx.fillStyle = TONE[l.tone] || COLORS.hud;
+      ctx.fillText(fit(l.n > 1 ? `${l.text} ×${l.n}` : l.text, below ? view.w - pad - I.r - left : room), left, y);
+      y += lh;
+    }
+    ctx.shadowBlur = 0;
+  }
+  hudBottom = lines.length || logged.length ? y - lh + 8 : pad + I.t;
 
   // Bottom left: the speed bar (actual speed filled, set throttle marked), and above it the hold
   // and a damaged hull.

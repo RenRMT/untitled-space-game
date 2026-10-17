@@ -324,24 +324,8 @@
 .ui-tab:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; border-radius: var(--r-md); }
 .ui-tab:disabled { opacity: 0.35; cursor: default; }
 
-/* Messages (ui/messages.js): short notices that go by themselves, at most two at once, newest last.
-   In flight they sit high in the middle, clear of the HUD's corners and the panels at the foot; docked,
-   just above the tab bar. Taps pass through. */
-.ui-messages {
-  position: fixed; left: 50%; transform: translateX(-50%); z-index: 6; pointer-events: none;
-  top: calc(env(safe-area-inset-top, 0px) + max(96px, 18vh)); width: min(440px, calc(100vw - 32px));
-  display: flex; flex-direction: column; gap: 6px; align-items: center;
-}
-body.docked .ui-messages { top: auto; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); width: min(528px, calc(100vw - 32px)); }
-.ui-toast {
-  box-sizing: border-box; max-width: 100%; padding: 8px 12px; text-align: center;
-  background: rgba(17, 21, 34, 0.9); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--good)); border-radius: var(--r-md);
-  font: 14px/1.35 var(--sans); color: var(--bright); animation: ui-toast-in 0.18s ease-out;
-}
-body.docked .ui-toast { width: 100%; padding: 12px 14px; text-align: left; }
-@keyframes ui-toast-in { from { opacity: 0; transform: translateY(6px); } }
-@media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }
-:root[data-motion="reduce"] .ui-toast { animation: none; }
+/* The event log's live region (ui/messages.js): the HUD draws the log, screen readers hear it here. */
+.ui-said { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 /* Code: logic programs as numbered lines of mono text, coloured by token kind. */
 .ui-code { display: flex; flex-direction: column; padding: 4px 0; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); font: 400 13px/1.5 var(--mono); }
