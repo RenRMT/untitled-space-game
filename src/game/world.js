@@ -16,7 +16,7 @@ import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
 import { GATE_JOB, OPENING, SALVAGE, cargo, loadCargo, opening, saveCargoNow } from './cargo.js';
 import { endIntro, introDue, startIntro, waystation } from './intro.js';
-import { buildMission, endTalk, mission, showGates, skipOpening } from './missions.js';
+import { buildMission, endTalk, mission, settleOpeningLoyalty, showGates, skipOpening } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
 import { SHIP, intro, ship } from './state.js';
 import { arriveAt } from './travel.js';
@@ -56,6 +56,7 @@ export function loadGalaxy(galaxy) {
   if (!mission.salvage) cargo.missions.finish(SALVAGE); // (or no nebula for the second)
   if (!mission.gate) cargo.missions.finish(GATE_JOB); // (or no gate for the third)
   else if (Params.has('skipintro') && opening()) skipOpening();
+  settleOpeningLoyalty();
   showGates();
   if (introDue()) startIntro();
   else if (opening()) placeBeside(waystation()); // the opening missions start and end there

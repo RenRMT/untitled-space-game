@@ -23,10 +23,12 @@
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
 //   (game/squad.js programs).
-// missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game/missions.js), each
-//   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (its
-//   giver is this station), lines: [what the giver says now], objectives: [{ label, count, need,
-//   done, open, percent }], provided?, reward, note?, accept?(), complete?() }.
+// missions: { list() -> [mission view] }: the missions to show here (story/missions.js, game/missions.js,
+//   the galaxy's jobs: game/jobs.js), each
+//   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (it's
+//   offered, or handed in, at this station), lines: [what the giver says now], objectives: [{ label,
+//   count, need, done, open, percent }], provided?, reward, note?, handIn? (the station it's handed
+//   in at, by name), tracked?, accept?(), complete?(), track?(), abandon?() }.
 // locks() -> { tabs: [tab names], reason, launch }: tabs that can't be opened yet and why, and why
 //   Launch can't be pressed yet (null when it can). Asked again after every change.
 // ES module (`StationMenu`); needs a browser.
@@ -498,7 +500,7 @@ const StationMenu = (() => {
   function missionCard(m) {
     const S = STATUS[m.status];
     const goal = m.status === 'active' ? m.objectives.find((o) => o.open && !o.done) : null;
-    const hint = goal ? null : m.status === 'ready' ? (m.here ? 'All objectives met. Hand it in here.' : `Hand it in at ${m.from}.`)
+    const hint = goal ? null : m.status === 'ready' ? (m.here ? 'All objectives met. Hand it in here.' : `Hand it in at ${m.handIn || m.from}.`)
       : m.status === 'offered' ? `${m.objectives.length} objective${m.objectives.length === 1 ? '' : 's'} · tap to read the briefing` : null;
     return h('button', {
       class: 'ui-card', type: 'button', style: { '--accent': S.color }, 'aria-haspopup': 'dialog', 'aria-label': `${m.title}, ${S.badge}`,
@@ -552,8 +554,11 @@ const StationMenu = (() => {
       foot: [
         accept ? Kit.button('Accept mission', act(() => { briefAll = false; m.accept(); }, () => Kit.toast(`${m.title} accepted. It's marked on your map.`)), { kind: 'primary', lg: true, wide: true }) : null,
         complete ? Kit.button('Complete mission', act(() => { briefAll = false; m.complete(); }, () => Kit.toast(`${m.title} complete`)), { kind: 'good', lg: true, wide: true }) : null,
-        m.status === 'ready' && !complete ? h('p', { class: 'ui-note' }, `Hand it in at ${m.from}.`) : null,
+        m.status === 'ready' && !complete ? h('p', { class: 'ui-note' }, `Hand it in at ${m.handIn || m.from}.`) : null,
         m.status === 'active' ? h('p', { class: 'ui-note' }, m.note ? `Launch to continue. ${m.note}` : 'Launch to continue.') : null,
+        m.track || m.abandon ? h('div', { class: 'st-acts' },
+          m.track ? Kit.button(m.tracked ? 'Tracked on map' : 'Track on map', act(() => m.track()), { kind: 'ghost', disabled: m.tracked }) : null,
+          m.abandon ? Kit.button('Abandon', act(() => { briefAll = false; m.abandon(); closeSheet(); }), { kind: 'ghost', aria: `Abandon ${m.title}` }) : null) : null,
       ],
     };
   }
@@ -791,7 +796,8 @@ const StationMenu = (() => {
       t.disabled = locked;
       t.title = locked ? lock.reason : TABS[t.dataset.tab].label;
     }
-    missionDot.hidden = !missions().some((m) => m.here && (m.status === 'offered' || m.status === 'ready'));
+    // Something to hand in here, or a story mission offered (every station always has jobs posted).
+    missionDot.hidden = !missions().some((m) => m.here && (m.status === 'ready' || (m.status === 'offered' && !m.tier)));
     const launch = el('st-launch');
     launch.disabled = !!lock.launch;
     launch.title = lock.launch || '';

@@ -1,5 +1,7 @@
 // The opening missions in flight (their data: story/missions.js): building each one's sites and
 // ships, the comms lines, each one's checks every frame, and the objective the HUD and map show.
+// The galaxy's jobs (game/jobs.js) are run from here too: their things in space, ticks, docking
+// and views join the opening missions', and the HUD follows a tracked job once the chain is idle.
 // A new mission: its data and lines in story/missions.js; here, its things in space (as the
 // build* functions make them), the progress rules its tick passes to progress(), and whatever it
 // does beyond those (a call on the comms, an escort, waves).
@@ -19,6 +21,7 @@ import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { faceOf, waystation } from './intro.js';
+import { jobObjective, jobThings, jobViews, jobsDocked, jobsMined, tickJobs, trackedJob } from './jobs.js';
 import { burst } from './mining.js';
 import { chooseSetting } from './options.js';
 import { frameList } from './selection.js';
@@ -145,7 +148,7 @@ export const escorting = () => missionActive() && objectiveDone('hail') && !obje
 // docks); while the second is, once the signal is found, the hostile android, then its module.
 export function missionThings() {
   const site = mission.site;
-  if (!site) return [];
+  if (!site) return jobThings();
   const near = Math.hypot(site.x - cam.x, site.y - cam.y) < NEAR + site.spread;
   const out = near ? [...mission.rocks] : [];
   if (missionActive()) {
@@ -160,6 +163,8 @@ export function missionThings() {
   }
   // The pirates at the gate, once their wave has come.
   if (gateActive()) out.push(...wavesIn().flat());
+  // And the galaxy's jobs (game/jobs.js).
+  out.push(...jobThings());
   return out;
 }
 
@@ -201,7 +206,7 @@ export function endTalk(keep = true) {
 
 // Nothing else going on (no fight or its outcome, no conversation, not docked): when a mission's
 // comms calls come.
-const calm = () => !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
+export const calm = () => !inFight() && !fight.result && !talk.lines && !Comms.isOpen && !docked;
 
 // The objectives that follow from where things are, as rules per mission, in order:
 //   { o, reach: [x, y, r], after?, notice?, then? }  done once the ship is within r of (x, y) (and
@@ -232,6 +237,7 @@ function progress(id, rules) {
 export function tickMission(dt) {
   tickSalvage(dt);
   tickGate(dt);
+  tickJobs(dt);
   if (!missionActive() || intro.on) return;
   const site = mission.site, w = mission.android;
   const changed = progress(OPENING, [
@@ -360,8 +366,10 @@ export function drawGateWork(t) {
   if (Math.random() < 0.3) burst(G.x - Math.cos(ang) * gate.radius * 0.35 + Math.cos(ang + Math.PI / 2) * wob, G.y - Math.sin(ang) * gate.radius * 0.35 + Math.sin(ang + Math.PI / 2) * wob, 1, { speed: [30, 90], life: [0.3, 0.7], size: [1.5, 2.5], colors: [COLORS.flash, w.color] });
 }
 
-// An asteroid mined or a gas pocket collected: counted toward the second mission.
-export function missionCollected(kind) {
+// An asteroid mined (a) or a gas pocket collected: counted toward the second mission, and a rock
+// toward the jobs that want it.
+export function missionCollected(kind, a) {
+  if (kind === 'mine' && a) jobsMined(a);
   if (!salvageActive()) return;
   const o = kind === 'gas' ? 'gas' : 'mine';
   if (cargo.missions.set(SALVAGE, o, cargo.missions.count(SALVAGE, o) + 1)) saveCargo();
@@ -377,6 +385,7 @@ export function snapEscortIfFar() {
 // the second mission home (with what the squad member had to say taken as said).
 export function missionDocked(station) {
   if (talk.lines) endTalk();
+  jobsDocked(station);
   if (escorting() && station.station.waystation && cargo.missions.set(OPENING, 'escort', 1)) saveCargo();
   if (salvageActive() && station.station.waystation && salvageDone('module')) {
     cargo.missions.set(SALVAGE, 'puzzle', 1);
@@ -414,7 +423,7 @@ export const MISSION_NOTE = {
 };
 export const inChain = () => CHAIN.filter((id) => (id === OPENING ? mission.site : id === SALVAGE ? mission.salvage : mission.gate));
 export function missionViews(station) {
-  if (!mission.site) return [];
+  if (!mission.site) return jobViews(station);
   const log = cargo.missions, atWaystation = !!station.station.waystation, chain = inChain();
   const ids = chain.filter((id, i) => {
     const status = log.status(id), next = chain[i + 1];
@@ -435,7 +444,7 @@ export function missionViews(station) {
       note: note ? fillIn(note) : null,
       accept: () => acceptMission(id), complete: () => completeMission(id),
     };
-  });
+  }).concat(jobViews(station));
 }
 
 // Accepting: for the first mission, the waystation provides the ship.
@@ -456,6 +465,7 @@ export const FIRST_MODULE = 'assist.leader';
 export function completeMission(id = OPENING) {
   if (!cargo.missions.complete(id)) return;
   if (id === OPENING) joinAndroid();
+  if (openingLoyalty(id)) trustWaystation(openingLoyalty(id));
   if (id === GATE_JOB) {
     const m = firstMember();
     const line = Logic.PRESETS[FIRST_MODULE];
@@ -464,6 +474,20 @@ export function completeMission(id = OPENING) {
     showGates();
   }
   saveCargo();
+}
+// The waystation trusts you a little more with each account settled: the second mission's (its
+// production orders open) and the third's. Never below what it was.
+export const openingLoyalty = (id) => (id === SALVAGE || id === GATE_JOB ? 1 : 0);
+export function trustWaystation(n) {
+  const W = world.galaxy.stations[world.galaxy.waystation];
+  if (W) cargo.loyalty[W.key] = (cargo.loyalty[W.key] || 0) + n;
+}
+// For a save from before loyalty: what the opening missions it has done would have given.
+export function settleOpeningLoyalty() {
+  const W = world.galaxy && world.galaxy.stations[world.galaxy.waystation];
+  if (!W || W.key in cargo.loyalty) return;
+  const n = CHAIN.reduce((t, id) => t + (cargo.missions.status(id) === 'done' ? openingLoyalty(id) : 0), 0);
+  if (n) cargo.loyalty[W.key] = n;
 }
 export function joinAndroid() {
   const seed = mission.site.android.seed;
@@ -493,14 +517,16 @@ export function stationLocks() {
   };
 }
 
-// Where the mission goes next, for the HUD, an edge marker and the map: { text, x, y, station }
-// (station: the scene's station when it's the waystation), or null.
+// Where the mission goes next, for the HUD, an edge marker and the map: { text, x, y, station, r? }
+// (station: the scene's station when it's one; r: how big the place is), or null. An opening
+// mission under way comes first; else the tracked job (game/jobs.js).
 // The second mission's gas objective points at the nearest pocket of its nebula still to collect,
 // of those well away from the pirates while any are left.
 export function objective() {
-  if (!mission.site || intro.on) return null;
-  const W = waystation(), id = inChain().find((x) => ['active', 'ready'].includes(cargo.missions.status(x)));
-  if (!id) return null;
+  if (intro.on) return null;
+  const chainId = mission.site && inChain().find((x) => ['active', 'ready'].includes(cargo.missions.status(x)));
+  if (!chainId) { const job = trackedJob(); return job ? jobObjective(job) : null; }
+  const W = waystation(), id = chainId;
   const status = cargo.missions.status(id);
   if (status === 'ready') return { text: `Report to ${W.name}`, x: W.x, y: W.y, station: W };
   if (status !== 'active') return null;

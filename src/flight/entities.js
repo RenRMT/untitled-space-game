@@ -189,10 +189,11 @@ const Entities = (() => {
         // of the second mission, armed like a pirate.
         if (e.android && hostile) return { title: e.name, sub: `Android · unregistered · ${Loadout.MK[e.tier]} gear`, color: color().hostile, tag: 'Hostile', tone: 'hostile' };
         if (e.android) return { title: e.name, sub: e.note || 'Android', color: e.color, tag: 'Android' };
-        // Pirates show their gear tier, so you can judge a fight before starting it.
+        // Pirates (or a mission's crew of another kind: e.crew) show their gear tier, so you can
+        // judge a fight before starting it; a friendly ship says what it's doing (e.note).
         const gear = hostile && e.tier ? ` · ${Loadout.MK[e.tier]} gear` : '';
         return {
-          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: `${hostile ? 'Pirates' : 'Independent'}${gear}`,
+          title: e.name || ROLE_LABEL[e.role] || 'Ship', sub: `${hostile ? e.crew || 'Pirates' : e.note || 'Independent'}${gear}`,
           color: hostile ? color().hostile : color().neutral,
           tag: hostile ? 'Hostile' : '', tone: hostile ? 'hostile' : '',
         };

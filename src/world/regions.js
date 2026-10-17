@@ -25,8 +25,10 @@
 //     stations get `owner` (a faction id) and the owner's culture (and some a name to match),
 //     gates the culture of whoever holds the system, and the system:
 //       region: { key, label }, holder: faction id or null, branch: the Combine running it or null,
+//       places: the names its situations' text uses ({ system, station, hub, camp, yard, waystation,
+//         nebula, belt, branch, neighbour }, those it has),
 //       factions: [{ id, hidden, stations }], situations: [{ id, title, text, factions,
-//         hooks: [{ from, text, against }] }]
+//         hooks: [{ i (its place in SITUATIONS' list), from, text, against }] }]
 //     ctx: { neighbours: [system names], used: Map(situation id -> times used so far) }
 // ES module (`Regions`); also runs in Node (the tests).
 
@@ -439,7 +441,8 @@ const Regions = (() => {
     const fill = (text) => text.replace(/\{(\w+)\}/g, (m, k) => places[k] || m);
     // A situation's parties are its own and everyone its hooks name.
     const make = (s) => {
-      const hooks = s.hooks.filter(([, text]) => !/\{neighbour\}/.test(text) || places.neighbour).map(([from, text, against]) => ({ from, text: fill(text), against }));
+      const hooks = s.hooks.map(([from, text, against], i) => ({ i, from, text, against })).filter((h) => !/\{neighbour\}/.test(h.text) || places.neighbour)
+        .map((h) => ({ ...h, text: fill(h.text) }));
       const factions = [...new Set([...s.factions, ...hooks.flatMap((h) => [h.from, h.against]).filter(Boolean)])];
       return { id: s.id, title: s.title, text: fill(s.text), factions, hooks };
     };
@@ -462,7 +465,7 @@ const Regions = (() => {
     const ids = [R.holder, ...owned.keys(), ...R.present, ...R.maybe.filter(([, p]) => r() < p).map(([id]) => id), ...situations.flatMap((s) => s.factions)];
     const factions = [...new Set(ids.filter(Boolean))].map((id) => ({ id, hidden: Factions.get(id).hidden, stations: owned.get(id) || 0 }));
     Object.assign(system, {
-      region: { key, label: R.label }, holder: R.holder, branch: key === 'combine' ? branch : null, factions, situations,
+      region: { key, label: R.label }, holder: R.holder, branch: key === 'combine' ? branch : null, factions, situations, places,
     });
     return system;
   }

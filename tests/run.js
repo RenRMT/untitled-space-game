@@ -38,6 +38,7 @@ import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
 import { Intro } from '../src/story/intro.js';
+import { Jobs } from '../src/story/jobs.js';
 import { Missions } from '../src/story/missions.js';
 import { Glyphs } from '../src/ui/glyphs.js';
 
@@ -164,7 +165,7 @@ test('the tutorial system is the one the seed always gave, whatever the rest of 
   // Generated on its own from the seed, as before the galaxy grew: the same star, planet, belt,
   // nebula, waystation and gate, and the gateway in the same direction.
   const G = Galaxy.params;
-  const strip = (s) => JSON.parse(layout({ ...s, region: undefined, holder: undefined, branch: undefined, factions: undefined, situations: undefined, index: undefined }), (k, v) => (['system', 'link', 'owner'].includes(k) ? undefined : v));
+  const strip = (s) => JSON.parse(layout({ ...s, region: undefined, holder: undefined, branch: undefined, factions: undefined, situations: undefined, places: undefined, index: undefined }), (k, v) => (['system', 'link', 'owner'].includes(k) ? undefined : v));
   for (const seed of [1, 2, 7, 'abc', 'Untitled']) {
     const a0 = mulberry32(hashInt(seedToInt(seed), 0, 0x6a1a))() * Math.PI * 2, d = G.tutorial.radius + G.gap + G.gateway.radius;
     const alone = SolarSystem.generate(seed, {
@@ -1235,16 +1236,10 @@ test('production: slots grow with research, and a station takes orders only when
   lab.doneAt['ind.bays.1'] = T;
   assert(Industry.place(state, CAMP, 'make.copper-cable', null, env, T), 'a second slot');
   assert.strictEqual(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), null);
-  // Loyalty: every station starts trusted, until missions exist.
-  assert(Industry.trusted({}, PORT.key));
-  assert(Industry.place(state, PORT, 'make.electronics', null, env, T, {}));
-  const start = Industry.LOYALTY.start;
-  Industry.LOYALTY.start = 0;
-  try {
-    assert(!Industry.trusted({}, HUB.key));
-    assert.strictEqual(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, {}), null, 'untrusted: refused');
-    assert(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, { [HUB.key]: 1 }), 'trusted: taken');
-  } finally { Industry.LOYALTY.start = start; }
+  // Loyalty: a station takes orders once missions done for it have raised its loyalty.
+  assert(!Industry.trusted({}, HUB.key) && !Industry.trusted({ [HUB.key]: 0 }, HUB.key));
+  assert.strictEqual(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, {}), null, 'untrusted: refused');
+  assert(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, { [HUB.key]: 1 }), 'trusted: taken');
 });
 
 test('production: the pipeline links orders by what they make, and shows the gaps', () => {
@@ -2205,6 +2200,109 @@ test('missions: offered, accepted, objectives in order, ready once all are met, 
   const provided = Missions.LIST[ID].provides.loadout;
   assert.deepStrictEqual(Loadout.slotsOf(provided.hull).map((x) => x.id).sort(), Object.keys(provided.fitted).sort());
   assert.strictEqual(Loadout.stats(provided).weaponsFitted, 2);
+});
+
+// The galaxy's jobs (story/jobs.js), for every test galaxy.
+const boards = new Map([...galaxies].map(([seed, g]) => [seed, Jobs.board(g)]));
+
+test('jobs: every station posts its own, every situation hook is a job, and the factions post theirs', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, B = boards.get(seed);
+    assert.deepStrictEqual(Jobs.board(g).list.map((j) => [j.id, j.reward.credits]), B.list.map((j) => [j.id, j.reward.credits]), `${where}: the same every time`);
+    assert.strictEqual(new Set(B.list.map((j) => j.id)).size, B.list.length, `${where}: ids unique`);
+    for (const st of g.stations) {
+      const own = B.list.filter((j) => j.tier === 'station' && j.scope === st.key);
+      if (st.system === 0) assert.strictEqual(own.length, 0, `${where}: the tutorial's waystation has its own missions`);
+      else assert(own.length >= 1 && own.length <= 2, `${where}: ${st.name} posts ${own.length}`);
+    }
+    for (const s of g.systems.slice(1)) {
+      for (const sit of s.situations) for (const h of sit.hooks) assert(B.byId[`sy/${s.index}/${sit.id}/${h.i}`], `${where}: ${s.name}: ${sit.id} hook ${h.i} has no job`);
+    }
+    for (const f of ['compact', 'combines', 'facet', 'freeClaim', 'breakers']) assert(B.list.some((j) => j.tier === 'faction' && j.scope === f), `${where}: ${f} posts nothing`);
+    // Named for who offers it, and offered where it should be.
+    for (const j of B.list) {
+      const name = j.tier === 'station' ? g.stations.find((st) => st.key === j.scope).name : j.tier === 'system' ? g.systems[j.scope].name : Factions.get(j.scope).name;
+      assert.strictEqual(j.title, `${name}: ${j.name}`, `${where}: ${j.id}`);
+      const at = g.stations.filter((st) => Jobs.offeredAt(j, st));
+      assert(at.length >= 1, `${where}: ${j.id} offered nowhere`);
+      if (j.tier === 'station') assert.deepStrictEqual(at.map((st) => st.key), [j.scope]);
+      if (j.tier === 'system') assert(at.every((st) => st.system === j.scope) && at.length === g.systems[j.scope].stations.length);
+      if (j.tier === 'faction') assert(at.every((st) => st.owner === j.scope));
+    }
+  }
+});
+
+test('jobs: steps in their systems, fights clear of stations and packs, texts complete', () => {
+  for (const [seed, g] of galaxies) {
+    for (const j of boards.get(seed).list) {
+      const where = `seed ${seed}: ${j.id}`;
+      const texts = [j.title, j.from, j.rewardText, ...j.briefing, ...j.report, ...j.debrief, ...j.steps.flatMap((s) => [s.label, ...(s.say || [])])];
+      for (const t of texts) assert(typeof t === 'string' && t && !/undefined|null|NaN|\[object|[{}]/.test(t), `${where}: ${t}`);
+      assert(j.briefing.length >= 2 && j.debrief.length >= 1, `${where}: exposition and resolution`);
+      j.steps.forEach((s, i) => {
+        if (s.say) assert(i > 0, `${where}: the first step's news is the briefing's`);
+        for (const p of [...(s.points || []), ...(s.items || []), s.wave, s.at, ...(s.pockets || [])].filter(Boolean)) {
+          const sys = g.systemAt(p.x, p.y);
+          assert(sys && sys.index === p.system, `${where}: step ${i} outside its system`);
+        }
+        if (s.type === 'fight' && !s.wave.rush) {
+          const w = s.wave, sys = g.systems[w.system];
+          for (const st of sys.stations) assert(dist(st, w) >= (st.waystation ? 7500 : 2500), `${where}: a fight by ${st.name}`);
+          for (const k of sys.packs) assert(dist(k, w) >= 2700, `${where}: a pack would join the fight`);
+        }
+        if (s.type === 'fight') assert(s.wave.tier >= 1 && s.wave.tier <= Jobs.TIERS[j.tier].cap + 1 && s.wave.ships.length >= 1, `${where}: tier ${s.wave.tier}`);
+        if (s.type === 'gas') for (const q of s.pockets) assert.strictEqual(g.nebulaAt(q.x, q.y), g.nebulae[s.nebula], `${where}: a pocket outside its nebula`);
+        if (s.type === 'bring') assert(Goods.type(s.kind) && !Goods.isSalvage(s.kind) && s.n >= 1, `${where}: ${s.kind}`);
+      });
+      if (j.handIn) assert.strictEqual(j.steps[j.steps.length - 1].points[0].station, j.handIn, `${where}: delivered where it's handed in`);
+      if (j.escort) assert(j.steps.some((s) => s.type === 'go'), `${where}: an escort goes somewhere`);
+    }
+  }
+});
+
+test('jobs: pay by tier and difficulty, loyalty to whom they help, and objectives the log can keep', () => {
+  const pay = { station: [], system: [], faction: [] };
+  for (const [seed, g] of galaxies) {
+    for (const j of boards.get(seed).list) {
+      const where = `seed ${seed}: ${j.id}`;
+      pay[j.tier].push(j.reward.credits);
+      assert(j.reward.credits >= 300 && j.reward.credits % 50 === 0, `${where}: ${j.reward.credits}`);
+      // A fight pays well over what its pirates would leave (their loot is the player's besides).
+      const ships = j.steps.filter((s) => s.type === 'fight').reduce((n, s) => n + s.wave.ships.length * s.wave.tier, 0);
+      assert(j.reward.credits >= 150 * ships, `${where}: ${j.reward.credits} for ${ships} ship-tiers`);
+      const L = j.reward.loyalty;
+      if (j.tier === 'station') assert.deepStrictEqual(L.map((l) => [l.keys, l.n]), [[[j.scope], 1]], where);
+      if (j.tier === 'faction') assert(L[0] && L[0].n === 1 && L[0].keys.every((k) => g.stations.find((st) => st.key === k).owner === j.scope), where);
+      if (j.tier === 'system') {
+        for (const l of L) for (const k of l.keys) {
+          const st = g.stations.find((x) => x.key === k);
+          assert(st.system === j.scope && st.owner === (l.n > 0 ? j.faction : j.against), `${where}: ${st.name}`);
+        }
+      }
+      // Each step a listed objective, in order; a step's lines come before it.
+      const listed = j.objectives.filter((o) => !o.hidden).map((o) => o.id);
+      assert.deepStrictEqual(listed, j.steps.map((_, i) => `s${i}`), where);
+      j.steps.forEach((s, i) => { if (s.say) assert.deepStrictEqual(j.byId[`s${i}`].after, [`m${i}`], where); });
+    }
+  }
+  const median = (l) => [...l].sort((a, b) => a - b)[l.length >> 1];
+  assert(median(pay.station) < median(pay.system) && median(pay.system) < median(pay.faction), `medians ${median(pay.station)} / ${median(pay.system)} / ${median(pay.faction)}`);
+  assert(median(pay.station) >= 600 && median(pay.faction) >= 6000, 'worth doing');
+  // The log keeps a job like the opening missions: accepted where, how many times, abandoned,
+  // and progress that can go down again (goods sold before they're handed in).
+  const B = boards.get(1), J = B.list.find((j) => j.steps.length === 1 && j.steps[0].type === 'bring');
+  const log = Missions.create(null, B.byId);
+  assert(log.accept(J.id, 'st1') && log.at(J.id) === 'st1' && log.attempt(J.id) === 1);
+  log.set(J.id, 's0', J.steps[0].n);
+  assert.strictEqual(log.status(J.id), 'ready');
+  log.set(J.id, 's0', 0);
+  assert.strictEqual(log.status(J.id), 'active', 'back to work');
+  const back = Missions.create(JSON.parse(JSON.stringify(log.save())), B.byId);
+  assert.deepStrictEqual(back.save(), log.save(), 'saved and read back');
+  assert.strictEqual(Missions.create(log.save()).status(J.id), 'offered', 'a job the galaxy no longer has is dropped');
+  assert(back.abandon(J.id) && back.status(J.id) === 'offered' && back.attempt(J.id) === 1 && !back.abandon(J.id));
+  assert(!back.abandon('repayment'), 'the opening missions can\'t be abandoned');
+  assert(back.accept(J.id, 'st2') && back.attempt(J.id) === 2 && back.count(J.id, 's0') === 0, 'taken again, from the start');
 });
 
 test('the first mission: a small asteroid field a short flight from the waystation, clear of everything else', () => {

@@ -1,6 +1,7 @@
-// Missions: jobs a station gives the player, offered and handed in on the station screen's
-// Missions tab (ui/station.js), carried out in flight (game/missions.js). There are three so far, all the
-// waystation's. Two pay off the player's debt after the introduction (story/intro.js): "Payment in
+// Missions: work a station gives the player, offered and handed in on the station screen's
+// Missions tab (ui/station.js), carried out in flight (game/missions.js). LIST holds the story's
+// own, all the waystation's; the galaxy's jobs, grown from the seed, are story/jobs.js's, and the
+// log below keeps both. There are three story missions so far. Two pay off the player's debt after the introduction (story/intro.js): "Payment in
 // kind", which brings their first squad member (rules/squad.js), then "The remaining balance", which
 // teaches mining and gas collecting and ends on a hostile android and the AI logic module it
 // carried. The third, "Gated community", is optional: the squad member unblocks the system's jump
@@ -22,12 +23,15 @@
 // Each mission is offered, then active once accepted, ready once every objective is done, and
 // done once handed in to its giver.
 //
-//   const log = Missions.create(saved?)    saved: what log.save() gave
+//   const log = Missions.create(saved?, jobs?)   saved: what log.save() gave; jobs: { [id]: job } (story/jobs.js)
 //   log.status(id)                         'offered' | 'active' | 'ready' | 'done'
-//   log.accept(id), log.complete(id)       offered -> active, ready -> done (false if not)
+//   log.accept(id, at?), log.complete(id)  offered -> active (at: the station key), ready -> done (false if not)
 //   log.finish(id)                         straight to done (a skipped opening, an old save)
+//   log.abandon(id)                        a job under way back to offered, its progress gone (not LIST's)
+//   log.at(id), log.attempt(id), log.ids() where it was accepted, how many times, every id with a state
 //   log.count(id, obj), log.done(id, obj)  progress on an objective, and whether it's met
-//   log.set(id, obj, n)                    progress made (only while active); true if it changed
+//   log.set(id, obj, n)                    progress made (while active or ready: ready once every
+//                                          objective is met, active again if one no longer is); true if it changed
 //   log.open(id, obj)                      its `after` objectives are done
 //   log.objectives(id)                     the listed ones (not hidden; secret ones once open):
 //                                          [{ id, label, need, count, done, open }]
@@ -223,44 +227,55 @@ const Missions = (() => {
   const STATUSES = ['offered', 'active', 'ready', 'done'];
   const need = (o) => o.need || 1;
 
-  function create(saved) {
-    const state = {}; // id -> { status, progress: { [objective id]: count } }
+  // saved: what log.save() gave; jobs: the galaxy's generated missions by id (story/jobs.js), which
+  // the log keeps as it keeps LIST's.
+  function create(saved, jobs = {}) {
+    const def = (id) => LIST[id] || jobs[id];
+    // id -> { status, progress: { [objective id]: count }, at?: the station key it was accepted at,
+    //   n?: how many times it has been accepted (a job's things in space are keyed by it) }
+    const state = {};
     if (saved && typeof saved === 'object') {
       for (const [id, s] of Object.entries(saved)) {
-        if (!LIST[id] || !s || !STATUSES.includes(s.status)) continue;
+        if (!def(id) || !s || !STATUSES.includes(s.status)) continue;
         const progress = {};
         for (const [o, n] of Object.entries(s.progress || {})) {
-          const obj = LIST[id].byId[o];
+          const obj = def(id).byId[o];
           if (obj && Number.isFinite(n) && n > 0) progress[o] = Math.min(need(obj), Math.floor(n));
         }
         state[id] = { status: s.status, progress };
+        if (typeof s.at === 'string') state[id].at = s.at;
+        if (Number.isInteger(s.n) && s.n > 0) state[id].n = s.n;
       }
     }
     const status = (id) => (state[id] ? state[id].status : 'offered');
     const count = (id, o) => (state[id] && state[id].progress[o]) || 0;
-    const done = (id, o) => status(id) === 'done' || count(id, o) >= need(LIST[id].byId[o]);
-    const open = (id, o) => (LIST[id].byId[o].after || []).every((a) => done(id, a));
+    const done = (id, o) => status(id) === 'done' || count(id, o) >= need(def(id).byId[o]);
+    const open = (id, o) => (def(id).byId[o].after || []).every((a) => done(id, a));
 
+    // Progress counts while a mission is under way, and may go down again (a job's goods sold
+    // before they're handed in): ready once every objective is met, back to active if one isn't.
     function set(id, o, n) {
-      const obj = LIST[id] && LIST[id].byId[o];
-      if (!obj || status(id) !== 'active') return false;
+      const obj = def(id) && def(id).byId[o];
+      if (!obj || !['active', 'ready'].includes(status(id))) return false;
       const v = clamp(Math.floor(n), 0, need(obj));
       if (v === count(id, o)) return false;
-      state[id].progress[o] = v;
-      if (LIST[id].objectives.every((x) => done(id, x.id))) state[id].status = 'ready';
+      if (v) state[id].progress[o] = v; else delete state[id].progress[o];
+      state[id].status = def(id).objectives.every((x) => done(id, x.id)) ? 'ready' : 'active';
       return true;
     }
 
     function objectives(id) {
-      return LIST[id].objectives.filter((o) => !o.hidden && (!o.secret || open(id, o.id)))
+      return def(id).objectives.filter((o) => !o.hidden && (!o.secret || open(id, o.id)))
         .map((o) => ({ id: o.id, label: o.label, need: need(o), count: count(id, o.id), done: done(id, o.id), open: open(id, o.id), percent: !!o.percent }));
     }
 
     return {
       status,
-      accept(id) {
-        if (!LIST[id] || status(id) !== 'offered') return false;
-        state[id] = { status: 'active', progress: {} };
+      // at: where it was accepted (a job is handed in there, unless it names another station).
+      accept(id, at) {
+        if (!def(id) || status(id) !== 'offered') return false;
+        state[id] = { status: 'active', progress: {}, n: ((state[id] && state[id].n) || 0) + 1 };
+        if (at) state[id].at = at;
         return true;
       },
       complete(id) {
@@ -269,10 +284,19 @@ const Missions = (() => {
         return true;
       },
       finish(id) {
-        if (!LIST[id]) return false;
-        state[id] = { status: 'done', progress: state[id] ? state[id].progress : {} };
+        if (!def(id)) return false;
+        state[id] = { ...state[id], status: 'done', progress: state[id] ? state[id].progress : {} };
         return true;
       },
+      // A job given up: offered again, its progress gone (the opening missions can't be).
+      abandon(id) {
+        if (!jobs[id] || !['active', 'ready'].includes(status(id))) return false;
+        state[id] = { status: 'offered', progress: {}, n: state[id].n };
+        return true;
+      },
+      at: (id) => (state[id] && state[id].at) || null,
+      attempt: (id) => (state[id] && state[id].n) || 0,
+      ids: () => Object.keys(state),
       count, done, open, set, objectives,
       current: (id) => objectives(id).find((o) => o.open && !o.done) || null,
       save: () => JSON.parse(JSON.stringify(state)),

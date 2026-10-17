@@ -5,9 +5,9 @@
 //
 // Layers, each importing only from those below it:
 //   main.js       this file
-//   game/         the flight view: state, input, missions, combat, squad, HUD, the frame loop
+//   game/         the flight view: state, input, missions and jobs, combat, squad, HUD, the frame loop
 //   ui/           the DOM panels and the map
-//   story/        the introduction and the missions' data
+//   story/        the introduction, the missions' data and the galaxy's jobs
 //   combat/       combat rules: round-based and real time
 //   flight/       things in space: entities, the scene, flying, map travel
 //   art/          procedural art in four styles
@@ -31,6 +31,7 @@ import { Recipes } from './rules/recipes.js';
 import { Research } from './rules/research.js';
 import { Clock } from './core/clock.js';
 import { Squad } from './rules/squad.js';
+import { Jobs } from './story/jobs.js';
 import { Missions } from './story/missions.js';
 import { Scene } from './flight/scene.js';
 import { Travel } from './flight/travel.js';
@@ -51,6 +52,7 @@ import * as lab from './game/lab.js';
 import * as industry from './game/industry.js';
 import * as intro from './game/intro.js';
 import * as missions from './game/missions.js';
+import * as jobs from './game/jobs.js';
 import * as docking from './game/docking.js';
 import * as squad from './game/squad.js';
 import * as mining from './game/mining.js';
@@ -65,7 +67,7 @@ import * as hud from './game/hud.js';
 import * as loop from './game/loop.js';
 import * as warp from './game/warp.js';
 
-const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, jobs, docking, squad, mining, travel,
   selection, combat, input, update, starfield, drawWorld, hud, loop, warp];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
@@ -74,7 +76,7 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Knowledge, Loadout,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Jobs, Knowledge, Loadout,
   Logic, Mining, Missions, Recipes, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {

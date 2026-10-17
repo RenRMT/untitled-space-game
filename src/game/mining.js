@@ -97,7 +97,7 @@ export function finishMining() {
     saveCargo();
     return;
   }
-  missionCollected('mine');
+  missionCollected('mine', a);
   const found = Mining.yieldOf(world.galaxy.seed, a);
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
