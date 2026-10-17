@@ -6,13 +6,14 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { CombatCore } from '../combat/combat-core.js';
 import { Flight } from '../flight/flight.js';
 import { Abilities } from '../rules/abilities.js';
+import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode, useAbility } from './combat.js';
 import { escorts } from './jobs.js';
 import { escorting, mission, workSpot } from './missions.js';
-import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
+import { SHIP, fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
 import { world } from './world.js';
 
 //
@@ -228,6 +229,44 @@ export function repairSquad() {
   }
 }
 
+// Trying a program out while docked: a few fights set up on paper, and which instruction the member
+// would follow in each (the first that holds, as in a real fight: Logic.decide). The situations
+// differ in what the conditions read: hull and shields, who targets whom, how many, how far.
+//   { name, setup: { self, leader, enemies: [{ hull, shield, at, d, cls }], allies: [{ hull, targeted }], leaderTarget } }
+//   hull, shield: shares of the maximum; at: whom an enemy shoots ('leader' | 'self' | 'ally'); d: its
+//   distance from the member; leaderTarget: the index of the enemy the leader fights
+export const TEST_FIGHTS = [
+  { name: 'A lone pirate attacks you', setup: { enemies: [{ at: 'leader', d: 700 }], leaderTarget: 0 } },
+  { name: 'Two pirates; one badly hurt', setup: { enemies: [{ at: 'leader', d: 800 }, { hull: 0.2, at: 'self', d: 450 }], leaderTarget: 0 } },
+  { name: 'Your shields are down', setup: { leader: { hull: 0.45, shield: 0 }, enemies: [{ at: 'leader', d: 600 }, { at: 'leader', d: 900 }], leaderTarget: 1 } },
+  { name: 'This wingman is badly hurt', setup: { self: { hull: 0.25, shield: 0 }, enemies: [{ at: 'self', d: 350 }], leaderTarget: 0 } },
+  { name: 'Another wingman under fire', setup: { allies: [{ hull: 0.4, targeted: true }], enemies: [{ at: 'ally', d: 650 }, { at: 'leader', d: 1000 }], leaderTarget: 1 } },
+  { name: 'Three pirates, a freighter among them', setup: { enemies: [{ at: 'leader', d: 500 }, { at: 'self', d: 700 }, { cls: 'freighter', at: 'leader', d: 1100 }], leaderTarget: 2 } },
+];
+export function testProgram(m) {
+  const fighter = Loadout.stats(Loadout.npc('fighter', 1)), freighter = Loadout.stats(Loadout.npc('freighter', 1));
+  const own = Squad.stats(m);
+  const make = (id, name, stats, o = {}, pos = [0, 0]) => ({
+    id, name, stats, hull: stats.hull * (o.hull ?? 1), shield: (stats.shield || 0) * (o.shield ?? 1), x: pos[0], y: pos[1],
+  });
+  return TEST_FIGHTS.map(({ name, setup: f }) => {
+    const self = make(m.id, m.name, own, f.self);
+    const leader = make('player', 'you', SHIP, f.leader, [-90, 40]);
+    const allies = (f.allies || []).map((a, i) => make(`ally${i}`, 'another wingman', own, a, [-60, -90]));
+    const enemies = f.enemies.map((e, i) => make(`e${i}`, `${e.cls === 'freighter' ? 'Freighter' : 'Fighter'} ${'ABC'[i]}`, e.cls === 'freighter' ? freighter : fighter, e, [e.d, i * 60]));
+    const at = (e, i) => ({ leader: 'player', self: m.id, ally: allies[0] ? allies[0].id : 'player' })[f.enemies[i].at] || 'player';
+    const ctx = {
+      self, leader, enemies, allies, leaderTarget: enemies[f.leaderTarget] ? enemies[f.leaderTarget].id : null,
+      dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
+      targetOf: (e) => at(e, enemies.indexOf(e)),
+      ready: (skill, t) => { const ab = Abilities.ABILITIES[skill]; return !!ab && (cargo.kit[skill] || 0) > 0 && enemies.includes(t) === (ab.on === 'enemy'); },
+    };
+    const { line, intent } = Logic.decide(m.program, ctx, logicLines());
+    const who = [self, leader, ...allies, ...enemies].find((c) => c.id === (intent.target || intent.ward));
+    return { name, line, act: intent.type, on: who ? (who === self ? 'itself' : who.name) : '' };
+  });
+}
+
 // Squad programs as the station menu sees them: the members, what research has unlocked, how
 // many lines run, and editing a member's lines (only lines that check go in).
 export const programs = {
@@ -238,6 +277,8 @@ export const programs = {
   runs: (id) => lineRuns.get(id) || [],
   // The last fight, step by step (timelines above): [] if it hasn't fought since the program changed.
   timeline: (id) => timelines.get(id) || [],
+  // The program tried in TEST_FIGHTS: [{ name, line (-1: none applies), act, on }].
+  test: (id) => { const m = memberOf(id); return m ? testProgram(m) : []; },
   set(id, i, line) {
     const m = memberOf(id);
     if (!m || !Logic.check(line, logicKnown()).ok || !Squad.setLine(m, i, Logic.copy(line))) return false;

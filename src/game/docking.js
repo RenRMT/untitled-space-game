@@ -9,7 +9,7 @@ import { Interactions } from '../flight/interactions.js';
 import { Economy } from '../rules/economy.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
-import { cargo, gatesOnline, hold, opening, repairs, saveCargo } from './cargo.js';
+import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
 import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
@@ -79,6 +79,7 @@ export function dock(station) {
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
     tab: opening() ? 'missions' : null, // the opening missions are all there is to do at first; else the last tab used
+    news: opening() ? [] : news.splice(0), // what finished since the last dock, shown once
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });

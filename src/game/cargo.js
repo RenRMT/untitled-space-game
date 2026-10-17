@@ -134,12 +134,21 @@ export function loadCargo(galaxy) {
   } catch (e) { /* a damaged save: keep what was read before the error */ }
   // Research that finished while the game was closed (before the ship: refits among it), then what
   // industry made meanwhile (after research: its bonuses count from when they finished).
-  for (const id of Research.settle(cargo.lab, Clock.now())) notify(buildDone(id), 4);
+  // One notice for all of it; the list waits for the next dock.
+  news.length = 0;
+  for (const id of Research.settle(cargo.lab, Clock.now())) addNews(buildDone(id), 'research');
   const { log } = Industry.settle(cargo.industry, Clock.now(), Industry.env(cargo.lab));
-  for (const line of Industry.summary(cargo.industry, log)) notify(`Made while away · ${line}`, 4);
+  for (const line of Industry.summary(cargo.industry, log)) addNews(`Made while away · ${line}`, 'industry');
+  if (news.length) notify(`${news.length === 1 ? news[0].text : `${news.length} things finished while you were away`} · dock to see`, 4, { tone: 'good' });
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
 }
+// What finished since the player last docked (research, production), shown together on the next
+// dock (the station's "Since you last docked" sheet): [{ text, tab }]. Not saved: on load, what
+// finished while the game was closed is put here again (loadCargo).
+export const news = [];
+export function addNews(text, tab) { if (news.length < 30 && !news.some((n) => n.text === text)) news.push({ text, tab }); }
+
 // The notice for a finished package.
 export const buildDone = (id) => (Research.PACKAGES[id].kind === 'logic' ? `Build ok · import ${Research.title(id)}` : `Research done · ${Research.title(id)}`);
 // How a save from an older version of the game becomes the current form: step i takes a save of

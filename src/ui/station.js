@@ -73,6 +73,7 @@ const StationMenu = (() => {
   let openNode = null; // the research package whose sheet is open, if any
   let openOrder = null; // the production order sheet open (ui/industry-view.js sheet(open))
   let openYard = false; // the shipyard's sheet is open
+  let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
@@ -821,6 +822,23 @@ const StationMenu = (() => {
       h('div', { class: 'st-steps', role: 'list', 'aria-label': `${m.name}'s last fight` }, rows)]);
   }
 
+  // Trying the program out (game/squad.js TEST_FIGHTS): each fight on paper and what the member
+  // would do in it, the instruction a tap away. Folded under the program.
+  const ACT_WORD = { attack: 'Attacks', guard: 'Guards', retreat: 'Retreats', use: 'Uses its kit on', follow: 'Follows the leader' };
+  function testBench(m) {
+    if (!ctx.squad.test || !m.program.length) return null;
+    const rows = ctx.squad.test(m.id).map((r) => {
+      const what = r.line >= 0 ? `${r.line + 1}. ${ACT_WORD[r.act] || r.act}${r.on && r.act !== 'retreat' ? ` ${r.on}` : ''}` : 'No instruction applies: follows the leader';
+      const parts = [h('span', { class: 'name' }, r.name), h('span', { class: `res${r.line < 0 ? ' idle' : ''}` }, what)];
+      return r.line >= 0
+        ? h('button', { class: 'st-test', type: 'button', role: 'listitem', onclick: () => showLine(m.id, r.line), 'aria-label': `${r.name}: ${what}. Edit instruction ${r.line + 1}` }, parts)
+        : h('div', { class: 'st-test', role: 'listitem' }, parts);
+    });
+    return fold(`test-${m.id}`, 'Try it out', [
+      explain('test', 'Fights set up on paper, and what this wingman would do in each with its program as it is.'),
+      h('div', { class: 'st-steps', role: 'list', 'aria-label': `${m.name}'s program, tried out` }, rows)]);
+  }
+
   // The squad: each member, its status, and its program.
   function renderSquad() {
     const members = ctx.squad ? ctx.squad.members : [];
@@ -837,7 +855,7 @@ const StationMenu = (() => {
           h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND' }),
             h('span', { class: 'main' }, h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), Kit.tag(...status))),
             Kit.button('Ship', () => { pick('ship'); showShip(m.id); }, { kind: 'ghost', aria: `${m.name}'s ship and gear` })),
-          programBlock(m), fightLog(m));
+          programBlock(m), testBench(m), fightLog(m));
       }) : h('p', { class: 'ui-empty' }, 'No squad members yet.'),
     ];
   }
@@ -941,15 +959,15 @@ const StationMenu = (() => {
 
   function sheetOptions() {
     return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode)
-      : openOrder ? industryView.sheet(openOrder) : openYard && ctx.shipyard ? yardSheet() : null;
+      : openOrder ? industryView.sheet(openOrder) : openYard && ctx.shipyard ? yardSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = null; openYard = false; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = openNews = null; openYard = false; refresh(); } });
   }
   function closeSheet() {
-    openSlot = openMission = openLine = openNode = openOrder = null;
+    openSlot = openMission = openLine = openNode = openOrder = openNews = null;
     openYard = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
@@ -957,6 +975,18 @@ const StationMenu = (() => {
   function showMission(id) { closeSheet(); openMission = id; briefAll = false; refresh(); openSheet(); }
   function showNode(id) { closeSheet(); openNode = id; refresh(); openSheet(); }
   function showOrder(open) { closeSheet(); openOrder = { ...open }; refresh(); openSheet(); }
+  // Since you last docked: research done and goods made, in one sheet on docking, each a way to
+  // the screen it concerns.
+  function newsSheet() {
+    const go = (name) => () => { closeSheet(); pick(name); };
+    return {
+      title: 'Since you last docked', sub: `${openNews.length} finished`, code: 'IND',
+      body: h('div', { class: 'ui-list' }, openNews.map((n) => h('button', { class: 'ui-card compact', type: 'button', onclick: go(n.tab) },
+        h('span', { class: 'main' }, h('span', { class: 'title' }, n.text)),
+        h('span', { class: 'go', 'aria-hidden': 'true' }, '›')))),
+      foot: Kit.button('Done', () => closeSheet(), { wide: true, kind: 'ghost' }),
+    };
+  }
   function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
@@ -1084,6 +1114,7 @@ const StationMenu = (() => {
       body.scrollTop = 0;
       refresh();
       ((locks().launch && tabs.find((t) => t.dataset.tab === tab)) || el('st-launch')).focus({ preventScroll: true });
+      if (options.news && options.news.length && !isLocked(tab)) { openNews = options.news; openSheet(); }
       clearInterval(ticker);
       ticker = setInterval(tick, 1000);
       ticker.unref?.(); // (in Node, the tests: don't keep the process alive)

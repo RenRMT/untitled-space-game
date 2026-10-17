@@ -279,6 +279,13 @@
   .st-step .on { color: var(--hostile); }
   .st-step.bad { color: var(--hostile); }
   .st-member .ui-btn { min-height: 40px; }
+  .st-test { display: flex; flex-direction: column; gap: 2px; min-height: 44px; box-sizing: border-box; padding: 8px 10px; background: none; border: 0;
+    border-top: 1px solid var(--line-soft); color: var(--hud); font: 14px/1.3 var(--sans); text-align: left; }
+  .st-test:first-child { border-top: 0; }
+  button.st-test { cursor: pointer; } button.st-test:hover { background: var(--cyan-tint); }
+  .st-test .name { font-size: 13px; color: var(--dim); }
+  .st-test .res { color: var(--bright); }
+  .st-test .res.idle { color: var(--dim); }
   .st-title .aside { font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }
   .st-sec { display: flex; flex-direction: column; gap: 8px; }
   .st-gap { margin-top: 6px; }
