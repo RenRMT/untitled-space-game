@@ -11,10 +11,16 @@
 //   inside the rect) instead of the whole rect, so it can follow a shape like a solar system's
 //   nebula (world/solar-system.js). The density field is anchored in world space and drawn in cached
 //   chunks, so any size works, and without blobs resizing the rect leaves its interior unchanged.
-//   ArtBodies.drawNebula(ctx, nebula, style, { view: [x0, y0, x1, y1], texel, force })
+//   ArtBodies.drawNebula(ctx, nebula, style, { view: [x0, y0, x1, y1], texel, force, layer })
 //   ctx must map world units; `view` culls to the visible world rect (without it the whole nebula
 //   is drawn). It's drawn in tiles built once in world units and drawn at any zoom (see Tiles
-//   below); a tile that isn't built yet is left out while the frame's budget is spent.
+//   below); a tile that isn't built yet is left out while the frame's budget is spent. layer: for
+//   a view that moves a little each frame (the flight view), the tiles are drawn into a cached
+//   layer and the frame draws that (see Layer below).
+// Gas pocket: { type, seed, r }: a knot of dense gas r world units across in a nebula of that type,
+//   drawn like a small, bright nebula in the same style (bands, isolines, facets or dither): an
+//   outer cloud and a brighter core, turning slowly against each other and breathing.
+//   ArtBodies.drawGas(ctx, gas, style, { x, y, t, texel, force })
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
 // ES module (`ArtBodies`); needs a browser.
 
@@ -335,7 +341,7 @@ const ArtBodies = (() => {
   // used to be chunks rasterised per pixel at the screen's scale: slow to build, rebuilt at every
   // zoom step, and in low-poly so padded that the cache couldn't hold them.)
   const TILE = 8; // lattice cells per tile side
-  const RES_WU = 2; // world units per raster pixel (pixel art: its texel)
+  const RES_WU = 3; // world units per raster pixel (pixel art: its texel)
 
   // Density and hue on the tile's lattice points, with a ring of one more cell all round.
   function tileField(neb, G, ti, tj) {
@@ -448,9 +454,8 @@ const ArtBodies = (() => {
   }
 
   // The tiles in view are drawn raster by raster, then their vector parts all at once: the line
-  // style's isolines as one path per density band, low-poly's facets as one path per colour. The
-  // merged paths are kept until the tiles in view change, so a frame strokes 4 paths (line) or a
-  // few dozen (low-poly), however many tiles it covers.
+  // style's isolines as one path per density band, low-poly's facets as one path per colour, so a
+  // draw strokes 4 paths (line) or a few dozen (low-poly), however many tiles it covers.
   function drawRaster(ctx, t, x0, y0, W) {
     const N = t.canvas.width;
     ctx.drawImage(t.canvas, 1, 1, N - 2, N - 2, x0, y0, W, W);
@@ -500,49 +505,298 @@ const ArtBodies = (() => {
     return base;
   }
 
-  function drawNebula(ctx, neb, style, o = {}) {
+  const tileInside = (neb, W, ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+  // Low-poly facets reach past their tile's right and bottom edges (a cell belongs to the tile
+  // holding its origin), so the tiles left of and above a rect draw into it too.
+  const overhang = (style) => (style === 'lowpoly' ? 1 : 0);
+  // The tiles covering the world rect v (clipped to the cloud), drawn into ctx (which maps world
+  // units). Those left out while the frame's budget is spent go in `missing` (a Map, if given),
+  // by key: { build, ti, tj } for a later frame.
+  function drawTiles(ctx, neb, style, v, force, missing) {
     const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb);
-    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b), texel = o.texel || conf().texel;
-    const v = o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h];
+    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b), texel = v.texel || conf().texel;
     const vx0 = Math.max(v[0], neb.x), vy0 = Math.max(v[1], neb.y), vx1 = Math.min(v[2], neb.x + neb.w), vy1 = Math.min(v[3], neb.y + neb.h);
     if (vx0 >= vx1 || vy0 >= vy1) return;
     ctx.save();
     const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat, W = TILE * G.g;
     const base = tileBase(neb, G, style, texel);
-    const ti0 = Math.floor(vx0 / W), ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W), tj1 = Math.floor((vy1 - 1e-6) / W);
-    const inside = (ti, tj) => (ti + 1) * W > neb.x && ti * W < neb.x + neb.w && (tj + 1) * W > neb.y && tj * W < neb.y + neb.h;
+    const over = overhang(style);
+    const ti0 = Math.floor(vx0 / W) - over, ti1 = Math.floor((vx1 - 1e-6) / W), tj0 = Math.floor(vy0 / W) - over, tj1 = Math.floor((vy1 - 1e-6) / W);
     const tiles = [];
-    let complete = true;
     ctx.imageSmoothingEnabled = false;
     for (let tj = tj0; tj <= tj1; tj++) for (let ti = ti0; ti <= ti1; ti++) {
-      const key = `${base}|${ti},${tj}`;
-      if (!o.force && budget.over && !cache.has(key)) { complete = false; continue; } // built in a later frame
-      const t = cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+      if (!tileInside(neb, W, ti, tj)) continue;
+      const key = `${base}|${ti},${tj}`, build = () => make(neb, G, T, ti, tj);
+      if (!force && budget.over && !cache.has(key)) { if (missing) missing.set(key, { build, ti, tj }); continue; } // built in a later frame
+      const t = cache.get(key, build, { force: true });
       if (t.canvas) drawRaster(ctx, t, ti * W, tj * W, W);
       if (t.paths || t.facets) tiles.push(t);
     }
-    if (tiles.length) {
-      // Kept while the same tiles are in view (and none was rebuilt, or still to be built).
-      const range = `${base}|${ti0},${tj0},${ti1},${tj1}`, m = neb._merged;
-      const same = complete && m && m.range === range && m.tiles.length === tiles.length && m.tiles.every((t, i) => t === tiles[i]);
-      const vectors = same ? m.vectors : mergeVectors(tiles);
-      if (!same && complete) neb._merged = { range, tiles, vectors };
-      drawVectors(ctx, vectors, ppu);
+    if (tiles.length) drawVectors(ctx, mergeVectors(tiles), ppu);
+    ctx.restore();
+  }
+  // Build ahead: the ring of tiles just outside the world rect v, while the frame has budget to spare.
+  function buildAhead(neb, style, v, texel) {
+    const T = NEBULAE[neb.type] || NEBULAE.emission, G = nebGrid(neb), W = TILE * G.g;
+    const make = style === 'pixel' ? (...a) => tilePixel(...a, texel) : TILE_MAKERS[style] || tileFlat;
+    const base = tileBase(neb, G, style, texel);
+    const ti0 = Math.floor(v[0] / W) - 1, ti1 = Math.floor(v[2] / W) + 1, tj0 = Math.floor(v[1] / W) - 1, tj1 = Math.floor(v[3] / W) + 1;
+    for (let tj = tj0; tj <= tj1 && !budget.over; tj++) for (let ti = ti0; ti <= ti1 && !budget.over; ti++) {
+      if (ti > ti0 && ti < ti1 && tj > tj0 && tj < tj1) continue; // only the ring
+      const key = `${base}|${ti},${tj}`;
+      if (tileInside(neb, W, ti, tj) && !cache.has(key)) cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
     }
-    // Build ahead: the ring of tiles just outside the view, while the frame has budget to spare.
-    if (!o.force) {
-      for (let tj = tj0 - 1; tj <= tj1 + 1 && !budget.over; tj++) for (let ti = ti0 - 1; ti <= ti1 + 1 && !budget.over; ti++) {
-        const key = `${base}|${ti},${tj}`;
-        if (inside(ti, tj) && !cache.has(key)) cache.get(key, () => make(neb, G, T, ti, tj), { force: true });
+  }
+
+  // ---------- Layer ----------
+  // In flight the view moves a little each frame, and drawing every tile in it each frame (and
+  // stroking the line style's isolines, filling low-poly's facets) costs far more than the cloud,
+  // which barely changes on screen, is worth. So with `layer`, the tiles are drawn into a canvas at
+  // the screen's scale covering the view and a margin round it, and a frame only copies the part
+  // in view. The canvas wraps round (a world point's pixel is its position modulo the canvas
+  // size), so when the view leaves it, it moves to centre on the view by drawing just the strips
+  // newly uncovered over the ones left behind; nothing already drawn is copied. Tiles it lacked
+  // (waiting for the build budget) are built in the frames after, each drawing its part of the
+  // layer as it arrives; while it lacks none, the tiles just outside it are built ahead. It's
+  // drawn afresh when the scale, style, texel or view size changes. One layer per cloud, for the last two clouds drawn;
+  // positions in its own pixels (world units × its scale), whole ones, so drawing it never
+  // resamples between its pieces. (Drawing the tiles every frame cost a nebula filling the screen
+  // a third to half of the frame rate on a phone.)
+  const LAYER_MARGIN = 0.25; // of the view's size, each side
+  const LAYER_MAX_PX = 6e6; // the layer's pixels at most (a finer screen draws it a little coarser)
+  let layerGen = 0; // bumped by clearCache, so no layer outlives the tiles it was drawn from
+  const layered = []; // the clouds holding a layer, the most recently made last
+  const mod = (a, n) => ((a % n) + n) % n;
+  // The pieces of the layer-pixel rect [X0, X1) × [Y0, Y1) (no larger than the canvas) where it
+  // wraps: fn(canvas x, canvas y, width, height, X, Y) for each.
+  function wrapped(L, X0, Y0, X1, Y1, fn) {
+    for (let X = X0; X < X1;) {
+      const cx = mod(X, L.w), pw = Math.min(X1 - X, L.w - cx);
+      for (let Y = Y0; Y < Y1;) {
+        const cy = mod(Y, L.h), ph = Math.min(Y1 - Y, L.h - cy);
+        fn(cx, cy, pw, ph, X, Y);
+        Y += ph;
       }
+      X += pw;
+    }
+  }
+  // Draw the tiles in a layer-pixel rect over what the layer held there.
+  function fillLayer(L, neb, X0, Y0, X1, Y1) {
+    if (X1 <= X0 || Y1 <= Y0) return;
+    const c = L.canvas.getContext('2d'), s = L.s;
+    wrapped(L, X0, Y0, X1, Y1, (cx, cy, pw, ph, X, Y) => {
+      c.save();
+      c.setTransform(1, 0, 0, 1, 0, 0);
+      c.clearRect(cx, cy, pw, ph);
+      c.beginPath();
+      c.rect(cx, cy, pw, ph);
+      c.clip();
+      c.setTransform(s, 0, 0, s, cx - X, cy - Y);
+      drawTiles(c, neb, L.style, Object.assign([X / s, Y / s, (X + pw) / s, (Y + ph) / s], { texel: L.texel }), false, L.missing);
+      c.restore();
+    });
+  }
+  function drawLayered(ctx, neb, style, view, texel) {
+    const mt = ctx.getTransform(), ppu = Math.hypot(mt.a, mt.b);
+    const seen = [Math.max(view[0], neb.x), Math.max(view[1], neb.y), Math.min(view[2], neb.x + neb.w), Math.min(view[3], neb.y + neb.h)];
+    if (seen[0] >= seen[2] || seen[1] >= seen[3]) return;
+    const vw = view[2] - view[0], vh = view[3] - view[1], mx = vw * LAYER_MARGIN, my = vh * LAYER_MARGIN;
+    let L = neb._layer;
+    if (!L || L.gen !== layerGen || L.ppu !== ppu || L.style !== style || L.texel !== texel || Math.abs(L.vw - vw) > 1 || Math.abs(L.vh - vh) > 1) { // (the view's size, give or take rounding)
+      const s = Math.min(ppu, Math.sqrt(LAYER_MAX_PX / ((vw + 2 * mx) * (vh + 2 * my)))); // layer px per world unit
+      const w = Math.ceil((vw + 2 * mx) * s), h = Math.ceil((vh + 2 * my) * s);
+      const cv = L && L.canvas.width === w && L.canvas.height === h ? L.canvas : canvas(w, h);
+      L = neb._layer = { gen: layerGen, ppu, style, texel, vw, vh, s, w, h, canvas: cv, X: 0, Y: 0, missing: new Map(), fresh: true };
+      if (layered.includes(neb)) layered.splice(layered.indexOf(neb), 1);
+      layered.push(neb);
+      while (layered.length > 2) delete layered.shift()._layer;
+    }
+    const s = L.s;
+    // Where the layer should be: centred on the view, in its pixels.
+    const X = Math.round((view[0] - mx) * s), Y = Math.round((view[1] - my) * s);
+    const covers = !L.fresh && view[0] * s >= L.X && view[1] * s >= L.Y && view[2] * s <= L.X + L.w && view[3] * s <= L.Y + L.h;
+    if (L.fresh || !covers) {
+      const dx = X - L.X, dy = Y - L.Y;
+      if (L.fresh || Math.abs(dx) >= L.w || Math.abs(dy) >= L.h) {
+        L.missing.clear();
+        fillLayer(L, neb, X, Y, X + L.w, Y + L.h);
+      } else {
+        // The columns newly uncovered, full height, then the rows newly uncovered between them.
+        if (dx > 0) fillLayer(L, neb, L.X + L.w, Y, X + L.w, Y + L.h);
+        else fillLayer(L, neb, X, Y, L.X, Y + L.h);
+        const cx0 = Math.max(X, L.X), cx1 = Math.min(X, L.X) + L.w;
+        if (dy > 0) fillLayer(L, neb, cx0, L.Y + L.h, cx1, Y + L.h);
+        else fillLayer(L, neb, cx0, Y, cx1, L.Y);
+      }
+      L.X = X;
+      L.Y = Y;
+      L.fresh = false;
+    }
+    // Build what it lacks, each drawing its part of the layer (with what overhangs from it).
+    const W = TILE * nebGrid(neb).g, over = overhang(style);
+    for (const [key, m] of L.missing) {
+      if (budget.over) break;
+      L.missing.delete(key);
+      if (!cache.has(key)) cache.get(key, m.build, { force: true });
+      fillLayer(L, neb, Math.max(L.X, Math.floor(m.ti * W * s)), Math.max(L.Y, Math.floor(m.tj * W * s)),
+        Math.min(L.X + L.w, Math.ceil((m.ti + 1 + over) * W * s)), Math.min(L.Y + L.h, Math.ceil((m.tj + 1 + over) * W * s)));
+    }
+    if (!L.missing.size) buildAhead(neb, style, [L.X / s, L.Y / s, (L.X + L.w) / s, (L.Y + L.h) / s], texel);
+    // Only the part in view.
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    const X0 = Math.max(L.X, Math.floor(seen[0] * s)), Y0 = Math.max(L.Y, Math.floor(seen[1] * s));
+    const X1 = Math.min(L.X + L.w, Math.ceil(seen[2] * s)), Y1 = Math.min(L.Y + L.h, Math.ceil(seen[3] * s));
+    wrapped(L, X0, Y0, X1, Y1, (cx, cy, pw, ph, px, py) => ctx.drawImage(L.canvas, cx, cy, pw, ph, px / s, py / s, pw / s, ph / s));
+    ctx.restore();
+  }
+
+  function drawNebula(ctx, neb, style, o = {}) {
+    const texel = o.texel || conf().texel;
+    if (o.layer && o.view && !o.force) { drawLayered(ctx, neb, style, o.view, texel); return; }
+    const v = Object.assign([...(o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h])], { texel });
+    drawTiles(ctx, neb, style, v, o.force);
+    if (!o.force) buildAhead(neb, style, v, texel);
+  }
+
+  // ---------- Gas pockets ----------
+  // A pocket's density is a few soft puffs, broken up by noise, sampled on a lattice over the
+  // sprite and banded like a nebula's, but brighter: an outer layer reaching the middle bands and
+  // a core reaching the top one. Each layer is a sprite of its own, so they can turn apart.
+  const GAS_EXT = 1.25; // the sprite's half-width, in pocket radii
+  const GAS_N = 36; // lattice cells across the sprite
+  function gasField(gas, layer) {
+    const r = mulberry32((gas.seed || 1) + (layer === 'core' ? 7919 : 0)), S = (gas.seed || 1) % 9973 + (layer === 'core' ? 31 : 0);
+    const puffs = layer === 'core'
+      ? [[0, 0, 0.3, 0.9], ...Array.from({ length: 4 }, () => { const a = r() * TAU, d = 0.12 + r() * 0.2; return [Math.cos(a) * d, Math.sin(a) * d, 0.14 + r() * 0.1, 0.45 + r() * 0.3]; })]
+      : Array.from({ length: 6 + Math.floor(r() * 3) }, (_, i) => i).map((i, _, all) => {
+        const a = (i / all.length) * TAU + r() * 0.8, d = 0.2 + r() * 0.35;
+        return [Math.cos(a) * d, Math.sin(a) * d, 0.3 + r() * 0.22, 0.45 + r() * 0.2];
+      });
+    const n = GAS_N + 1, d = new Float32Array(n * n), m = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x0 = (i / GAS_N * 2 - 1) * GAS_EXT, y0 = (j / GAS_N * 2 - 1) * GAS_EXT; // in pocket radii
+      // Domain-warped, so the puffs curl and fray instead of staying round.
+      const x = x0 + (fbm(x0 * 1.3 + 1.7, y0 * 1.3 + 5.1, 1.5, S + 1) - 0.5) * 0.7, y = y0 + (fbm(x0 * 1.3 + 8.3, y0 * 1.3 + 2.9, 2.5, S + 2) - 0.5) * 0.7;
+      let v = 0;
+      for (const [px, py, pr, pa] of puffs) v += pa * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (pr * pr));
+      const w = fbm(x * 2.4 + 4.1, y * 2.4 + 2.3, 0.5, S);
+      v *= 0.35 + 1.3 * w;
+      d[j * n + i] = clamp(v * (layer === 'core' ? 0.95 : 0.62), 0, 1) * smooth(0, 1, (GAS_EXT - Math.hypot(x0, y0)) * 3);
+      m[j * n + i] = fbm(x * 0.9 + 9, y * 0.9 + 9, 3.5, S + 5);
+    }
+    return { n, d, m };
+  }
+  // The field at (fx, fy) in lattice cells, bilinear.
+  function gasAt(F, A, fx, fy) {
+    const i = Math.min(F.n - 2, Math.max(0, Math.floor(fx))), j = Math.min(F.n - 2, Math.max(0, Math.floor(fy))), tx = fx - i, ty = fy - j, k = j * F.n + i;
+    return lerp(lerp(A[k], A[k + 1], tx), lerp(A[k + F.n], A[k + F.n + 1], tx), ty);
+  }
+  // The bands as a raster N px across (pixel art: dithered); colour(lv, hue) -> [r, g, b, a].
+  function gasRaster(F, N, colour, dither) {
+    const cv = canvas(N, N), c = cv.getContext('2d'), img = c.createImageData(N, N), D = img.data;
+    for (let py = 0; py < N; py++) for (let qx = 0; qx < N; qx++) {
+      const fx = ((qx + 0.5) / N) * GAS_N, fy = ((py + 0.5) / N) * GAS_N, dd = gasAt(F, F.d, fx, fy);
+      const lv = band(dither ? dd + (BAYER[py & 3][qx & 3] - 0.5) * 0.12 : dd);
+      if (lv < 0) continue;
+      const col = colour(lv, Math.min(3, Math.floor(gasAt(F, F.m, fx, fy) * 4))), o = (py * N + qx) * 4;
+      D[o] = col[0]; D[o + 1] = col[1]; D[o + 2] = col[2]; D[o + 3] = col[3];
+    }
+    c.putImageData(img, 0, 0);
+    return cv;
+  }
+  // Flat and pixel: the bands in the type's colours, a little denser than a nebula's.
+  function gasBands(F, T, N, dither) {
+    const A = ALPHA[T.dark ? 'dark' : 'normal'], tab = nebTable(T).map((row, lv) => row.map((hx) => [...U.hexToRgb(hx), Math.round(Math.min(1, A[lv] * 1.15) * 255)]));
+    return gasRaster(F, N, (lv, q) => tab[lv][q], dither);
+  }
+  // Line: a faint fill and the band edges as isolines, on a canvas N px across.
+  function gasLine(F, T, N) {
+    const lc = U.hexToRgb(T.line), fill = [0.05, 0.09, 0.13, 0.18].map((al) => [...lc, Math.round(al * 255)]);
+    const cv = gasRaster(F, N, (lv) => fill[lv], false), c = cv.getContext('2d');
+    const g = N / GAS_N;
+    c.lineCap = c.lineJoin = 'round';
+    LEVELS.forEach((L, li) => {
+      c.beginPath();
+      for (let jj = 0; jj < GAS_N; jj++) for (let ii = 0; ii < GAS_N; ii++) {
+        const k = jj * F.n + ii, a = F.d[k], b = F.d[k + 1], cc = F.d[k + F.n + 1], d = F.d[k + F.n];
+        const x = ii * g, y = jj * g;
+        const at = (va, vb, ax, ay, bx, by) => { if ((va >= L) === (vb >= L)) return null; const t = (L - va) / (vb - va); return [lerp(ax, bx, t), lerp(ay, by, t)]; };
+        const e = [at(a, b, x, y, x + g, y), at(b, cc, x + g, y, x + g, y + g), at(d, cc, x, y + g, x + g, y + g), at(a, d, x, y, x, y + g)].filter(Boolean);
+        if (e.length >= 2) { c.moveTo(e[0][0], e[0][1]); c.lineTo(e[1][0], e[1][1]); }
+        if (e.length === 4) { c.moveTo(e[2][0], e[2][1]); c.lineTo(e[3][0], e[3][1]); }
+      }
+      c.strokeStyle = U.mix(conf().bg, T.line, [0.35, 0.55, 0.8, 1][li]);
+      c.lineWidth = Math.max(1, N / 220) * [0.7, 0.8, 0.9, 1][li];
+      c.stroke();
+    });
+    return cv;
+  }
+  // Low-poly: a jittered lattice of translucent facets, one path per colour so they don't seam.
+  function gasLow(F, T, N, seed) {
+    const cv = canvas(N, N), c = cv.getContext('2d'), M = 12, cell = N / M, A = ALPHA[T.dark ? 'dark' : 'normal'], tab = nebTable(T);
+    const V = [];
+    for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) {
+      const edge = i === 0 || j === 0 || i === M || j === M;
+      const x = (i + (edge ? 0 : (hash3(i, j, 1, seed) - 0.5) * 0.7)) * cell, y = (j + (edge ? 0 : (hash3(i, j, 2, seed) - 0.5) * 0.7)) * cell;
+      V.push([x, y, gasAt(F, F.d, (x / N) * GAS_N, (y / N) * GAS_N), gasAt(F, F.m, (x / N) * GAS_N, (y / N) * GAS_N)]);
+    }
+    const groups = new Map();
+    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+      const v00 = V[j * (M + 1) + i], v10 = V[j * (M + 1) + i + 1], v01 = V[(j + 1) * (M + 1) + i], v11 = V[(j + 1) * (M + 1) + i + 1];
+      const tris = hash3(i, j, 3, seed) < 0.5 ? [[v00, v10, v11], [v00, v11, v01]] : [[v00, v10, v01], [v10, v11, v01]];
+      for (const [a, b, q] of tris) {
+        const lv = band((a[2] + b[2] + q[2]) / 3);
+        if (lv < 0) continue;
+        const lit = 0.85 + 0.3 * hash3(i, j, a === v00 ? 4 : 5, seed);
+        const col = U.shade(tab[lv][Math.min(3, Math.floor(((a[3] + b[3] + q[3]) / 3) * 4))], Math.round(lit / 0.05) * 0.05);
+        const key = `${col}|${lv}`;
+        let p = groups.get(key);
+        if (!p) groups.set(key, (p = { col, lv, path: new Path2D() }));
+        p.path.moveTo(a[0], a[1]); p.path.lineTo(b[0], b[1]); p.path.lineTo(q[0], q[1]); p.path.closePath();
+      }
+    }
+    for (const { col, lv, path } of [...groups.values()].sort((x, y) => x.lv - y.lv)) {
+      c.globalAlpha = Math.min(1, A[lv] * 1.15);
+      c.fillStyle = col;
+      c.fill(path);
+    }
+    return cv;
+  }
+
+  function drawGas(ctx, gas, style, o = {}) {
+    const { x = 0, y = 0, t = 0 } = o, mt = ctx.getTransform(), ppu = quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel;
+    const T = NEBULAE[gas.type] || NEBULAE.emission, ext = gas.r * GAS_EXT, pixel = style === 'pixel';
+    const rr = mulberry32(gas.seed || 1), dir = rr() < 0.5 ? -1 : 1, w = 0.05 + rr() * 0.05, ph = rr() * TAU;
+    ctx.save();
+    for (const layer of ['outer', 'core']) {
+      const key = `gas|${gas.type}|${gas.seed}|${gas.r}|${layer}|${style}|${pixel ? texel : ppu}`;
+      const slot = layer === 'core' ? '_gasCore' : '_gasOuter';
+      const spr = cache.get(key, () => {
+        const F = gasField(gas, layer);
+        const N = pixel ? Math.max(8, Math.round((ext * 2) / texel)) : Math.min(Math.ceil(ext * 2 * ppu), conf().maxSprite);
+        const cv = pixel || style === 'flat' ? gasBands(F, T, N, pixel) : style === 'line' ? gasLine(F, T, N) : gasLow(F, T, N, (gas.seed || 1) % 9973);
+        return { canvas: cv, half: ext, smooth: !pixel };
+      }, { fallback: gas[slot], force: o.force });
+      if (spr.key === key) gas[slot] = key;
+      ctx.save();
+      ctx.translate(x, y);
+      if (!pixel) { // turning and breathing; pixel art keeps to its grid
+        const k = 1 + (layer === 'core' ? 0.05 : 0.03) * Math.sin(t * (layer === 'core' ? 1.1 : 0.7) + ph);
+        ctx.rotate(ph + dir * t * w * (layer === 'core' ? -1.7 : 1));
+        ctx.scale(k, k);
+      }
+      ctx.imageSmoothingEnabled = spr.smooth;
+      ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
+      ctx.restore();
     }
     ctx.restore();
   }
 
   return {
     MOONS, MOON_TYPES: Object.keys(MOONS), NEBULAE, NEBULA_TYPES: Object.keys(NEBULAE),
-    drawMoon, drawNebula,
-    clearCache: () => cache.clear(),
+    drawMoon, drawNebula, drawGas,
+    clearCache: () => { cache.clear(); layerGen++; },
     stats: () => cache.stats(),
   };
 })();

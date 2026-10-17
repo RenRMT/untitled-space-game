@@ -82,7 +82,7 @@ const StationMenu = (() => {
   const missionDot = h('span', { class: 'dot', hidden: true }); // something new or to hand in
   for (const t of tabs) {
     const { code, label } = TABS[t.dataset.tab];
-    const icon = Kit.icon(`tab-${t.dataset.tab}`, 24, { code });
+    const icon = Kit.icon(`tab-${t.dataset.tab}`, 28, { code });
     if (t.dataset.tab === 'missions') icon.append(missionDot);
     t.replaceChildren(icon, h('span', { class: 'lbl' }, label));
     t.setAttribute('aria-label', label);
@@ -109,7 +109,6 @@ const StationMenu = (() => {
       width: size, height: size, draggable: 'false',
     });
   }
-  const rarityTag = (t) => (t.rarity > 1 ? Goods.RARITY[t.rarity].label : '');
 
   // ---------- Trade ----------
 
@@ -125,7 +124,7 @@ const StationMenu = (() => {
   // A trade good: its icon and name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
   function goodRow(g, full) {
     const { hold } = ctx;
-    const t = Goods.type(g.kind), name = t.name;
+    const name = Goods.type(g.kind).name;
     const n = hold.count(g.kind);
     const buy = g.buy === null
       ? h('span', { class: 'lock' }, 'Not sold')
@@ -137,7 +136,7 @@ const StationMenu = (() => {
     });
     return Kit.optionRow({
       icon: h('span', { class: 'st-item' }, itemIcon(g.kind, 40), n ? h('span', { class: 'n num' }, `×${n}`) : null),
-      name, tag: rarityTag(t), tagTone: `t${t.rarity}`,
+      name,
       // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
       extra: gauge(g.buy ?? g.sell, Economy.basePrice(g.kind) * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread)),
       action: h('span', { class: 'st-deal' }, buy, sell),

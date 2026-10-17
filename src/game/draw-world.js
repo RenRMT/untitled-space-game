@@ -4,11 +4,13 @@
 
 import { Art } from '../art/render.js';
 import { COLORS } from '../core/theme.js';
+import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS } from './selection.js';
 import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
+import { warpShipScale } from './warp.js';
 import { world } from './world.js';
 
 export const origin = { x: 0, y: 0 };
@@ -98,10 +100,12 @@ export function drawEntities(list, t) {
 }
 
 // The ship's design is drawn to fit its hull's size (the Courier's art is a quarter wider than its
-// collision radius, and every hull keeps that proportion).
+// collision radius, and every hull keeps that proportion), a tenth larger like every ship
+// (flight/entities.js SHIP_SCALE).
 export function drawShip(t) {
   if (fight.wrecked) return; // blown up, waiting for the tow
-  const k = (SHIP.radius * 1.25) / ship.art.radius;
+  const k = (SHIP.radius * 1.25 * Entities.SHIP_SCALE * warpShipScale()) / ship.art.radius;
+  if (k <= 0.01) return; // gone into a jump gate's ring
   ctx.save();
   ctx.translate(rx(ship.x), ry(ship.y));
   if (k !== 1) ctx.scale(k, k);

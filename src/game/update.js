@@ -18,6 +18,7 @@ import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
 import { tickAutopilot } from './selection.js';
 import { tickWings } from './squad.js';
+import { tickWarp, warp, warpZoom } from './warp.js';
 import { SHIP, cam, debris, fadeFlash, fight, fightMode, intro, lerp, particles, ship, toast, view } from './state.js';
 
 export let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
@@ -33,7 +34,7 @@ export function update(dt) {
   if (intro.on && !intro.flying) ship.targetSpeed = 0; // the pod waits while the station talks
   if (intro.arrive) tickArrive(dt);
   else if (intro.beam) tickBeam(dt);
-  else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
+  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 
@@ -78,6 +79,7 @@ export function update(dt) {
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
+  if (warp.on) { tx = ship.x; ty = ship.y; } // a gate jump's speed would throw the lead far ahead
   const focus = fight.s && fight.ships.get(fight.s.focus);
   if (focus) {
     const top = CombatPanel.top;
@@ -107,6 +109,7 @@ export function update(dt) {
     view.k = Math.abs(view.k - zk) < 0.002 ? zk : lerp(view.k, zk, 1 - Math.exp(-2.5 * dt));
     view.zoom = view.base * view.k;
   }
+  if (!intro.arrive) view.zoom = view.base * view.k * warpZoom(); // a gate jump pulls back and settles
 
   SystemMap.setPlayer(ship.x, ship.y);
 }

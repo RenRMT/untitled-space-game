@@ -877,6 +877,19 @@ test('components go to their own store, even with a full hold, and stay when the
   browser.frames(3);
 });
 
+test('items near the ship are pulled in and picked up; a trade good with no room stays put', () => {
+  game(`cargo.items = [];
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:pull', kind: 'titanium', seed: 7, x: ship.x + PULL_RANGE * 0.8, y: ship.y }));
+    for (let i = 0; i < 20; i++) react(nearbyEntities(simTime), 0.05);`);
+  assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:pull')`), 'pulled in and picked up');
+  assert.strictEqual(game('cargo.items.length'), 1);
+  game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }));
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:stay', kind: 'titanium', seed: 8, x: ship.x + PULL_RANGE * 0.8, y: ship.y }));
+    for (let i = 0; i < 20; i++) react(nearbyEntities(simTime), 0.05);`);
+  assert.strictEqual(game(`cargo.drops.find((d) => d.key === 'drop:smoke:stay').x`), game('ship.x + PULL_RANGE * 0.8'), 'not pulled');
+  game(`cargo.items = []; cargo.drops = cargo.drops.filter((d) => !d.key.startsWith('drop:smoke'))`);
+});
+
 test('mines an asteroid and collects what it leaves', () => {
   const found = game(`(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key) && Mining.yieldOf(world.galaxy.seed, e))) && __rock.key`);
   assert.ok(found, 'an asteroid with a yield');
@@ -991,6 +1004,8 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   game('select(__gate)');
   browser.key('j');
   browser.frames(2);
+  assert.ok(game('warp.on'), 'the jump is under way');
+  assert.ok(until('!warp.on', 60 * 3), 'and over within a few seconds');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 1, 'in the second system');
   assert.match(game('toast.text'), /^Jumped to the .* system/);
   assert.ok(game('world.knowledge.visited(1)'), 'the second system is charted');
@@ -1013,7 +1028,7 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   // And back through the same pair of gates.
   game('globalThis.__back = world.scene.gates[__gate.gate.link]; select(__back);');
   browser.key('j');
-  browser.frames(2);
+  assert.ok(until('!warp.on', 60 * 3), 'the jump back is over');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 0, 'back in the first system');
   game('select(null); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
@@ -1159,7 +1174,9 @@ test('abilities in a fight: the player spends a charge from the panel, a wingman
   meetPirate();
   browser.frames(2);
   const panel = () => textOf(browser.document.getElementById('combat').querySelector('.cb-abil'));
-  assert.match(panel(), /REP×1.*EMP×2/, 'a button per consumable in the kit');
+  const labels = () => browser.document.getElementById('combat').querySelector('.cb-abil').children.map((b) => b.getAttribute('aria-label'));
+  assert.deepStrictEqual(labels(), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
+  assert.match(panel(), /×1.*×2/, 'with its charges');
   // The player: an EMP on the enemy targeted.
   game('fight.s.player.hull = Math.min(fight.s.player.hull, 10)');
   game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`);

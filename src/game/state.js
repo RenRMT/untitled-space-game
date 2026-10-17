@@ -83,7 +83,7 @@ export const notify = (text, t = 2, { once = false } = {}) => {
 // body class of the same name (index.html hides controls by it); the map can't open during any of
 // those in MAP_BLOCKERS. Several can hold at once, so each is switched on and off by name.
 export const modes = new Set();
-export const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'settings'];
+export const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'settings', 'warping'];
 export function setMode(name, on) {
   if (on) modes.add(name); else modes.delete(name);
   document.body.classList.toggle(name, on);

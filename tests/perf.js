@@ -1,7 +1,8 @@
 // Frame-cost benchmark in a real browser: `node tests/perf.js` (needs Playwright and a Chromium;
 // not part of `npm test`). Serves the repository, opens the game as a phone would (390×844 CSS
 // pixels at DPR 3, touch, CPU slowed 4×) and flies through the scenes that cost most: the tutorial
-// system's nebula, a station and the second system's asteroid belt, in several art styles. For each it prints
+// system's nebula, a station and the second system's asteroid belt, in several art styles, and the
+// galaxy's largest nebula (and open space beside it, to compare) on a 1080p desktop screen. For each it prints
 // frames per second (which includes the browser's own raster work, mostly fill rate), the script
 // work per frame (update + render, ms: median, 95th percentile, worst) and the sprite caches' size
 // and build rate. Absolute numbers depend on the machine; compare runs on the same one.
@@ -33,6 +34,12 @@ const SECONDS = 6;
 const SCENARIOS = [
   { name: 'nebula (line)', style: 'line', place: 'nebula' },
   { name: 'nebula (lowpoly)', style: 'lowpoly', place: 'nebula' },
+  { name: 'nebula (flat)', style: 'flat', place: 'nebula' },
+  { name: 'nebula (pixel)', style: 'pixel', place: 'nebula' },
+  { name: 'big nebula (flat, desktop)', style: 'flat', place: 'bigNebula', desktop: true },
+  { name: 'big nebula (line, desktop)', style: 'line', place: 'bigNebula', desktop: true },
+  { name: 'big nebula (lowpoly, desktop)', style: 'lowpoly', place: 'bigNebula', desktop: true },
+  { name: 'open space (flat, desktop)', style: 'flat', place: 'open', desktop: true },
   { name: 'station (line)', style: 'line', place: 'station' },
   { name: 'station (lowpoly)', style: 'lowpoly', place: 'station' },
   { name: 'station (pixel)', style: 'pixel', place: 'station' },
@@ -44,6 +51,18 @@ const PLACE = {
     const n = world.galaxy.nebulae.find((o) => o.system === 0);
     placeShip(n.x - n.r * 0.5, n.y, 0);
     ship.targetSpeed = SHIP.maxSpeed * 0.5;
+  })()`,
+  // The galaxy's largest nebula: through its middle at full speed.
+  bigNebula: `(() => {
+    const n = world.galaxy.nebulae.reduce((a, b) => (b.r > a.r ? b : a));
+    placeShip(n.x - n.r * 0.6, n.y, 0);
+    ship.targetSpeed = SHIP.maxSpeed;
+  })()`,
+  // Beside the big nebula, out of it: the same flight without the cloud, to compare.
+  open: `(() => {
+    const n = world.galaxy.nebulae.reduce((a, b) => (b.r > a.r ? b : a));
+    placeShip(n.x - n.r * 0.6, n.y + n.r * 2.2, 0);
+    ship.targetSpeed = SHIP.maxSpeed;
   })()`,
   // Beside the second system's first station, drifting past it.
   station: `(() => {
@@ -82,9 +101,9 @@ function serve() {
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 
 async function run(browser, base, sc) {
-  const context = await browser.newContext({
-    viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true,
-  });
+  const context = await browser.newContext(sc.desktop
+    ? { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 }
+    : { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));

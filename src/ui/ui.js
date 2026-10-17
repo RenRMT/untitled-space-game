@@ -1,4 +1,4 @@
-// Small DOM helpers for the panels (station menu, settings, context card, combat panel).
+// Small DOM helpers for the panels (station menu, settings, context menu, combat panel).
 //
 //   UI.h('li', { class: 'good', onclick: fn, style: { left: '40%' }, disabled: true }, child, 'text', [more])
 //     makes an element. Attributes that are false, null or undefined are left out (true sets an

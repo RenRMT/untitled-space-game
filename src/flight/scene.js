@@ -3,7 +3,7 @@
 // - the stars, planets, moons, and the nebulae (drawn under everything),
 // - stations in their culture, with their markets (rules/economy.js), and jump gates,
 // - asteroids, each with the stable key the system gave it, so a mined one can stay gone,
-// - gas pockets in the nebulae, in their nebula's colour, keyed the same way,
+// - gas pockets in the nebulae (drawn as small clouds of their nebula's type, art/bodies.js), keyed the same way,
 // - wrecks: hidden derelicts, ambush victims and the salvage yard's, each with things floating
 //   around it to collect: salvaged components (better in more dangerous space, world/security.js) or,
 //   from freighters, trade goods (rules/goods.js, rarer ones less often). Each item has a stable key,
@@ -91,8 +91,8 @@ const Scene = (() => {
     // ---------- Gas pockets ----------
     // pocket: the generated pocket (world/solar-system.js); color: its nebula's.
     for (const q of galaxy.pockets || []) {
-      const color = galaxy.nebulae[q.nebula].color, art = ArtBlueprints.gasPocket(color, q.seed, q.r);
-      add({ kind: 'gas', art, key: q.key, pocket: q, color, spin: mulberry32(q.seed)() * TAU, radius: art.radius, x: q.x, y: q.y });
+      const n = galaxy.nebulae[q.nebula];
+      add({ kind: 'gas', gas: { type: n.type, seed: q.seed, r: q.r }, key: q.key, pocket: q, color: n.color, radius: q.r, x: q.x, y: q.y });
     }
 
     // ---------- Wrecks and what floats around them ----------

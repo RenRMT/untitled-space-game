@@ -1,4 +1,4 @@
-// The combat panel: shown above the speed bar while a fight runs, in place of the context card.
+// The combat panel: shown above the speed bar while a fight runs, in place of the context menu.
 // One row per ship (you first, then your squad) with hull and shield bars; tap an enemy row to
 // focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
 // real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
@@ -10,7 +10,7 @@
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run? }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
 //                      abilities?: [{ id, code, label, count, enabled }], progress, bar?: 'lock' | 'escape' })
-// abilities: a button each (rules/abilities.js): its code and charges left; onButton gets its id.
+// abilities: a button each (rules/abilities.js): its icon (by its code) and charges left; onButton gets its id.
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 // run: for a squad member, the program line it is running ('L2', or 'else' for none).
@@ -18,6 +18,7 @@
 // ES module (`CombatPanel`); needs a browser.
 
 import { clamp } from '../core/math.js';
+import { Kit } from './kit.js';
 import { UI } from './ui.js';
 
 const CombatPanel = (() => {
@@ -80,7 +81,7 @@ const CombatPanel = (() => {
       abilEl.hidden = !abil.length;
       abilEl.replaceChildren(...abil.map((a) => h('button', {
         class: 'cb-ab', type: 'button', 'data-id': a.id, disabled: !a.enabled, title: `${a.label} · ${a.count} left`, 'aria-label': `${a.label}, ${a.count} left`,
-      }, h('span', { class: 'cd' }, a.code), h('span', { class: 'n' }, `×${a.count}`))));
+      }, Kit.icon(a.code, 22, { code: a.code }), h('span', { class: 'n' }, `×${a.count}`))));
       root.hidden = false;
       root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;

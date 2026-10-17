@@ -57,7 +57,10 @@ export const OPENING = 'repayment', SALVAGE = 'salvage', GATE_JOB = 'gate';
 // The waystation's missions, in the order it offers them (the third is optional).
 export const CHAIN = [OPENING, SALVAGE, GATE_JOB];
 export const opening = () => cargo.missions.status(SALVAGE) !== 'done';
-export const PICKUP_RANGE = 24; // world units beyond the item's own size
+export const PICKUP_RANGE = 40; // world units beyond the item's own size
+// Items closer than this (beyond their own size) are pulled in to the ship, closing on it at
+// PULL_SPEED world units a second faster than it flies.
+export const PULL_RANGE = 220, PULL_SPEED = 450;
 // " · rare" after an item's name in notices, for anything better than common.
 export const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
 
@@ -342,12 +345,22 @@ export const repairs = {
   },
 };
 
-// Floating items within reach are picked up: trade goods into the hold while there's room,
-// components into their own store, which never fills.
-export function collectItems(list) {
+// Floating items near the ship are pulled in to it (dt seconds of pull), and those within reach
+// are picked up: trade goods into the hold while there's room, components into their own store,
+// which never fills. A trade good that won't fit is left where it is.
+export function collectItems(list, dt = 0) {
   for (const e of list) {
     if (e.kind !== 'item' || cargo.removed.has(e.key)) continue;
-    if (Math.hypot(ship.x - e.x, ship.y - e.y) > e.radius * 0.7 + PICKUP_RANGE) continue;
+    let d = Math.hypot(ship.x - e.x, ship.y - e.y);
+    const fits = e.mission || Goods.isSalvage(e.itemKind) || hold.free >= 1;
+    if (fits && dt > 0 && d > 0 && d < e.radius * 0.7 + PULL_RANGE) {
+      const step = Math.min(d, (Math.hypot(ship.vx, ship.vy) + PULL_SPEED) * dt);
+      e.x += ((ship.x - e.x) / d) * step;
+      e.y += ((ship.y - e.y) / d) * step;
+      if (e.drop) { e.drop.x = e.x; e.drop.y = e.y; }
+      d -= step;
+    }
+    if (d > e.radius * 0.7 + PICKUP_RANGE) continue;
     if (e.mission) { // a mission's cargo: kept apart from the hold, for the mission
       cargo.removed.add(e.key);
       notify(`Recovered: ${e.label}`, 2.5);

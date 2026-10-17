@@ -8,7 +8,7 @@ import { SystemMap } from '../ui/map.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { visible } from './draw-world.js';
-import { DEADZONE, drag, interacted, maxDrag, steady } from './input.js';
+import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
 import { moveMode } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
@@ -24,8 +24,9 @@ export function drawLabels(list) {
   ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   ctx.globalAlpha = 0.75;
+  const menu = ContextCard.isOpen && selected ? selected.e : null; // its menu names it
   for (const e of list) {
-    if (!e.name || !visible(e)) continue;
+    if (!e.name || e === menu || !visible(e)) continue;
     const l = KINDS[e.kind].label(e);
     if (!l) continue;
     const [sx, sy] = worldToScreen(e.x, e.y + l[1]);
@@ -146,8 +147,7 @@ export function drawNavMarkers() {
     } else drawMarkerPin(...worldToScreen(mk.x, mk.y));
   }
   stations.sort((a, b) => a.d - b.d); // the nearest keep their place at the edge when labels collide
-  const top = ContextCard.isOpen ? ContextCard.top : null;
-  navHits = edgeMarkers(stations, steady('nav', top === null ? 64 : Math.max(64, view.h - top + 16)), 0.95);
+  navHits = edgeMarkers(stations, 64, 0.95);
 }
 
 // A pin standing on (x, y), screen px: the player's marker, as the map draws it.

@@ -15,20 +15,21 @@ import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawN
 import { drawTractorBeam } from './intro.js';
 import { drawDebris, drawMining, drawMiningCountdown } from './mining.js';
 import { drawGateWork, objective } from './missions.js';
-import { drawSelection, updateSelection } from './selection.js';
+import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
 import { cam, ctx, flash, here, intro, ship, toast, view } from './state.js';
 import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
+import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
 import { world } from './world.js';
 
 // ---------- Main loop ----------
 
-// What follows from where things are after a step: pickups, the selection, pirates noticing the
-// ship, reaching the player's marker, and the objective shown on the map. Not while paused, so nothing is picked up behind the
-// settings menu.
-export function react(list) {
-  collectItems(list);
+// What follows from where things are after a step (of dt seconds): items pulled in and picked
+// up, the selection, pirates noticing the ship, reaching the player's marker, and the objective
+// shown on the map. Not while paused, so nothing is picked up behind the settings menu.
+export function react(list, dt = 0) {
+  collectItems(list, dt);
   updateSelection(list);
   checkAggro(list);
   checkMarker();
@@ -61,14 +62,17 @@ export function render(list = nearbyEntities(simTime)) {
   drawGateWork(t);
   drawParticles();
   if (intro.on) drawTractorBeam(t);
+  drawWarpWorld();
   drawShip(t);
   ctx.restore();
+  drawWarpOverlay();
+  placeMenu();
 
   if (flash > 0) {
     ctx.fillStyle = `rgba(210, 240, 255, ${flash * flash * 0.85})`;
     ctx.fillRect(0, 0, view.w, view.h);
   }
-  drawLabels(list);
+  if (!warp.on) drawLabels(list); // names would hang in the streaks of a gate jump
   drawMiningCountdown();
   drawFightOverlay();
   if (toast.t > 0) {
@@ -80,7 +84,7 @@ export function render(list = nearbyEntities(simTime)) {
     ctx.fillText(toast.text.toUpperCase(), view.w / 2, view.h * 0.22);
     ctx.restore();
   }
-  drawNavMarkers();
+  if (!warp.on) drawNavMarkers();
   drawFoeMarkers();
   drawDragIndicator();
   if (hudShown()) {
@@ -158,7 +162,7 @@ export function frame(now) {
     }
     if (!stillDrawn) {
       const list = nearbyEntities(simTime);
-      if (!paused) react(list);
+      if (!paused) react(list, dt);
       render(list);
       stillDrawn = paused;
       recordFrame(performance.now() - t0, gap);

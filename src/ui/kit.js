@@ -1,8 +1,10 @@
 // The UI kit: builders for the components every DOM panel is made of, on top of UI.h (ui/ui.js).
 // Styles are in ui/kit.css. Each builder returns a DOM node, or an array of them, ready for UI.h.
 //
-//   Kit.ICONS[name] = url                  register icon art; until then Kit.icon draws a placeholder
-//   Kit.icon(name, size, { code, tier, dot })   an icon slot: the art if registered, else a dashed box
+//   Kit.ICONS[name] = url                  register icon art (an image), ahead of the line icons
+//   Kit.icon(name, size, { code, tier, dot })   an icon slot: the art if registered, else the line
+//                                          icon for its code or name (ui/glyphs.js), in the text
+//                                          colour (a tier's colour with `tier`), else a dashed box
 //                                          with a short code (default: the name's first 3 letters)
 //   Kit.button(label, onclick, { kind: 'primary' | 'ghost' | 'warn' | 'good' | 'busy', price, disabled,
 //                                aria, title, lg, wide, progress })
@@ -46,6 +48,7 @@
 //     items: [{ id, label, on, locked, title }]; locked ones are dashed and can't be picked
 // ES module (`Kit`); needs a browser.
 
+import { Glyphs } from './glyphs.js';
 import { UI } from './ui.js';
 
 const Kit = (() => {
@@ -61,6 +64,13 @@ const Kit = (() => {
     const style = { width: `${size}px`, height: `${size}px`, ...tierVar(tier) };
     const badge = dot === undefined ? null : h('span', { class: 'dot', hidden: !dot });
     if (src) return h('span', { class: 'ui-icon', style, 'aria-hidden': 'true' }, h('img', { src, alt: '', width: size, height: size, draggable: 'false' }), badge);
+    const glyph = [code, name].find((n) => n != null && Glyphs.has(n));
+    if (glyph !== undefined) {
+      const el = h('span', { class: 'ui-icon gl', style, 'aria-hidden': 'true' });
+      el.innerHTML = Glyphs.svg(glyph, size);
+      if (badge) el.append(badge);
+      return el;
+    }
     return h('span', { class: 'ui-icon ph', style: { ...style, fontSize: `${Math.max(7, Math.round(size / 4))}px` }, 'aria-hidden': 'true' },
       code ?? String(name).slice(0, 3).toUpperCase(), badge);
   }
