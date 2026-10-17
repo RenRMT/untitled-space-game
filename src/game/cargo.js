@@ -65,9 +65,6 @@ export const PICKUP_RANGE = 40; // world units beyond the item's own size
 // Items closer than this (beyond their own size) are pulled in to the ship, closing on it at
 // PULL_SPEED world units a second faster than it flies.
 export const PULL_RANGE = 220, PULL_SPEED = 450;
-// " · rare" after an item's name in notices, for anything better than common.
-export const rarityNote = (e) => (e.art.rarity > 1 ? ` · ${Goods.RARITY[e.art.rarity].label.toLowerCase()}` : '');
-
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
 export function dropEntity(d) {
   const r = mulberry32(d.seed);

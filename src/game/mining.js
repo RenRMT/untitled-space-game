@@ -7,7 +7,7 @@ import { Feedback } from '../core/feedback.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Mining } from '../rules/mining.js';
-import { cargo, dropEntity, rarityNote, saveCargo } from './cargo.js';
+import { cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { worldToScreen } from './hud.js';
@@ -104,7 +104,7 @@ export function finishMining() {
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
     cargo.drops.push(e);
-    notify(`Asteroid broken up · ${e.label} found${rarityNote(e)}`, 2.5);
+    notify(`Asteroid broken up · ${e.label} found`, 2.5);
     Feedback.emit('mined');
   } else {
     notify('Asteroid broken up · nothing of value', 2.5);
