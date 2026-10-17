@@ -1,8 +1,9 @@
-// Industry as the station menu sees it (rules/industry.js): leasing bays at the station docked at,
-// setting their jobs, moving goods between the hold and the station's warehouse, and bays working
-// on the real-world clock, settled on load, on docking, every second on the station screen and
-// every few seconds in flight. Every change settles first, then changes, then lets idle bays start,
-// so what's made never depends on when it was looked at.
+// Production as the station menu sees it (rules/industry.js): placing production orders at the
+// station docked at, pausing, cancelling and reordering them from anywhere, moving goods between the
+// hold and the one shared storage, and orders working on the real-world clock, settled on load, on
+// docking, every second on the station screen and every few seconds in flight. Every change
+// settles first, then changes, then lets orders start, so what's made never depends on when it was
+// looked at.
 // Part of the flight view; src/main.js starts it.
 
 import { Clock } from '../core/clock.js';
@@ -12,22 +13,33 @@ import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
+import { SystemMap } from '../ui/map.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
+import { world } from './world.js';
 
 const FLIGHT_CHECK = 5000; // ms between checks in flight
 let lastCheck = 0;
+
+// The scene's station with this key, or null.
+const stationOf = (key) => world.scene?.stations.find((s) => s.key === key) || null;
 
 export const industry = {
   get state() { return cargo.industry; },
   here: null, // the station docked at: { key, name, type }, or null in flight
   now: () => Clock.now(),
   env: () => Industry.env(cargo.lab),
-  // The site at the station docked at (or another, by key), or null where nothing is leased.
-  site: (key = industry.here?.key) => (key && cargo.industry.sites[key]) || null,
-  get sites() { return Object.entries(cargo.industry.sites).map(([key, s]) => ({ key, ...s })); },
   known: () => Recipes.known(cargo.lab.done),
-  maxBays: () => Industry.maxBays(industry.env()),
+  slots: () => Industry.slots(industry.env()),
+  // The stage the station docked at works (Recipes.BAYS id), whether it takes orders, and its orders.
+  stage: () => (industry.here ? Industry.STAGE[industry.here.type] || null : null),
+  trusted: () => !!industry.here && Industry.trusted(cargo.loyalty, industry.here.key),
+  orders: () => (industry.here ? Industry.at(cargo.industry, industry.here.key) : []),
+  // The name of the system a station is in ('' if it isn't in the scene).
+  system(key) {
+    const st = stationOf(key);
+    return st ? world.galaxy.systems[st.station.system]?.name || '' : '';
+  },
   // Runs finished by now, each station's output announced together.
   settle({ quiet = false } = {}) {
     const { log } = Industry.settle(cargo.industry, Clock.now(), industry.env());
@@ -36,31 +48,31 @@ export const industry = {
     saveCargo();
     return log;
   },
-  // Lease a bay here: paid once.
-  lease(type) {
-    const here = industry.here, price = Industry.LEASE[type];
-    if (!here || price === undefined || cargo.credits < price) return false;
+  change(fn) {
     industry.settle();
-    const s = Industry.site(cargo.industry, here.key, here);
-    if (s.bays.length >= industry.maxBays()) return false;
-    cargo.credits -= price;
-    Industry.lease(s, type);
+    const ok = fn(cargo.industry, industry.env(), Clock.now());
+    Industry.kick(cargo.industry, industry.env(), Clock.now());
     saveCargo();
+    return ok !== false && ok !== null && ok !== 0;
+  },
+  // A production order here: set up only while docked at its station.
+  place: (recipe, count) => !!industry.here && industry.change((s, e, now) => Industry.place(s, industry.here, recipe, count, e, now, cargo.loyalty)),
+  edit(id, recipe, count) {
+    if (!industry.orders().some((o) => o.id === id)) return false;
+    return industry.change((s, e, now) => Industry.change(s, id, recipe, count, e, now));
+  },
+  // From any station.
+  pause: (id, paused = true) => industry.change((s, e, now) => Industry.pause(s, id, paused, e, now)),
+  cancel: (id) => industry.change((s) => Industry.cancel(s, id)),
+  move: (i, j) => industry.change((s) => Industry.move(s, i, j)),
+  // A map marker on an order's station, for the flight view to point the way.
+  mark(key) {
+    const st = stationOf(key);
+    if (!st) return false;
+    SystemMap.marker = { x: st.x, y: st.y, name: st.name };
     return true;
   },
-  change(fn) {
-    const s = industry.site();
-    if (!s) return false;
-    industry.settle();
-    const ok = fn(s, industry.env(), Clock.now());
-    Industry.kick(s, industry.env(), Clock.now());
-    saveCargo();
-    return ok !== false;
-  },
-  setJob: (i, recipe, count) => industry.change((s, e, now) => Industry.setJob(s, i, recipe, count, e, now)),
-  clearJob: (i) => industry.change((s) => Industry.clearJob(s, i)),
-  move: (i, j) => industry.change((s) => Industry.move(s, i, j)),
-  // Goods from the hold (trade goods) or the components store into the warehouse here, as many as fit.
+  // Goods from the hold (trade goods) or the components store into storage, as many as fit.
   deposit(kind, n = Infinity) {
     return industry.change((s, e, now) => {
       const salvage = Goods.isSalvage(kind);
@@ -71,8 +83,8 @@ export const industry = {
       return k > 0;
     });
   },
-  // From the warehouse here into the hold (as far as it has room), or the components, spare gear,
-  // spare mods or the kit, which take no room.
+  // From storage into the hold (as far as it has room), or the components, spare gear, spare mods
+  // or the kit, which take no room.
   withdraw(kind, n = Infinity) {
     return industry.change((s) => {
       const apart = Goods.isSalvage(kind) || !!Loadout.EQUIPMENT[kind] || !!Mods.MODS[kind] || !!Abilities.ABILITIES[kind];

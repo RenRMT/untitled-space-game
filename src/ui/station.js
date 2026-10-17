@@ -1,10 +1,10 @@
-// The docked screen: the station header, one of the Trade / Ship / Research / Industry / Squad /
+// The docked screen: the station header, one of the Trade / Ship / Research / Production / Squad /
 // Missions tabs,
 // and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there;
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
-// sheet; the Industry tab (ui/industry-view.js) lists the bays leased here, each opening a sheet to
-// set its job; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
+// sheet; the Production tab (ui/industry-view.js) shows this station's production orders, the shared
+// storage and the production pipeline, an order opening a sheet to pick its product; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
@@ -16,7 +16,7 @@
 //               piece, and the shipyard (game/outfitting.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
-// industry: game/industry.js: bays leased at stations, their jobs and warehouses (rules/industry.js).
+// industry: game/industry.js: production orders at stations and the shared storage (rules/industry.js).
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
@@ -65,7 +65,7 @@ const StationMenu = (() => {
   let openMission = null; // the mission whose sheet is open, if any
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let openNode = null; // the research package whose sheet is open, if any
-  let openBay = null; // the industry bay whose sheet is open: { i, recipe, count }
+  let openOrder = null; // the production order sheet open (ui/industry-view.js sheet(open))
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHold = null, openHull = null, openKit = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
@@ -76,7 +76,7 @@ const StationMenu = (() => {
   // ---------- The tab bar ----------
   const TABS = {
     trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, research: { code: 'RSC', label: 'Research' },
-    industry: { code: 'IND', label: 'Industry' },
+    industry: { code: 'IND', label: 'Production' },
     squad: { code: 'SQD', label: 'Squad' }, missions: { code: 'MSN', label: 'Missions' },
   };
   const missionDot = h('span', { class: 'dot', hidden: true }); // something new or to hand in
@@ -273,8 +273,8 @@ const StationMenu = (() => {
     ];
   }
 
-  // Where a piece of gear is, if it's waiting in a warehouse (game/industry.js), for the slot sheet.
-  const inStore = (id) => (ctx.industry ? ctx.industry.sites.filter((x) => x.storage[id]).map((x) => x.name) : []);
+  // Whether a piece of gear is waiting in storage (game/industry.js), for the slot sheet.
+  const inStore = (id) => !!ctx.industry?.state.storage[id];
 
   // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), and the next Mk of each
   // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
@@ -306,12 +306,12 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored.length ? 'In a warehouse' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
-          tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored.length ? 'cyan' : null,
+          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In storage' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
+          tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
           locked: kind === 'locked',
           note: kind === 'fit' ? `Spare gear aboard. Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : [stored.length ? `Made, and waiting in the warehouse at ${stored.join(', ')}: take it from the Industry tab there.` : '',
-              kind === 'make' ? 'Assembled at an assembler (Industry tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
+            : [stored ? 'Made, and waiting in storage: take it out from the Production tab at any station.' : '',
+              kind === 'make' ? 'Assembled by a production order at a shipyard (Production tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
           action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` }) : null,
           lockLabel: null,
@@ -465,11 +465,11 @@ const StationMenu = (() => {
     openId: () => openNode,
   });
 
-  // ---------- Industry ----------
+  // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, titleRow, costChips, itemIcon,
-    showBay: (i) => showBay(i), setBay: (o) => { Object.assign(openBay, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
+    ctx: () => ctx, refresh: () => refresh(), act, section, titleRow, itemIcon,
+    showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 
   // ---------- Missions ----------
@@ -744,27 +744,21 @@ const StationMenu = (() => {
   // ---------- Sheets ----------
 
   function sheetOptions() {
-    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode) : openBay ? industryView.sheet(openBay) : null;
+    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode) : openOrder ? industryView.sheet(openOrder) : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openBay = null; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = null; refresh(); } });
   }
   function closeSheet() {
-    openSlot = openMission = openLine = openNode = openBay = null;
+    openSlot = openMission = openLine = openNode = openOrder = null;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
   function showMission(id) { closeSheet(); openMission = id; briefAll = false; refresh(); openSheet(); }
   function showNode(id) { closeSheet(); openNode = id; refresh(); openSheet(); }
-  function showBay(i) {
-    const job = ctx.industry?.site()?.bays[i]?.job;
-    closeSheet();
-    openBay = { i, recipe: job?.recipe ?? null, count: job ? job.left : null };
-    refresh();
-    openSheet();
-  }
+  function showOrder(open) { closeSheet(); openOrder = { ...open }; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;
@@ -897,8 +891,8 @@ const StationMenu = (() => {
     showLine(id, i) { showLine(id, i); },
     // Open the sheet for a research package on the Research tab.
     showNode(id) { showNode(id); },
-    // Open the job sheet for bay i of this station's industry.
-    showBay(i) { showBay(i); },
+    // Open a production order's sheet (ui/industry-view.js sheet(open)).
+    showOrder(open) { showOrder(open); },
     closeSheet() { closeSheet(); refresh(); },
   };
 })();

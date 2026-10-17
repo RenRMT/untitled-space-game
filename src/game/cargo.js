@@ -36,13 +36,14 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
 // loadout, rules/mods.js); kit: consumables for abilities in a fight ({ [ability id]: charges },
 // rules/abilities.js), which take no room in the hold; lab: research (rules/research.js: what's done, building and queued,
-// blueprints and hull refits among it); industry: bays leased at stations and their warehouses
-// (rules/industry.js); squad: the squad members (rules/squad.js), with their programs
+// blueprints and hull refits among it); industry: the shared storage and the production orders at
+// stations (rules/industry.js); loyalty: how far each station trusts the player ({ [station key]: n };
+// none yet: Industry.LOYALTY.start counts for every station); squad: the squad members (rules/squad.js), with their programs
 // and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), squad: [], story: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
   missions: Missions.create(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
@@ -116,6 +117,7 @@ export function loadCargo(galaxy) {
   cargo.kit = {};
   cargo.lab = Research.empty();
   cargo.industry = Industry.empty();
+  cargo.loyalty = {};
   cargo.squad = []; // the first member joins at the end of the first mission
   cargo.story = new Set();
   cargo.missions = Missions.create();
@@ -227,6 +229,32 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     if (!d.kit) d.kit = {};
   },
+  // 12. Production orders and one shared storage, in place of bays leased at stations: every
+  //     warehouse goes into the storage (with the inputs of runs under way), every lease is refunded,
+  //     and each station's first bay with a job becomes its order where the station does that stage.
+  (d) => {
+    const LEASE = { refinery: 1500, fabricator: 3000, assembler: 5000 };
+    const sites = d.industry?.sites && typeof d.industry.sites === 'object' ? d.industry.sites : {};
+    const out = Industry.empty();
+    for (const [key, s] of Object.entries(sites)) {
+      if (!s || typeof s !== 'object') continue;
+      for (const [kind, n] of Object.entries(s.storage || {})) if (n > 0) addTo(out.storage, kind, n);
+      let first = true;
+      for (const b of Array.isArray(s.bays) ? s.bays : []) {
+        if (!b) continue;
+        if (Number.isFinite(d.credits) && LEASE[b.type]) d.credits += LEASE[b.type];
+        const R = b.job && Recipes.RECIPES[b.job.recipe];
+        if (!R) continue;
+        if (b.job.next != null) for (const [kind, n] of Object.entries(R.in)) addTo(out.storage, kind, n);
+        if (!first || !Industry.canMake(s.type, R.id)) continue;
+        first = false;
+        const left = b.job.left === null ? null : Math.max(0, Math.floor(b.job.left) || 0) + (b.job.next != null ? 1 : 0);
+        out.orders.push({ id: out.seq++, station: key, name: String(s.name || key), type: String(s.type), recipe: R.id, left, made: Math.max(0, Math.floor(b.job.made) || 0), at: null, next: null, paused: false });
+      }
+    }
+    d.industry = out;
+    d.loyalty = {};
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -247,25 +275,30 @@ export function readLab(d) {
   return lab;
 }
 
-// Saved industry, checked: known bay types and goods; a job whose recipe is gone (or isn't made in
-// that bay) is dropped.
+// Saved production, checked: known goods in storage; an order whose recipe is gone, or isn't made
+// at its station's type, is dropped; a run under way with times that make no sense is forgotten.
 export function readIndustry(d) {
   const out = Industry.empty();
-  if (!d || typeof d.sites !== 'object' || !d.sites) return out;
+  if (!d || typeof d !== 'object') return out;
   const whole = (n) => Math.max(0, Math.floor(n) || 0);
-  const time = (t) => (Number.isFinite(t) ? t : null);
-  for (const [key, s] of Object.entries(d.sites)) {
-    if (!s || typeof s !== 'object' || !Array.isArray(s.bays)) continue;
-    const site = { name: String(s.name || key), type: String(s.type || ''), storage: {}, bays: [] };
-    for (const [kind, n] of Object.entries(s.storage || {})) if (Recipes.item(kind) && whole(n) > 0) site.storage[kind] = whole(n);
-    for (const b of s.bays) {
-      if (!b || !Recipes.BAYS[b.type]) continue;
-      const j = b.job, ok = j && Recipes.RECIPES[j.recipe]?.bay === b.type;
-      const running = ok && time(j.at) !== null && time(j.next) !== null;
-      site.bays.push({ type: b.type, job: ok ? { recipe: j.recipe, left: j.left === null ? null : whole(j.left), made: whole(j.made), at: running ? j.at : null, next: running ? j.next : null } : null });
-    }
-    out.sites[key] = site;
+  for (const [kind, n] of Object.entries(d.storage || {})) if (Recipes.item(kind) && whole(n) > 0) out.storage[kind] = whole(n);
+  const ids = new Set();
+  for (const o of Array.isArray(d.orders) ? d.orders : []) {
+    if (!o || typeof o.station !== 'string' || !Industry.canMake(o.type, o.recipe) || !Number.isInteger(o.id) || ids.has(o.id)) continue;
+    ids.add(o.id);
+    const running = Number.isFinite(o.at) && Number.isFinite(o.next) && o.next >= o.at;
+    out.orders.push({
+      id: o.id, station: o.station, name: String(o.name || o.station), type: o.type, recipe: o.recipe, left: o.left === null ? null : whole(o.left),
+      made: whole(o.made), at: running ? o.at : null, next: running ? o.next : null, paused: !!o.paused,
+    });
   }
+  out.seq = Math.max(whole(d.seq), ...out.orders.map((o) => o.id + 1), 1);
+  return out;
+}
+// Saved loyalty, checked: a number per station.
+export function readLoyalty(d) {
+  const out = {};
+  if (d && typeof d === 'object') for (const [key, n] of Object.entries(d)) if (Number.isFinite(n)) out[key] = n;
   return out;
 }
 
@@ -273,6 +306,7 @@ export function readIndustry(d) {
 export function readCargo(d) {
   cargo.lab = readLab(d.lab); // before the squad: what its programs may use
   cargo.industry = readIndustry(d.industry);
+  cargo.loyalty = readLoyalty(d.loyalty);
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions);
@@ -298,7 +332,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
-  loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, squad: cargo.squad,
+  loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
   story: [...cargo.story], missions: cargo.missions.save(),
 }), 1000);
 export const saveCargo = () => cargoSave.change();

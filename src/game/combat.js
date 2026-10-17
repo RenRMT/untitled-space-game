@@ -209,7 +209,7 @@ export function shipDestroyed(key) {
   // A schematic in its computer: the blueprint for that gear, so an assembler can make it.
   const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
   const bp = id && Research.blueprintFor(id);
-  if (bp && lab.grant(bp)) notify(`Blueprint recovered: ${Loadout.EQUIPMENT[id].name} · assemble it at an assembler`, 4);
+  if (bp && lab.grant(bp)) notify(`Blueprint recovered: ${Loadout.EQUIPMENT[id].name} · assemble it at a shipyard (Production tab)`, 4);
   saveCargo();
 }
 

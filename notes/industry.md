@@ -12,13 +12,15 @@ code follows it phase by phase.
 - **A diamond, not a line.** A few shared intermediates feed many outputs (copper cable goes into
   electronics, capacitors, power cells and superconductors). No good is a dead end, and what to
   mine stays a real choice.
-- **Each stage is its own machine.** Refineries, fabricators and assemblers are bays leased at
-  stations. Each kind runs faster at the station type it suits, so where you make something
-  matters and hauling between stations has a purpose.
-- **Automation is the reward.** Jobs run for a count or "while inputs last", at seconds per item,
-  on the real clock and through time offline, just like research. Bays at one station share a
-  warehouse, so a refinery can feed a fabricator overnight.
-- **No upkeep.** A lease is paid once. An offline game shouldn't punish you for being away.
+- **Each stage has its own stations.** Refining, fabricating and assembling are done by
+  production orders at stations, and each station type does one stage. Where you make something
+  matters: you visit the right kind of station to place each step of a chain.
+- **Automation is the reward.** Orders run for a count or continuously, at seconds per item, on
+  the real clock and through time offline, just like research. Every order reads from and writes
+  to one shared storage, so a refinery order at a camp feeds a fabricator order at a port
+  overnight, with no hauling.
+- **No upkeep.** Orders cost no credits; a station takes them once it trusts you. An offline game
+  shouldn't punish you for being away.
 - **Research feeds on industry.** Research costs crafted parts, and in return it unlocks recipes.
   Mostly it unlocks things (blueprints, alternative recipes, bays). Its stat gains are small and
   capped (+4% a step), so the gear's Mk stays the main power curve.
@@ -43,24 +45,57 @@ advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives c
 water ice, and nebula gas pockets the rarer gases. Markets stock goods further along the chain
 less often (except where they're made), and never the rarest parts, which have to be made.
 
-Station specialties (×1.25 speed): mining camps and salvage yards run refineries, waystations and
-major stations run fabricators, and capitals run assemblers. A crafted good is worth 1.15–4× its
-inputs.
+Each station type works one stage: mining camps and salvage yards refine, minor stations and the
+waystation fabricate, and capitals and major hubs (the shipyards) assemble. A crafted good is worth
+1.15–4× its inputs.
 
-## Facilities
+## Storage and production orders
 
-Bays are leased at the station you're docked at, paid once: a refinery costs 1,500 credits, a
-fabricator 3,000 and an assembler 5,000, with two bays per station to start (so a whole chain
-takes two stations, or research). Each station where you lease has a warehouse
-of your own (40 units, plus 60 per bay). You store goods from the hold (and components, for
-recycling), and you take back what's made. A bay's job is a recipe, run a set number of times or
-for as long as inputs last.
+The player sets production up like a data pipeline, and the game's words map onto it:
 
-A run takes its inputs when it starts and keeps room for what it makes, so finishing never fails.
-Bays start runs only when a run finishes or when you change something, and when bays want the same
-goods the first in line goes first. That makes settling time order exact (`Industry.settle`):
-whether the game catches up in one step on load or every second while docked, the result is the
-same. Each settle call stops after a set number of runs and goes on in the next.
+| Data engineering | In the game |
+|---|---|
+| data lake | storage: one store for the whole game, reached from any station |
+| job | a production order: one recipe running at one station |
+| trigger | an order starts a run as soon as its inputs are in storage |
+| backpressure | Blocked: no room in storage for what a run makes |
+| lineage | where an order's inputs come from: storage, another order, or a stage still missing |
+| pipeline | the chain of orders, linked by what one makes and the next uses |
+
+**Storage.** Docked anywhere, you move goods between the hold (and the components store) and the
+storage, and take out what orders make: goods into the hold, gear, mods and consumables into the
+spare gear, spare mods and kit. Room: 200, plus storage racks research.
+
+**Orders.** An order is placed at the station docked at, and only for what that station's stage
+makes. Picking a product first shows its lineage: each input, and whether it's in storage, made by
+another of your orders (and where), raw (mine, collect, salvage or buy it), or needs an order of
+another stage (and which station types do it). A station takes one order (more with research).
+An order runs for 1, 5, 20 or 100 runs, or continuously while inputs last. Its status is Running
+(progress and time left), Starved (the missing input named), Blocked (storage full), Done or
+Paused. Orders are set up or changed only at their station; pause, resume, cancel and priority
+work from any station. Cancelling or changing an order returns the inputs of the run under way.
+
+**Priority.** Orders share storage, so the order list decides who takes inputs first.
+
+**Loyalty.** Orders cost no credits. A station takes orders when its loyalty to the player
+(`cargo.loyalty[station key]`) is at least `Industry.LOYALTY.required` (1). Missions will raise it
+later; until then every station counts as `LOYALTY.start` (1), and setting that to 0 turns the gate
+on for testing. Loyalty is a number so that higher levels can unlock more later.
+
+**The production pipeline** on the Production tab shows every order, linked by output → input, in
+three columns (refinery, fabricator, assembler), each pipeline headed by its end product. A line is
+dim when none of its good is in storage. An input that isn't raw and no order makes is a gap,
+drawn as an amber stub with the stage that could make it. An order linked to nothing is listed as
+standalone. On a phone the columns stack and the links become "feeds" lines.
+
+**Exact offline time.** A run takes its inputs when it starts and keeps room for what it makes, so
+finishing never fails. Orders start runs only when a run finishes or when something changes, in
+priority order. That makes settling time order exact (`Industry.settle`): whether the game catches
+up in one step on load or every second while docked, the result is the same. Each settle call stops
+after a set number of runs and goes on in the next.
+
+Saves from the leased-bay version (migration 12) merge every warehouse into the storage, refund
+every lease, and keep each station's first job as its order where the station's stage fits.
 
 ## Research
 
@@ -75,8 +110,8 @@ share one lab queue, so every hour of lab time is a choice between them. Package
 - **refine:** +4% to a line's stats (damage; shield strength and recharge; accuracy; top speed and
   acceleration; identify and ping range), three steps per line. Each step needs the one before and a
   blueprint (Mk II, then III, then IV). Drawn under the blueprints in the same row group.
-- **industry:** bay speed (+15% a step, three steps), warehouse racks (+100 room), extra bays per
-  station (+1, two steps), alternative recipes (power cells straight from water ice, graphene
+- **industry** (the Production group): order speed (+15% a step, three steps), storage racks
+  (+100 room), order slots per station (+1, two steps), alternative recipes (power cells straight from water ice, graphene
   without corundum) and a longer lab queue (+1).
 
 `Research.upgrades(done)` sums what's done for `Loadout.stats` (hull refits, and per-line stat
@@ -105,4 +140,7 @@ work settled after a long time offline speeds up exactly when the bonus finished
    fight, with a cooldown per ship. The player uses them from buttons on the combat panel; squad
    members by `use` lines (`tactics.use`, no longer hidden), which run only when there's a charge,
    it's off cooldown and it would help. EMP and jamming are timed statuses on fight time, so both
-   combat modes see them. *(done)* Still open: squad refit kits, and logistics between warehouses.
+   combat modes see them. *(done)* Still open: squad refit kits.
+8. Production orders (`rules/industry.js`, `ui/industry-view.js`): leased bays and per-station
+   warehouses give way to one shared storage and production orders, a station type per stage, the
+   lineage of a product and the production pipeline overview (migration 12). *(done)*

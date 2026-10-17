@@ -310,14 +310,85 @@
   .st-need .num { margin-left: auto; font-size: 12px; color: var(--dim); }
   .st-gives { margin: 0; font: 500 14px/1.4 var(--mono); color: var(--hud); }
   .st-pkg-note { font-family: var(--mono); font-size: 13px; font-style: italic; }
-  /* Industry: a working bay's run as a meter and the time left; other stations' sites as lines. */
+  /* Production: an order's run as a meter and the time left; order cards like pipeline nodes; the
+     production pipeline in three columns with its links drawn behind (stacked on a phone). */
   .st-run { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
   .st-run .num { font-size: 12px; color: var(--hud); white-space: nowrap; }
-  .st-why { font-size: 12px; }
-  .st-site { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 12px; background: var(--s1); border: 1px solid var(--line-soft); border-radius: var(--r-md); }
-  .st-site .name { font-weight: 600; color: var(--bright); }
-  .st-site .sub { grid-column: 1; font-size: 13px; color: var(--dim); }
-  .st-site .num { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: 12px; color: var(--hud); }
+  .pr-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--s1); border: 1px solid var(--line-soft); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); }
+  .pr-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pr-ins, .pr-outs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .pr-arrow { color: var(--dim); font-family: var(--mono); }
+  .pr-stage { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: var(--r-sm); border: 1px solid var(--line); font: 700 11px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--t4); }
+  .pr-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: var(--r-sm); background: var(--s2); border: 1px solid var(--line-soft); font-size: 13px; }
+  .pr-chip .icon, .pr-chip .ui-icon { margin: -2px 0; }
+  .pr-chip .mk { font-size: 11px; color: var(--dim); }
+  .pr-chip.ok .mk { color: var(--good); } .pr-chip.flow .mk { color: var(--cyan); } .pr-chip.miss .mk { color: var(--warn); }
+  .pr-chip.miss { border-color: var(--warn); }
+  .pr-chip.out { color: var(--bright); border-color: var(--line); }
+  .pr-state .line { display: flex; align-items: baseline; gap: 8px; }
+  .pr-state .txt { font-size: 13px; color: var(--hud); }
+  .pr-acts { display: flex; justify-content: flex-end; gap: 6px; }
+  .pr-new { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--cyan); text-align: left; cursor: pointer; font: inherit; }
+  .pr-new:hover { border-color: var(--cyan); }
+  .pr-new .main { display: flex; flex-direction: column; gap: 2px; }
+  .pr-new .name { font-weight: 600; }
+  .pr-new .sub { font-size: 13px; color: var(--dim); }
+  .pr-uses-link { align-self: flex-start; padding: 0; font-size: 12px; }
+  .pr-uses { margin: 2px 0 0; padding-left: 16px; font-size: 13px; color: var(--hud); }
+  .pr-uses .sub { color: var(--dim); }
+  .pr-pipe { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 4px; border-top: 1px solid var(--line-soft); }
+  .pr-end { font: 600 14px var(--sans); color: var(--bright); }
+  .pr-cols { display: grid; grid-template-columns: repeat(3, 1fr); font: 700 10px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+  .pr-cols span { padding: 0 4%; }
+  .pr-graph { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(var(--rows), var(--row)); }
+  .pr-lines { position: absolute; inset: 0; pointer-events: none; }
+  .pr-lines svg { display: block; overflow: visible; }
+  .pr-lines path { fill: none; stroke: var(--cyan); stroke-opacity: 0.7; stroke-width: 1.5; }
+  .pr-lines path.dim { stroke: var(--line-strong); stroke-opacity: 1; }
+  .pr-lines path.gap { stroke: var(--warn); stroke-dasharray: 4 3; }
+  .pr-cell { position: relative; padding: 4px 4%; min-width: 0; }
+  .pr-node { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); overflow: hidden; }
+  .pr-node .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .pr-node .main:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  .pr-node .where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-node .what { font-size: 13px; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-node .st { font: 700 10px/1.4 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone); }
+  .pr-node .prio { position: absolute; right: calc(4% + 4px); bottom: 8px; display: flex; align-items: center; gap: 2px; }
+  .pr-node .prio .num { font-size: 11px; color: var(--dim); margin-right: 2px; }
+  .pr-node .prio .ar { width: 22px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--s2); color: var(--hud); font: 12px var(--mono); cursor: pointer; }
+  .pr-node .prio .ar:hover { color: var(--cyan); border-color: var(--cyan); }
+  .pr-node.gap { border-style: dashed; border-color: var(--warn); background: transparent; }
+  .pr-node.gap .main { cursor: default; }
+  .pr-node.gap .where { color: var(--warn); }
+  .pr-feeds { display: none; flex-direction: column; font-size: 12px; color: var(--cyan); }
+  .pr-lone { display: flex; flex-direction: column; gap: 6px; }
+  .pr-lone-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
+  .pr-lone-row .pr-node { min-height: 64px; }
+  .pr-lone-row .prio { right: 6px; }
+  .pr-gap { font-size: 12px; color: var(--warn); }
+  .pr-lineage { display: flex; flex-direction: column; gap: 4px; }
+  .pr-lineage.sub { margin-left: 14px; padding-left: 10px; border-left: 2px solid var(--line); }
+  .pr-in { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--s1); border: 1px solid var(--line-soft); border-radius: var(--r-md); color: inherit; font: inherit; text-align: left; }
+  button.pr-in { cursor: pointer; } button.pr-in:hover { border-color: var(--line-strong); }
+  .pr-in .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .pr-in .nm { color: var(--bright); }
+  .pr-in .chev { color: var(--dim); }
+  .src { font-size: 12px; } .src.ok { color: var(--good); } .src.flow { color: var(--cyan); } .src.miss { color: var(--warn); }
+  .pr-mini { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+  .pr-mini .cost { font-size: 12px; color: var(--hud); }
+  .pr-peek { font-size: 13px; margin: 2px 0 0 14px; }
+  .pr-prio { display: flex; align-items: center; gap: 8px; }
+  .pr-prio .num { flex: 1; font-size: 13px; color: var(--hud); }
+  @media (max-width: 560px) {
+    .pr-cols, .pr-lines { display: none; }
+    .pr-graph { display: flex; flex-direction: column; gap: 6px; }
+    .pr-cell { padding: 0; }
+    .pr-node { height: auto; min-height: 64px; }
+    .pr-node .main { padding-bottom: 6px; }
+    .pr-node .prio { right: 6px; top: 6px; bottom: auto; }
+    .pr-node .where { padding-right: 84px; }
+    .pr-feeds { display: flex; padding: 0 8px 6px; }
+  }
   .st-left { font-size: 12px; color: var(--hud); }
 
   /* Squad: each member's hull and program; the line editor's fields and conditions. */
@@ -459,7 +530,7 @@
       <button class="ui-tab" type="button" role="tab" data-tab="trade">Trade</button>
       <button class="ui-tab" type="button" role="tab" data-tab="ship">Ship</button>
       <button class="ui-tab" type="button" role="tab" data-tab="research">Research</button>
-      <button class="ui-tab" type="button" role="tab" data-tab="industry">Industry</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="industry">Production</button>
       <button class="ui-tab" type="button" role="tab" data-tab="squad">Squad</button>
       <button class="ui-tab" type="button" role="tab" data-tab="missions">Missions</button>
     </div>

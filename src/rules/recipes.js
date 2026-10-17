@@ -1,4 +1,4 @@
-// Recipes: what industry makes (rules/industry.js), the production chain of notes/industry.md.
+// Recipes: what production orders make (rules/industry.js), the production chain of notes/industry.md.
 // Raw materials (mined and collected) and salvaged components go into a refinery, which makes
 // refined goods and refines them further; a fabricator makes parts from those; an assembler makes
 // gear (rules/loadout.js) from parts, the best of it with complex and exotic components only
@@ -7,7 +7,8 @@
 // makes something worth more than what goes in. Mk I gear and everything below gear is known from
 // the start; gear from Mk II up needs its blueprint researched (rules/research.js `bp.<gear id>`).
 //
-//   Recipes.BAYS[type]              { id, label, code, note }: the kinds of bay, in chain order
+//   Recipes.BAYS[type]              { id, label, code, note }: the stages, in chain order; each station
+//                                   type works one of them (Industry.STAGE)
 //   Recipes.RECIPES[id]             { id, bay, in: { [kind]: n }, out: { [kind]: n }, time (s per run), unlock: research id | null }
 //   Recipes.LIST                    every recipe, in display order
 //   Recipes.forBay(type) -> [recipe]
@@ -27,9 +28,9 @@ import { Mods } from './mods.js';
 
 const Recipes = (() => {
   const BAYS = {
-    refinery: { id: 'refinery', label: 'Refinery', code: 'REF', note: 'raw materials and salvage into refined goods' },
-    fabricator: { id: 'fabricator', label: 'Fabricator', code: 'FAB', note: 'refined goods into parts' },
-    assembler: { id: 'assembler', label: 'Assembler', code: 'ASM', note: 'parts into ship gear, by blueprint' },
+    refinery: { id: 'refinery', label: 'Refinery', code: 'REF', note: 'raw materials and salvage into refined goods, at mining camps and salvage yards' },
+    fabricator: { id: 'fabricator', label: 'Fabricator', code: 'FAB', note: 'refined goods into parts, at minor stations and the waystation' },
+    assembler: { id: 'assembler', label: 'Assembler', code: 'ASM', note: 'parts into gear, mods and consumables, at capitals and major hubs' },
   };
   const c = (category, tier) => Goods.component(category, tier);
 
