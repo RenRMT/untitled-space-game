@@ -10,6 +10,7 @@ import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
 import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode, useAbility } from './combat.js';
+import { escorts } from './jobs.js';
 import { escorting, mission, workSpot } from './missions.js';
 import { fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
 import { world } from './world.js';
@@ -39,10 +40,12 @@ export function buildWings() {
 }
 
 // The ships flying in formation: the active wingmen, then the android being escorted home in
-// the first mission (it isn't in the squad yet, and stays out of fights).
+// the first mission (it isn't in the squad yet, and stays out of fights), then any ship a job
+// has you escort (game/jobs.js; out of fights too).
 export function formationShips() {
   const list = activeSquad().map((m) => wings.get(m.id)).filter(Boolean);
   if (escorting()) list.push(mission.android);
+  list.push(...escorts());
   return list;
 }
 

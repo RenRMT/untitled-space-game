@@ -118,7 +118,7 @@ const IndustryView = {
       const here = ind().here, stage = ind().stage(), B = Recipes.BAYS[stage];
       if (!B) return env.section('Orders here', Kit.head('Orders here'), h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       if (!ind().trusted()) {
-        return env.section('Orders here', Kit.head('Orders here'), Kit.optionRow({ code: B.code, name: B.label, sub: `Run a job for ${here.name} first`, locked: true }));
+        return env.section('Orders here', Kit.head('Orders here'), Kit.optionRow({ code: B.code, name: B.label, sub: `Complete a mission for ${here.name} first`, locked: true }));
       }
       const orders = ind().orders(), max = ind().slots();
       const free = Math.max(0, max - orders.length);

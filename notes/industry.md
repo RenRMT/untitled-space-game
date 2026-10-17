@@ -78,9 +78,10 @@ work from any station. Cancelling or changing an order returns the inputs of the
 **Priority.** Orders share storage, so the order list decides who takes inputs first.
 
 **Loyalty.** Orders cost no credits. A station takes orders when its loyalty to the player
-(`cargo.loyalty[station key]`) is at least `Industry.LOYALTY.required` (1). Missions will raise it
-later; until then every station counts as `LOYALTY.start` (1), and setting that to 0 turns the gate
-on for testing. Loyalty is a number so that higher levels can unlock more later.
+(`cargo.loyalty[station key]`) is at least `Industry.LOYALTY.required` (1). Every station starts at
+`LOYALTY.start` (0); missions raise it (notes/missions.md): every station posts at least one job of
+its own, and the waystation's second opening mission opens its orders. Loyalty is a number so that
+higher levels can unlock more later.
 
 **The production pipeline** on the Production tab shows every order, linked by output → input, in
 three columns (refinery, fabricator, assembler), each pipeline headed by its end product. A line is

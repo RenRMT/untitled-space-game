@@ -655,7 +655,10 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.ok(game(`lab.grant('bp.pulse-laser-2') && !lab.grant('bp.pulse-laser-2')`), 'a blueprint, as a schematic gives one');
   game(`cargo.credits = 20000; cargo.items = [];
     for (const [k, n] of Object.entries(Recipes.gearRecipe('pulse-laser-2').in)) for (let i = 0; i < n; i++) cargo.items.push({ kind: k, label: Goods.type(k).name, category: 'trade' });`);
+  // Production orders need the station's trust: a mission done for it (the jobs' test does one).
   game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), new RegExp(`Complete a mission for ${game('industry.here.name')} first`), 'untrusted');
+  game(`cargo.loyalty[industry.here.key] = 1; StationMenu.refresh()`);
   pressOnStation('Store all');
   pressOnStation(/^\+ New order/);
   assert.match(onStation(), /New order.*Gear.*Pulse laser Mk II/, 'the blueprint\'s recipe is there');
@@ -802,7 +805,7 @@ test('logic intents become orders: guard fires on the ward\'s attacker, retreat 
 test('production: an order at a mining camp makes steel pipe while away, taken out at another station', () => {
   game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
-    placeShip(__camp.x, __camp.y + __camp.radius + 150); dock(__camp);`);
+    placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
   assert.match(onStation(), /Production.*Refinery here.*Orders here.*0\/1.*New order.*Storage.*Production pipeline.*No production orders yet/, 'nothing placed yet');
   game('cargo.items = []');
@@ -1303,6 +1306,135 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   game('launch()');
   browser.frames(3);
   assert.ok(game(`frameList.some((e) => e.kind === 'wingman')`), 'back in formation');
+});
+
+// The galaxy's jobs (story/jobs.js, game/jobs.js). The gates are online for these, and fights are
+// won (the enemies are worn down), so a job's steps are what's tested, not the dice.
+const winFight = (what) => {
+  assert.ok(until('!inFight()', 120 * 60, 'cargo.hull = SHIP.hull; if (fight.s) for (const e of fight.s.enemies) e.hull = Math.min(e.hull, 1)'), `${what}: the fight ends`);
+  assert.strictEqual(game('fight.result'), 'won', what);
+  browser.frames(200); // the last explosion, and the result panel
+};
+// Dock at a station (by key), on the Missions tab.
+function dockAt(key) {
+  if (game('!!docked')) game('launch()');
+  game(`{ const st = world.scene.stations.find((s) => s.key === '${key}'); placeShip(st.x, st.y + st.radius + 150); dock(st); StationMenu.showTab('missions'); }`);
+  assert.strictEqual(game('docked && docked.station.key'), key, 'docked');
+}
+
+test('jobs: every station posts one, named for it; a hunt is taken, fought and handed in, and opens production there', () => {
+  game(`cargo.story.add('gates'); showGates(); combatMode.set('rounds'); fight.grace = 1e9; cargo.hull = SHIP.hull; repairSquad()`);
+  assert.ok(game(`world.galaxy.stations.filter((st) => st.system).every((st) => cargo.board.list.some((j) => j.tier === 'station' && j.scope === st.key))`), 'every station has a job of its own');
+  // A hunt at a station that takes production orders.
+  game(`globalThis.__job = cargo.board.list.find((j) => j.tier === 'station' && j.steps.length === 2 && j.steps[1].type === 'fight'
+    && Industry.STAGE[world.scene.stations.find((s) => s.key === j.scope).market.type] && !Industry.trusted(cargo.loyalty, j.scope) && cargo.missions.status(j.id) === 'offered');`);
+  const id = game('__job.id'), title = game('__job.title'), key = game('__job.scope');
+  dockAt(key);
+  assert.ok(title.startsWith(`${game('docked.station.name')}: `), `named for its station: ${title}`);
+  game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Complete a mission for .* first/, 'no production orders yet');
+  game(`StationMenu.showTab('missions')`);
+  assert.match(onStation(), new RegExp(title));
+  openMission(title);
+  assert.match(onStation(), /Loyalty \+1 at/, 'what it pays, loyalty with it');
+  pressOnStation('Accept mission');
+  assert.deepStrictEqual(game(`[cargo.missions.status('${id}'), cargo.missions.at('${id}'), cargo.track]`), ['active', key, id]);
+  game('launch()');
+  browser.frames(2);
+  assert.match(game('objective().text'), /^Fly to the /);
+  // There by map travel to the objective: reached, and the pirates are there.
+  game(`arriveAt({ kind: 'objective', x: objective().x, y: objective().y })`);
+  browser.frames(2);
+  assert.ok(game(`cargo.missions.done('${id}', 's0')`), 'reached');
+  const n = game('__job.steps[1].wave.ships.length');
+  assert.strictEqual(game(`frameList.filter((e) => isHostile(e) && e.key.startsWith('j:${id}:')).length`), n, 'its wave');
+  assert.match(game('objective().text'), new RegExp(`^Destroy the \\w+${n > 1 ? ` · 0/${n}` : ''}`));
+  game(`{ const e = frameList.find((x) => isHostile(x) && x.key.startsWith('j:${id}:')); placeShip(e.x + 800 + e.radius, e.y); }`);
+  browser.frames(1);
+  game(`fight.grace = 0; engage(frameList.find((e) => isHostile(e) && e.key.startsWith('j:${id}:')))`);
+  assert.strictEqual(game('fight.s.enemies.length'), n, 'the whole wave fights');
+  winFight('the hunt');
+  assert.strictEqual(game(`cargo.missions.status('${id}')`), 'ready');
+  assert.match(game('objective().text'), /^Report to /);
+  // Handed in: paid, and the station trusts you.
+  const credits = game('cargo.credits'), reward = game('__job.reward.credits');
+  dockAt(key);
+  openMission(title);
+  pressOnStation('Complete mission');
+  assert.strictEqual(game(`cargo.missions.status('${id}')`), 'done');
+  assert.strictEqual(game('cargo.credits'), credits + reward, 'paid');
+  assert.ok(reward >= 400, `worth the trip (${reward} cr)`);
+  assert.strictEqual(game(`cargo.loyalty['${key}']`), 1);
+  showAllLines();
+  assert.match(onStation(), /now takes your production orders/);
+  game(`StationMenu.showTab('industry')`);
+  assert.doesNotMatch(onStation(), /Complete a mission for/, 'production orders open');
+  game('launch()');
+  browser.frames(2);
+  assert.strictEqual(game('objective()'), null, 'nothing under way');
+});
+
+test('jobs: an escort with a twist on the comms, handed in where it delivers; goods handed over; abandoning starts over', () => {
+  // An escort, delivered elsewhere, with a wave that comes for you after a call on the comms.
+  game(`globalThis.__job = cargo.board.list.find((j) => j.tier === 'system' && j.escort && j.escort.from === undefined && j.handIn
+    && j.steps.some((s) => s.wave && s.wave.rush && s.say) && j.steps.every((s) => s.type === 'go' || s.type === 'fight'));
+    globalThis.__at = world.scene.stations.find((s) => Jobs.offeredAt(__job, s.station));`);
+  const id = game('__job.id'), title = game('__job.title');
+  assert.ok(title.startsWith(`${game('world.galaxy.systems[__job.system].name')}: `), `named for its system: ${title}`);
+  dockAt(game('__at.key'));
+  openMission(title);
+  pressOnStation('Accept mission');
+  game('launch()');
+  browser.frames(2);
+  assert.ok(game(`formationShips().some((e) => e.escort === '${id}')`), 'the escorted ship flies with you');
+  const steps = game('__job.steps.length');
+  for (let i = 0; i < steps; i++) {
+    assert.ok(until(`cargo.missions.open('${id}', 's${i}')`, 60 * 10, 'if (talk.lines) Comms.next()'), `step ${i} opens`);
+    if (game(`__job.steps[${i}].type`) === 'fight') {
+      assert.ok(until('!!fight.s', 60 * 10, 'if (talk.lines) Comms.next()'), 'the wave comes for you');
+      assert.match(game('fight.log[0]'), / attack!$/);
+      winFight(`step ${i}`);
+      continue;
+    }
+    for (const p of game(`__job.steps[${i}].points`)) {
+      if (p.station) { dockAt(p.station); if (i < steps - 1) game('launch()'); } else { game(`fight.grace = 0; placeShip(${p.x + 300}, ${p.y})`); browser.frames(2); }
+    }
+    if (i === 0 && game(`__job.steps[1].say`)) {
+      assert.ok(until('!!talk.lines', 60 * 10), 'a call on the comms');
+      assert.match(game('talk.from'), new RegExp(game('__job.from')));
+    }
+  }
+  assert.strictEqual(game(`cargo.missions.status('${id}')`), 'ready');
+  assert.strictEqual(game('docked.station.key'), game('__job.handIn'), 'docked where it delivers');
+  openMission(title);
+  pressOnStation('Complete mission');
+  assert.strictEqual(game(`cargo.missions.status('${id}')`), 'done');
+  assert.ok(!game(`formationShips().some((e) => e.escort === '${id}')`), 'the escort stays where it was going');
+  // Goods to bring: taken, abandoned, taken again (starting over), the goods counted from the hold.
+  game(`globalThis.__bring = cargo.board.list.find((j) => j.tier === 'station' && j.steps.length === 1 && j.steps[0].type === 'bring' && cargo.missions.status(j.id) === 'offered')`);
+  const bid = game('__bring.id'), [kind, need] = game('[__bring.steps[0].kind, __bring.steps[0].n]');
+  dockAt(game('__bring.scope'));
+  openMission(game('__bring.title'));
+  pressOnStation('Accept mission');
+  pressOnStation('Abandon');
+  assert.deepStrictEqual(game(`[cargo.missions.status('${bid}'), cargo.missions.attempt('${bid}')]`), ['offered', 1]);
+  openMission(game('__bring.title'));
+  pressOnStation('Accept mission');
+  assert.strictEqual(game(`cargo.missions.attempt('${bid}')`), 2);
+  game(`cargo.items = []; for (let i = 0; i < ${need}; i++) cargo.items.push({ kind: '${kind}', label: Goods.type('${kind}').name, category: 'trade' })`);
+  game('launch()');
+  browser.frames(2);
+  assert.strictEqual(game(`cargo.missions.status('${bid}')`), 'ready', 'the goods are aboard');
+  game('cargo.items.pop()');
+  browser.frames(2);
+  assert.strictEqual(game(`cargo.missions.status('${bid}')`), 'active', 'one sold: not yet');
+  game(`cargo.items.push({ kind: '${kind}', label: 'x', category: 'trade' }); cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' })`);
+  browser.frames(2);
+  dockAt(game('__bring.scope'));
+  openMission(game('__bring.title'));
+  pressOnStation('Complete mission');
+  assert.deepStrictEqual(game('cargo.items.map((it) => it.kind)'), ['iron'], 'the goods handed over, nothing else');
+  game('launch(); cargo.story.delete("gates"); showGates(); fight.grace = 0');
 });
 
 test('text with **bold** runs becomes text and <strong> elements', () => {

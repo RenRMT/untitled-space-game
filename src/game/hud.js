@@ -131,7 +131,7 @@ export function drawNavMarkers() {
   };
   world.scene.stations.forEach(mark);
   world.scene.gates.forEach(mark);
-  const R = obj && (obj.station ? obj.station.radius : mission.site.spread);
+  const R = obj && (obj.r ?? (obj.station ? obj.station.radius : mission.site ? mission.site.spread : 600));
   if (obj && !visible({ x: obj.x, y: obj.y, radius: R }) && !stations.some((m) => m.ref === obj.station)) {
     const d = Math.hypot(obj.x - ship.x, obj.y - ship.y);
     const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(d - (obj.station ? R : 0))}`;

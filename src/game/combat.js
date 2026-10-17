@@ -106,8 +106,9 @@ export function engage(target, ambushed = false) {
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);
-  // Who started it: pirates, or (in the second opening mission) a named android.
-  const attackers = target.android ? `${target.name} attacks!` : 'Pirates attack!';
+  // Who started it: pirates, a job's crew of some other kind, or (in the second opening
+  // mission) a named android.
+  const attackers = target.android ? `${target.name} attacks!` : `${target.crew || 'Pirates'} attack!`;
   fight.log = [ambushed ? attackers : `You engage the ${names[0]}.`];
   fight.result = null;
   stopMining();

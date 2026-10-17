@@ -26,6 +26,7 @@
 //   Industry.runTime(order, env, t) -> ms    one run of its recipe
 //   Industry.status(state, order) -> { id: 'running' | 'starved' | 'blocked' | 'done' | 'paused', missing? }
 //   Industry.place(state, station { key, name, type }, recipe, count | null, env, now, loyalty?) -> order | null
+//     (loyalty given: only at a station that trusts the player)
 //   Industry.change(state, id, recipe, count, env, now), pause(state, id, paused, env, now),
 //     cancel(state, id), move(state, i, j)   by order id, except move (positions in the list)
 //   Industry.deposit(state, kind, n, env, now) -> n taken; withdraw(state, kind, n) -> n given
@@ -49,9 +50,9 @@ const Industry = (() => {
   const STATIONS = { refinery: 'mining camps, salvage yards', fabricator: 'minor stations, the waystation', assembler: 'capitals, major hubs' };
   const STORAGE = { base: 200 };
   const SLOTS = 1; // orders per station, before research
-  // A station takes orders from loyalty `required` up. Until missions raise it, every station
-  // starts at `start` (0 turns the gate on).
-  const LOYALTY = { required: 1, start: 1 };
+  // A station takes orders from loyalty `required` up; every station starts at `start`, and
+  // missions done for it raise it (game/jobs.js; the waystation's own: game/missions.js).
+  const LOYALTY = { required: 1, start: 0 };
   const MAX_EVENTS = 20000; // runs settled per call; the rest wait for the next call
 
   const empty = () => ({ storage: {}, orders: [], seq: 1 });
@@ -125,7 +126,7 @@ const Industry = (() => {
 
   const runs = (count) => (count === null ? null : Math.max(1, Math.floor(count)));
   function place(state, station, recipe, count, e, now, loyalty) {
-    if (!canMake(station.type, recipe) || !trusted(loyalty, station.key) || at(state, station.key).length >= slots(e)) return null;
+    if (!canMake(station.type, recipe) || (loyalty && !trusted(loyalty, station.key)) || at(state, station.key).length >= slots(e)) return null;
     const o = { id: state.seq++, station: station.key, name: station.name, type: station.type, recipe, left: runs(count), made: 0, at: null, next: null, paused: false };
     state.orders.push(o);
     kick(state, e, now);
