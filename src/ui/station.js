@@ -1,7 +1,8 @@
 // The docked screen: the station header, one of the Trade / Ship / Research / Production / Squad /
 // Missions tabs,
 // and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
-// schematic of the ship with a button per equipment slot, each opening a sheet of what can go there;
+// schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
+// (with a squad, a switcher above it steps through the members' ships too, shown read only);
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
 // sheet; the Production tab (ui/industry-view.js) shows this station's production orders, the shared
 // storage and the production pipeline, an order opening a sheet to pick its product; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
@@ -63,6 +64,7 @@ const StationMenu = (() => {
 
   let ctx = null; // the open() options while docked
   let tab = 'trade';
+  let viewing = null; // the squad member the Ship tab shows (its id), or null: your own ship
   let openSlot = null; // the loadout slot whose sheet is open, if any
   let openMission = null; // the mission whose sheet is open, if any
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
@@ -282,6 +284,8 @@ const StationMenu = (() => {
   // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
   // changes against what's fitted.
   function slotSheet(id) {
+    const m = viewedMember();
+    if (m) return memberSlotSheet(m, id);
     const { outfitting: o } = ctx;
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
     if (!s) return null;
@@ -406,21 +410,115 @@ const StationMenu = (() => {
       })));
   }
 
-  function renderShip() {
-    const { ship, hold, outfitting: o } = ctx;
-    const slots = Loadout.slots(o.loadout, o.upgrades);
+  // The performance chips for a ship's stats (Loadout.stats) and its slots.
+  function perfStats(ship, slots, hullId) {
     const fromItem = (type) => { const s = slots.find((x) => x.type === type && x.item); return s ? `From ${s.item.name}` : 'Nothing fitted'; };
-    const stats = [
+    const computer = slots.some((x) => x.type === 'computer' && x.item);
+    return [
       { id: 'spd', code: 'SPD', label: 'Speed', value: `${ship.maxSpeed}`, detail: `Top speed when cruising; it gets there at ${Math.round(ship.accel)} acceleration.`, from: fromItem('engine') },
-      { id: 'trn', code: 'TRN', label: 'Turn', value: `${deg(ship.turnRate)}°/s`, detail: `Degrees per second the ship can turn (the ${ship.name} handles ×${Loadout.HULLS[o.loadout.hull].handling}).`, from: fromItem('engine') },
+      { id: 'trn', code: 'TRN', label: 'Turn', value: `${deg(ship.turnRate)}°/s`, detail: `Degrees per second the ship can turn (the ${ship.name} handles ×${Loadout.HULLS[hullId].handling}).`, from: fromItem('engine') },
       { id: 'eva', code: 'EVA', label: 'Evasion', value: pct(ship.evasion), detail: 'Chance to avoid incoming fire.', from: fromItem('engine') },
       { id: 'shd', code: 'SHD', label: 'Shield', value: `${ship.shield}`, detail: ship.shield ? `${ship.shield} strength, recharging ${ship.shieldRecharge} per second.` : 'No shield fitted.', from: fromItem('shield') },
       { id: 'dps', code: 'DPS', label: 'Firepower', value: `${r2(ship.firepower)}/s`, detail: `${r2(ship.firepower)} damage per second from ${ship.weaponsFitted} of ${ship.weaponSlots} weapons.`, from: ship.weapons.map((w) => w.name).join(' + ') || 'No weapons fitted' },
       { id: 'aim', code: 'AIM', label: 'Accuracy', value: pct(ship.accuracy), detail: `Hit chance, weighed against the target's evasion. Locks on in ${r2(ship.lockTime)} s.`, from: fromItem('computer') },
       { id: 'sns', code: 'SNS', label: 'Sensors', value: Format.dist(ship.sensorRange), detail: `Identifies at ${Format.dist(ship.sensorRange)} · pings at ${Format.dist(ship.pingRange)} · locks at ${Format.dist(ship.lockRange)}.`, from: fromItem('scanner') },
-      { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s` : '—', detail: ship.miningRate ? 'Seconds to mine an asteroid.' : 'No ship computer: no mining.', from: fromItem('computer') },
-      { id: 'crg', code: 'CRG', label: 'Cargo', value: `${ship.cargo}`, detail: 'Hold capacity in units.', from: `From the ${ship.name} hull` },
+      { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s` : '—', detail: ship.miningRate ? 'Seconds to mine an asteroid.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: no mining.', from: fromItem('computer') },
+      { id: 'crg', code: 'CRG', label: 'Cargo', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
     ];
+  }
+
+  // ---------- Ship: which ship it shows ----------
+
+  // The ships the Ship tab can show: yours (null), then each squad member's (by id).
+  const squadMembers = () => (ctx && ctx.squad ? ctx.squad.members : []);
+  const shipViews = () => [null, ...squadMembers().map((m) => m.id)];
+  // The squad member shown, or null for your own ship (also when the one shown has left the squad).
+  function viewedMember() {
+    if (viewing === null) return null;
+    const m = squadMembers().find((x) => x.id === viewing);
+    if (!m) viewing = null;
+    return m || null;
+  }
+  function showShip(id) {
+    const next = shipViews().includes(id) ? id : null;
+    if (next === viewing) return;
+    closeSheet();
+    viewing = next;
+    openStat = openHold = openHull = openKit = openOption = null;
+    body.scrollTop = 0;
+    refresh();
+  }
+  // Step through the ships: +1 the next, -1 the one before, round and round.
+  function stepShip(dir) {
+    const views = shipViews(), i = views.indexOf(viewedMember() ? viewing : null);
+    showShip(views[(i + dir + views.length) % views.length]);
+  }
+
+  // The switcher above the Ship tab: ‹ the ship shown, a dot per ship › (only with a squad).
+  function shipSwitcher() {
+    const views = shipViews();
+    if (views.length < 2) return null;
+    const m = viewedMember(), at = views.indexOf(m ? m.id : null);
+    const nameOf = (id) => (id === null ? 'Your ship' : squadMembers().find((x) => x.id === id).name);
+    const arrow = (dir, glyph) => h('button', {
+      class: 'st-switch-btn', type: 'button', onclick: () => stepShip(dir),
+      'aria-label': `Show ${nameOf(views[(at + dir + views.length) % views.length])}`,
+    }, glyph);
+    return h('nav', { class: 'st-switch', 'aria-label': 'Ships' },
+      arrow(-1, '‹'),
+      h('span', { class: 'mid' },
+        h('span', { class: 'who', 'aria-live': 'polite' }, m ? m.name : 'Your ship', h('span', { class: 'num' }, ` ${at + 1}/${views.length}`)),
+        h('span', { class: 'dots' }, views.map((id, i) => h('button', {
+          class: 'dot', type: 'button', 'aria-current': i === at ? 'true' : undefined, 'aria-label': `Show ${nameOf(id)}`, title: nameOf(id),
+          onclick: () => showShip(id),
+        })))),
+      arrow(1, '›'));
+  }
+
+  // A squad member's slot, read only: android gear comes with its Mk and can't be changed.
+  function memberSlotSheet(m, id) {
+    const s = Loadout.slots(Loadout.npc(m.hull, m.tier)).find((x) => x.id === id);
+    if (!s) return null;
+    const cur = s.item;
+    return {
+      title: s.label, code: SLOT_CODE[s.type], sub: `${m.name} · ${SLOT_KIND[s.type]}`,
+      body: [
+        h('span', { class: 'ui-label' }, 'Fitted'),
+        cur ? Kit.optionRow({ code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true })
+          : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
+        h('p', { class: 'ui-note' }, `Android gear is built into the ${Loadout.HULLS[m.hull].name.toLowerCase()} and can't be refitted; it is ${Loadout.MK[m.tier]} throughout.`),
+      ],
+    };
+  }
+
+  // The Ship tab for a squad member: its hull, its loadout and what it can do. Read only.
+  function renderMemberShip(m) {
+    const loadout = Loadout.npc(m.hull, m.tier);
+    const slots = Loadout.slots(loadout), st = Squad.stats(m);
+    const k = m.disabled ? 0 : m.hullPoints / st.hull;
+    const squadOpen = !isLocked('squad');
+    return [
+      shipSwitcher(),
+      section(m.name, titleRow(m.name, `Android ${st.name.toLowerCase()} · ${Loadout.MK[m.tier]}`),
+        h('div', { class: 'st-hull' }, Kit.icon('hull', 24, { code: 'HUL' }),
+          h('div', { class: 'gauge' },
+            h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
+            Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
+          m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
+      schematic(slots),
+      section('Performance', Kit.head('Performance'), Kit.statChips(perfStats(st, slots, m.hull), openStat, (id) => { openStat = id; refresh(); })),
+      section('Program', Kit.head('Program', h('span', { class: 'aside num' }, `${m.program.length} instruction${m.program.length === 1 ? '' : 's'}`)),
+        h('p', { class: 'ui-note' }, 'Androids repair at a dock and fly fixed gear. What they do in a fight is set by their instructions.'),
+        squadOpen ? Kit.button('Edit instructions', () => pick('squad'), { kind: 'ghost', wide: true, aria: `Edit ${m.name}'s instructions on the Squad tab` }) : null),
+    ];
+  }
+
+  function renderShip() {
+    const member = viewedMember();
+    if (member) return renderMemberShip(member);
+    const { ship, hold, outfitting: o } = ctx;
+    const slots = Loadout.slots(o.loadout, o.upgrades);
+    const stats = perfStats(ship, slots, o.loadout.hull);
     const groups = new Map(); // item type -> count
     for (const it of hold.items) groups.set(it.kind, (groups.get(it.kind) || 0) + 1);
     const items = [...groups].map(([kind, n]) => {
@@ -428,6 +526,7 @@ const StationMenu = (() => {
       return { id: kind, icon: itemIcon(kind, 32), name: t.name, count: n, tier: t.rarity, rarity: Goods.RARITY[t.rarity].label };
     });
     return [
+      shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       schematic(slots),
       section('Performance', Kit.head('Performance'), Kit.statChips(stats, openStat, (id) => { openStat = id; refresh(); })),
@@ -861,6 +960,7 @@ const StationMenu = (() => {
     open(options) {
       ctx = options;
       tab = options.tab || 'trade';
+      viewing = null;
       closeSheet();
       openStat = openHold = openHull = openKit = null;
       research.reset();
@@ -889,7 +989,12 @@ const StationMenu = (() => {
     get tab() { return tab; },
     refresh,
     tick, // what the once-a-second timer does (the tests call it)
-    // Open or close the sheet for a loadout slot on the Ship tab.
+    // Which ship the Ship tab shows: null for yours, else a squad member's id. showShip(id) shows
+    // one (an id not in the squad: yours); stepShip(+1 | -1) steps to the next or the one before.
+    showShip,
+    stepShip,
+    get viewing() { return viewedMember() ? viewing : null; },
+    // Open or close the sheet for a loadout slot on the Ship tab (of the ship shown).
     toggleSlot(id) { if (openSlot === id) { closeSheet(); refresh(); } else showSlot(id); },
     // Open the sheet for a mission on the Missions tab; closeSheet() closes whichever is open.
     showMission(id) { showMission(id); },
