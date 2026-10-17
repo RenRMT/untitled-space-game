@@ -180,7 +180,6 @@ const StationMenu = (() => {
   }
 
   // A trade good: its icon and name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
-  // A good this station consumes says so ('In demand': it pays more for it).
   function goodRow(g, full) {
     const { hold } = ctx;
     const name = Goods.type(g.kind).name;
@@ -199,7 +198,6 @@ const StationMenu = (() => {
     return Kit.optionRow({
       icon: h('span', { class: 'st-item' }, itemIcon(g.kind, 40), n ? h('span', { class: 'n num' }, `×${n}`) : null),
       name,
-      tag: g.consumed && !g.produced ? 'In demand' : null, tagTone: 'warn',
       // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
       extra: gauge(g.buy ?? g.sell, Economy.basePrice(g.kind) * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread)),
       action: h('span', { class: 'st-deal' }, buy, sell),
