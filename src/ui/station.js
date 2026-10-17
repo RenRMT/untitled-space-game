@@ -106,6 +106,7 @@ const StationMenu = (() => {
   let researchSeen = Store.getJSON('researchSeen', 0) || 0; // how many packages were done when Research was last open
   function industryWaiting() {
     const lab = ctx.lab && ctx.lab.state, ind = ctx.industry;
+    if (lab && Array.isArray(lab.done) && lab.done.length < researchSeen) researchSeen = lab.done.length; // another galaxy's save
     const research = lab && Array.isArray(lab.done) && lab.done.length > researchSeen;
     const orders = ind && ind.state && ind.state.orders.some((o) => ['done', 'blocked'].includes(Industry.status(ind.state, o).id));
     return !!(research || orders);
