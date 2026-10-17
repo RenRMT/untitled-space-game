@@ -150,11 +150,10 @@ const IndustryView = {
       const cap = Industry.capacity(s, e, now), used = Industry.used(s), held = Industry.reserved(s);
       const order = (k) => [...Goods.STAGES, 'item'].indexOf(Recipes.item(k).stage);
       const kinds = Object.keys(s.storage).sort((a, b) => order(a) - order(b));
-      const into = (k) => ({ component: 'components', gear: 'spare gear', mod: 'spare mods', consumable: 'kit' }[Recipes.item(k).kind] || 'hold');
       return env.section('Storage',
         Kit.head('Storage', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
         kinds.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, s.storage[k],
-          Kit.button('Take', env.act(() => ind().withdraw(k), () => Kit.toast(`${name(k)} to your ${into(k)}`)), {
+          Kit.button('Take', env.act(() => ind().withdraw(k)), {
             kind: 'ghost', disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of storage`,
           }),
           [h('button', { class: 'ui-link pr-uses-link', type: 'button', 'aria-expanded': String(uses === k), onclick: () => { uses = uses === k ? null : k; env.refresh(); } }, 'What uses this?'),
@@ -168,12 +167,12 @@ const IndustryView = {
       for (const it of hold.items) counts[it.kind] = (counts[it.kind] || 0) + 1;
       const comps = env.ctx().lab.components;
       const free = Industry.free(state(), ind().env(), ind().now());
-      const store = (k) => Kit.button('Store', env.act(() => ind().deposit(k), () => Kit.toast(`${name(k)} stored`)), {
+      const store = (k) => Kit.button('Store', env.act(() => ind().deposit(k)), {
         kind: 'ghost', disabled: free < 1, aria: `Store ${name(k)}`,
       });
       const kinds = Object.keys(counts), parts = Object.keys(comps).filter((k) => Recipes.consumers(k).length);
       return env.section('Aboard',
-        Kit.head('Aboard', kinds.length ? Kit.button('Store all', env.act(() => { for (const k of kinds) ind().deposit(k); }, () => Kit.toast('Hold stored')), { kind: 'ghost', disabled: free < 1 }) : null),
+        Kit.head('Aboard', kinds.length ? Kit.button('Store all', env.act(() => { for (const k of kinds) ind().deposit(k); }), { kind: 'ghost', disabled: free < 1 }) : null),
         kinds.length || parts.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, counts[k], store(k))), parts.map((k) => goodRow(k, comps[k], store(k))))
           : h('p', { class: 'ui-empty' }, 'Nothing aboard to store. Mine, salvage or buy goods.'));
     }
@@ -305,8 +304,8 @@ const IndustryView = {
         foot: [
           o.left !== 0 ? Kit.button(o.paused ? 'Resume' : 'Pause', env.act(() => ind().pause(o.id, !o.paused)), { kind: 'primary', lg: true, wide: true }) : null,
           here ? Kit.button('Change', () => env.showOrder(editing(o)), { kind: 'ghost', wide: true })
-            : Kit.button('Set marker', env.act(() => ind().mark(o.station), () => { env.closeSheet(); Kit.toast(`Marker set on ${o.name}`); }), { kind: 'ghost', wide: true, aria: `Set a map marker on ${o.name}` }),
-          Kit.button('Cancel order', env.act(() => ind().cancel(o.id), () => { env.closeSheet(); Kit.toast(`Order cancelled · inputs back in storage`, 'warn'); }), { kind: 'warn', wide: true }),
+            : Kit.button('Set marker', env.act(() => ind().mark(o.station), () => env.closeSheet()), { kind: 'ghost', wide: true, aria: `Set a map marker on ${o.name}` }),
+          Kit.button('Cancel order', env.act(() => ind().cancel(o.id), () => env.closeSheet()), { kind: 'warn', wide: true }),
         ],
       };
     }
@@ -361,10 +360,10 @@ const IndustryView = {
         title: open.mode === 'new' ? 'New order' : 'Change order', code: B.code, sub: `${B.label} · ${here.name}`, tall: true,
         body,
         foot: [
-          Kit.button(open.mode === 'new' ? 'Place order' : 'Save order', env.act(go, () => { env.closeSheet(); Kit.toast(`${B.label} order: ${recipeName(chosen)}`); }), {
+          Kit.button(open.mode === 'new' ? 'Place order' : 'Save order', env.act(go, () => env.closeSheet()), {
             kind: 'primary', lg: true, wide: true, disabled: !chosen, aria: chosen ? `Place an order for ${recipeName(chosen)}` : undefined,
           }),
-          open.mode === 'edit' ? Kit.button('Cancel order', env.act(() => ind().cancel(open.id), () => { env.closeSheet(); Kit.toast('Order cancelled · inputs back in storage', 'warn'); }), { kind: 'warn', wide: true }) : null,
+          open.mode === 'edit' ? Kit.button('Cancel order', env.act(() => ind().cancel(open.id), () => env.closeSheet()), { kind: 'warn', wide: true }) : null,
         ],
       };
     }

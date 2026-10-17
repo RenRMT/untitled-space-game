@@ -157,6 +157,7 @@ function resumePlay() {
 }
 
 export let last = performance.now();
+let logShown = -1; // the event log's version last drawn: a paused frame redraws when it changes
 export function frame(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   const gap = now - last;
@@ -170,6 +171,7 @@ export function frame(now) {
       update(dt);
       stillDrawn = false;
     }
+    if (Messages.version !== logShown) { logShown = Messages.version; stillDrawn = false; }
     if (!stillDrawn) {
       const list = nearbyEntities(simTime);
       if (!paused) react(list, dt);
@@ -183,9 +185,6 @@ export function frame(now) {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
-  // In flight, notices are lines of the HUD's event log (game/hud.js); docked, on the map and in
-  // the introduction, toasts.
-  Messages.toLog = () => hudShown() && !docked && !SystemMap.isOpen;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden' && fight.s) pauseForResume();
   });

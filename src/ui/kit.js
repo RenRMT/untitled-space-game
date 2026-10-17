@@ -37,7 +37,6 @@
 //     close it, Tab stays inside. One at a time. host: the element it is put in (default: a layer
 //     of its own at the end of <body>).
 //   Kit.button(label, onclick, { ..., repeat: true })   held down, it repeats (onclick returning false stops it)
-//   Kit.toast(text, tone)                  'good' | 'warn' | 'hostile'; goes by itself
 //   Kit.code(lines, { label })             a block of code: Kit.codeLine rows (and anything else)
 //   Kit.codeLine({ n, tokens, off, dim, active, err, note, onclick, aria })   one numbered line;
 //     tokens: [{ t, text }] (t: kw | subj | prop | op | num | fn | punc | ws | err | cmt) coloured by
@@ -51,7 +50,6 @@
 // ES module (`Kit`); needs a browser.
 
 import { Glyphs } from './glyphs.js';
-import { Messages } from './messages.js';
 import { UI } from './ui.js';
 
 const Kit = (() => {
@@ -370,10 +368,6 @@ const Kit = (() => {
     return handle;
   }
 
-  // ---------- Toast ----------
-  // A short notice, through the one message queue (ui/messages.js).
-  const toast = (text, tone = 'good') => Messages.push(text, { tone, now: true });
-
   // ---------- Code ----------
   const code = (lines, { label } = {}) => h('div', { class: 'ui-code', role: 'list', 'aria-label': label }, lines);
   function codeLine({ n, tokens, off, dim, active, err, note, onclick, aria }) {
@@ -405,7 +399,7 @@ const Kit = (() => {
 
   return {
     TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
-    credits, slotNode, techNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
+    credits, slotNode, techNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet,
     code, codeLine, choices, instruction,
   };
 })();
