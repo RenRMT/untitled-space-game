@@ -10,6 +10,7 @@
 //                                aria, title, lg, wide, progress })
 //   Kit.pips(tier), Kit.mk(tier)           5 tier pips / 'Mk II', coloured by tier (1–5; rarity alike)
 //   Kit.tag(text, color)                   a small caps status word ('New', 'Hand in')
+//   Kit.credits(n)                         an amount of credits: the credits diamond, then the number
 //   Kit.meter(fraction, { color, thin })   a filled track
 //   Kit.segments(states)                   one segment per step: 'done' | 'open' | ''
 //   Kit.compare(cur, next, metrics)        -> rows [{ code, label, cur, next, diff, better: 1 | -1 | 0 }]
@@ -82,8 +83,13 @@ const Kit = (() => {
       class: ['ui-btn', kind, lg && 'lg', wide && 'wide'].filter(Boolean).join(' '), type: 'button', disabled, 'aria-label': aria, title,
       style: progress !== undefined ? { '--progress': `${Math.round(progress * 100)}%` } : undefined,
       ...(repeat ? holdable(onclick) : { onclick }),
-    }, h('span', {}, label), price !== undefined ? h('span', { class: 'price' }, `${price.toLocaleString('en-US')} cr`) : null);
+    }, h('span', {}, label), price !== undefined ? h('span', { class: 'price' }, credits(price)) : null);
   }
+
+  // Credits as the station header shows them: a small diamond before the number. Screen readers
+  // hear the word.
+  const credits = (n) => h('span', { class: 'ui-cr', 'aria-label': `${n.toLocaleString('en-US')} credits` },
+    h('i', { 'aria-hidden': 'true' }), h('span', { 'aria-hidden': 'true' }, n.toLocaleString('en-US')));
 
   // Press and hold to repeat (Buy, Sell): a tap does it once; held past HOLD_DELAY ms it goes again
   // every HOLD_EVERY ms until let go, or until fn returns false (nothing more to do). The panel may
@@ -399,7 +405,7 @@ const Kit = (() => {
 
   return {
     TIER, MK, ICONS, icon, button, pips, mk, tag, meter, segments, compare, deltas, compareTable, values,
-    slotNode, techNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
+    credits, slotNode, techNode, statChips, itemTiles, optionRow, head, check, infoTile, callout, quote, disclosure, sheet, toast,
     code, codeLine, choices, instruction,
   };
 })();

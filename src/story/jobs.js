@@ -314,7 +314,7 @@ const Jobs = (() => {
     for (const [cat, t, n] of w.components || []) components[Goods.component(cat, t)] = n;
     const loyal = loyalty(galaxy, o.tier, o.scope, o.faction, o.against, o.system);
     job.reward = { credits, components, loyalty: loyal };
-    job.rewardText = [`${credits.toLocaleString('en-US')} cr`, ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text)].join(' · ');
+    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text)].join(' · ');
     return job;
   }
   // What the giver says once the job is done, before it's handed in, unless the job says otherwise.

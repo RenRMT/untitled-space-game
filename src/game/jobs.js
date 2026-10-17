@@ -324,6 +324,7 @@ export function jobViews(station) {
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,
       reward: J.rewardText,
+      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: J.reward.loyalty.map((l) => l.text) },
       note: status === 'done' ? doneNote(J) : status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
       handIn: where ? where.name : null,
       tracked: trackedJob() === J.id,

@@ -77,14 +77,11 @@ function pressOnStation(label) {
   assert.ok(b, `a ${label} button`);
   b.dispatch('click', {});
 }
-// A mission's card on the Missions tab, tapped: its sheet opens; then the whole message.
+// A mission's card on the Missions tab, tapped: its sheet opens, with the whole message.
 function openMission(title) {
   pressOnStation(new RegExp(`^${title}`));
-  showAllLines();
+  assert.ok(!stationParts().flatMap(allOf).some((el) => el.tagName === 'BUTTON' && /^Read all/.test(textOf(el))), 'the whole briefing, no Read all');
 }
-const showAllLines = () => {
-  if (stationParts().flatMap(allOf).some((el) => el.tagName === 'BUTTON' && /^Read all/.test(textOf(el)))) pressOnStation(/^Read all \d+ lines/);
-};
 function until(cond, maxFrames, each = '') {
   for (let i = 0; i < maxFrames; i++) {
     if (game(cond)) return true;
@@ -180,7 +177,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   assert.strictEqual(game('StationMenu.tab'), 'missions', 'the other tabs are locked');
   assert.match(tab(), /Payment in kind/);
   assert.match(tab(), /Station services are suspended/);
-  assert.match(tab(), /4 objectives · tap to read the briefing/);
+  assert.doesNotMatch(tab(), /tap to read the briefing/);
   openMission('Payment in kind');
   assert.match(tab(), /Briefing/);
   assert.match(tab(), /coolant regulator/);
@@ -269,7 +266,6 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   // mission offered.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(OPENING)'), 'done');
-  showAllLines();
   assert.match(tab(), /surplus to requirements/);
   assert.match(tab(), /reduced to 6 bars of gold/);
   assert.match(tab(), /has joined your squad/);
@@ -382,7 +378,6 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   // Handed in: the module studied, the debt settled, every tab open.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(SALVAGE)'), 'done');
-  showAllLines();
   assert.match(tab(), /pacifist by design/);
   assert.match(tab(), /anomaly/);
   assert.match(tab(), /come back later/);
@@ -477,7 +472,6 @@ test('the gate mission: the squad member unblocks the gate under attack, and get
   // Handed in: the gate online, the squad member's first combat logic module.
   press('Complete mission');
   assert.strictEqual(game('cargo.missions.status(GATE_JOB)'), 'done');
-  showAllLines();
   assert.match(tab(), /Jump gate activated/);
   assert.match(tab(), /We do not want it\. We do not need it\. You may have it/);
   assert.match(tab(), /share our findings with Waystation HD-1908/);
@@ -1433,7 +1427,6 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   assert.strictEqual(game('cargo.credits'), credits + reward, 'paid');
   assert.ok(reward >= 400, `worth the trip (${reward} cr)`);
   assert.strictEqual(game(`cargo.loyalty['${key}']`), 1);
-  showAllLines();
   assert.match(onStation(), /now takes your production orders/);
   game(`StationMenu.showTab('industry')`);
   assert.doesNotMatch(onStation(), /Complete a mission for/, 'production orders open');

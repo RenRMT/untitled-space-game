@@ -29,7 +29,8 @@
 //   the galaxy's jobs: game/jobs.js), each
 //   { id, title, from, face?(ctx, size), status ('offered' | 'active' | 'ready' | 'done'), here (it's
 //   offered, or handed in, at this station), lines: [what the giver says now], objectives: [{ label,
-//   count, need, done, open, percent }], provided?, reward, note?, handIn? (the station it's handed
+//   count, need, done, open, percent }], provided?, reward (in words), pays? ({ credits, items: [{ kind, n }], also: [text] }:
+//   the reward as the card shows it, credits and item icons; also: the rest, the sheet only), note?, handIn? (the station it's handed
 //   in at, by name), tracked?, accept?(), complete?(), track?(), abandon?() }.
 // locks() -> { tabs: [tab names], reason, launch }: tabs that can't be opened yet and why, and why
 //   Launch can't be pressed yet (null when it can). Asked again after every change.
@@ -76,7 +77,6 @@ const StationMenu = (() => {
   let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
-  let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
   const { h } = UI; // ui/ui.js
@@ -180,6 +180,7 @@ const StationMenu = (() => {
   }
 
   // A trade good: its icon and name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
+  // A good this station consumes says so ('In demand': it pays more for it).
   function goodRow(g, full) {
     const { hold } = ctx;
     const name = Goods.type(g.kind).name;
@@ -198,44 +199,70 @@ const StationMenu = (() => {
     return Kit.optionRow({
       icon: h('span', { class: 'st-item' }, itemIcon(g.kind, 40), n ? h('span', { class: 'n num' }, `×${n}`) : null),
       name,
+      tag: g.consumed && !g.produced ? 'In demand' : null, tagTone: 'warn',
       // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
       extra: gauge(g.buy ?? g.sell, Economy.basePrice(g.kind) * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread)),
       action: h('span', { class: 'st-deal' }, buy, sell),
     });
   }
 
-  // Trade: the hold, what this station stocks by category, and anything else you're carrying, with
-  // what it fetches here. (Components aren't traded: they go to refits and research.)
+  // How many of the hold's goods the shared storage can take now (game/industry.js deposit), and
+  // why none if it can't: the Industry tab still locked, or storage full.
+  function storeRoom() {
+    const ind = ctx.industry;
+    if (!ind || !ind.state || isLocked('industry')) return { free: 0, why: 'Storage opens with the Industry tab' };
+    const free = Industry.free(ind.state, ind.env(), ind.now());
+    return { free, why: free < 1 ? 'Storage is full' : '' };
+  }
+
+  // Trade: the hold, with Sell all and Store all (always there, greyed out when there's nothing for
+  // them to do); what this station sells, by name; and what else you're carrying that it doesn't
+  // sell, with what it fetches here. (Components aren't traded: they go to refits and research.)
   function renderTrade() {
     const { market, hold } = ctx;
     const full = hold.free < 1;
-    const groups = [];
-    for (const category of Goods.categories('trade')) {
-      const stocked = market.goods.filter((g) => g.category === category && g.buy !== null);
-      if (!stocked.length) continue;
-      const { produced, consumed } = stocked[0];
-      groups.push(section(Goods.CATEGORIES[category].label,
-        Kit.head(Goods.CATEGORIES[category].label, produced ? Kit.tag('Made here', 'var(--good)') : consumed ? Kit.tag('In demand', 'var(--warn)') : null),
-        h('div', { class: 'ui-list' }, stocked.map((g) => goodRow(g, full)))));
-    }
-    const carried = market.goods.filter((g) => g.buy === null && hold.count(g.kind) > 0);
+    const byName = (a, b) => Goods.type(a.kind).name.localeCompare(Goods.type(b.kind).name);
+    const stocked = market.goods.filter((g) => g.buy !== null).sort(byName);
+    const carried = market.goods.filter((g) => g.buy === null && hold.count(g.kind) > 0).sort(byName);
     // Sell all: everything in the hold this station buys, in one go.
     const sellable = market.goods.filter((g) => g.sell !== null && hold.count(g.kind) > 0);
     const sellAll = () => {
       let n = 0, credits = 0;
       for (const g of sellable) while (hold.count(g.kind) > 0 && hold.sell(g.kind, g.sell)) { n++; credits += g.sell; }
       refresh();
-      if (n) Kit.toast(`Sold ${n} for ${credits.toLocaleString('en-US')} cr`);
+      if (n) Kit.toast(`Sold ${n} for ${credits.toLocaleString('en-US')} credits`);
     };
+    // Store all: the whole hold into the shared storage (the Industry tab's), as much as fits.
+    const room = storeRoom();
+    const kinds = [...new Set(hold.items.map((it) => it.kind))];
+    const storeAll = () => {
+      const before = hold.items.length;
+      for (const k of kinds) ctx.industry.deposit(k);
+      const n = before - hold.items.length;
+      refresh();
+      if (n) Kit.toast(n === before ? 'Hold stored' : `${n} stored · storage is full`, n === before ? undefined : 'warn');
+    };
+    const empty = hold.items.length < 1;
     lead('');
     return [
       explain('trade', 'Hold Buy or Sell down to buy or sell more than one.'),
       h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null }),
         h('span', { class: 'num st-holdn' }, `${hold.items.length}/${hold.capacity}`),
-        sellable.length ? Kit.button('Sell all', sellAll, { kind: 'ghost', aria: 'Sell everything in the hold that this station buys' }) : null),
-      full ? Kit.callout('Your hold is full. Sell goods to make room.', 'var(--warn)') : null,
-      groups.length ? groups : h('p', { class: 'ui-empty' }, 'Nothing for sale here.'),
-      carried.length ? section('Also in your hold', Kit.head('Also in your hold', h('span', { class: 'aside' }, 'not sold here')),
+        h('span', { class: 'st-acts' },
+          Kit.button('Store all', storeAll, {
+            kind: 'ghost', disabled: empty || room.free < 1,
+            title: empty ? 'Nothing in the hold' : room.why || 'Move everything in the hold into storage',
+            aria: 'Move everything in the hold into storage',
+          }),
+          Kit.button('Sell all', sellAll, {
+            kind: 'ghost', disabled: !sellable.length,
+            title: empty ? 'Nothing in the hold' : sellable.length ? 'Sell everything in the hold that this station buys' : 'This station buys nothing in your hold',
+            aria: 'Sell everything in the hold that this station buys',
+          }))),
+      full ? Kit.callout('Your hold is full. Sell or store goods to make room.', 'var(--warn)') : null,
+      section('Sold here', Kit.head('Sold here'),
+        stocked.length ? h('div', { class: 'ui-list' }, stocked.map((g) => goodRow(g, full))) : h('p', { class: 'ui-empty' }, 'Nothing for sale here.')),
+      carried.length ? section('Not sold here', Kit.head('Not sold here', h('span', { class: 'aside' }, 'in your hold')),
         h('div', { class: 'ui-list' }, carried.map((g) => goodRow(g, full)))) : null,
     ];
   }
@@ -669,13 +696,22 @@ const StationMenu = (() => {
   }
   const face = (m, size) => (m.face ? portrait(m.face, size) : Kit.icon('face', size, { code: 'FACE' }));
 
+  // What a mission pays, compactly: the credits diamond and amount, then each item's icon (×n for
+  // more than one). Missions without such a reward (the story's) say it in words.
+  function payLine(m) {
+    if (!m.pays) return h('span', { class: 'txt' }, m.reward);
+    const { credits, items } = m.pays;
+    return h('span', { class: 'st-pays', 'aria-label': m.reward },
+      credits ? Kit.credits(credits) : null,
+      items.map(({ kind, n }) => h('span', { class: 'st-pay', title: Goods.type(kind).name }, itemIcon(kind, 18), n > 1 ? h('span', { class: 'num' }, `×${n}`) : null)));
+  }
+
   // A mission's card: who gives it, its title and state, the objective to do now, a segment per
   // objective, and what it pays. Tap for the whole mission.
   function missionCard(m) {
     const S = STATUS[m.status];
     const goal = m.status === 'active' ? m.objectives.find((o) => o.open && !o.done) : null;
-    const hint = goal ? null : m.status === 'ready' ? (m.here ? 'All objectives met. Hand it in here.' : `Hand it in at ${m.handIn || m.from}.`)
-      : m.status === 'offered' ? `${m.objectives.length} objective${m.objectives.length === 1 ? '' : 's'} · tap to read the briefing` : null;
+    const hint = goal ? null : m.status === 'ready' ? (m.here ? 'All objectives met. Hand it in here.' : `Hand it in at ${m.handIn || m.from}.`) : null;
     return h('button', {
       class: 'ui-card', type: 'button', style: { '--accent': S.color }, 'aria-haspopup': 'dialog', 'aria-label': `${m.title}, ${S.badge}`,
       onclick: () => showMission(m.id),
@@ -686,33 +722,31 @@ const StationMenu = (() => {
       goal ? h('span', { class: 'goal' }, Kit.check('open', true), h('span', { class: 'txt' }, goal.label), h('span', { class: 'num' }, goalCount(goal))) : null,
       hint ? h('span', { class: 'hint', style: m.status === 'ready' ? { '--tone': 'var(--good)' } : undefined }, hint) : null,
       m.status === 'offered' ? null : Kit.segments(m.objectives.map((o) => (o.done ? 'done' : o.open ? 'open' : ''))),
-      h('span', { class: 'foot' }, Kit.icon('reward', 14, { code: '' }), h('span', {}, m.reward))),
+      h('span', { class: 'foot' }, payLine(m))),
     h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
   }
   const doneCard = (m) => h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', 'aria-label': `${m.title}, completed`, onclick: () => showMission(m.id) },
     Kit.check('done'),
-    h('span', { class: 'main' }, h('span', { class: 'title' }, m.title), h('span', { class: 'foot' }, h('span', {}, m.reward))),
+    h('span', { class: 'main' }, h('span', { class: 'title' }, m.title), h('span', { class: 'foot' }, payLine(m))),
     h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
 
-  // The sheet for one mission: what the giver says (the first line, the rest on request), the
-  // objectives as a checklist, what it provides and pays, and Accept or Complete at the foot.
+  // The sheet for one mission: what the giver says, in full and straight on the sheet (who says it
+  // above it), the objectives as a checklist, what it provides and pays, and Accept or Complete at
+  // the foot.
   function missionSheet(id) {
     const m = missions().find((x) => x.id === id);
     if (!m) return null;
     const S = STATUS[m.status];
     const lines = m.lines;
-    const shown = briefAll ? lines : lines.slice(0, 1);
     const goals = m.status === 'done' ? [] : m.objectives;
     const accept = m.status === 'offered' && m.here && m.accept;
     const complete = m.status === 'ready' && m.here && m.complete;
     return {
       title: m.title, kicker: S.badge, kickerColor: S.color, tall: true,
       body: [
-        lines.length ? Kit.quote({
-          from: m.from, kind: LINES_KIND[m.status], face: m.face ? portrait(m.face, 56) : null, color: 'var(--culture)', lines: shown,
-          more: lines.length > 1 ? h('button', { class: 'ui-link', type: 'button', 'aria-expanded': String(briefAll), onclick: () => { briefAll = !briefAll; refresh(); } },
-            briefAll ? 'Show less ▴' : `Read all ${lines.length} lines ▾`) : null,
-        }) : null,
+        lines.length ? h('div', { class: 'st-brief' },
+          h('div', { class: 'from' }, face(m, 32), h('span', { class: 'ui-label' }, `${m.from} · ${LINES_KIND[m.status]}`)),
+          lines.map((text) => h('p', {}, UI.rich(text)))) : null,
         goals.length ? [h('span', { class: 'ui-label' }, 'Objectives'), h('div', { class: 'ui-goals' }, goals.map((o) => {
           const state = o.done ? 'done' : o.open ? 'open' : 'later';
           return h('div', { class: `ui-goal ${state}` }, Kit.check(state),
@@ -722,17 +756,17 @@ const StationMenu = (() => {
         }))] : null,
         h('div', { class: 'ui-list st-gap' },
           m.provided ? Kit.infoTile({ code: 'PRV', label: 'Provided', text: m.provided }) : null,
-          Kit.infoTile({ code: 'RWD', label: m.status === 'done' ? 'Paid' : 'Reward', text: m.reward, tone: 'var(--new)' })),
+          Kit.infoTile({ code: 'RWD', label: m.status === 'done' ? 'Paid' : 'Reward', text: m.pays ? [payLine(m), m.pays.also?.length ? h('span', { class: 'st-also' }, m.pays.also.join(' · ')) : null] : m.reward, tone: 'var(--new)' })),
         m.note && m.status === 'done' ? Kit.callout(m.note) : m.note && m.status === 'offered' ? h('p', { class: 'ui-note' }, m.note) : null,
       ],
       foot: [
-        accept ? Kit.button('Accept mission', act(() => { briefAll = false; m.accept(); }, () => Kit.toast(`${m.title} accepted. It's marked on your map.`)), { kind: 'primary', lg: true, wide: true }) : null,
-        complete ? Kit.button('Complete mission', act(() => { briefAll = false; m.complete(); }, () => Kit.toast(`${m.title} complete`)), { kind: 'good', lg: true, wide: true }) : null,
+        accept ? Kit.button('Accept mission', act(() => { m.accept(); }, () => Kit.toast(`${m.title} accepted. It's marked on your map.`)), { kind: 'primary', lg: true, wide: true }) : null,
+        complete ? Kit.button('Complete mission', act(() => { m.complete(); }, () => Kit.toast(`${m.title} complete`)), { kind: 'good', lg: true, wide: true }) : null,
         m.status === 'ready' && !complete ? h('p', { class: 'ui-note' }, `Hand it in at ${m.handIn || m.from}.`) : null,
         m.status === 'active' ? h('p', { class: 'ui-note' }, m.note ? `Launch to continue. ${m.note}` : 'Launch to continue.') : null,
         m.track || m.abandon ? h('div', { class: 'st-acts' },
           m.track ? Kit.button(m.tracked ? 'Tracked on map' : 'Track on map', act(() => m.track()), { kind: 'ghost', disabled: m.tracked }) : null,
-          m.abandon ? Kit.button('Abandon', act(() => { briefAll = false; m.abandon(); closeSheet(); }), { kind: 'ghost', aria: `Abandon ${m.title}` }) : null) : null,
+          m.abandon ? Kit.button('Abandon', act(() => { m.abandon(); closeSheet(); }), { kind: 'ghost', aria: `Abandon ${m.title}` }) : null) : null,
       ],
     };
   }
@@ -951,7 +985,7 @@ const StationMenu = (() => {
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
-  function showMission(id) { closeSheet(); openMission = id; briefAll = false; refresh(); openSheet(); }
+  function showMission(id) { closeSheet(); openMission = id; refresh(); openSheet(); }
   function showNode(id) { closeSheet(); openNode = id; refresh(); openSheet(); }
   function showOrder(open) { closeSheet(); openOrder = { ...open }; refresh(); openSheet(); }
   // Since you last docked: research done and goods made, in one sheet on docking, each a way to
