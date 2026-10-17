@@ -5,6 +5,7 @@
 import { CombatCore } from '../combat/combat-core.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Feedback } from '../core/feedback.js';
+import { Params } from '../core/store.js';
 import { mulberry32 } from '../core/rng.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
@@ -30,6 +31,10 @@ import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
 import { NEAR, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
 import { simTime } from './update.js';
 import { world } from './world.js';
+
+// God mode (?dev, for testing dangerous space): the player's ship and the squad's take no damage.
+// Enemies still shoot (and their hits still show), but nothing gets through.
+export const godMode = Params.has('dev');
 
 // A fight starts from a hostile ship's Attack button, or when pirates catch the ship within
 // their aggro range. Every pirate near the one engaged joins in. The combat panel
@@ -128,6 +133,7 @@ export function engage(target, ambushed = false) {
     body: { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius },
   };
   fight.s = m.start(rng, player, group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: allySpecs() });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);

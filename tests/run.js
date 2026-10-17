@@ -1389,6 +1389,11 @@ test('combat rounds: initiative, shields before hull, no shots from the dead, re
   Combat.round(s);
   assert.strictEqual(s.player.hull, 100 - (15 - 11), 'second volley breaks through the recharged shield');
 
+  // An invulnerable ship (god mode, ?dev) takes nothing, shields or hull.
+  const god = { hull: 50, shield: 20, invulnerable: true };
+  assert.deepStrictEqual(CombatCore.applyDamage(god, 1000), { shieldDamage: 0, hullDamage: 0 });
+  assert.deepStrictEqual([god.hull, god.shield], [50, 20]);
+
   // Hit chance stays within its bounds.
   assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), CombatCore.config.minHit);
   assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), CombatCore.config.maxHit);
