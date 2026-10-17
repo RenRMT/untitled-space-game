@@ -2153,10 +2153,13 @@ test('squad: an android wingman, in formation behind the leader, saved and resto
   assert.strictEqual(Squad.read(undefined), null);
 });
 
-test('squad: each member flies its own loadout, joining with android gear at its Mk, and saves it', () => {
-  const m = Squad.member(5, { tier: 3 });
-  assert.deepStrictEqual(m.loadout.fitted, Loadout.npc('fighter', 3).fitted, 'its class\'s android gear');
-  assert.deepStrictEqual(Squad.stats(m), Loadout.stats(Loadout.npc('fighter', 3)), 'the same ship as before');
+test('squad: each member flies its own loadout, joining with the player\'s starting gear, and saves it', () => {
+  const m = Squad.member(5);
+  assert.deepStrictEqual(m.loadout.fitted, {
+    'weapon-1': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1',
+  }, 'the Courier\'s starting kit, in a fighter');
+  for (const [slot, id] of Object.entries(m.loadout.fitted)) assert.strictEqual(id, Loadout.starter('courier').fitted[slot], slot);
+  assert.strictEqual(Squad.stats(m).hull, Loadout.HULLS.fighter.hull, 'no extra armour');
   // Its own gear: a pulse laser fitted, with a mod, is what it flies with, and survives a save.
   m.loadout = { ...m.loadout, fitted: { ...m.loadout.fitted, 'weapon-1': 'pulse-laser-3' } };
   const mod = Object.keys(Mods.MODS).find((id) => Mods.fits(id, 'weapon'));
@@ -2170,7 +2173,7 @@ test('squad: each member flies its own loadout, joining with android gear at its
     hull: 'fighter', fitted: { 'weapon-1': null, shield: 'deflector-2', computer: null, engine: null, scanner: null }, mods: {}, armour: 1,
   });
   assert.strictEqual(Squad.validLoadout({ ...bad, hull: 'courier' }, 'fighter'), null, 'another hull');
-  assert.deepStrictEqual(Squad.member(5, { tier: 2, loadout: 'junk' }).loadout, Loadout.npc('fighter', 2), 'junk: its android gear');
+  assert.deepStrictEqual(Squad.member(5, { loadout: 'junk' }).loadout, Squad.starter('fighter'), 'junk: the starting gear');
 });
 
 test('missions: offered, accepted, objectives in order, ready once all are met, then handed in', () => {

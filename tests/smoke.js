@@ -853,9 +853,10 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   // Logic modules in slots become program lines.
   const sq = game(`(() => { const d = { squad: [{ seed: 1, modules: ['assist-leader', null, 'gone', null] }, { seed: 2 }] }; CARGO_MIGRATIONS[4](d); return d.squad; })()`);
   assert.deepStrictEqual(sq, [{ seed: 1, program: [game(`Logic.PRESETS['assist.leader']`)] }, { seed: 2 }]);
-  // Squad members keep the android gear they flew with, as their own loadout.
+  // Squad members get a loadout of their own: the player's starting gear, in place of android gear.
   const fl = game(`(() => { const d = { squad: [{ seed: 1, hull: 'fighter', tier: 3 }, { seed: 2, hull: 'fighter' }, { seed: 3, hull: 'fighter', loadout: { mine: 1 } }] }; CARGO_MIGRATIONS[12](d); return d.squad; })()`);
-  assert.deepStrictEqual(fl.map((m) => [m.tier, m.loadout]), [[undefined, game(`Loadout.npc('fighter', 3)`)], [undefined, game(`Loadout.npc('fighter', 1)`)], [undefined, { mine: 1 }]]);
+  const kit = game(`Squad.starter('fighter')`);
+  assert.deepStrictEqual(fl.map((m) => [m.tier, m.loadout]), [[undefined, kit], [undefined, kit], [undefined, { mine: 1 }]]);
   // Logic research starts empty; a damaged lab reads as what can be made of it.
   assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[5](d); return d.lab; })()`), { done: [], doneAt: {}, active: null, queue: [] });
   // Hull refits fitted become hull research done.
@@ -1320,20 +1321,25 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.match(ship(), /Performance.*Program/, 'its performance and program');
   assert.doesNotMatch(ship(), /Shipyard|Hold/, 'not your ship\'s hold or the shipyard');
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
-  // Its gear is fitted from the spare gear, like yours: a laser in place of its autocannon.
+  // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.
   game(`cargo.gear['pulse-laser-2'] = 1; StationMenu.refresh(); StationMenu.toggleSlot('weapon-1')`);
   assert.match(onStation(), new RegExp(`Weapon 1${name} · Weapon hardpoint`), 'the sheet is for the wingman');
-  assert.match(onStation(), /Fitted.*AutocannonMk I.*Remove.*Options.*Pulse laserMk IISpare ×1/, 'what it has, then the spare gear');
+  assert.match(onStation(), /Fitted.*Pulse laserMk I.*Remove.*Options.*Pulse laserMk IISpare ×1/, 'what it has (your starting gear), then the spare gear');
   const dps = game('Squad.stats(cargo.squad[0]).firepower');
   assert.ok(game(`outfitting.member('${id}').fit('weapon-1', 'pulse-laser-2')`));
   assert.ok(game('Squad.stats(cargo.squad[0]).firepower') > dps, 'it fires harder');
   assert.strictEqual(game(`wings.get('${id}').stats.firepower`), game('Squad.stats(cargo.squad[0]).firepower'), 'and flies with it');
-  assert.deepStrictEqual(game(`[cargo.gear['pulse-laser-2'] || 0, cargo.gear['autocannon-1']]`), [0, 1], 'its autocannon to the spare gear');
+  assert.deepStrictEqual(game(`[cargo.gear['pulse-laser-2'] || 0, cargo.gear['pulse-laser-1']]`), [0, 1], 'its Mk I to the spare gear');
   game(`StationMenu.closeSheet()`);
-  assert.match(ship(), /Spare gear.*AutocannonMk IAndroid.*Squad only/, 'android gear, kept for the squad');
-  assert.ok(game(`!outfitting.sell('autocannon-1') && !outfitting.fit('weapon-2', 'autocannon-1')`), 'not sold, and not for your ship');
+  assert.match(ship(), /Spare gear.*Pulse laserMk I.*Sell/, 'spare gear like any other');
   assert.ok(game(`outfitting.member('${id}').unfit('shield') && cargo.squad[0].loadout.fitted.shield === null && Squad.stats(cargo.squad[0]).shield === 0`), 'a slot emptied');
-  assert.ok(game(`outfitting.member('${id}').fit('shield', 'light-deflector-1') && outfitting.member('${id}').fit('weapon-1', 'autocannon-1')`), 'and its own gear back');
+  assert.ok(game(`outfitting.member('${id}').fit('shield', 'deflector-1') && outfitting.member('${id}').fit('weapon-1', 'pulse-laser-1')`), 'and its own gear back');
+  // Android gear (from a save made before) fits squad ships only, and isn't sold.
+  game(`cargo.gear['autocannon-1'] = 1`);
+  assert.ok(game(`!outfitting.sell('autocannon-1') && !outfitting.fit('weapon-1', 'autocannon-1')`), 'not sold, and not for your ship');
+  game(`StationMenu.refresh()`);
+  assert.match(ship(), /AutocannonMk IAndroid.*Squad only/);
+  game(`delete cargo.gear['autocannon-1']`);
   assert.strictEqual(game('Squad.stats(cargo.squad[0]).firepower'), dps);
   assert.strictEqual(game(`cargo.gear['pulse-laser-2']`), 1, 'the laser back with the spare gear');
   assert.ok(!game(`outfitting.member('nobody')`));

@@ -4,16 +4,18 @@
 // instructions, run top down. How many lines run depends on its memory (research: mem.ext).
 // - A member is plain data, saved with the cargo (game/cargo.js): { id, name, seed, hull (a ship class,
 //   rules/loadout.js), loadout ({ hull, fitted, mods, armour }: its gear, fitted from the spare gear
-//   at a dock like the player's; it joins with its class's android gear at a Mk, Loadout.npc),
+//   at a dock like the player's; it joins with the gear the player starts with, Squad.starter),
 //   program: [line], hullPoints, disabled }.
 // - A member whose hull is shot down is disabled: it drops out of the fight and rejoins, repaired,
 //   the next time the player docks.
 //
 //   Squad.BASE_LINES, Squad.MAX_LINES       lines that run with no memory research, and at most
 //   Squad.lineLimit(bonus) -> lines that run, with `bonus` more from research
-//   Squad.member(seed, { program, hull, tier, loadout }) -> a new member (the first joins at the end
+//   Squad.member(seed, { program, hull, loadout }) -> a new member (the first joins at the end
 //                                           of the first mission, story/missions.js); with no loadout,
-//                                           its class's android gear at Mk `tier`
+//                                           Squad.starter(hull)
+//   Squad.starter(hull) -> loadout          a hull with the player's starting gear (the Courier's
+//                                           Mk I kit) in the slots it has
 //   Squad.stats(m) -> Loadout.stats()       what it flies with (its loadout; no research upgrades)
 //   Squad.validLoadout(l, hull) -> loadout | null   a saved loadout for a member's hull, checked
 //   Squad.formation(leader, i) -> { x, y }  its place behind the leader ({ x, y, angle })
@@ -44,9 +46,9 @@ const Squad = (() => {
     return `${CALLSIGNS[Math.floor(r() * CALLSIGNS.length)]}-${String(1 + Math.floor(r() * 98)).padStart(2, '0')}`;
   }
 
-  function member(seed, { program = [], hull = 'fighter', tier = 1, loadout = null, id = `sq${seed >>> 0}` } = {}) {
+  function member(seed, { program = [], hull = 'fighter', loadout = null, id = `sq${seed >>> 0}` } = {}) {
     const m = {
-      id, name: designation(seed), seed: seed >>> 0, hull, loadout: validLoadout(loadout, hull) || Load.npc(hull, tier),
+      id, name: designation(seed), seed: seed >>> 0, hull, loadout: validLoadout(loadout, hull) || starter(hull),
       program: program.slice(0, MAX_LINES), hullPoints: 0, disabled: false,
     };
     m.hullPoints = stats(m).hull;
@@ -54,6 +56,13 @@ const Squad = (() => {
   }
 
   const stats = (m) => Load.stats(m.loadout);
+
+  // A hull fitted with what the player starts with: the Courier's starting gear, slot for slot.
+  function starter(hull) {
+    const kit = Load.starter('courier').fitted, fitted = {};
+    for (const s of Load.slotsOf(hull)) fitted[s.id] = kit[s.id] ?? null;
+    return { hull, fitted, mods: {}, armour: 0 };
+  }
 
   // A loadout for a member's hull: each slot of the hull with gear of its type (any gear, android
   // or not) or nothing, mods that fit what's in their slot, and the armour it joined with.
@@ -105,14 +114,14 @@ const Squad = (() => {
     if (!Array.isArray(saved)) return null;
     return saved.filter((d) => d && Number.isFinite(d.seed) && Load.HULLS[d.hull]?.npc).map((d) => {
       const program = (Array.isArray(d.program) ? d.program : []).map((x) => L.read(x, known));
-      const m = member(d.seed, { program, hull: d.hull, loadout: d.loadout, tier: Number.isInteger(d.tier) ? d.tier : 1, id: String(d.id) });
+      const m = member(d.seed, { program, hull: d.hull, loadout: d.loadout, id: String(d.id) });
       if (Number.isFinite(d.hullPoints)) m.hullPoints = clamp(d.hullPoints, 0, stats(m).hull);
       m.disabled = !!d.disabled;
       return m;
     });
   }
 
-  return { BASE_LINES, MAX_LINES, lineLimit, member, stats, formation, setLine, removeLine, moveLine, toggleLine, read, designation, validLoadout };
+  return { BASE_LINES, MAX_LINES, lineLimit, member, stats, formation, setLine, removeLine, moveLine, toggleLine, read, designation, validLoadout, starter };
 })();
 
 export { Squad };

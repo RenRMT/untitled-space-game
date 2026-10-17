@@ -260,13 +260,13 @@ export const CARGO_MIGRATIONS = [
     d.industry = out;
     d.loyalty = {};
   },
-  // 13. Squad members fit gear like the ship does: each keeps the android gear of its class at the
-  //     Mk it flew with (and the armour that came with it), now as its own loadout.
+  // 13. Squad members fit gear like the ship does, from their own loadout: each starts with the
+  //     gear the player starts with, in place of its android gear at a Mk.
   (d) => {
     if (!Array.isArray(d.squad)) return;
     for (const m of d.squad) {
       if (!m || typeof m !== 'object' || m.loadout || !Loadout.HULLS[m.hull]?.npc) continue;
-      m.loadout = Loadout.npc(m.hull, Number.isInteger(m.tier) ? m.tier : 1);
+      m.loadout = Squad.starter(m.hull);
       delete m.tier;
     }
   },
