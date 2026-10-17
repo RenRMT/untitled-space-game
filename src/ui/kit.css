@@ -302,7 +302,7 @@
 .ui-sheet .foot[hidden] { display: none; }
 .ui-sheet .foot .ui-note { color: var(--hud); text-align: center; }
 
-/* Tab bar: icon-only tabs (the selected one shows its label) beside the screen's main action. */
+/* Tab bar: icon tabs, each named under its icon, beside the screen's main action. */
 .ui-nav { display: flex; align-items: center; gap: 10px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line-soft); background: var(--nav); }
 .ui-tabs { flex: 1; min-width: 0; display: flex; }
 .ui-tab {
@@ -310,7 +310,7 @@
   background: none; border: 0; color: var(--line-strong); cursor: pointer; touch-action: manipulation; --tier: var(--line-strong);
 }
 .ui-tab .ui-icon.ph { font-size: 7px; color: var(--line-strong); border-color: var(--line-strong); }
-.ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: transparent; white-space: nowrap; }
+.ui-tab .lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; font: 700 10px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
 .ui-tab:hover .ui-icon.ph { color: var(--dim); border-color: var(--dim); }
 .ui-tab .ui-icon.gl { color: var(--dim); }
 .ui-tab:hover .ui-icon.gl { color: var(--hud); }

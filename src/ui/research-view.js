@@ -7,7 +7,9 @@
 //   ResearchView.create(env) -> { render(), sheet(id), tick(), reset() }
 //     env: { ctx() (the station's open() options), refresh(), show(id) (open a package's sheet),
 //            act(fn, after), costChips(cost, credits, ...more), componentsGrid(components),
-//            section(label, ...children), titleRow(title, aside), openId() (the package whose sheet is open) }
+//            section(label, ...children), lead(text) (the tab's first line), explain(key, text) (a note
+//            that folds away after a few visits), fold(key, label, content), switcher() (Research |
+//            Production), openId() (the package whose sheet is open) }
 //     render(): the tab's contents; sheet(id): the options for its Kit.sheet; tick(): the bench's
 //     numbers, every second without drawing again; reset(): back to the first group, chips closed.
 // ES module (`ResearchView`); needs a browser.
@@ -158,15 +160,17 @@ const ResearchView = {
       const groups = Research.GROUPS.filter((g) => inGroup(g.id).length);
       if (!groups.some((g) => g.id === group)) group = groups[0].id;
       const count = (g) => `${inGroup(g).filter((p) => isDone(p.id)).length}/${inGroup(g).length}`;
+      env.lead(`${Research.LIST.filter((p) => isDone(p.id)).length}/${Research.LIST.length} done`);
       return [
-        env.titleRow('Research', `${Research.LIST.filter((p) => isDone(p.id)).length}/${Research.LIST.length} done`),
-        h('p', { class: 'ui-note' }, 'Paid for when queued; builds in real time, even while you\'re away.'),
+        env.switcher(),
+        env.explain('research', 'Paid for when queued; builds in real time, even while you\'re away.'),
         env.section('Lab', bench()),
         env.section('Groups', Kit.choices(groups.map((g) => ({ id: g.id, label: `${g.label} ${count(g.id)}`, on: g.id === group })),
           (id) => { group = id; env.refresh(); }, { label: 'Research group' })),
         tree(group),
-        env.section('Research adds', Kit.head('Research adds'), bonuses()),
-        env.section('Components', Kit.head('Components', h('span', { class: 'aside' }, 'from pirates and wrecks')), env.componentsGrid(lab().components)),
+        env.fold('research-adds', 'What research adds', bonuses()),
+        env.fold('components', `Components in store · ${Object.values(lab().components || {}).reduce((t, n) => t + n, 0)}`,
+          [h('p', { class: 'ui-note' }, 'Recovered from pirates and wrecks.'), env.componentsGrid(lab().components)]),
       ];
     }
 

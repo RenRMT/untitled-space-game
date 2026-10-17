@@ -35,6 +35,7 @@
 //     -> { close(), update(sameOptions), isOpen }: a bottom sheet over a scrim; Esc, × and the scrim
 //     close it, Tab stays inside. One at a time. host: the element it is put in (default: a layer
 //     of its own at the end of <body>).
+//   Kit.button(label, onclick, { ..., repeat: true })   held down, it repeats (onclick returning false stops it)
 //   Kit.toast(text, tone)                  'good' | 'warn' | 'hostile'; goes by itself
 //   Kit.code(lines, { label })             a block of code: Kit.codeLine rows (and anything else)
 //   Kit.codeLine({ n, tokens, off, dim, active, err, note, onclick, aria })   one numbered line;
@@ -76,12 +77,33 @@ const Kit = (() => {
       code ?? String(name).slice(0, 3).toUpperCase(), badge);
   }
 
-  function button(label, onclick, { kind = '', price, disabled = false, aria, title, lg = false, wide = false, progress } = {}) {
+  function button(label, onclick, { kind = '', price, disabled = false, aria, title, lg = false, wide = false, progress, repeat = false } = {}) {
     return h('button', {
       class: ['ui-btn', kind, lg && 'lg', wide && 'wide'].filter(Boolean).join(' '), type: 'button', disabled, 'aria-label': aria, title,
       style: progress !== undefined ? { '--progress': `${Math.round(progress * 100)}%` } : undefined,
-      onclick,
+      ...(repeat ? holdable(onclick) : { onclick }),
     }, h('span', {}, label), price !== undefined ? h('span', { class: 'price' }, `${price.toLocaleString('en-US')} cr`) : null);
+  }
+
+  // Press and hold to repeat (Buy, Sell): a tap does it once; held past HOLD_DELAY ms it goes again
+  // every HOLD_EVERY ms until let go, or until fn returns false (nothing more to do). The panel may
+  // be redrawn between repeats, so letting go is heard on the window, not the button.
+  const HOLD_DELAY = 420, HOLD_EVERY = 110;
+  let holdTimer = null, held = false;
+  const stopHold = () => { clearTimeout(holdTimer); holdTimer = null; };
+  function holdable(fn) {
+    return {
+      onpointerdown: (e) => {
+        if (e.button) return;
+        held = false;
+        stopHold();
+        const again = () => { held = true; if (fn() === false) { stopHold(); return; } holdTimer = setTimeout(again, HOLD_EVERY); };
+        holdTimer = setTimeout(again, HOLD_DELAY);
+        window.addEventListener('pointerup', stopHold, { once: true });
+        window.addEventListener('pointercancel', stopHold, { once: true });
+      },
+      onclick: () => { if (held) { held = false; return; } fn(); },
+    };
   }
 
   const pips = (tier) => h('span', { class: 'ui-pips', style: tierVar(tier), 'aria-hidden': 'true' },
@@ -194,8 +216,45 @@ const Kit = (() => {
   // ---------- Bottom sheet ----------
   let current = null;
   let ownLayer = null;
+  const DISMISS = 90; // px a sheet is dragged down to close it
+  // Wide enough for the sheet to sit beside the list instead of over it (index.html's media query).
+  const wide = () => typeof matchMedia === 'function' && matchMedia('(min-width: 960px)').matches;
+  // Listening for the system's close request (Android's back) while a sheet is open: CloseWatcher
+  // where there is one; else one history entry, kept while one sheet replaces another, that the
+  // back gesture takes away. stop(replacing) when the sheet closes some other way; the entry goes
+  // with it unless another sheet is taking its place.
+  let historyEntry = false, onHistoryBack = null;
+  function closeRequests(onClose) {
+    if (typeof window === 'undefined') return { stop() {} };
+    if (typeof window.CloseWatcher === 'function') {
+      try {
+        const w = new window.CloseWatcher();
+        w.onclose = onClose;
+        return { stop() { w.onclose = null; w.destroy(); } };
+      } catch (e) { /* not allowed now: fall back to history */ }
+    }
+    if (!window.history || !window.history.pushState) return { stop() {} };
+    if (!onHistoryBack) {
+      onHistoryBack = { fn: null };
+      window.addEventListener('popstate', () => {
+        if (!historyEntry) return;
+        historyEntry = false;
+        const fn = onHistoryBack.fn;
+        onHistoryBack.fn = null;
+        if (fn) fn();
+      });
+    }
+    onHistoryBack.fn = onClose;
+    if (!historyEntry) { window.history.pushState({ sheet: true }, ''); historyEntry = true; }
+    return {
+      stop(replacing) {
+        if (onHistoryBack.fn === onClose) onHistoryBack.fn = null;
+        if (!replacing && historyEntry) { historyEntry = false; window.history.back(); }
+      },
+    };
+  }
   function sheet(opts) {
-    if (current) current.close(true);
+    if (current) current.close(true, true);
     const host = opts.host || (ownLayer ||= document.body.appendChild(h('div', { class: 'ui-layer', hidden: true })));
     const returnFocus = document.activeElement;
     const kickerEl = h('span', { class: 'ui-tag' }), titleEl = h('span', { class: 't' }), subEl = h('span', { class: 's' });
@@ -229,7 +288,7 @@ const Kit = (() => {
 
     const onKey = (e) => {
       if (e.key === 'Escape') { e.stopImmediatePropagation(); close(); return; }
-      if (e.key !== 'Tab') return;
+      if (e.key !== 'Tab' || wide()) return;
       const items = [...panel.querySelectorAll('button:not([disabled])')];
       const i = items.indexOf(document.activeElement);
       if (items.length && (i < 0 || (e.shiftKey && i === 0) || (!e.shiftKey && i === items.length - 1))) {
@@ -238,20 +297,55 @@ const Kit = (() => {
       }
     };
     let open = true;
-    function close(silent) {
+    function close(silent, replacing = false) {
       if (!open) return;
       open = false;
       host.replaceChildren();
       host.hidden = true;
+      document.body.classList.remove('sheet-open');
       window.removeEventListener('keydown', onKey, true);
+      back.stop(replacing);
       if (current === handle) current = null;
       if (!silent && opts.onClose) opts.onClose();
       if (!silent && returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
     }
 
+    // Dragged down by its handle or its header, past DISMISS px, it closes; less, it springs back.
+    const grab = panel.querySelector('.grab'), headEl = panel.querySelector('.head');
+    let drag = null;
+    const onMove = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag.dy = Math.max(0, e.clientY - drag.y0);
+      panel.style.transform = `translate(-50%, ${drag.dy}px)`;
+    };
+    const onUp = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const far = drag.dy > DISMISS;
+      drag = null;
+      panel.style.transform = '';
+      panel.classList.remove('dragging');
+      if (far) close();
+    };
+    for (const el of [grab, headEl]) {
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button || e.target.closest('button') || wide()) return;
+        drag = { id: e.pointerId, y0: e.clientY, dy: 0 };
+        panel.classList.add('dragging');
+        el.setPointerCapture(e.pointerId);
+      });
+      el.addEventListener('pointermove', onMove);
+      el.addEventListener('pointerup', onUp);
+      el.addEventListener('pointercancel', onUp);
+    }
+    // The system's back (Android's back gesture, Escape) closes the sheet rather than the game.
+    const back = closeRequests(() => close());
+
     fill(opts);
     host.replaceChildren(scrim, panel);
     host.hidden = false;
+    document.body.classList.add('sheet-open');
+    // On a wide screen the sheet sits beside the list (index.html), which stays usable: no trap.
+    panel.setAttribute('aria-modal', String(!wide()));
     window.addEventListener('keydown', onKey, true);
     (bodyEl.querySelector('button:not([disabled])') || closeBtn).focus({ preventScroll: true });
     const handle = {

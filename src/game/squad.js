@@ -144,13 +144,25 @@ export function ordersFor(s, a, intent, i) {
 // per line] }); not saved, and cleared when a program changes (the lines move).
 export const lineRuns = new Map();
 let runsOf = null; // the fight lineRuns counts
+// The last fight, step by step, per member: each time its program switched to another line, when
+// (seconds into the fight), which line and what it did, on whom, and its hull then; and the moment
+// it was disabled. The Squad tab lists it so a program can be debugged; not saved, cleared with
+// lineRuns. { [member id]: [{ t, line, text, target, hull, disabled? }] }
+export const timelines = new Map();
+export const TIMELINE_MAX = 40;
+function logStep(id, entry) {
+  const list = timelines.get(id) || [];
+  if (list.length < TIMELINE_MAX) list.push(entry);
+  timelines.set(id, list);
+}
 export const LINE_LABEL = 1.8; // seconds a line's label shows over a wingman when it takes over
 
 // Each ally's orders for this frame, from its program: the line that ran (a.line, -1 for none)
 // and what it says to do, else keep formation. When the line changes, it shows over the
 // wingman as code ('L2 › attack(weakest(enemy))') and counts as a run.
 export function orderSquad(s) {
-  if (runsOf !== s) { runsOf = s; lineRuns.clear(); }
+  if (runsOf !== s) { runsOf = s; lineRuns.clear(); timelines.clear(); }
+  const nameOf = (id) => (id === 'player' ? 'you' : ([...s.enemies, ...(s.allies || [])].find((c) => c.id === id) || {}).name || '');
   const m = fightMode(), limit = logicLines();
   CombatCore.allies(s).forEach((a, i) => {
     const member = memberOf(a.id);
@@ -166,6 +178,10 @@ export function orderSquad(s) {
       if (old >= 0) fight.fx.splice(old, 1);
       const text = line >= 0 ? `L${line + 1} › ${Logic.actionText(member.program[line])}` : 'else › follow(leader)';
       fight.fx.push({ type: 'code', delay: 0, t: LINE_LABEL, max: LINE_LABEL, at: a.id, text, idle: line < 0 });
+      logStep(member.id, {
+        t: s.t || 0, line, text: line >= 0 ? Logic.say(member.program[line]) : 'None applied: followed the leader',
+        target: typeof intent.target === 'string' ? nameOf(intent.target) : '', hull: a.hull / a.stats.hull,
+      });
     }
     a.line = line;
     if (intent.type === 'use') { useAbility(s, a, intent.skill, intent.target); return; }
@@ -190,6 +206,7 @@ export function wingDisabled(id) {
   if (!m || m.disabled) return;
   m.disabled = true;
   m.hullPoints = 0;
+  logStep(m.id, { t: (fight.s && fight.s.t) || 0, line: -1, text: 'Disabled', target: '', hull: 0, disabled: true });
   if (w) explode(w.x, w.y, w.radius);
   notify(`${m.name} disabled · repaired at the next dock`, 3, { priority: 2, tone: 'warn' });
   saveCargo();
@@ -219,6 +236,8 @@ export const programs = {
   get limit() { return logicLines(); },
   // How often each line took over in the last fight: [count per line] (empty if none).
   runs: (id) => lineRuns.get(id) || [],
+  // The last fight, step by step (timelines above): [] if it hasn't fought since the program changed.
+  timeline: (id) => timelines.get(id) || [],
   set(id, i, line) {
     const m = memberOf(id);
     if (!m || !Logic.check(line, logicKnown()).ok || !Squad.setLine(m, i, Logic.copy(line))) return false;
@@ -231,6 +250,7 @@ export const programs = {
 function edited(id, ok) {
   if (!ok) return false;
   lineRuns.delete(id);
+  timelines.delete(id);
   saveCargo();
   return true;
 }

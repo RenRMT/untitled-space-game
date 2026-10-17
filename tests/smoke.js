@@ -713,7 +713,8 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.strictEqual(game('SHIP.hull'), maxHull, 'not until it is built');
   game(`__T += Research.timeOf('hull.armour-1'); StationMenu.tick()`);
   assert.ok(game(`cargo.lab.done.includes('hull.armour-1')`));
-  assert.match(onStation(), /\+15%Hull/, 'research adds it, as a stat chip');
+  pressOnStation(/^What research adds/);
+  assert.match(onStation(), /\+15%Hull/, 'research adds it, as a stat chip (folded under "What research adds")');
   assert.strictEqual(game('SHIP.hull'), Math.round(120 * 1.15));
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull') - 30, `hull rose with the maximum from ${maxHull}`);
   // The shipyard: a Corvette, the Courier traded in, the gear moved across, the new hull undamaged.
@@ -809,7 +810,8 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
     placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Production.*Refinery here.*Orders here.*0\/1.*New order.*Storage.*Production pipeline.*No production orders yet/, 'nothing placed yet');
+  assert.match(onStation(), /Refinery here.*Research.*Production.*Orders here.*0\/1.*New order.*Storage/, 'nothing placed yet');
+  assert.doesNotMatch(onStation(), /Production pipeline/, 'no pipeline without orders');
   game('cargo.items = []');
   // Iron aboard, stored.
   game(`for (let i = 0; i < 10; i++) cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' }); StationMenu.refresh()`);
@@ -825,6 +827,7 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   pressOnStation('Place order');
   assert.ok(game(`industry.orders()[0].recipe === 'make.steel-pipe' && industry.orders()[0].next > __T`), 'running');
   assert.match(onStation(), /Iron.*✓ 8.*Refinery · .* Camp.*Steel pipe.*Running.*left/);
+  pressOnStation(/^Production pipeline · 1 order/); // folded until opened
   assert.match(onStation(), /Production pipeline.*Standalone/, 'a lone order');
   // Away for an hour: on load, everything the iron makes is made.
   game('launch(); saveCargoNow(); __T += 3600e3; loadCargo(world.galaxy)');
@@ -1306,6 +1309,11 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.match(tab, /ELSE ▶Follow leader/, 'and what it does when none applies');
   assert.match(tab, /1\/3 run/);
   assert.match(tab, /Used \d+× last fight/, 'how often the instruction was used');
+  // The last fight, step by step: folded, then each line switch with its time, what it did and on whom.
+  assert.match(tab, /Last fight · \d+ steps?/, 'the fight\'s timeline, folded');
+  pressOnStation(/^Last fight/);
+  assert.match(textOf(browser.document.getElementById('st-body')), /\d:\d\d1\. If Enemy is the leader's target: Attack Enemy\. → \w.*\d+%.*Disabled/, 'a step: when, which instruction, on whom, its hull; and when it was disabled');
+  game(`StationMenu.showTab('squad')`);
   // A line after one that always holds never runs, and says so.
   assert.ok(game(`programs.set(cargo.squad[0].id, 0, Logic.blank()) && programs.set(cargo.squad[0].id, 1, Logic.PRESETS['assist.leader'])`));
   game(`StationMenu.refresh()`);
@@ -1335,6 +1343,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.strictEqual(game(`wings.get('${id}').stats.firepower`), game('Squad.stats(cargo.squad[0]).firepower'), 'and flies with it');
   assert.deepStrictEqual(game(`[cargo.gear['pulse-laser-2'] || 0, cargo.gear['pulse-laser-1']]`), [0, 1], 'its Mk I to the spare gear');
   game(`StationMenu.closeSheet()`);
+  pressOnStation(/^Spare gear · /); // folded until opened
   assert.match(ship(), /Spare gear.*Pulse laserMk I.*Sell/, 'spare gear like any other');
   assert.ok(game(`outfitting.member('${id}').unfit('shield') && cargo.squad[0].loadout.fitted.shield === null && Squad.stats(cargo.squad[0]).shield === 0`), 'a slot emptied');
   assert.ok(game(`outfitting.member('${id}').fit('shield', 'deflector-1') && outfitting.member('${id}').fit('weapon-1', 'pulse-laser-1')`), 'and its own gear back');

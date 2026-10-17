@@ -260,6 +260,25 @@
   #st-body > * { flex: none; }
   #st-body > .ui-schematic { margin: -4px auto -6px; }
   .st-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: -8px; }
+  /* A tab's first line: its count (left) and, once its explanations have folded away, ⓘ (right). */
+  .st-lead { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: -6px 0 -10px; font-size: 12px; color: var(--dim); }
+  .st-lead .num { font-size: 12px; }
+  .st-info { width: 36px; height: 36px; margin: -6px -8px -6px auto; font-size: 18px; }
+  .st-info[aria-expanded="true"] { color: var(--cyan); }
+  .st-holdn { font-size: 12px; color: var(--hud); white-space: nowrap; }
+  .st-holdbar .ui-btn { min-height: 36px; padding: 0 10px; font-size: 12px; }
+  .ui-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* held down to repeat */
+  /* A wingman's last fight (Squad tab): a step per line switch, its time, what it did, its hull. */
+  .st-steps { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--r-lg); overflow: hidden; }
+  .st-step { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 8px; align-items: baseline; min-height: 40px; box-sizing: border-box; padding: 9px 10px;
+    background: none; border: 0; border-top: 1px solid var(--line-soft); color: var(--hud); font: 14px/1.35 var(--sans); text-align: left; }
+  .st-step:first-child { border-top: 0; }
+  button.st-step { cursor: pointer; } button.st-step:hover { background: var(--cyan-tint); }
+  .st-step .t, .st-step .hull { font-size: 12px; color: var(--dim); }
+  .st-step .hull { text-align: right; }
+  .st-step .on { color: var(--hostile); }
+  .st-step.bad { color: var(--hostile); }
+  .st-member .ui-btn { min-height: 40px; }
   .st-title .aside { font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }
   .st-sec { display: flex; flex-direction: column; gap: 8px; }
   .st-gap { margin-top: 6px; }
@@ -267,7 +286,7 @@
   #st-note { flex: none; margin: 0; padding: 8px 16px 0; font-size: 14px; color: var(--warn); text-align: right; }
   #st-note[hidden] { display: none; }
   .st-nav { flex: none; }
-  #st-launch { min-width: 120px; }
+  #st-launch { min-width: 96px; padding: 0 14px; }
   #station .icon { display: block; flex: none; } /* item icons: sized by their width/height attributes */
 
   /* The hull and its repair, in one row. */
@@ -569,6 +588,41 @@
   #map-overlay .bottom { bottom: 0; }
   #map-prompt { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((80px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); width: min(340px, calc((100vw - 24px) / var(--ui-scale))); }
 
+  /* Wide screens (960 px and up): the station is two columns, the list on the left and the open
+     sheet beside it as a detail pane (not over it), so tapping another row swaps the detail. The
+     sheet isn't modal there (ui/kit.js), and nothing dims the list. */
+  @media (min-width: 960px) {
+    #station > .st-head, #station > #st-body, #station > #st-note, #station > .ui-nav { width: min(1080px, 100%); }
+    #st-body > :not(.ui-schematic) { width: 100%; max-width: 600px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+    body.sheet-open #st-body > :not(.ui-schematic) { margin-left: 0; }
+    body.sheet-open #st-body > .ui-schematic { margin-left: 121px; } /* centred in the 600 px column */
+    body.sheet-open #st-body { padding-right: 460px; }
+    #station .ui-scrim { display: none; }
+    #station .ui-sheet, #station .ui-sheet.tall {
+      left: auto; right: calc(max(16px, (100vw - 1080px) / 2 + 16px) / var(--ui-scale)); transform: none;
+      top: calc(86px / var(--ui-scale)); bottom: calc((84px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale));
+      width: 428px; height: auto; max-height: none; border: 1px solid var(--line); border-radius: var(--r-lg); padding-bottom: 0; animation: none;
+    }
+    #station .ui-sheet .grab { display: none; }
+  }
+  .ui-sheet.dragging { transition: none; }
+
+  /* A phone on its side: little height, so the header and the tab bar slim down and the content
+     gets the room; the notch's side stays clear. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #station { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); box-sizing: border-box; }
+    .st-head { padding: 8px 16px 6px; }
+    #st-name { font-size: 16px; }
+    #st-sub { display: none; }
+    .st-credits { height: 28px; }
+    #st-body { padding-top: 10px; gap: 12px; }
+    .ui-nav { padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+    .ui-tab { height: 44px; }
+    #st-launch.lg { min-height: 44px; }
+    #station .ui-sheet { max-height: calc(94dvh / var(--ui-scale)); }
+    #station .ui-sheet.tall { height: calc(94dvh / var(--ui-scale)); }
+  }
+
   /* Colour-safe palette (Settings > Accessibility): hostile magenta, good pale yellow, so the two are
      told apart without red and green (core/theme.js swaps the canvas colours to match). */
   :root[data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
@@ -625,8 +679,7 @@
     <div class="ui-tabs" role="tablist" aria-label="Station services">
       <button class="ui-tab" type="button" role="tab" data-tab="trade">Trade</button>
       <button class="ui-tab" type="button" role="tab" data-tab="ship">Ship</button>
-      <button class="ui-tab" type="button" role="tab" data-tab="research">Research</button>
-      <button class="ui-tab" type="button" role="tab" data-tab="industry">Production</button>
+      <button class="ui-tab" type="button" role="tab" data-tab="industry">Industry</button>
       <button class="ui-tab" type="button" role="tab" data-tab="squad">Squad</button>
       <button class="ui-tab" type="button" role="tab" data-tab="missions">Missions</button>
     </div>

@@ -78,7 +78,7 @@ export function dock(station) {
     squad: programs,
     missions: { list: () => missionViews(station) },
     locks: stationLocks,
-    tab: opening() ? 'missions' : 'trade', // the opening missions are all there is to do at first
+    tab: opening() ? 'missions' : null, // the opening missions are all there is to do at first; else the last tab used
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
