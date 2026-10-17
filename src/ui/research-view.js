@@ -147,8 +147,8 @@ const ResearchView = {
         { id: 'wpn', code: 'WPN', label: 'Hardpoints', value: `+${u.weapons}`, detail: `Weapon slots added to every hull (${Loadout.MAX_WEAPONS} at most).`, from: from((p) => p.upgrade?.weapons) },
         { id: 'blu', code: 'BLU', label: 'Blueprints', value: `${done.filter((id) => Research.PACKAGES[id]?.kind === 'blueprint').length}/${Research.LIST.filter((p) => p.kind === 'blueprint').length}`, detail: 'Gear an assembler can make, beyond Mk I.', from: 'Research, and schematics recovered from pirates' },
         { id: 'que', code: 'QUE', label: 'Queue', value: `${Research.queueMax(lab().state)}`, detail: 'Packages that can wait behind the one building.', from: from((p) => p.industry?.queue) },
-        { id: 'spd', code: 'BAY', label: 'Bay speed', value: `+${pct(Research.bonusAt(lab().state, Infinity, 'speed'))}`, detail: 'Every bay works this much faster.', from: from((p) => p.industry?.speed) },
-        { id: 'rom', code: 'WHS', label: 'Bays, room', value: `${Industry.MAX_BAYS + Research.bonusAt(lab().state, Infinity, 'bays')} · +${Research.bonusAt(lab().state, Infinity, 'storage')}`, detail: 'Bays per station, and room added to every warehouse.', from: from((p) => p.industry?.bays || p.industry?.storage) },
+        { id: 'spd', code: 'BAY', label: 'Order speed', value: `+${pct(Research.bonusAt(lab().state, Infinity, 'speed'))}`, detail: 'Every production order runs this much faster.', from: from((p) => p.industry?.speed) },
+        { id: 'rom', code: 'WHS', label: 'Slots, storage', value: `${Industry.SLOTS + Research.bonusAt(lab().state, Infinity, 'bays')} · +${Research.bonusAt(lab().state, Infinity, 'storage')}`, detail: 'Production orders per station, and room added to the shared storage.', from: from((p) => p.industry?.bays || p.industry?.storage) },
         { id: 'pkg', code: 'PKG', label: 'Researched', value: `${done.filter((id) => Research.LIST.some((p) => p.id === id)).length}/${Research.LIST.length}`, detail: 'Packages done, in every group.', from: '' },
       ];
       return Kit.statChips(stats, openStat, (id) => { openStat = id; env.refresh(); });

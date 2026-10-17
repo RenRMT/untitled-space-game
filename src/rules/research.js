@@ -8,7 +8,7 @@
 // the abilities a `use` line runs are consumables industry makes (rules/abilities.js).
 // The same lab also researches the ship: blueprints for gear from Mk II up (assembled at an
 // assembler, rules/recipes.js), refinements (a few % more of one stat for every piece of a gear
-// line), hull refits (rules/hullmods.js) for every hull you fly, and industry (faster bays, more
+// line), hull refits (rules/hullmods.js) for every hull you fly, and industry (faster orders, more
 // of them, more room, alternative recipes, a longer lab queue).
 // Each package is of a kind: 'logic' (a code library, `name@ver`), 'blueprint' (`bp.<gear id>`),
 // 'refine' (`ref.<line>.<step>`), 'mods' (`mods.<slot type>`: the mods for that kind of gear,
@@ -67,7 +67,7 @@ const Research = (() => {
     { id: 'weapons', label: 'Weapons' },
     { id: 'systems', label: 'Systems' },
     { id: 'hull', label: 'Hull' },
-    { id: 'industry', label: 'Industry' },
+    { id: 'industry', label: 'Production' },
   ];
   // Blueprints: a category per gear line (its name labels the row), weapons apart from the rest.
   const GEAR_LINES = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc);
@@ -80,8 +80,8 @@ const Research = (() => {
     { id: 'mods.weapons', group: 'weapons', label: 'Mods', note: 'mods for weapons' },
     { id: 'mods.systems', group: 'systems', label: 'Mods', note: 'mods for shields, computers, engines and scanners' },
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
-    { id: 'ind.speed', group: 'industry', label: 'Bay speed', note: 'every bay works faster' },
-    { id: 'ind.room', group: 'industry', label: 'Bays and room', note: 'more bays per station, more room in each warehouse' },
+    { id: 'ind.speed', group: 'industry', label: 'Order speed', note: 'every production order runs faster' },
+    { id: 'ind.room', group: 'industry', label: 'Slots and storage', note: 'more orders per station, more room in storage' },
     { id: 'ind.recipes', group: 'industry', label: 'Recipes', note: 'other ways to make things' },
     { id: 'ind.lab', group: 'industry', label: 'Lab', note: 'the lab itself' },
   ];
@@ -184,7 +184,7 @@ const Research = (() => {
       PACKAGES[id] = {
         id, kind: 'blueprint', name: Loadout.EQUIPMENT[gear].name, cat: `bp.${line}`, line, tier: t, col: t - Math.max(2, spec.from || 1), gear,
         requires: Loadout.EQUIPMENT[`${line}-${t - 1}`] && t > 2 ? [prev] : [], time: BP_TIME[t], cost,
-        note: `Assemble the ${Loadout.EQUIPMENT[gear].name} at an assembler`,
+        note: `Assemble the ${Loadout.EQUIPMENT[gear].name} with a production order at a shipyard`,
       };
     }
   }
@@ -223,13 +223,13 @@ const Research = (() => {
   }
   // Industry: [id, name, short (on its node), cat, requires, time, credits, { cost }, { bonus }, note].
   const INDUSTRY = [
-    ['ind.speed.1', 'Bay speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer', 2)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
-    ['ind.speed.2', 'Bay speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { actuator: 2, [c('computer', 3)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
-    ['ind.speed.3', 'Bay speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { robotics: 2, [c('computer', 4)]: 2 }, { speed: 0.15 }, '+15% speed in every bay'],
-    ['ind.storage.1', 'Warehouse racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull', 1)]: 3 }, { storage: 100 }, '+100 room in every warehouse'],
-    ['ind.storage.2', 'Warehouse racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 3 }, { storage: 100 }, '+100 room in every warehouse'],
-    ['ind.bays.1', 'Extra bay I', 'Bays +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 2 }, { bays: 1 }, 'one more bay at every station'],
-    ['ind.bays.2', 'Extra bay II', 'Bays +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'hull-plating': 4, [c('hull', 3)]: 2 }, { bays: 1 }, 'one more bay at every station'],
+    ['ind.speed.1', 'Order speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer', 2)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.speed.2', 'Order speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { actuator: 2, [c('computer', 3)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.speed.3', 'Order speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { robotics: 2, [c('computer', 4)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.storage.1', 'Storage racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull', 1)]: 3 }, { storage: 100 }, '+100 room in storage'],
+    ['ind.storage.2', 'Storage racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 3 }, { storage: 100 }, '+100 room in storage'],
+    ['ind.bays.1', 'Order slots I', 'Slots +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 2 }, { bays: 1 }, 'one more order at every station'],
+    ['ind.bays.2', 'Order slots II', 'Slots +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'hull-plating': 4, [c('hull', 3)]: 2 }, { bays: 1 }, 'one more order at every station'],
     ['ind.alt.power-cell', 'Ice cells', 'Ice cells', 'ind.recipes', [], H, 1200, { 'power-cell': 1, [c('drive', 2)]: 2 }, {}, 'power cells straight from water ice, without hydrazine'],
     ['ind.alt.graphene', 'Carbon graphene', 'Graphene', 'ind.recipes', ['ind.alt.power-cell'], 2 * H, 2500, { graphene: 2, [c('hull', 2)]: 2 }, {}, 'graphene from carbon and ice, without corundum'],
     ['ind.lab.1', 'Lab queue', 'Queue +1', 'ind.lab', [], 4 * H, 5000, { robotics: 1, [c('computer', 3)]: 3 }, { queue: 1 }, 'one more package can wait in the lab queue'],
