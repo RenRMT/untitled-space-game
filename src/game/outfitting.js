@@ -1,4 +1,4 @@
-// Outfitting as the station menu sees it, sensors (sense), and placing the ship
+// Outfitting as the station menu sees it (your ship and each squad member's), sensors (sense), and placing the ship
 // (placeShip, placeBeside: a teleport, a launch, a jump).
 // Part of the flight view; src/main.js starts it.
 
@@ -9,63 +9,80 @@ import { Research } from '../rules/research.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
 import { stopMining } from './mining.js';
-import { snapWings } from './squad.js';
+import { memberOf, refreshWing, snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
 import { world } from './world.js';
+
+// Fitting gear and mods to a loadout, from the spare gear and mods: what was in the slot goes to the
+// spare gear; mods go in as far as the gear in their slot has room. on: the ship fitted, { get(), set(loadout),
+// upgrades(), takes(id) (whether this ship can take that gear), changed() (after every change) }.
+function fitter(on) {
+  const slotOf = (slot) => Loadout.slotsOf(on.get().hull, on.upgrades()).find((x) => x.id === slot);
+  const put = (patch) => { on.set({ ...on.get(), ...patch }); return on.changed(); };
+  return {
+    fit(slot, id) {
+      const item = Loadout.EQUIPMENT[id], s = slotOf(slot);
+      if (!item || !s || item.slot !== s.type || !cargo.gear[id] || !on.takes(id)) return false;
+      addTo(cargo.gear, id, -1);
+      const old = on.get().fitted[slot];
+      if (old) addTo(cargo.gear, old);
+      return put({ fitted: { ...on.get().fitted, [slot]: id } });
+    },
+    unfit(slot) {
+      const old = on.get().fitted[slot];
+      if (!old) return false;
+      addTo(cargo.gear, old);
+      return put({ fitted: { ...on.get().fitted, [slot]: null } });
+    },
+    fitMod(slot, id) {
+      const l = on.get(), type = Loadout.EQUIPMENT[l.fitted[slot]]?.slot, list = l.mods?.[slot] || [];
+      if (!cargo.mods[id] || !Mods.fits(id, type) || list.length >= Loadout.modRoom(l, slot)) return false;
+      addTo(cargo.mods, id, -1);
+      return put({ mods: { ...l.mods, [slot]: [...list, id] } });
+    },
+    removeMod(slot, i) {
+      const l = on.get(), list = l.mods?.[slot] || [];
+      if (!list[i]) return false;
+      addTo(cargo.mods, list[i]);
+      const rest = list.filter((m, k) => k !== i);
+      const mods = { ...l.mods, [slot]: rest };
+      if (!rest.length) delete mods[slot];
+      return put({ mods });
+    },
+  };
+}
+// Mods without room in a loadout's slots go back to the spare mods: the loadout without them.
+function trimmed(loadout) {
+  const { loadout: out, left } = Loadout.trimMods(loadout);
+  for (const m of left) addTo(cargo.mods, m);
+  return out;
+}
 
 // Equipment: what's fitted, spare gear (assembled, or taken out) to fit, mods fitted to a slot (as
 // many as its gear has room for; the rest go back to the spare mods), selling spare gear for half
 // its price, and the shipyard's hulls (the current one traded in for half its price; the gear moves
 // across, what doesn't fit goes to the spare gear). Gear isn't sold: industry assembles it.
+// Android gear (taken out of a squad ship) fits only squad ships, and isn't sold.
+// member(id): the same for a squad member's ship (fit, unfit, fitMod, removeMod; null if no such member).
 export const SELL_BACK = 0.5;
+const playerFit = fitter({
+  get: () => cargo.loadout, set: (l) => { cargo.loadout = l; }, upgrades: () => outfitting.upgrades,
+  takes: (id) => !Loadout.EQUIPMENT[id].npc, changed: () => changedShip(),
+});
 export const outfitting = {
   get loadout() { return cargo.loadout; },
   get upgrades() { return Research.upgrades(cargo.lab.done); },
   get gear() { return cargo.gear; },
   get mods() { return cargo.mods; },
+  android: false,
   // Whether industry can make a piece of gear: Mk I always, the rest once its blueprint is researched.
   canMake: (id) => Recipes.known(cargo.lab.done).has(`make.${id}`),
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
   tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
   hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
-  // Fit spare gear in a slot; what was there goes to the spare gear.
-  fit(slot, id) {
-    const item = Loadout.EQUIPMENT[id];
-    const s = Loadout.slotsOf(cargo.loadout.hull, outfitting.upgrades).find((x) => x.id === slot);
-    if (!item || !s || item.slot !== s.type || !cargo.gear[id]) return false;
-    addTo(cargo.gear, id, -1);
-    const old = cargo.loadout.fitted[slot];
-    if (old) addTo(cargo.gear, old);
-    cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: id } };
-    return changedShip();
-  },
-  unfit(slot) {
-    const old = cargo.loadout.fitted[slot];
-    if (!old) return false;
-    addTo(cargo.gear, old);
-    cargo.loadout = { ...cargo.loadout, fitted: { ...cargo.loadout.fitted, [slot]: null } };
-    return changedShip();
-  },
-  // A spare mod into a slot with room for it; one out of a slot, back to the spare mods.
-  fitMod(slot, id) {
-    const type = Loadout.EQUIPMENT[cargo.loadout.fitted[slot]]?.slot, list = cargo.loadout.mods?.[slot] || [];
-    if (!cargo.mods[id] || !Mods.fits(id, type) || list.length >= Loadout.modRoom(cargo.loadout, slot)) return false;
-    addTo(cargo.mods, id, -1);
-    cargo.loadout = { ...cargo.loadout, mods: { ...cargo.loadout.mods, [slot]: [...list, id] } };
-    return changedShip();
-  },
-  removeMod(slot, i) {
-    const list = cargo.loadout.mods?.[slot] || [];
-    if (!list[i]) return false;
-    addTo(cargo.mods, list[i]);
-    const rest = list.filter((m, k) => k !== i);
-    const mods = { ...cargo.loadout.mods, [slot]: rest };
-    if (!rest.length) delete mods[slot];
-    cargo.loadout = { ...cargo.loadout, mods };
-    return changedShip();
-  },
+  ...playerFit,
   sell(id) {
-    if (!cargo.gear[id]) return false;
+    if (!cargo.gear[id] || Loadout.EQUIPMENT[id].npc) return false;
     addTo(cargo.gear, id, -1);
     cargo.credits += outfitting.sellPrice(id);
     saveCargo();
@@ -90,13 +107,28 @@ export const outfitting = {
     saveCargo();
     return true;
   },
+  // A squad member's ship, outfitted the same way (no research upgrades; any gear, android or not).
+  member(id) {
+    const m = memberOf(id);
+    if (!m) return null;
+    return {
+      get loadout() { return m.loadout; },
+      upgrades: {},
+      get gear() { return cargo.gear; },
+      get mods() { return cargo.mods; },
+      android: true,
+      canMake: outfitting.canMake,
+      ...fitter({
+        get: () => m.loadout, set: (l) => { m.loadout = l; }, upgrades: () => ({}), takes: () => true,
+        changed: () => { m.loadout = trimmed(m.loadout); refreshWing(m); saveCargo(); return true; },
+      }),
+    };
+  },
 };
 // The loadout changed: mods without room in their slot go back to the spare mods, and the ship's
 // stats follow.
 export function changedShip() {
-  const { loadout, left } = Loadout.trimMods(cargo.loadout);
-  cargo.loadout = loadout;
-  for (const m of left) addTo(cargo.mods, m);
+  cargo.loadout = trimmed(cargo.loadout);
   applyShip();
   saveCargo();
   return true;

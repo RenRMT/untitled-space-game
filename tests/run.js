@@ -2153,6 +2153,29 @@ test('squad: an android wingman, in formation behind the leader, saved and resto
   assert.strictEqual(Squad.read(undefined), null);
 });
 
+test('squad: each member flies its own loadout, joining with the player\'s starting gear, and saves it', () => {
+  const m = Squad.member(5);
+  assert.deepStrictEqual(m.loadout.fitted, {
+    'weapon-1': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1',
+  }, 'the Courier\'s starting kit, in a fighter');
+  for (const [slot, id] of Object.entries(m.loadout.fitted)) assert.strictEqual(id, Loadout.starter('courier').fitted[slot], slot);
+  assert.strictEqual(Squad.stats(m).hull, Loadout.HULLS.fighter.hull, 'no extra armour');
+  // Its own gear: a pulse laser fitted, with a mod, is what it flies with, and survives a save.
+  m.loadout = { ...m.loadout, fitted: { ...m.loadout.fitted, 'weapon-1': 'pulse-laser-3' } };
+  const mod = Object.keys(Mods.MODS).find((id) => Mods.fits(id, 'weapon'));
+  m.loadout.mods = { 'weapon-1': [mod] };
+  assert.strictEqual(Squad.stats(m).weapons[0].name, 'Pulse laser Mk III');
+  const [back] = Squad.read(JSON.parse(JSON.stringify([m])), new Set());
+  assert.deepStrictEqual(back.loadout, m.loadout);
+  // A saved loadout is checked against its hull: wrong slots, gear and mods dropped.
+  const bad = { hull: 'fighter', fitted: { 'weapon-1': 'deflector-1', shield: 'deflector-2', 'weapon-9': 'pulse-laser-1' }, mods: { shield: ['nonsense'], engine: [mod] }, armour: 9 };
+  assert.deepStrictEqual(Squad.validLoadout(bad, 'fighter'), {
+    hull: 'fighter', fitted: { 'weapon-1': null, shield: 'deflector-2', computer: null, engine: null, scanner: null }, mods: {}, armour: 1,
+  });
+  assert.strictEqual(Squad.validLoadout({ ...bad, hull: 'courier' }, 'fighter'), null, 'another hull');
+  assert.deepStrictEqual(Squad.member(5, { loadout: 'junk' }).loadout, Squad.starter('fighter'), 'junk: the starting gear');
+});
+
 test('missions: offered, accepted, objectives in order, ready once all are met, then handed in', () => {
   const ID = 'repayment';
   const log = Missions.create();

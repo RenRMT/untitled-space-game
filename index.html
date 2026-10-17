@@ -254,6 +254,25 @@
   .st-hull .top .num { font-size: 12px; color: var(--hud); }
   .st-hull .ui-tag { font-size: 13px; padding: 0 6px; }
 
+  /* Ship tab: stepping between your ship and the squad's. */
+  .st-switch {
+    display: flex; align-items: center; gap: 8px; margin-bottom: -6px; overflow: hidden;
+    border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--s1);
+  }
+  .st-switch-btn {
+    flex: none; width: var(--hit); height: var(--hit); display: grid; place-items: center; padding: 0;
+    border: 0; background: transparent; color: var(--cyan); font: 400 28px/1 var(--sans); cursor: pointer;
+  }
+  .st-switch-btn:hover { background: var(--cyan-tint); }
+  .st-switch-btn:focus-visible, .st-switch .dot:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  .st-switch .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; }
+  .st-switch .who { font: 600 14px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .st-switch .who .num { font: 400 12px var(--mono); letter-spacing: 0; color: var(--dim); }
+  .st-switch .dots { display: flex; gap: 2px; }
+  .st-switch .dot { width: 18px; height: 14px; padding: 0; border: 0; background: transparent; cursor: pointer; display: grid; place-items: center; }
+  .st-switch .dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+  .st-switch .dot[aria-current="true"]::after { background: var(--cyan); }
+
   /* The ship outline behind the slot buttons. */
   .st-outline, .st-outline svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
