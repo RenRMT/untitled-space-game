@@ -306,7 +306,7 @@
   .st-hull .top .num { font-size: 12px; color: var(--hud); }
   .st-hull .ui-tag { font-size: 13px; padding: 0 6px; }
 
-  /* Ship tab: stepping between your ship and the squad's. */
+  /* The switcher: on the Ship tab, stepping between your ship and the squad's; on the Production tab, between a station's orders. */
   .st-switch {
     display: flex; align-items: center; gap: 8px; margin-bottom: -6px; overflow: hidden;
     border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--s1);
@@ -392,33 +392,101 @@
   .st-need .num { margin-left: auto; font-size: 12px; color: var(--dim); }
   .st-gives { margin: 0; font: 500 14px/1.4 var(--mono); color: var(--hud); }
   .st-pkg-note { font-family: var(--mono); font-size: 13px; font-style: italic; }
-  /* Production: an order's run as a meter and the time left; order cards like pipeline nodes; the
-     production pipeline in three columns with its links drawn behind (stacked on a phone). */
-  .st-run { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-  .st-run .num { font-size: 12px; color: var(--hud); white-space: nowrap; }
-  .pr-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--s1); border: 1px solid var(--line-soft); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); }
-  .pr-flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-  .pr-ins, .pr-outs { display: flex; flex-wrap: wrap; gap: 4px; }
-  .pr-arrow { color: var(--dim); font-family: var(--mono); }
-  .pr-stage { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: var(--r-sm); border: 1px solid var(--line); font: 700 11px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--t4); }
-  .pr-chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: var(--r-sm); background: var(--s2); border: 1px solid var(--line-soft); font-size: 13px; }
-  .pr-chip .icon, .pr-chip .ui-icon { margin: -2px 0; }
-  .pr-chip .mk { font-size: 11px; color: var(--dim); }
-  .pr-chip.ok .mk { color: var(--good); } .pr-chip.flow .mk { color: var(--cyan); } .pr-chip.miss .mk { color: var(--warn); }
-  .pr-chip.miss { border-color: var(--warn); }
-  .pr-chip.out { color: var(--bright); border-color: var(--line); }
-  .pr-state .line { display: flex; align-items: baseline; gap: 8px; }
-  .pr-state .txt { font-size: 13px; color: var(--hud); }
-  .pr-acts { display: flex; justify-content: flex-end; gap: 6px; }
-  .st-acts { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; }
-  .pr-new { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: transparent; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--cyan); text-align: left; cursor: pointer; font: inherit; }
-  .pr-new:hover { border-color: var(--cyan); }
-  .pr-new .main { display: flex; flex-direction: column; gap: 2px; }
-  .pr-new .name { font-weight: 600; }
-  .pr-new .sub { font-size: 13px; color: var(--dim); }
-  .pr-uses-link { align-self: flex-start; padding: 0; font-size: 12px; }
-  .pr-uses { margin: 2px 0 0; padding-left: 16px; font-size: 13px; color: var(--hud); }
-  .pr-uses .sub { color: var(--dim); }
+  /* Production: the stage's name and order count; per order a status line and a production line on
+     a dotted board (input nodes wired by whether storage has them, the stage with the order's meter,
+     an arrow to what it makes); storage and the hold as tiles with a detail row; the order sheet's
+     products; an input's lineage as a tree; the production pipeline in three columns with its
+     links drawn behind (stacked on a phone). */
+  .pr-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .pr-title .aside { font: 400 12px var(--mono); color: var(--dim); white-space: nowrap; }
+  .pr-order { display: flex; flex-direction: column; gap: 8px; }
+  .pr-status { display: flex; align-items: center; gap: 10px; min-height: var(--hit); }
+  .pr-status .ui-tag { font-size: 13px; }
+  .pr-status .txt { flex: 1; min-width: 0; font-size: 15px; color: var(--hud); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-board {
+    padding: 4px 0 6px; border-radius: 10px;
+    background-image: radial-gradient(var(--line-soft) 1px, transparent 1px); background-size: 16px 16px; background-position: 4px 4px;
+  }
+  .pr-line { display: flex; flex-direction: column; align-items: stretch; width: 100%; max-width: 420px; margin: 0 auto; }
+  .pr-ins { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+  .pr-ins.many { gap: 8px 6px; }
+  .pr-node {
+    position: relative; box-sizing: border-box; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 4px;
+    padding: 8px 6px; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-md); color: var(--hud); font: inherit; text-align: center;
+  }
+  button.pr-node { cursor: pointer; }
+  button.pr-node:hover { border-color: var(--line-strong); }
+  button.pr-node:focus-visible, .pr-stage:focus-visible, .pr-empty:focus-visible, .pr-prod:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .pr-node .nm { max-width: 100%; font-size: 14px; font-weight: 600; line-height: 1.1; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-node .have { font: 600 11px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+  .pr-node.in { justify-self: center; width: min(var(--w), calc(100% - 8px)); height: 84px; }
+  .pr-ins.many .pr-node.in { width: 100%; }
+  .pr-node.in.miss { border-color: var(--warn); background: rgba(255, 179, 71, 0.06); }
+  .pr-node .qn { position: absolute; top: 4px; left: 6px; font: 600 11px var(--mono); color: var(--dim); }
+  .pr-wires { position: relative; height: 40px; flex: none; }
+  .pr-wires > i { position: absolute; box-sizing: border-box; }
+  .pr-wires .q { position: absolute; top: 1px; font: 600 11px var(--mono); }
+  .pr-wires.out { height: 34px; }
+  .pr-stage {
+    align-self: center; width: min(220px, 100%); min-height: 84px; box-sizing: border-box; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; gap: 6px;
+    background: var(--s1); border: 1px solid rgba(180, 140, 255, 0.6); border-radius: var(--r-md); color: var(--hud); font: inherit; text-align: left;
+  }
+  button.pr-stage { cursor: pointer; }
+  button.pr-stage:hover { border-color: var(--t4); }
+  .pr-stage .top { display: flex; align-items: center; gap: 8px; }
+  .pr-stage .top .ui-icon { color: var(--t4); }
+  .pr-stage .lbl { flex: 1; font: 700 12px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--t4); }
+  .pr-stage .runs { font-size: 12px; color: var(--hud); }
+  .pr-stage .note { font-size: 13px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-stage .bar { display: block; height: 4px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
+  .pr-stage .bar > span { display: block; height: 100%; border-radius: inherit; transition: width 0.25s ease-out; }
+  @media (prefers-reduced-motion: reduce) { .pr-stage .bar > span { transition: none; } }
+  .pr-outs { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); }
+  .pr-node.out { justify-self: center; width: min(130px, calc(100% - 8px)); height: 88px; border-color: var(--edge); margin-top: 7px; }
+  .pr-line.done .pr-node.out { background: rgba(182, 255, 138, 0.05); }
+  .pr-line.done .pr-node.out .have { color: var(--good); }
+  /* The arrowhead into what it makes. */
+  .pr-node.out::before { content: ''; position: absolute; top: -8px; left: 50%; margin-left: -5px; border: 5px solid transparent; border-top: 7px solid var(--edge); border-bottom: 0; }
+  .pr-empty {
+    width: min(220px, 100%); min-height: 120px; margin: 50px auto; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    padding: 10px; background: rgba(11, 14, 23, 0.6); border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--dim); font: 400 13px var(--sans); text-align: center;
+  }
+  button.pr-empty { cursor: pointer; }
+  button.pr-empty:hover { border-color: var(--cyan); }
+  .pr-empty .ui-icon { color: var(--t4); opacity: 0.7; }
+  .pr-empty .go { font: 700 13px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--cyan); }
+  .pr-empty.locked .go { color: var(--dim); }
+  /* Tiles: as many to a row as fit (five on a phone). */
+  .pr-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 6px; }
+  .pr-detail { display: flex; align-items: center; gap: 12px; padding: 10px 8px 10px 12px; background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-md); }
+  .pr-detail .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .pr-detail .line { display: flex; align-items: baseline; gap: 8px; }
+  .pr-detail .nm { font-size: 15px; font-weight: 600; color: var(--bright); }
+  .pr-detail .sub { font-size: 13px; line-height: 1.35; color: var(--dim); text-wrap: pretty; }
+  /* The order sheet: products to pick, the runs, and its buttons in a row. */
+  .pr-prod {
+    min-height: 60px; display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 10px; box-sizing: border-box;
+    background: var(--s2); border: 1px solid var(--line-soft); border-radius: var(--r-lg); color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .pr-prod:hover { border-color: var(--line-strong); }
+  .pr-prod[aria-pressed="true"] { background: rgba(125, 249, 255, 0.06); border-color: var(--cyan); }
+  .pr-prod .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .pr-prod .nm { font-size: 16px; font-weight: 600; color: var(--bright); }
+  .pr-prod .formula { font: 400 12px var(--mono); color: var(--dim); }
+  .pr-foot { display: flex; gap: 8px; }
+  .pr-foot > .ui-btn { min-height: 52px; }
+  .pr-foot > .ui-btn.primary { flex: 1; }
+  /* An input's lineage: indented a step per level, an elbow from its parent. */
+  .pr-lineage { display: flex; flex-direction: column; padding: 4px 0; }
+  .pr-lin { display: flex; align-items: stretch; min-height: 52px; padding-left: calc(max(0, var(--depth) - 1) * 33px); }
+  .pr-lin .elbow { flex: none; width: 14px; height: 26px; margin-left: 19px; border-left: 1px dashed var(--line-strong); border-bottom: 1px dashed var(--line-strong); }
+  .pr-lin .row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; margin: 3px 0; padding: 6px 10px; border: 1px solid var(--line-soft); border-radius: var(--r-md); }
+  .pr-lin:not(.child) .row { background: var(--s2); border-color: var(--line); }
+  .pr-lin .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .pr-lin .nm { font-size: 15px; font-weight: 600; color: var(--bright); }
+  .pr-lin .have { font: 600 12px var(--mono); white-space: nowrap; }
+  .pr-lin-note { margin: 0; font-size: 14px; line-height: 1.4; color: var(--hud); text-wrap: pretty; }
+  .src { font-size: 12px; }
   .pr-pipe { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 4px; border-top: 1px solid var(--line-soft); }
   .pr-end { font: 600 14px var(--sans); color: var(--bright); }
   .pr-cols { display: grid; grid-template-columns: repeat(3, 1fr); font: 700 10px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
@@ -430,47 +498,36 @@
   .pr-lines path.dim { stroke: var(--line-strong); stroke-opacity: 1; }
   .pr-lines path.gap { stroke: var(--warn); stroke-dasharray: 4 3; }
   .pr-cell { position: relative; padding: 4px 4%; min-width: 0; }
-  .pr-node { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); overflow: hidden; }
-  .pr-node .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-  .pr-node .main:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
-  .pr-node .where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pr-node .what { font-size: 13px; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pr-node .st { font: 700 10px/1.4 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone); }
-  .pr-node .prio { position: absolute; right: calc(4% + 4px); bottom: 8px; display: flex; align-items: center; gap: 8px; }
-  .pr-node .prio .num { font-size: 11px; color: var(--dim); margin-right: 2px; }
-  .pr-node .prio .ar { position: relative; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--s2); color: var(--hud); font: 12px var(--mono); cursor: pointer; }
-  .pr-node .prio .ar::after { content: ''; position: absolute; inset: -7px -4px; } /* a 44 px touch target round the drawn button */
-  .pr-node .prio .ar:hover { color: var(--cyan); border-color: var(--cyan); }
-  .pr-node.gap { border-style: dashed; border-color: var(--warn); background: transparent; }
-  .pr-node.gap .main { cursor: default; }
-  .pr-node.gap .where { color: var(--warn); }
+  .pr-pnode { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); overflow: hidden; }
+  .pr-pnode .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+  .pr-pnode .main:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  .pr-pnode .where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-pnode .what { font-size: 13px; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pr-pnode .st { font: 700 10px/1.4 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone); }
+  .pr-pnode .prio { position: absolute; right: calc(4% + 4px); bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .pr-pnode .prio .num { font-size: 11px; color: var(--dim); margin-right: 2px; }
+  .pr-pnode .prio .ar { position: relative; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--s2); color: var(--hud); font: 12px var(--mono); cursor: pointer; }
+  .pr-pnode .prio .ar::after { content: ''; position: absolute; inset: -7px -4px; } /* a 44 px touch target round the drawn button */
+  .pr-pnode .prio .ar:hover { color: var(--cyan); border-color: var(--cyan); }
+  .pr-pnode.gap { border-style: dashed; border-color: var(--warn); background: transparent; }
+  .pr-pnode.gap .main { cursor: default; }
+  .pr-pnode.gap .where { color: var(--warn); }
   .pr-feeds { display: none; flex-direction: column; font-size: 12px; color: var(--cyan); }
   .pr-lone { display: flex; flex-direction: column; gap: 6px; }
   .pr-lone-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
-  .pr-lone-row .pr-node { min-height: 64px; }
+  .pr-lone-row .pr-pnode { min-height: 64px; }
   .pr-lone-row .prio { right: 6px; }
   .pr-gap { font-size: 12px; color: var(--warn); }
-  .pr-lineage { display: flex; flex-direction: column; gap: 4px; }
-  .pr-lineage.sub { margin-left: 14px; padding-left: 10px; border-left: 2px solid var(--line); }
-  .pr-in { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--s1); border: 1px solid var(--line-soft); border-radius: var(--r-md); color: inherit; font: inherit; text-align: left; }
-  button.pr-in { cursor: pointer; } button.pr-in:hover { border-color: var(--line-strong); }
-  .pr-in .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-  .pr-in .nm { color: var(--bright); }
-  .pr-in .chev { color: var(--dim); }
-  .src { font-size: 12px; } .src.ok { color: var(--good); } .src.flow { color: var(--cyan); } .src.miss { color: var(--warn); }
-  .pr-mini { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
-  .pr-mini .cost { font-size: 12px; color: var(--hud); }
-  .pr-peek { font-size: 13px; margin: 2px 0 0 14px; }
   .pr-prio { display: flex; align-items: center; gap: 8px; }
   .pr-prio .num { flex: 1; font-size: 13px; color: var(--hud); }
   @media (max-width: 560px) {
     .pr-cols, .pr-lines { display: none; }
     .pr-graph { display: flex; flex-direction: column; gap: 6px; }
     .pr-cell { padding: 0; }
-    .pr-node { height: auto; min-height: 64px; }
-    .pr-node .main { padding-bottom: 6px; }
-    .pr-node .prio { right: 6px; top: 6px; bottom: auto; }
-    .pr-node .where { padding-right: 104px; }
+    .pr-pnode { height: auto; min-height: 64px; }
+    .pr-pnode .main { padding-bottom: 6px; }
+    .pr-pnode .prio { right: 6px; top: 6px; bottom: auto; }
+    .pr-pnode .where { padding-right: 104px; }
     .pr-feeds { display: flex; padding: 0 8px 6px; }
   }
   .st-left { font-size: 12px; color: var(--hud); }

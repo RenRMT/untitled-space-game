@@ -77,6 +77,12 @@ function pressOnStation(label) {
   assert.ok(b, `a ${label} button`);
   b.dispatch('click', {});
 }
+// A press of a station button that is named only to screen readers (a tile), by its aria-label.
+function pressLabelled(pattern) {
+  const b = stationParts().flatMap(allOf).find((el) => el.tagName === 'BUTTON' && pattern.test(el.getAttribute?.('aria-label') || ''));
+  assert.ok(b, `a button labelled ${pattern}`);
+  b.dispatch('click', {});
+}
 // A mission's card on the Missions tab, tapped: its sheet opens, with the whole message.
 function openMission(title) {
   pressOnStation(new RegExp(`^${title}`));
@@ -665,7 +671,8 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.match(onStation(), /New order.*Gear.*Pulse laser Mk II/, 'the blueprint\'s recipe is there');
   game(`StationMenu.closeSheet(); industry.place('make.pulse-laser-2', 1)`);
   game(`__T += Industry.runTime(industry.orders()[0], industry.env(), __T); StationMenu.tick()`);
-  assert.match(onStation(), /Done.*1 of 1 made.*Storage.*Pulse laser Mk II/, 'made');
+  assert.match(onStation(), /Done.*1 of 1 made.*Pulse laser Mk II1 in storage.*Storage/, 'made');
+  pressLabelled(/^Pulse laser Mk II, 1$/); // its tile in storage
   pressOnStation('Take');
   game(`industry.cancel(industry.orders()[0].id)`);
   assert.strictEqual(game(`cargo.gear['pulse-laser-2']`), 1, 'into the spare gear');
@@ -808,7 +815,7 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
     placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Refinery here.*Orders here.*0\/1.*New order.*Storage/, 'nothing placed yet');
+  assert.match(onStation(), /Refinery0\/1 orders.*Idle.*No order placed.*\+ New order.*Storage/, 'nothing placed yet');
   assert.doesNotMatch(onStation(), /Production pipeline/, 'no pipeline without orders');
   game('cargo.items = []');
   // Iron aboard, stored.
@@ -819,12 +826,31 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   pressOnStation(/^\+ New order/);
   assert.match(onStation(), /New order.*Refined goods.*Steel pipe/, 'what this station can make');
   assert.doesNotMatch(onStation(), /Actuator/, 'not parts: a mining camp refines');
-  pressOnStation(/^Choose/); // the first: steel pipe
-  assert.match(onStation(), /Product.*Steel pipe.*Lineage.*2 × Iron.*10 in storage/, 'its lineage');
+  assert.match(onStation(), /Steel pipe2 Iron → Steel pipe · 20sReady/, 'each product with its recipe, and whether storage has its inputs');
+  pressOnStation(/^Steel pipe/); // the first: steel pipe
+  assert.match(onStation(), /1 run, 20s each/, 'picked');
   pressOnStation('Continuous');
   pressOnStation('Place order');
   assert.ok(game(`industry.orders()[0].recipe === 'make.steel-pipe' && industry.orders()[0].next > __T`), 'running');
-  assert.match(onStation(), /Iron.*✓ 8.*Refinery · .* Camp.*Steel pipe.*Running.*left/);
+  assert.match(onStation(), /Running0 made · while inputs last.*Iron✓ 8.*Refinery.*left.*Steel pipe/, 'its line: iron into the refinery, steel pipe out');
+  // An input opens its lineage.
+  pressLabelled(/^Iron: 8 in storage, needs 2/);
+  assert.match(onStation(), /Lineage2 × IronRaw✓ 8.*Enough Iron in storage/);
+  game('StationMenu.closeSheet()');
+  // With room for more than one order (research), the Ship tab's switcher steps through them, a free order last.
+  game(`lab.grant('ind.bays.1'); StationMenu.refresh()`);
+  assert.match(onStation(), /Steel pipe 1\/2.*Refinery1\/2 orders.*Running/, 'the order shown, one of two');
+  pressOnStation('›');
+  assert.match(onStation(), /New order 2\/2.*Idle1 order free here.*\+ New order/, 'then the free one');
+  assert.doesNotMatch(onStation(), /Running/, 'one at a time');
+  pressOnStation(/^\+ New order/);
+  pressOnStation(/^Copper cable/);
+  pressOnStation('Place order');
+  assert.match(onStation(), /Copper cable 2\/2.*Refinery2\/2 orders.*Starved/, 'the new order, shown');
+  pressOnStation('›'); // round to the first
+  assert.match(onStation(), /Steel pipe 1\/2.*Running/);
+  game(`industry.cancel(industry.orders()[1].id); cargo.lab.done.splice(cargo.lab.done.indexOf('ind.bays.1'), 1); delete cargo.lab.doneAt['ind.bays.1']; StationMenu.refresh()`);
+  assert.doesNotMatch(onStation(), /1\/2/, 'one order again: no switcher');
   pressOnStation(/^Production pipeline · 1 order/); // folded until opened
   assert.match(onStation(), /Production pipeline.*Standalone/, 'a lone order');
   // Away for an hour: on load, everything the iron makes is made.
@@ -832,9 +858,9 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   assert.ok(game(`cargo.industry.storage['steel-pipe'] === 5 && !cargo.industry.storage.iron`), 'made while away');
   // At another station, taken out of the same storage.
   game(`{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Storage.*Steel pipe.*Production pipeline.*Starved/, 'the camp\'s order, seen from here');
-  pressOnStation('What uses this?');
-  assert.match(onStation(), /Actuators · Fabricator order/, 'what uses steel pipe');
+  assert.match(onStation(), /Storage.*Production pipeline.*Steel pipe.*Starved/, 'the camp\'s order, seen from here');
+  pressLabelled(/^Steel pipe, 5$/); // its tile: what uses it
+  assert.match(onStation(), /Steel piperefined5 in storage · Used in Actuators.*Fabricator order/, 'what uses steel pipe');
   pressOnStation('Take');
   assert.strictEqual(game(`hold.count('steel-pipe')`), 5);
   // Pausing and cancelling work from anywhere; changing only at the order's station.
