@@ -66,8 +66,8 @@ export const HAPTICS = ['on', 'off'];
 export const haptics = setting('haptics', HAPTICS, 'on');
 // The security levels' colours in each palette (world/security.js), lawless to high.
 const SECURITY_COLORS = {
-  standard: ['#ff5a6e', '#ff9d5c', '#ffcf5a', '#b6ff8a'],
-  safe: ['#ff4fd8', '#ff9a3d', '#ffd84a', '#7fd0ff'],
+  standard: ['#ff5a6e', '#ffcf5a', '#b6ff8a'],
+  safe: ['#ff4fd8', '#ffd84a', '#7fd0ff'],
 };
 export function applyAccess() {
   const k = Number(textSize.value) / 100;

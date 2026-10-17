@@ -78,7 +78,7 @@ const Regions = (() => {
       params: {
         radius: 32000, planets: { count: [3, 5], first: [3600, 4400], gap: [2600, 3600] },
         nebulae: { count: [2, 2], r: [3500, 5000] }, stations: { major: false, minor: [2, 3], miningCamps: [0, 1] },
-        security: { high: 7000, medium: 13000, low: 20000 }, pirates: { density: 0.3, lawlessAmbushes: [0, 1] },
+        security: { high: 7000, low: 20000 }, pirates: { density: 0.3, lawlessAmbushes: [0, 1] },
       },
       owners: { minor: [['facet', 4], ['compact', 1]], camp: [['facet', 1], ['freeClaim', 1]] },
       present: ['owed'], maybe: [['unfaceted', 0.7], ['collegium', 0.3], ['union', 0.3]], waystation: 0.1, // pilgrims avoid the "cold houses"
@@ -88,7 +88,7 @@ const Regions = (() => {
       label: 'Spoke colony', holder: 'compact', build: 0,
       params: {
         radius: 38000, stations: { minor: [1, 2], miningCamps: [1, 1] }, nebulae: { count: [1, 2], r: [3500, 6000] },
-        security: { high: 7000, medium: 13000, low: 20000 }, pirates: { density: 0.6 },
+        security: { high: 7000, low: 20000 }, pirates: { density: 0.6 },
       },
       owners: { major: [['compact', 1]], minor: [['compact', 2], ['freeClaim', 1], ['combines', 1]], camp: [['freeClaim', 2], ['combines', 1]] },
       present: ['pirates'], maybe: [['brokenWheel', 0.7], ['freeClaim', 0.6], ['union', 0.3]], waystation: 0.3,
@@ -99,7 +99,7 @@ const Regions = (() => {
       params: {
         radius: 36000, belts: { outer: 1 }, fields: { count: [3, 4] }, nebulae: { count: [0, 1], r: [3500, 5500] },
         stations: { capital: false, major: false, minor: [0, 1], miningCamps: [2, 3] },
-        security: { high: 6000, medium: 11000, low: 17000 }, pirates: { density: 0.7 },
+        security: { high: 6000, low: 17000 }, pirates: { density: 0.7 },
       },
       owners: { minor: [['freeClaim', 1], ['combines', 1]], camp: [['freeClaim', 2], ['combines', 2]] },
       present: ['freeClaim', 'combines', 'pirates'], maybe: [['blackline', 0.6], ['scorched', 0.5], ['union', 0.5]], waystation: 0.35,
@@ -110,7 +110,7 @@ const Regions = (() => {
       params: {
         radius: 40000, nebulae: { count: [3, 4], r: [5000, 7500] }, fields: { count: [1, 2] },
         stations: { capital: false, major: false, minor: [1, 2], miningCamps: [0, 1], yard: false },
-        security: { high: 6000, medium: 11000, low: 17000 }, pirates: { density: 0.55 },
+        security: { high: 6000, low: 17000 }, pirates: { density: 0.55 },
       },
       owners: { minor: [['facet', 2], ['combines', 1]], camp: [['combines', 1], ['freeClaim', 1]] },
       present: ['facet', 'pirates', 'thren'], maybe: [['unfaceted', 0.6], ['combines', 0.6]], waystation: 0.3,
@@ -120,7 +120,7 @@ const Regions = (() => {
       label: 'Lawless reach', holder: null, build: 0,
       params: {
         radius: 36000, stations: { capital: false, major: false, minor: [1, 1], miningCamps: [0, 1] },
-        security: { high: 5000, medium: 9000, low: 14000 }, pirates: { density: 0.9, lawlessAmbushes: [2, 3] },
+        security: { high: 5000, low: 14000 }, pirates: { density: 0.9, lawlessAmbushes: [2, 3] },
         derelicts: { count: [8, 11] },
       },
       owners: { minor: [['freeClaim', 1], ['compact', 1]], camp: [['freeClaim', 1]] },
