@@ -20,7 +20,7 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?skipintro` | skip the introduction and the opening missions |
-| `?dev` | every system and contact on the map, the testing buttons and the performance overlay |
+| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, and god mode: your ship and your squad's take no damage |
 | `?perf` | the performance overlay only (P toggles it) |
 | `?style=pixel`, `?move=direct`, `?combat=realtime` | a setting for this visit |
 

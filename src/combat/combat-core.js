@@ -6,7 +6,8 @@
 //   CombatCore.config                  hit chance limits, and the flight view's ranges: where Attack
 //                                      is offered, where pirates attack, who joins a fight
 //   CombatCore.combatant(id, name, stats, hull = full) -> { id, name, stats, hull, shield }
-//   CombatCore.applyDamage(target, amount) -> { shieldDamage, hullDamage }   shields first
+//   CombatCore.applyDamage(target, amount) -> { shieldDamage, hullDamage }   shields first; none to a
+//                                      target marked `invulnerable` (god mode: ?dev, game/combat.js)
 //   CombatCore.limitHit(p)             a hit chance kept within [minHit, maxHit]
 //   CombatCore.alive(s)                the enemies still flying
 //   CombatCore.allies(s)               the squad members (rules/squad.js) still flying beside the player
@@ -68,8 +69,9 @@ const CombatCore = (() => {
   // A ship in a fight. stats: Loadout.stats(); hull: current hull points (defaults to full).
   const combatant = (id, name, stats, hull = stats.hull) => ({ id, name, stats, hull: clamp(hull, 0, stats.hull), shield: stats.shield });
 
-  // Damage hits the shields first, then the hull.
+  // Damage hits the shields first, then the hull. An invulnerable ship (god mode) takes none.
   function applyDamage(t, amount) {
+    if (t.invulnerable) return { shieldDamage: 0, hullDamage: 0 };
     const shieldDamage = Math.min(t.shield, amount);
     t.shield -= shieldDamage;
     const hullDamage = Math.min(t.hull, amount - shieldDamage);
