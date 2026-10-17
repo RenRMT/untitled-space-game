@@ -2,7 +2,7 @@
 // Missions tabs,
 // and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
-// (with a squad, a switcher above it steps through the members' ships too, shown read only);
+// (with a squad, a switcher above it steps through the members' ships too, outfitted the same way);
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
 // sheet; the Production tab (ui/industry-view.js) shows this station's production orders, the shared
 // storage and the production pipeline, an order opening a sheet to pick its product; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
@@ -12,9 +12,10 @@
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
-//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id) }:
+//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id),
+//               member(id) -> { loadout, upgrades, gear, mods, android: true, canMake, fit, unfit, fitMod, removeMod } }:
 //               the ship's equipment and mods, spare gear and mods, whether industry can make a
-//               piece, and the shipyard (game/outfitting.js).
+//               piece, the shipyard, and each squad member's ship (game/outfitting.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
 // industry: game/industry.js: production orders at stations and the shared storage (rules/industry.js).
@@ -252,7 +253,7 @@ const StationMenu = (() => {
   // A slot's mods: fitted ones (Remove), then spare ones that fit this kind of gear (Fit), each with
   // what it changes on the gear fitted, as far as there's room (rules/mods.js).
   function modSection(s) {
-    const { outfitting: o } = ctx, cur = s.item;
+    const o = outfit(), cur = s.item;
     if (!cur) return null;
     const room = Mods.SLOTS[cur.tier], list = o.loadout.mods?.[s.id] || [];
     const asItem = (mods) => ({ stats: Loadout.tuned(cur.stats, Loadout.bonusFor(cur, o.upgrades, mods)) });
@@ -277,23 +278,26 @@ const StationMenu = (() => {
     ];
   }
 
+  // The outfitting of the ship the Ship tab shows: yours, or a squad member's (game/outfitting.js).
+  const outfit = () => (viewedMember() && ctx.outfitting.member?.(viewing)) || ctx.outfitting;
+
   // Whether a piece of gear is waiting in storage (game/industry.js), for the slot sheet.
   const inStore = (id) => !!ctx.industry?.state.storage[id];
 
   // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), and the next Mk of each
   // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
-  // changes against what's fitted.
+  // changes against what's fitted. On a squad member's ship, spare android gear is among the
+  // options too (it fits squad ships only, and isn't made).
   function slotSheet(id) {
-    const m = viewedMember();
-    if (m) return memberSlotSheet(m, id);
-    const { outfitting: o } = ctx;
+    const m = viewedMember(), o = outfit();
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
     if (!s) return null;
     const cur = s.item;
-    const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && !Loadout.EQUIPMENT[e].npc && e !== cur?.id);
-    // Of each line, the Mk after the best you have (fitted or spare).
+    const npc = (e) => !!Loadout.EQUIPMENT[e].npc;
+    const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && e !== cur?.id && (!npc(e) || (o.android && o.gear[e])));
+    // Of each line (that industry makes), the Mk after the best you have (fitted or spare).
     const next = new Set();
-    for (const line of new Set(ids.map((e) => Loadout.EQUIPMENT[e].line))) {
+    for (const line of new Set(ids.filter((e) => !npc(e)).map((e) => Loadout.EQUIPMENT[e].line))) {
       const best = Math.max(0, ...[cur?.id, ...Object.keys(o.gear)].filter((e) => e && Loadout.EQUIPMENT[e].line === line).map((e) => Loadout.EQUIPMENT[e].tier));
       const n = ids.filter((e) => Loadout.EQUIPMENT[e].line === line && Loadout.EQUIPMENT[e].tier > best && !o.gear[e]).sort((x, y) => Loadout.EQUIPMENT[x].tier - Loadout.EQUIPMENT[y].tier)[0];
       if (n) next.add(n);
@@ -308,14 +312,14 @@ const StationMenu = (() => {
         const fitted = () => {
           closeSheet();
           refresh();
-          Kit.toast(`${item.name} fitted to ${s.label}`);
+          Kit.toast(`${item.name} fitted to ${m ? `${m.name}'s ` : ''}${s.label}`);
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
           tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In storage' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
           tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
           locked: kind === 'locked',
-          note: kind === 'fit' ? `Spare gear aboard. Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
+          note: kind === 'fit' ? `${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
             : [stored ? 'Made, and waiting in storage: take it out from the Production tab at any station.' : '',
               kind === 'make' ? 'Assembled by a production order at a shipyard (Production tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
@@ -324,7 +328,7 @@ const StationMenu = (() => {
         });
       });
     return {
-      title: s.label, code: SLOT_CODE[s.type], sub: `${SLOT_KIND[s.type]} · ${options.length} option${options.length === 1 ? '' : 's'}`,
+      title: s.label, code: SLOT_CODE[s.type], sub: `${m ? `${m.name} · ` : ''}${SLOT_KIND[s.type]} · ${options.length} option${options.length === 1 ? '' : 's'}`,
       body: [
         h('span', { class: 'ui-label' }, 'Fitted'),
         cur ? Kit.optionRow({
@@ -365,7 +369,8 @@ const StationMenu = (() => {
         : h('p', { class: 'ui-empty' }, 'No consumables. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
   }
 
-  // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half.
+  // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half. Android
+  // gear (from squad ships) fits squad ships only, and isn't sold.
   function renderGear() {
     const { outfitting: o } = ctx;
     const ids = Object.keys(o.gear);
@@ -374,8 +379,9 @@ const StationMenu = (() => {
       h('div', { class: 'ui-list' }, ids.map((id) => {
         const item = { id, ...Loadout.EQUIPMENT[id] };
         return Kit.optionRow({
-          code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, tag: o.gear[id] > 1 ? `×${o.gear[id]}` : '', vals: valuesOf(item),
-          action: Kit.button('Sell', act(() => o.sell(id), () => Kit.toast(`${item.name} sold`)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
+          code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
+          tag: [item.npc ? 'Android' : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '), tagTone: item.npc ? 'cyan' : null,
+          action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id), () => Kit.toast(`${item.name} sold`)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
       })));
   }
@@ -475,31 +481,15 @@ const StationMenu = (() => {
       arrow(1, '›'));
   }
 
-  // A squad member's slot, read only: android gear comes with its Mk and can't be changed.
-  function memberSlotSheet(m, id) {
-    const s = Loadout.slots(Loadout.npc(m.hull, m.tier)).find((x) => x.id === id);
-    if (!s) return null;
-    const cur = s.item;
-    return {
-      title: s.label, code: SLOT_CODE[s.type], sub: `${m.name} · ${SLOT_KIND[s.type]}`,
-      body: [
-        h('span', { class: 'ui-label' }, 'Fitted'),
-        cur ? Kit.optionRow({ code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true })
-          : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
-        h('p', { class: 'ui-note' }, `Android gear is built into the ${Loadout.HULLS[m.hull].name.toLowerCase()} and can't be refitted; it is ${Loadout.MK[m.tier]} throughout.`),
-      ],
-    };
-  }
-
-  // The Ship tab for a squad member: its hull, its loadout and what it can do. Read only.
+  // The Ship tab for a squad member: its hull, its loadout (each slot opening a sheet to fit gear
+  // from the spare gear, as on your ship), what it can do, and the spare gear.
   function renderMemberShip(m) {
-    const loadout = Loadout.npc(m.hull, m.tier);
-    const slots = Loadout.slots(loadout), st = Squad.stats(m);
+    const slots = Loadout.slots(m.loadout), st = Squad.stats(m);
     const k = m.disabled ? 0 : m.hullPoints / st.hull;
     const squadOpen = !isLocked('squad');
     return [
       shipSwitcher(),
-      section(m.name, titleRow(m.name, `Android ${st.name.toLowerCase()} · ${Loadout.MK[m.tier]}`),
+      section(m.name, titleRow(m.name, `${st.name} · ${slots.filter((s) => s.item).length}/${slots.length} fitted`),
         h('div', { class: 'st-hull' }, Kit.icon('hull', 24, { code: 'HUL' }),
           h('div', { class: 'gauge' },
             h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
@@ -508,8 +498,9 @@ const StationMenu = (() => {
       schematic(slots),
       section('Performance', Kit.head('Performance'), Kit.statChips(perfStats(st, slots, m.hull), openStat, (id) => { openStat = id; refresh(); })),
       section('Program', Kit.head('Program', h('span', { class: 'aside num' }, `${m.program.length} instruction${m.program.length === 1 ? '' : 's'}`)),
-        h('p', { class: 'ui-note' }, 'Androids repair at a dock and fly fixed gear. What they do in a fight is set by their instructions.'),
+        h('p', { class: 'ui-note' }, 'Androids are repaired at every dock. What they do in a fight is set by their instructions.'),
         squadOpen ? Kit.button('Edit instructions', () => pick('squad'), { kind: 'ghost', wide: true, aria: `Edit ${m.name}'s instructions on the Squad tab` }) : null),
+      renderGear(),
     ];
   }
 
@@ -735,11 +726,13 @@ const StationMenu = (() => {
       members.length ? members.map((m) => {
         const st = Squad.stats(m);
         const k = m.disabled ? 0 : m.hullPoints / st.hull;
+        const slots = Loadout.slots(m.loadout), gear = slots.filter((s) => s.item);
+        const best = Math.max(0, ...gear.map((s) => s.item.tier)); // its best gear's Mk
         return section(m.name,
-          h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND', tier: m.tier }),
+          h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND', tier: best }),
             h('span', { class: 'main' },
-              h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), Kit.mk(m.tier)),
-              h('span', { class: 'sub' }, `Android ${Loadout.HULLS[m.hull].name.toLowerCase()} · ${Loadout.MK[m.tier]} gear`)),
+              h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), best ? Kit.mk(best) : null),
+              h('span', { class: 'sub' }, `Android ${Loadout.HULLS[m.hull].name.toLowerCase()} · ${gear.length}/${slots.length} slots fitted`)),
             m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : null),
           h('div', { class: 'st-hull' }, Kit.icon('hull', 24, { code: 'HUL' }),
             h('div', { class: 'gauge' },

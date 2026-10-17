@@ -33,13 +33,13 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
 // (repaired at stations). home: the last station docked at, where a lost ship is towed.
-// loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out
+// loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out (android gear among it, from squad ships)
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
 // loadout, rules/mods.js); kit: consumables for abilities in a fight ({ [ability id]: charges },
 // rules/abilities.js), which take no room in the hold; lab: research (rules/research.js: what's done, building and queued,
 // blueprints and hull refits among it); industry: the shared storage and the production orders at
 // stations (rules/industry.js); loyalty: how far each station trusts the player ({ [station key]: n },
-// raised by missions done for it; a station not in it counts Industry.LOYALTY.start); squad: the squad members (rules/squad.js), with their programs
+// raised by missions done for it; a station not in it counts Industry.LOYALTY.start); squad: the squad members (rules/squad.js), with their loadouts and programs
 // and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in, the galaxy's jobs among it;
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
@@ -260,6 +260,16 @@ export const CARGO_MIGRATIONS = [
     d.industry = out;
     d.loyalty = {};
   },
+  // 13. Squad members fit gear like the ship does: each keeps the android gear of its class at the
+  //     Mk it flew with (and the armour that came with it), now as its own loadout.
+  (d) => {
+    if (!Array.isArray(d.squad)) return;
+    for (const m of d.squad) {
+      if (!m || typeof m !== 'object' || m.loadout || !Loadout.HULLS[m.hull]?.npc) continue;
+      m.loadout = Loadout.npc(m.hull, Number.isInteger(m.tier) ? m.tier : 1);
+      delete m.tier;
+    }
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -317,7 +327,7 @@ export function readCargo(d) {
   if (d.missions) cargo.missions = Missions.create(d.missions, cargo.board ? cargo.board.byId : {});
   if (typeof d.track === 'string' && cargo.board && cargo.board.byId[d.track]) cargo.track = d.track;
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
-  if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && !Loadout.EQUIPMENT[id].npc && n > 0) addTo(cargo.gear, id, Math.floor(n));
+  if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
   if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
   if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));

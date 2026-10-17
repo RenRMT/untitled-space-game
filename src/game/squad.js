@@ -195,6 +195,14 @@ export function wingDisabled(id) {
   saveCargo();
 }
 
+// A member's gear changed (game/outfitting.js): its wingman flies and fights with the new stats,
+// its hull points kept within its maximum.
+export function refreshWing(m) {
+  const st = Squad.stats(m), w = wings.get(m.id);
+  if (w) w.stats = st;
+  m.hullPoints = Math.min(m.hullPoints, st.hull);
+}
+
 // Docking repairs the squad and brings back the disabled.
 export function repairSquad() {
   for (const m of cargo.squad) {
