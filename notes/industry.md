@@ -67,8 +67,11 @@ storage, and take out what orders make: goods into the hold, gear, mods and cons
 spare gear, spare mods and kit. Room: 200, plus storage racks research.
 
 **Orders.** An order is placed at the station docked at, and only for what that station's stage
-makes. Picking a product first shows its lineage: each input, and whether it's in storage, made by
-another of your orders (and where), raw (mine, collect, salvage or buy it), or needs an order of
+makes. The Production tab draws each order as a line: its inputs, wired into the stage by whether
+storage has them (✓ in storage, ⟳ made by another of your orders, ✗ missing), then what it makes.
+The order sheet lists every product with its recipe and whether storage has its inputs. Tapping an
+input shows its lineage: what it's made from, and whether it's raw (mine, collect, salvage or buy
+it), made here (make it here, in a free order or in place of this one), or needs an order of
 another stage (and which station types do it). A station takes one order (more with research).
 An order runs for 1, 5, 20 or 100 runs, or continuously while inputs last. Its status is Running
 (progress and time left), Starved (the missing input named), Blocked (storage full), Done or

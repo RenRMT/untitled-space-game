@@ -1,18 +1,21 @@
-// The station screen's Production tab (ui/station.js): this station's production orders, each a
-// card laid out like a pipeline node (its inputs, the stage and station, what it makes, its
-// status), the shared storage and the hold to store goods from, and the production pipeline: every
-// order in the galaxy, linked by what one makes and another uses, in three columns (refinery,
-// fabricator, assembler), with the gaps no order fills. A new order opens a sheet that lists what
-// this station can make; picking a product shows its lineage, where each input comes from.
+// The station screen's Production tab (ui/station.js), drawn as a production line: the stage this
+// station works (Refinery, Fabricator or Assembler) and its orders, each a status line and a flow
+// of nodes (its inputs, wired by whether storage has them, into the stage, then what it makes);
+// the shared storage and the hold as tiles, a tile opening its detail (what uses it, Take or
+// Store); and the production pipeline: every order in the galaxy, linked by what one makes and
+// another uses, in three columns (refinery, fabricator, assembler), with the gaps no order fills.
+// The stage node opens the order's sheet: what to make, how many runs. An input node opens its
+// lineage: what it is made from, and whether to make it here.
 //
 //   IndustryView.create(env) -> { render(), sheet(open), tick(), reset() }
 //     env: { ctx() (the station's open() options; ctx.industry: game/industry.js), refresh(), act(fn, after),
 //            section(label, ...children), lead(text), explain(key, text), fold(key, label, content),
-//            itemIcon(kind, size),
+//            itemIcon(kind, size), showTab(name),
 //            showOrder(open), setOrder(changes), closeSheet() }
-//     sheet(open): the options for an order's Kit.sheet, open being
-//       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last), peek (an input whose own lineage is unfolded) }
-//       or { mode: 'view', id }: an order anywhere, to pause, cancel, reorder or mark on the map
+//     sheet(open): the options for a Kit.sheet, open being
+//       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last) }: an order here, to place or change
+//       { mode: 'view', id }: an order anywhere, to pause, cancel, reorder or mark on the map
+//       { mode: 'input', id, kind, need }: an input of an order here, and its lineage
 // ES module (`IndustryView`); needs a browser.
 
 import { Goods } from '../rules/goods.js';
@@ -30,12 +33,19 @@ const IndustryView = {
       blocked: { word: 'Blocked', tone: 'var(--hostile)' },
       done: { word: 'Done', tone: 'var(--good)' },
       paused: { word: 'Paused', tone: 'var(--dim)' },
+      idle: { word: 'Idle', tone: 'var(--dim)' },
     };
     const COUNTS = [1, 5, 20, 100, null]; // runs to choose from; null: as long as inputs last
     const COLUMNS = ['refinery', 'fabricator', 'assembler'];
     const ROW = 84; // px per row of the pipeline's columns
-    let live = []; // running orders' meters and times left (see tick)
-    let uses = null; // the stored good whose "What uses this?" is open
+    // The edge colour of a tile in storage: how far along the chain it is.
+    const STAGE_TONE = { raw: 'var(--dim)', salvage: 'var(--t5)', refined: 'var(--t2)', advanced: 'var(--t2)', part: 'var(--t3)', item: 'var(--t4)' };
+    // An input's wire into the stage: in storage, made by another order, missing.
+    const WIRE = { ok: '1.5px solid rgba(182, 255, 138, 0.55)', flow: '1.5px solid rgba(125, 249, 255, 0.6)', miss: '1.5px dashed var(--warn)' };
+    const MARK_TONE = { ok: 'var(--good)', flow: 'var(--cyan)', miss: 'var(--warn)' };
+    let live = []; // running orders' meters and notes (see tick)
+    let openStored = null; // the stored good whose tile is open
+    let openAboard = null; // the good aboard whose tile is open
 
     const ind = () => env.ctx().industry;
     const state = () => ind().state;
@@ -60,7 +70,9 @@ const IndustryView = {
       return hrs ? `${hrs}h${m % 60 ? ` ${m % 60}m` : ''}` : `${m}m`;
     }
     const progress = (o, now) => Math.max(0, Math.min(1, (now - o.at) / Math.max(1, o.next - o.at)));
-    const made = (o) => (o.left === null ? `${o.made} made · while inputs last` : `${o.made} of ${o.made + o.left + (o.next != null ? 1 : 0)} made`);
+    // Runs the order was set for (null: while inputs last); the run under way is counted in.
+    const runsOf = (o) => (o.left === null ? null : o.made + o.left + (o.next != null ? 1 : 0));
+    const made = (o) => (o.left === null ? `${o.made} made · while inputs last` : `${o.made} of ${runsOf(o)} made`);
     function statusLine(o) {
       const st = Industry.status(state(), o);
       const text = {
@@ -73,92 +85,172 @@ const IndustryView = {
       return { st, S: STATUS[st.id], text };
     }
     // The change sheet for an order: its recipe, and its runs as first set (a count picked from COUNTS).
-    const editing = (o) => ({ mode: 'edit', id: o.id, recipe: o.recipe, count: o.left === null ? null : COUNTS.find((n) => n !== null && n >= o.made + o.left + (o.next != null ? 1 : 0)) || 100, peek: null });
+    const editing = (o) => ({ mode: 'edit', id: o.id, recipe: o.recipe, count: o.left === null ? null : COUNTS.find((n) => n !== null && n >= runsOf(o)) || 100 });
     const stationsFor = (stage) => `${Recipes.BAYS[stage].label} order (${Industry.STATIONS[stage]})`;
-
-    // ---------- An order as a card ----------
-
-    // An input as a chip: ✓ in storage (how many), ⟳ made by another order (where), ✗ missing.
-    function inChip(o, kind, need) {
-      const have = state().storage[kind] || 0;
-      const by = state().orders.filter((x) => x !== o && kind in Recipes.RECIPES[x.recipe].out);
-      const [mark, cls, note] = have >= need ? ['✓', 'ok', `${have}`] : by.length ? ['⟳', 'flow', by[0].name] : ['✗', 'miss', `${have}/${need}`];
-      return h('span', { class: `pr-chip ${cls}`, title: `${name(kind)}: ${have} in storage${by.length ? `, made at ${by.map((x) => x.name).join(', ')}` : ''}` },
-        iconOf(kind, 18), h('span', { class: 'nm' }, need > 1 ? `${need} ${name(kind)}` : name(kind)), h('span', { class: 'mk num' }, `${mark} ${note}`));
+    const makers = (kind, but) => state().orders.filter((x) => x !== but && kind in Recipes.RECIPES[x.recipe].out);
+    // An input as the flow shows it: ✓ in storage, ⟳ made by another order, ✗ missing.
+    function supply(kind, need, o) {
+      const have = state().storage[kind] || 0, by = makers(kind, o);
+      const cls = have >= need ? 'ok' : by.length ? 'flow' : 'miss';
+      return { have, by, cls, mark: cls === 'ok' ? `✓ ${have}` : `${cls === 'flow' ? '⟳' : '✗'} ${have}/${need}` };
     }
-    const outChip = (kind, n) => h('span', { class: 'pr-chip out' }, iconOf(kind, 18), h('span', { class: 'nm' }, n > 1 ? `${n} ${name(kind)}` : name(kind)));
-    function flow(o) {
-      const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay];
-      return h('div', { class: 'pr-flow' },
-        h('span', { class: 'pr-ins' }, Object.entries(R.in).map(([k, n]) => inChip(o, k, n))),
-        h('span', { class: 'pr-arrow', 'aria-hidden': 'true' }, '→'),
-        h('span', { class: 'pr-stage' }, Kit.icon(B.code, 18, { code: B.code }), h('span', {}, `${B.label} · ${o.name}`)),
-        h('span', { class: 'pr-arrow', 'aria-hidden': 'true' }, '→'),
-        h('span', { class: 'pr-outs' }, Object.entries(R.out).map(([k, n]) => outChip(k, n))));
-    }
-    function stateRow(o) {
-      const { st, S, text } = statusLine(o), now = ind().now();
-      let run = null;
-      if (st.id === 'running') {
-        const bar = Kit.meter(progress(o, now), { thin: true, color: 'var(--good)' }), time = h('span', { class: 'num' }, `${duration(o.next - now)} left`);
-        live.push({ bar, time, id: o.id });
-        run = h('span', { class: 'st-run' }, bar, time);
+
+    // ---------- The production line ----------
+
+    // The wires from a row of n nodes into one point (or, flipped, out of one point into n), as
+    // absolutely placed segments, in % of the width so they follow the nodes at any width. Each
+    // node's wire runs down from its centre, across, and into the stage beside the others.
+    function wires(n, styles, { out = false, labels } = {}) {
+      const segs = [];
+      const at = (x, y, w, ht, stroke, edge) => segs.push(h('i', { style: { left: x, top: `${y}px`, width: w, height: `${ht}px`, [edge]: stroke } }));
+      for (let i = 0; i < n; i++) {
+        const stroke = styles[i], cx = (i + 0.5) / n * 100, off = n === 1 ? 0 : (i - (n - 1) / 2) * 24;
+        const tx = `calc(50% + ${off}px)`, top = out ? 20 : 0, low = out ? 0 : 20;
+        if (n === 1 || (Math.abs(cx - 50) < 0.01 && off === 0)) { at('50%', 0, '0', 40, stroke, 'borderLeft'); }
+        else {
+          at(`${cx}%`, top, '0', 20, stroke, 'borderLeft');
+          at(tx, low, '0', 20, stroke, 'borderLeft');
+          at(cx < 50 ? `${cx}%` : tx, 20, cx < 50 ? `calc(50% + ${off}px - ${cx}%)` : `calc(${cx}% - 50% - ${off}px)`, 0, stroke, 'borderTop');
+        }
+        if (labels?.[i]) segs.push(h('span', { class: 'q num', style: { left: `calc(${cx}% + 6px)`, color: labels[i].tone } }, labels[i].text));
       }
-      return h('div', { class: 'pr-state' }, h('span', { class: 'line' }, Kit.tag(S.word, S.tone), h('span', { class: 'txt' }, text)), run);
+      return h('div', { class: `pr-wires${out ? ' out' : ''}`, 'aria-hidden': 'true' }, segs);
     }
-    function orderCard(o) {
-      const R = Recipes.RECIPES[o.recipe];
-      return h('div', { class: 'pr-card', style: { '--tone': STATUS[Industry.status(state(), o).id].tone } },
-        flow(o), stateRow(o),
-        h('div', { class: 'pr-acts' },
-          o.left !== 0 ? Kit.button(o.paused ? 'Resume' : 'Pause', env.act(() => ind().pause(o.id, !o.paused)), { kind: 'ghost', aria: `${o.paused ? 'Resume' : 'Pause'} the order for ${recipeName(R)}` }) : null,
-          Kit.button('Change', () => env.showOrder(editing(o)), { kind: 'ghost', aria: `Change the order for ${recipeName(R)}` })));
+
+    // One order as a line: inputs → the stage → what it makes. here: an order at this station (its
+    // nodes open sheets); elsewhere it is only drawn.
+    function line(o, here) {
+      const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay], { st, S } = statusLine(o), now = ind().now();
+      const ins = Object.entries(R.in), outs = Object.entries(R.out), many = ins.length > 3;
+      const sup = ins.map(([k, n]) => ({ kind: k, need: n, ...supply(k, n, o) }));
+      // Input nodes, three to a row; more than three share one wire, each node saying how many it needs.
+      const width = [0, 132, 128, 108][Math.min(3, ins.length)];
+      const inNode = (x) => {
+        const label = `${name(x.kind)}: ${x.have} in storage, needs ${x.need}${x.by.length ? `, made at ${x.by.map((m) => m.name).join(', ')}` : ''}`;
+        const inner = [many && x.need > 1 ? h('span', { class: 'qn num' }, `×${x.need}`) : null, iconOf(x.kind, 32), h('span', { class: 'nm' }, name(x.kind)),
+          h('span', { class: 'have num', style: { color: MARK_TONE[x.cls] } }, x.mark)];
+        const attrs = { class: `pr-node in ${x.cls}`, 'aria-label': label, title: label };
+        return here ? h('button', { ...attrs, type: 'button', onclick: () => env.showOrder({ mode: 'input', id: o.id, kind: x.kind, need: x.need }) }, inner) : h('div', attrs, inner);
+      };
+      const worst = sup.some((x) => x.cls === 'miss') ? 'miss' : sup.some((x) => x.cls === 'flow') ? 'flow' : 'ok';
+      // The stage: its run count, a note, and a meter for the order as a whole.
+      const runs = runsOf(o), p = st.id === 'running' ? progress(o, now) : 0;
+      const whole = st.id === 'done' ? 1 : runs === null ? p : (o.made + p) / Math.max(1, runs);
+      const note = {
+        running: () => `${Math.round(p * 100)}% · ${duration(o.next - now)} left`,
+        starved: () => (st.missing ? `${name(st.missing)} missing` : 'Inputs missing'),
+        blocked: () => 'No room in storage',
+        done: () => 'Order complete',
+        paused: () => 'Paused',
+      }[st.id]();
+      const bar = h('span', { class: 'bar' }, h('span', { style: { width: `${whole * 100}%`, background: S.tone } }));
+      const noteEl = h('span', { class: 'note' }, note);
+      if (st.id === 'running') live.push({ id: o.id, bar: bar.firstChild, note: noteEl });
+      const stageInner = [
+        h('span', { class: 'top' }, Kit.icon(B.code, 22, { code: B.code }), h('span', { class: 'lbl' }, B.label),
+          h('span', { class: 'runs num' }, runs === null ? `${o.made} · ∞` : `${o.made}/${runs}`)),
+        noteEl, bar,
+      ];
+      const stage = here
+        ? h('button', { class: 'pr-stage', type: 'button', onclick: () => env.showOrder(editing(o)), 'aria-label': `${B.label} order: ${recipeName(R)}, ${S.word}. Change it` }, stageInner)
+        : h('div', { class: 'pr-stage' }, stageInner);
+      // What it makes, and how many of it are in storage.
+      const outTone = st.id === 'done' ? 'var(--good)' : st.id === 'running' ? 'var(--cyan)' : 'var(--line-strong)';
+      const outLine = `1.5px ${st.id === 'starved' || st.id === 'blocked' ? 'dashed' : 'solid'} ${outTone}`;
+      const outNode = ([k, n]) => {
+        const inner = [iconOf(k, 36), h('span', { class: 'nm' }, n > 1 ? `${n} ${name(k)}` : name(k)), h('span', { class: 'have num' }, `${state().storage[k] || 0} in storage`)];
+        const attrs = { class: 'pr-node out', style: { '--edge': outTone }, 'aria-label': `Makes ${n > 1 ? `${n} ` : ''}${name(k)} a run: ${state().storage[k] || 0} in storage` };
+        return here ? h('button', { ...attrs, type: 'button', onclick: () => env.showOrder(editing(o)) }, inner) : h('div', attrs, inner);
+      };
+      return h('div', { class: `pr-line ${st.id}`, role: 'group', 'aria-label': `Production line: ${list(R.in)} into ${list(R.out)}` },
+        h('div', { class: `pr-ins${many ? ' many' : ''}`, style: { '--n': Math.min(3, ins.length), '--w': `${width}px` } }, sup.map(inNode)),
+        many ? wires(1, [WIRE[worst]])
+          : wires(ins.length, sup.map((x) => WIRE[x.cls]), { labels: sup.map((x) => ({ text: `×${x.need}`, tone: MARK_TONE[x.cls] })) }),
+        stage,
+        wires(outs.length, outs.map(() => outLine), { out: true }),
+        h('div', { class: 'pr-outs', style: { '--n': outs.length, '--edge': outTone } }, outs.map(outNode)));
+    }
+
+    // The status line above a line: its status, what it means, and Change.
+    function status(o) {
+      const { S, text } = statusLine(o), R = Recipes.RECIPES[o.recipe];
+      return h('div', { class: 'pr-status' }, Kit.tag(S.word, S.tone), h('span', { class: 'txt' }, text),
+        Kit.button('Change', () => env.showOrder(editing(o)), { kind: 'ghost', aria: `Change the order for ${recipeName(R)}` }));
     }
 
     function ordersHere() {
       const here = ind().here, stage = ind().stage(), B = Recipes.BAYS[stage];
-      if (!B) return env.section('Orders here', Kit.head('Orders here'), h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
-      if (!ind().trusted()) {
-        return env.section('Orders here', Kit.head('Orders here'), Kit.optionRow({ code: B.code, name: B.label, sub: `Complete a mission for ${here.name} first`, locked: true }));
-      }
+      if (!B) return env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       const orders = ind().orders(), max = ind().slots();
+      const title = h('div', { class: 'pr-title' }, h('h2', { class: 'ui-title' }, B.label),
+        h('span', { class: 'aside num' }, ind().trusted() ? `${orders.length}/${max} orders` : 'Locked'));
+      const explain = env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.');
+      if (!ind().trusted()) {
+        return env.section('Orders here', title, explain,
+          h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B.code, 28, { code: B.code }),
+            h('span', { class: 'go' }, 'Orders locked'), h('span', {}, `Complete a mission for ${here.name} first`))));
+      }
+      const fresh = () => env.showOrder({ mode: 'new', recipe: null, count: 1 });
       const free = Math.max(0, max - orders.length);
-      return env.section('Orders here',
-        Kit.head('Orders here', h('span', { class: 'aside num' }, `${orders.length}/${max}`)),
-        orders.map(orderCard),
-        Array.from({ length: free }, () => h('button', { class: 'pr-new', type: 'button', onclick: () => env.showOrder({ mode: 'new', recipe: null, count: null, peek: null }) },
-          Kit.icon(B.code, 24, { code: B.code }), h('span', { class: 'main' }, h('span', { class: 'name' }, '+ New order'), h('span', { class: 'sub' }, `${B.label}: ${B.note.split(',')[0]}`)))));
+      if (!orders.length) {
+        return env.section('Orders here', title, explain,
+          h('div', { class: 'pr-status' }, Kit.tag(STATUS.idle.word, STATUS.idle.tone), h('span', { class: 'txt' }, 'No order placed'),
+            Kit.button('New order', fresh, { kind: 'ghost', aria: 'Place a new order' })),
+          h('div', { class: 'pr-board' }, h('button', { class: 'pr-empty', type: 'button', onclick: fresh },
+            Kit.icon(B.code, 28, { code: B.code }), h('span', { class: 'go' }, '+ New order'), h('span', {}, `${B.label} is idle`))));
+      }
+      return env.section('Orders here', title, explain,
+        orders.map((o) => h('div', { class: 'pr-order' }, status(o), h('div', { class: 'pr-board' }, line(o, true)))),
+        free ? h('button', { class: 'pr-new', type: 'button', onclick: fresh },
+          Kit.icon(B.code, 24, { code: B.code }), h('span', { class: 'main' }, h('span', { class: 'name' }, '+ New order'),
+            h('span', { class: 'sub' }, `${free} more order${free === 1 ? '' : 's'} free here`))) : null);
     }
 
     // ---------- Storage and hold ----------
 
-    function goodRow(kind, n, action, extra) {
-      const t = Recipes.item(kind);
-      return Kit.optionRow({
-        icon: h('span', { class: 'st-item' }, iconOf(kind, 40), h('span', { class: 'n num' }, `×${n}`)),
-        name: t.name, tag: { gear: 'gear', mod: 'mod', consumable: 'kit' }[t.kind] || t.stage, tagTone: null, action, extra,
-      });
+    const tagOf = (kind) => { const t = Recipes.item(kind); return { gear: 'gear', mod: 'mod', consumable: 'kit' }[t.kind] || t.stage; };
+    const toneOf = (kind) => STAGE_TONE[Recipes.item(kind).stage] || 'var(--line-strong)';
+    // What uses a good: the recipes that take it, by the stage that makes each.
+    function usedIn(kind) {
+      const by = new Map();
+      for (const R of Recipes.consumers(kind)) {
+        if (!by.has(R.bay)) by.set(R.bay, []);
+        by.get(R.bay).push(recipeName(R));
+      }
+      return by.size ? `Used in ${[...by].map(([bay, names]) => `${[...new Set(names)].join(', ')} · ${Recipes.BAYS[bay].label} order`).join('; ')}`
+        : 'No recipe uses it: it\'s an end product';
     }
-    // "What uses this?": the recipes that take a good, and the stage that makes each.
-    function usesOf(kind) {
-      const rs = Recipes.consumers(kind);
-      return h('ul', { class: 'pr-uses' }, rs.length ? rs.map((R) => h('li', {}, h('span', { class: 'nm' }, recipeName(R)), h('span', { class: 'sub' }, ` · ${stationsFor(R.bay)}`)))
-        : h('li', { class: 'sub' }, 'No recipe uses it: it\'s an end product.'));
+    // Goods as tiles; the one open shows its name, stage, a line about it and one action.
+    function tiles(counts, openId, onToggle, detail) {
+      const kinds = Object.keys(counts);
+      const open = kinds.includes(openId) ? openId : null;
+      return [
+        h('div', { class: 'pr-tiles' }, kinds.map((k) => h('button', {
+          class: 'ui-tile pr-tile', type: 'button', 'aria-expanded': String(k === open), 'aria-label': `${name(k)}, ${counts[k]}`, title: name(k),
+          style: { '--tier': toneOf(k) }, onclick: () => onToggle(k === open ? null : k),
+        }, iconOf(k, 32), h('span', { class: 'n' }, `×${counts[k]}`)))),
+        open ? h('div', { class: 'pr-detail', 'aria-live': 'polite' },
+          h('span', { class: 'main' },
+            h('span', { class: 'line' }, h('span', { class: 'nm' }, name(open)), Kit.tag(tagOf(open), toneOf(open))),
+            h('span', { class: 'sub' }, detail(open).text)),
+          detail(open).action) : null,
+      ];
     }
     function storage() {
       const s = state(), e = ind().env(), now = ind().now();
       const cap = Industry.capacity(s, e, now), used = Industry.used(s), held = Industry.reserved(s);
       const order = (k) => [...Goods.STAGES, 'item'].indexOf(Recipes.item(k).stage);
-      const kinds = Object.keys(s.storage).sort((a, b) => order(a) - order(b));
+      const kinds = Object.keys(s.storage).filter((k) => s.storage[k] > 0).sort((a, b) => order(a) - order(b));
+      const counts = Object.fromEntries(kinds.map((k) => [k, s.storage[k]]));
       return env.section('Storage',
         Kit.head('Storage', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
-        kinds.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, s.storage[k],
-          Kit.button('Take', env.act(() => ind().withdraw(k)), {
-            kind: 'ghost', disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of storage`,
+        kinds.length ? tiles(counts, openStored, (k) => { openStored = k; env.refresh(); }, (k) => ({
+          text: `${s.storage[k]} in storage · ${usedIn(k)}`,
+          action: Kit.button('Take', env.act(() => ind().withdraw(k)), {
+            disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of storage`,
+            title: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1 ? 'Your hold is full' : undefined,
           }),
-          [h('button', { class: 'ui-link pr-uses-link', type: 'button', 'aria-expanded': String(uses === k), onclick: () => { uses = uses === k ? null : k; env.refresh(); } }, 'What uses this?'),
-            uses === k ? usesOf(k) : null])))
-          : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
+        })) : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
         env.explain('storage', 'One storage for every station: what an order makes here can be taken out anywhere.'),
         held ? h('p', { class: 'ui-note' }, `${held} kept free for runs under way.`) : null);
     }
@@ -166,15 +258,15 @@ const IndustryView = {
       const { hold } = env.ctx(), counts = {};
       for (const it of hold.items) counts[it.kind] = (counts[it.kind] || 0) + 1;
       const comps = env.ctx().lab.components;
+      for (const k of Object.keys(comps)) if (comps[k] > 0 && Recipes.consumers(k).length) counts[k] = comps[k];
       const free = Industry.free(state(), ind().env(), ind().now());
-      const store = (k) => Kit.button('Store', env.act(() => ind().deposit(k)), {
-        kind: 'ghost', disabled: free < 1, aria: `Store ${name(k)}`,
-      });
-      const kinds = Object.keys(counts), parts = Object.keys(comps).filter((k) => Recipes.consumers(k).length);
+      const kinds = Object.keys(counts);
       return env.section('Aboard',
         Kit.head('Aboard', kinds.length ? Kit.button('Store all', env.act(() => { for (const k of kinds) ind().deposit(k); }), { kind: 'ghost', disabled: free < 1 }) : null),
-        kinds.length || parts.length ? h('div', { class: 'ui-list' }, kinds.map((k) => goodRow(k, counts[k], store(k))), parts.map((k) => goodRow(k, comps[k], store(k))))
-          : h('p', { class: 'ui-empty' }, 'Nothing aboard to store. Mine, salvage or buy goods.'));
+        kinds.length ? tiles(counts, openAboard, (k) => { openAboard = k; env.refresh(); }, (k) => ({
+          text: `${counts[k]} aboard · ${usedIn(k)}`,
+          action: Kit.button('Store', env.act(() => ind().deposit(k)), { disabled: free < 1, aria: `Store ${name(k)}`, title: free < 1 ? 'Storage is full' : undefined }),
+        })) : h('p', { class: 'ui-empty' }, 'Nothing aboard to store. Mine, salvage or buy goods.'));
     }
 
     // ---------- The production pipeline ----------
@@ -183,7 +275,7 @@ const IndustryView = {
     function node(o, feeds) {
       const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay], { S } = statusLine(o);
       const i = state().orders.indexOf(o), n = state().orders.length;
-      return h('div', { class: 'pr-node', style: { '--tone': S.tone } },
+      return h('div', { class: 'pr-pnode', style: { '--tone': S.tone } },
         h('button', { class: 'main', type: 'button', onclick: () => env.showOrder({ mode: 'view', id: o.id }), 'aria-label': `${recipeName(R)} at ${o.name}: ${S.word}` },
           h('span', { class: 'where' }, Kit.icon(B.code, 14, { code: B.code }), h('span', {}, where(o))),
           h('span', { class: 'what' }, `${Object.keys(R.in).map(name).join(' + ')} → ${recipeName(R)}`),
@@ -194,7 +286,7 @@ const IndustryView = {
           i < n - 1 ? h('button', { type: 'button', class: 'ar', onclick: env.act(() => ind().move(i, i + 1)), 'aria-label': `Move ${recipeName(R)} down` }, '↓') : null),
         feeds.length ? h('span', { class: 'pr-feeds' }, feeds.map((f) => h('span', {}, f))) : null);
     }
-    const gapNode = (g) => h('div', { class: 'pr-node gap' },
+    const gapNode = (g) => h('div', { class: 'pr-pnode gap' },
       h('span', { class: 'main' },
         h('span', { class: 'where' }, `No order makes ${name(g.kind)}`),
         h('span', { class: 'what' }, g.stage ? `Needs a ${stationsFor(g.stage)}` : 'Buy it, or find it'),
@@ -251,50 +343,24 @@ const IndustryView = {
 
     function render() {
       live = [];
-      const B = Recipes.BAYS[ind().stage()];
-      env.lead(B ? `${B.label} here` : '');
-      return [
-        env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.'),
-        ordersHere(),
-        storage(),
-        aboard(),
-        pipeline(),
-      ];
+      env.lead('');
+      return [ordersHere(), storage(), aboard(), pipeline()];
     }
 
     // ---------- Sheets ----------
 
-    // Where an input comes from, in words.
-    function source(x) {
-      if (x.source === 'storage') return { mark: '✓', cls: 'ok', text: `${x.have} in storage` };
-      if (x.source === 'order') return { mark: '⟳', cls: 'flow', text: `made by your order at ${x.makers.map((o) => o.name).join(', ')}${x.have ? ` · ${x.have} in storage` : ''}` };
-      if (x.source === 'raw') return { mark: '✗', cls: 'miss', text: `${x.have}/${x.need} in storage · ${Goods.isSalvage(x.kind) ? 'salvage it from pirates' : 'mine, collect or buy it'}` };
-      return { mark: '✗', cls: 'miss', text: `${x.have}/${x.need} in storage · needs a ${stationsFor(x.stage)}` };
-    }
     const madeBy = (kind) => Industry.recipeFor(kind, ind().known());
-    function lineageList(recipe, open, depth = 0) {
-      return h('div', { class: `pr-lineage${depth ? ' sub' : ''}` }, Industry.lineage(state(), recipe, ind().known()).map((x) => {
-        const s = source(x), R = !x.raw && madeBy(x.kind), on = open && open.peek === x.kind;
-        const row = [iconOf(x.kind, 24), h('span', { class: 'main' }, h('span', { class: 'nm' }, `${x.need} × ${name(x.kind)}`), h('span', { class: `src ${s.cls}` }, `${s.mark} ${s.text}`)),
-          R && depth === 0 ? h('span', { class: 'chev', 'aria-hidden': 'true' }, on ? '▴' : '▾') : null];
-        return [
-          R && depth === 0
-            ? h('button', { class: 'pr-in', type: 'button', 'aria-expanded': String(!!on), onclick: () => env.setOrder({ peek: on ? null : x.kind }) }, row)
-            : h('div', { class: 'pr-in' }, row),
-          on ? [h('p', { class: 'ui-note pr-peek' }, `${recipeName(R)} is made from:`), lineageList(R.id, null, 1)] : null,
-        ];
-      }));
-    }
-
+    // An order anywhere: its line, and what can be done from here.
     function viewSheet(open) {
       const o = find(open.id);
       if (!o) return null;
       const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay], i = state().orders.indexOf(o), n = state().orders.length;
-      const here = ind().here?.key === o.station;
+      const here = ind().here?.key === o.station, { S, text } = statusLine(o);
       return {
         title: recipeName(R), code: B.code, sub: `${B.label} order · ${where(o)}`,
         body: [
-          flow(o), stateRow(o),
+          h('div', { class: 'pr-status' }, Kit.tag(S.word, S.tone), h('span', { class: 'txt' }, text)),
+          h('div', { class: 'pr-board' }, line(o, false)),
           h('span', { class: 'ui-label' }, 'Priority'),
           h('div', { class: 'pr-prio' }, h('span', { class: 'num' }, `#${i + 1} of ${n} for inputs`),
             Kit.button('Up', env.act(() => ind().move(i, i - 1)), { kind: 'ghost', disabled: i === 0, aria: 'Move up: it goes first for inputs' }),
@@ -317,70 +383,112 @@ const IndustryView = {
       const it = Recipes.item(Object.keys(R.out)[0]);
       return { gear: 'Gear', mod: 'Mods', consumable: 'Kit' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
     }
+    // A product to pick: its icon and name, its recipe and time a run, and whether storage has its inputs.
+    function product(R, on, e, now) {
+      const short = Object.entries(R.in).filter(([k, n]) => (state().storage[k] || 0) < n);
+      const flowing = short.length && short.every(([k]) => makers(k, null).length);
+      const [tag, tone] = !short.length ? ['Ready', 'var(--good)'] : flowing ? ['In the works', 'var(--cyan)'] : [`${short.length} missing`, 'var(--warn)'];
+      return h('button', {
+        class: 'pr-prod', type: 'button', 'aria-pressed': String(on), onclick: () => env.setOrder({ recipe: R.id }),
+        title: short.length ? `Not in storage: ${short.map(([k]) => name(k)).join(', ')}` : 'Every input is in storage',
+      },
+      iconOf(Object.keys(R.out)[0], 40),
+      h('span', { class: 'main' }, h('span', { class: 'nm' }, recipeName(R)),
+        h('span', { class: 'formula num' }, `${recipeText(R)} · ${duration(Industry.runTime({ recipe: R.id }, e, now))}`)),
+      Kit.tag(tag, tone));
+    }
     function orderSheet(open) {
       const stage = ind().stage(), B = Recipes.BAYS[stage], here = ind().here;
-      if (!B || !ind().trusted() || (open.mode === 'edit' && !find(open.id))) return null;
+      const o = open.mode === 'edit' ? find(open.id) : null;
+      if (!B || !ind().trusted() || (open.mode === 'edit' && !o)) return null;
       const known = ind().known(), e = ind().env(), now = ind().now();
       const all = Recipes.forBay(stage), recipes = all.filter((R) => known.has(R.id));
       const chosen = Recipes.RECIPES[open.recipe];
       const t = chosen ? Industry.runTime({ recipe: chosen.id }, e, now) : 0;
       const body = [];
-      if (!chosen) {
-        body.push(h('p', { class: 'ui-note' }, `A ${B.label.toLowerCase()} makes ${B.note.split(',')[0].replace(/^.* into /, '')}. Pick a product to see what it needs.`));
-        for (const g of GROUPS) {
-          const rs = recipes.filter((R) => groupOf(R) === g);
-          if (!rs.length) continue;
-          body.push(h('span', { class: 'ui-label' }, g), h('div', { class: 'ui-list' }, rs.map((R) => Kit.optionRow({
-            icon: iconOf(Object.keys(R.out)[0], 40), name: recipeName(R), sub: recipeText(R),
-            extra: h('span', { class: 'pr-mini' }, Industry.lineage(state(), R.id, known).map((x) => { const s = source(x); return h('span', { class: `src ${s.cls}`, title: s.text }, `${s.mark} ${name(x.kind)}`); }),
-              h('span', { class: 'cost num', title: 'Time per run' }, `⏱ ${duration(Industry.runTime({ recipe: R.id }, e, now))}`)),
-            action: Kit.button('Choose', () => env.setOrder({ recipe: R.id, peek: null }), { kind: 'ghost', aria: `Choose ${recipeName(R)}` }),
-          }))));
-        }
-        if (all.length > recipes.length) body.push(h('p', { class: 'ui-note' }, `${all.length - recipes.length} more by blueprint (Research tab).`));
-      } else {
-        body.push(
-          h('span', { class: 'ui-label' }, 'Product'),
-          Kit.optionRow({
-            icon: iconOf(Object.keys(chosen.out)[0], 40), name: recipeName(chosen), sub: recipeText(chosen), current: true,
-            action: Kit.button('Other', () => env.setOrder({ recipe: null, peek: null }), { kind: 'ghost', aria: 'Pick another product' }),
-          }),
-          h('span', { class: 'ui-label' }, 'Lineage'),
-          h('p', { class: 'ui-note' }, 'Where each input comes from. Tap one to see what it is made from.'),
-          lineageList(chosen.id, open),
-          h('span', { class: 'ui-label' }, 'Runs'),
-          Kit.choices(COUNTS.map((n) => ({ id: String(n), label: n === null ? 'Continuous' : `×${n}`, on: open.count === n })),
-            (id) => env.setOrder({ count: id === 'null' ? null : Number(id) }), { label: 'Runs' }),
-          h('p', { class: 'ui-note' }, open.count === null
-            ? `Runs while there are inputs, ${duration(t)} each. New inputs in storage start it again.`
-            : `${open.count} run${open.count === 1 ? '' : 's'}, ${duration(t)} each: about ${duration(t * open.count)} with the inputs in storage.`));
+      for (const g of GROUPS) {
+        const rs = recipes.filter((R) => groupOf(R) === g);
+        if (rs.length) body.push(h('span', { class: 'ui-label' }, g), rs.map((R) => product(R, R.id === open.recipe, e, now)));
       }
+      if (all.length > recipes.length) body.push(h('p', { class: 'ui-note' }, `${all.length - recipes.length} more by blueprint (Research tab).`));
+      body.push(
+        h('span', { class: 'ui-label' }, 'Runs'),
+        Kit.choices(COUNTS.map((n) => ({ id: String(n), label: n === null ? 'Continuous' : `×${n}`, on: open.count === n })),
+          (id) => env.setOrder({ count: id === 'null' ? null : Number(id) }), { label: 'Runs' }),
+        h('p', { class: 'ui-note' }, !chosen ? 'Pick a product above.' : open.count === null
+          ? `Runs while there are inputs, ${duration(t)} each. New inputs in storage start it again.`
+          : `${open.count} run${open.count === 1 ? '' : 's'}, ${duration(t)} each: about ${duration(t * open.count)} with the inputs in storage.`));
       const go = open.mode === 'new' ? () => ind().place(open.recipe, open.count) : () => ind().edit(open.id, open.recipe, open.count);
       return {
         title: open.mode === 'new' ? 'New order' : 'Change order', code: B.code, sub: `${B.label} · ${here.name}`, tall: true,
         body,
-        foot: [
+        foot: h('div', { class: 'pr-foot' },
+          o ? Kit.button('Cancel order', env.act(() => ind().cancel(o.id), () => env.closeSheet()), { kind: 'warn' }) : null,
+          o && o.left !== 0 ? Kit.button(o.paused ? 'Resume' : 'Pause', env.act(() => ind().pause(o.id, !o.paused)), { kind: 'ghost', aria: `${o.paused ? 'Resume' : 'Pause'} the order` }) : null,
           Kit.button(open.mode === 'new' ? 'Place order' : 'Save order', env.act(go, () => env.closeSheet()), {
-            kind: 'primary', lg: true, wide: true, disabled: !chosen, aria: chosen ? `Place an order for ${recipeName(chosen)}` : undefined,
-          }),
-          open.mode === 'edit' ? Kit.button('Cancel order', env.act(() => ind().cancel(open.id), () => env.closeSheet()), { kind: 'warn', wide: true }) : null,
-        ],
+            kind: 'primary', lg: true, disabled: !chosen, aria: chosen ? `${open.mode === 'new' ? 'Place' : 'Save'} an order for ${recipeName(chosen)}` : undefined,
+          })),
       };
     }
-    const sheet = (open) => (open.mode === 'view' ? viewSheet(open) : orderSheet(open));
 
-    // Every second: the running orders' meters and times left, without drawing again.
+    // An input's lineage: it, and (where storage is short of it) what it is made from, three levels
+    // down; then what to do about it.
+    function inputSheet(open) {
+      const o = find(open.id), stage = ind().stage(), B = Recipes.BAYS[stage];
+      if (!o || !B) return null;
+      const known = ind().known(), have = (k) => state().storage[k] || 0;
+      const rows = [];
+      const walk = (kind, need, depth) => {
+        const R = Industry.isRaw(kind) ? null : madeBy(kind), s = supply(kind, need, o);
+        const what = Goods.isSalvage(kind) ? 'Salvage' : !R ? 'Raw' : R.bay === stage ? `${Recipes.BAYS[R.bay].label} here` : `${Recipes.BAYS[R.bay].label} order`;
+        rows.push(h('div', { class: `pr-lin${depth ? ' child' : ''}`, style: { '--depth': depth } },
+          depth ? h('span', { class: 'elbow', 'aria-hidden': 'true' }) : null,
+          h('div', { class: 'row' }, iconOf(kind, 32),
+            h('span', { class: 'main' }, h('span', { class: 'nm' }, `${need} × ${name(kind)}`), h('span', { class: 'ui-label' }, what)),
+            h('span', { class: 'have num', style: { color: MARK_TONE[s.cls] } }, s.mark))));
+        // What it's made from, for an input storage is short of.
+        if (R && depth < 3 && s.cls !== 'ok') for (const [k, n] of Object.entries(R.in)) walk(k, n * need, depth + 1);
+      };
+      walk(open.kind, open.need, 0);
+      const s = supply(open.kind, open.need, o), R = Industry.isRaw(open.kind) ? null : madeBy(open.kind);
+      const here = R && R.bay === stage && known.has(R.id);
+      const subShort = R ? Object.entries(R.in).filter(([k, n]) => have(k) < n).map(([k]) => name(k)) : [];
+      const replaces = ind().orders().length >= ind().slots();
+      const sells = env.ctx().market?.goods.some((g) => g.kind === open.kind && g.buy !== null);
+      let note, action = null;
+      if (s.cls === 'ok') note = `Enough ${name(open.kind)} in storage for the next run.`;
+      else if (s.cls === 'flow') note = `Your order at ${s.by.map((m) => m.name).join(', ')} makes it; it goes into storage as it's made.`;
+      else if (here) {
+        note = `Make it here first. ${subShort.length ? `You also need ${subShort.join(', ')}. ` : 'All of its inputs are in storage. '}${replaces
+          ? `This ${B.label.toLowerCase()} has no order free, so it replaces ${recipeName(Recipes.RECIPES[o.recipe])}.` : 'It takes a free order here.'}`;
+        const make = replaces ? () => ind().edit(o.id, R.id, open.need) : () => ind().place(R.id, open.need);
+        action = Kit.button(`Make ${name(open.kind)} here`, env.act(make, () => env.closeSheet()), { wide: true, lg: true });
+      } else if (R) note = `Made by a ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
+      else {
+        note = `${name(open.kind)} is raw: ${Goods.isSalvage(open.kind) ? 'salvage it from pirates' : 'mine, collect or buy it'}. Store it from your hold.`;
+        if (sells) action = Kit.button('Buy at Trade', () => { env.closeSheet(); env.showTab('trade'); }, { kind: 'ghost', wide: true, lg: true });
+      }
+      return {
+        title: name(open.kind), code: R ? Recipes.BAYS[R.bay].code : 'RAW', sub: `${have(open.kind)} in storage · ${open.need} needed a run`,
+        body: [h('span', { class: 'ui-label' }, 'Lineage'), h('div', { class: 'pr-lineage' }, rows), h('p', { class: 'pr-lin-note' }, note)],
+        foot: action,
+      };
+    }
+    const sheet = (open) => (open.mode === 'view' ? viewSheet(open) : open.mode === 'input' ? inputSheet(open) : orderSheet(open));
+
+    // Every second: the running orders' meters and notes, without drawing again.
     function tick() {
-      const now = ind()?.now();
       if (!ind()) return;
+      const now = ind().now();
       for (const x of live) {
         const o = find(x.id);
         if (!o || o.next == null) continue;
-        x.bar.children[0]?.style.setProperty('--pct', `${progress(o, now) * 100}%`);
-        x.time.textContent = `${duration(o.next - now)} left`;
+        const p = progress(o, now), runs = runsOf(o);
+        x.bar.style.width = `${(runs === null ? p : (o.made + p) / Math.max(1, runs)) * 100}%`;
+        x.note.textContent = `${Math.round(p * 100)}% · ${duration(o.next - now)} left`;
       }
     }
-    const reset = () => { live = []; uses = null; };
+    const reset = () => { live = []; openStored = openAboard = null; };
 
     return { render, sheet, tick, reset };
   },

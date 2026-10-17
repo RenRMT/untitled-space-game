@@ -4,8 +4,9 @@
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
 // (with a squad, a switcher above it steps through the members' ships too, outfitted the same way);
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
-// sheet; the Production tab (ui/industry-view.js) shows this station's production orders, the shared
-// storage and the production pipeline, an order opening a sheet to pick its product; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
+// sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
+// nodes (inputs, the stage, what it makes), the shared storage as tiles and the production pipeline,
+// the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
@@ -664,7 +665,7 @@ const StationMenu = (() => {
   // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon,
+    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon, showTab: (name) => pick(name),
     showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 
