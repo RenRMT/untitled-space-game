@@ -1,5 +1,5 @@
 /* UI kit: the colour, type and spacing tokens and the components every DOM panel is built from
-   (station screens, the context card, combat, comms, settings, the map's bars). Builders for the
+   (station screens, the context menu, combat, comms, settings, the map's bars). Builders for the
    components are in kit.js. core/theme.js keeps the canvas in step with the colour tokens.
    Words are Barlow Semi Condensed, numbers IBM Plex Mono (index.html loads both; the fallbacks
    keep everything readable without them). Touch targets are at least 44 px. */
@@ -72,6 +72,9 @@
   font: 500 9px/1 var(--mono); color: var(--dim);
 }
 .ui-icon img { width: 100%; height: 100%; display: block; }
+/* A line icon (ui/glyphs.js), drawn like the map and settings buttons'; a tier colours it. */
+.ui-icon.gl { color: var(--tier, currentColor); }
+.ui-icon.gl svg { width: 100%; height: 100%; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
 .ui-icon .dot { position: absolute; top: -4px; right: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--new); border: 2px solid var(--nav); }
 .ui-icon .dot[hidden] { display: none; }
 
@@ -301,6 +304,9 @@
 .ui-tab .ui-icon.ph { font-size: 7px; color: var(--line-strong); border-color: var(--line-strong); }
 .ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: transparent; white-space: nowrap; }
 .ui-tab:hover .ui-icon.ph { color: var(--dim); border-color: var(--dim); }
+.ui-tab .ui-icon.gl { color: var(--dim); }
+.ui-tab:hover .ui-icon.gl { color: var(--hud); }
+.ui-tab[aria-selected="true"] .ui-icon.gl { color: var(--cyan); }
 .ui-tab[aria-selected="true"] .ui-icon.ph { color: var(--cyan); border-color: var(--cyan); }
 .ui-tab[aria-selected="true"] .lbl { color: var(--cyan); }
 .ui-tab[aria-selected="true"]::before { content: ''; position: absolute; top: -9px; left: 25%; right: 25%; height: 2px; background: var(--cyan); border-radius: 1px; }

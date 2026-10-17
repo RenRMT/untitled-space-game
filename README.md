@@ -32,7 +32,7 @@ URL parameters:
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context card, combat panel, comms, settings) and the map, built from the UI kit (`kit.js`, `kit.css`) |
+| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings) and the map, built from the UI kit (`kit.js`, `kit.css`) |
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
@@ -53,14 +53,16 @@ Each file starts with a comment saying what it does and, for modules other parts
   its things in space (the `build*` functions), the progress rules its tick passes to `progress()`
   (a place reached, things gone from the world), and anything else it does (a comms call, an escort).
 - **A kind of thing in space:** an entry in `KINDS` in `src/flight/entities.js` (drawing, picking, label,
-  minimap mark, context card) and its art; if it does something, an action added in its part of
+  minimap mark, context menu) and its art; if it does something, an action added in its part of
   `src/game/` (see `Interactions` in `src/flight/interactions.js`).
 - **A combat mode:** a module with the shape `src/combat/combat-core.js` describes, added to `COMBAT`
   in `src/game/options.js`.
 - **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,
   meters, rows that expand, bottom sheets, the tab bar, toasts) and its tokens (`src/ui/kit.css`:
   colours, the two fonts, radii, the 44 px touch target). Words are Barlow Semi Condensed, numbers
-  IBM Plex Mono. Icons are placeholders with a short code until art is registered in `Kit.ICONS`.
+  IBM Plex Mono. Icons are line icons by their short code (`src/ui/glyphs.js`: a 24 px grid, 1.6 px
+  strokes in the text colour, like the map and settings buttons); a code without one shows as a dashed
+  placeholder until it gets one.
 - **A change to what is saved:** a step at the end of `CARGO_MIGRATIONS` in `src/game/cargo.js`, so
   older saves are brought up to date (`Save.migrate`, `src/core/save.js`).
 

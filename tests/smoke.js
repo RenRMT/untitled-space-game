@@ -1004,6 +1004,8 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   game('select(__gate)');
   browser.key('j');
   browser.frames(2);
+  assert.ok(game('warp.on'), 'the jump is under way');
+  assert.ok(until('!warp.on', 60 * 3), 'and over within a few seconds');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 1, 'in the second system');
   assert.match(game('toast.text'), /^Jumped to the .* system/);
   assert.ok(game('world.knowledge.visited(1)'), 'the second system is charted');
@@ -1026,7 +1028,7 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   // And back through the same pair of gates.
   game('globalThis.__back = world.scene.gates[__gate.gate.link]; select(__back);');
   browser.key('j');
-  browser.frames(2);
+  assert.ok(until('!warp.on', 60 * 3), 'the jump back is over');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y)?.index'), 0, 'back in the first system');
   game('select(null); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
@@ -1172,7 +1174,9 @@ test('abilities in a fight: the player spends a charge from the panel, a wingman
   meetPirate();
   browser.frames(2);
   const panel = () => textOf(browser.document.getElementById('combat').querySelector('.cb-abil'));
-  assert.match(panel(), /REP×1.*EMP×2/, 'a button per consumable in the kit');
+  const labels = () => browser.document.getElementById('combat').querySelector('.cb-abil').children.map((b) => b.getAttribute('aria-label'));
+  assert.deepStrictEqual(labels(), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
+  assert.match(panel(), /×1.*×2/, 'with its charges');
   // The player: an EMP on the enemy targeted.
   game('fight.s.player.hull = Math.min(fight.s.player.hull, 10)');
   game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`);

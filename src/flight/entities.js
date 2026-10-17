@@ -1,5 +1,5 @@
 // What each kind of thing in space is, in one place: draw order and how it is drawn, how close a
-// tap must land to pick it, its name label and minimap mark, and how its context card describes
+// tap must land to pick it, its name label and minimap mark, and how its context menu describes
 // it. A new kind of object is a new entry here (plus its art and, if it does something, an action
 // in game/). Also the one factory for floating items, which both the scene (flight/scene.js) and the
 // flight view (loot, mining drops, lost cargo) make.
@@ -13,7 +13,7 @@
 //     label(e) -> [colour, offset]           its name in space, that far below its centre
 //                                            (only things with a name show one)
 //     mark(e, system) -> { color, r, ring? } | null    on the minimap
-//     card(e, system) -> { title, sub, color, tag?, tone? }   the context card (selectable kinds)
+//     card(e, system) -> { title, sub, color, tag?, tone? }   the context menu (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a rules/goods.js type
 //   Entities.asteroid(a) -> an asteroid from a generated one ({ key, type, r, seed, spin0, tumble, x, y })
@@ -135,7 +135,7 @@ const Entities = (() => {
     // A gas pocket in a nebula (flight/scene.js): collected like an asteroid is mined (game/mining.js).
     gas: {
       order: 1.6, selectable: true, hit: 0.8,
-      draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
+      draw: (ctx, e, style, x, y, { t }) => ArtBodies.drawGas(ctx, e.gas, style, { x, y, t }),
       label: () => null,
       mark: (e) => ({ color: e.color, r: 1.6 }),
       card: (e) => ({ title: 'Gas pocket', sub: `${GAS_LABEL[e.pocket.type] || 'Nebula gas'} · ${e.pocket.r < 70 ? 'small' : e.pocket.r < 85 ? 'medium' : 'large'}`, color: e.color }),

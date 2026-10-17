@@ -2,6 +2,7 @@
 // Imports the game's modules that run without a browser.
 
 import assert from 'node:assert';
+import fs from 'node:fs';
 import { hashInt, mulberry32, seedToInt } from '../src/core/rng.js';
 import { Save } from '../src/core/save.js';
 import { Goods } from '../src/rules/goods.js';
@@ -38,6 +39,7 @@ import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
 import { Intro } from '../src/story/intro.js';
 import { Missions } from '../src/story/missions.js';
+import { Glyphs } from '../src/ui/glyphs.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -770,7 +772,7 @@ test('gas pockets: a few inside every nebula, clear of its ambush, keyed for goo
   assert.strictEqual(things.length, g.pockets.length);
   for (const e of things) {
     assert.strictEqual(e.color, g.nebulae[e.pocket.nebula].color);
-    assert.ok(e.art.id.startsWith('gas-pocket:') && e.radius > 30);
+    assert.ok(e.gas.type === g.nebulae[e.pocket.nebula].type && e.gas.seed === e.pocket.seed && e.radius > 30);
     const gas = Mining.gasOf(g.seed, e);
     assert(gas.length >= 1 && gas.length <= 3, `${gas.length} units`);
     assert(gas.every((x) => Goods.type(x.kind).category === 'gas'), 'gas only');
@@ -2379,6 +2381,19 @@ test('real time: an ally told to keep its distance stays out near gun range, and
   assert(far.closest > range * 0.4, `kept ${far.closest.toFixed(0)} away (range ${range})`);
   assert(far.closest > close.closest + 100, `further than an attack run (${far.closest.toFixed(0)} vs ${close.closest.toFixed(0)})`);
   assert(far.hits > 0, 'and it still hits');
+});
+
+test('every icon code the UI uses has a line icon', () => {
+  // The codes in the panels' sources (code: 'XYZ', and the codes rules give abilities, bays and
+  // consumables), plus the tabs, slots, research groups and the context menu's actions.
+  const src = ['station.js', 'research-view.js', 'industry-view.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
+  const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
+  for (const a of Abilities.LIST) codes.add(a.code);
+  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'REF', 'FAB', 'ASM', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
+    'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach']) codes.add(c);
+  const missing = [...codes].filter((c) => !Glyphs.has(c));
+  assert.deepStrictEqual(missing, [], 'codes with no icon');
+  for (const n of Glyphs.names) assert.match(Glyphs.svg(n, 20), /^<svg viewBox="0 0 24 24" width="20" height="20"[^>]*>.+<\/svg>$/);
 });
 
 if (failed) {

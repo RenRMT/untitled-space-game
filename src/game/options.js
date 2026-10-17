@@ -16,6 +16,7 @@ import { drag } from './input.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
 import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
+import { warp } from './warp.js';
 
 // A saved choice among `options` (core/store.js; a URL parameter of the same name overrides the saved
 // one); onChange runs after every change.
@@ -118,7 +119,7 @@ export function init() {
   // Keyboard shortcuts. An action's key (F to dock, E to mine: see `actions` below) acts on the
   // selected object, or else on the nearest one in reach.
   window.addEventListener('keydown', (e) => {
-    if (SystemMap.isOpen || docked || intro.on) return;
+    if (SystemMap.isOpen || docked || intro.on || warp.on) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }

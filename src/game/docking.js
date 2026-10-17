@@ -17,7 +17,8 @@ import { industry } from './industry.js';
 import { outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
-import { SHIP, autopilot, inFight, notify, particles, setMode, ship, whiteOut } from './state.js';
+import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
+import { startWarp, warp } from './warp.js';
 import { world } from './world.js';
 
 // ---------- Docking: stop near a station, dock, trade, launch ----------
@@ -36,7 +37,7 @@ export const gapTo = (e) => Math.hypot(ship.x - e.x, ship.y - e.y) - e.radius;
 export const shipSpeed = () => Math.hypot(ship.vx, ship.vy);
 
 // What the player can do with things in space (flight/interactions.js): each action is added next to its
-// code below. Its state ({ ok, label, inRange }) is what the context card's button shows; inRange
+// code below. Its state ({ ok, label, inRange }) is what the context menu's button shows; inRange
 // is false while the ship has to come closer first.
 export const actions = Interactions.create({ gap: gapTo, speed: shipSpeed });
 
@@ -98,17 +99,17 @@ export function launch() {
 
 export const GATE = { range: 260, maxSpeed: 220 }; // range: world units beyond the gate's radius
 
-// Through the gate: out of the linked gate on its side toward that system's star, at rest.
+// Through the gate: out of the linked gate on its side toward that system's star, at rest, after
+// the jump's sequence (game/warp.js).
 export function jump(gate) {
-  if (docked || inFight() || !actions.state('jump', gate).ok) return;
+  if (docked || inFight() || warp.on || !actions.state('jump', gate).ok) return;
   const there = world.scene.gates[gate.gate.link];
   const system = world.galaxy.systems[there.gate.system];
-  const a = there.angle + Math.PI; // a gate's angle points out from its star
   select(null);
-  placeShip(there.x + Math.cos(a) * (there.radius + 180), there.y + Math.sin(a) * (there.radius + 180), a);
-  whiteOut();
-  notify(`Jumped to the ${system.name} system`, 3);
-  SystemMap.setPlayer(ship.x, ship.y);
+  startWarp(gate, there, () => {
+    notify(`Jumped to the ${system.name} system`, 3);
+    SystemMap.setPlayer(ship.x, ship.y);
+  });
 }
 
 // Wiring, run once every module has loaded (src/main.js).

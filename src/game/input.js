@@ -7,6 +7,7 @@ import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
 import { pickAt, select } from './selection.js';
 import { SHIP, autopilot, canvas, fight, flyingFight, inFight, intro, ship, view } from './state.js';
+import { warp } from './warp.js';
 
 export const DEADZONE = 8;
 export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
@@ -35,6 +36,7 @@ export function endDrag(e) {
   drag.active = false;
   held.clear();
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
+  if (warp.on) return; // a gate jump has the controls
   if (intro.on) { // nothing to select yet: only flying
     if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
     if (intro.flying && (moveMode.value === 'direct' || tap)) ship.targetSpeed = 0;
@@ -76,6 +78,7 @@ export function init() {
     drag.moved = Math.max(drag.moved, len);
     if (inFight() && !flyingFight()) return; // no flying in a round-based fight; taps still focus fire
     if (intro.on && !intro.flying) return; // the pod waits while the station talks, then the beam has it
+    if (warp.on) return; // a gate jump has the controls
     if (len > DEADZONE) {
       autopilot.key = null; // flying by hand ends an approach
       ship.targetAngle = Math.atan2(dy, dx);

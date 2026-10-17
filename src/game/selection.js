@@ -1,5 +1,5 @@
-// Selection (tap something for its context card, ui/context.js) and the approach autopilot (fly
-// to it and stop beside it).
+// Selection (tap something for its context menu, ui/context.js, shown round it) and the approach
+// autopilot (fly to it and stop beside it).
 // Part of the flight view; src/main.js starts it.
 
 import { Format } from '../core/format.js';
@@ -10,16 +10,16 @@ import { ContextCard } from '../ui/context.js';
 import { packOf } from './combat.js';
 import { actions, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
-import { navMarkerAt } from './hud.js';
+import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { SHIP, autopilot, cam, ctx, inFight, ship, view } from './state.js';
 import { world } from './world.js';
 
-// ---------- Selection: tap something for its context card ----------
+// ---------- Selection: tap something for its context menu ----------
 
 // Tapping a station, asteroid or ship selects it: a bracket marks it in space and the
-// context card (ui/context.js) offers what can be done there. Off-screen stations are selected by
+// context menu (ui/context.js) offers what can be done there. Off-screen stations are selected by
 // tapping their marker at the screen edge. A tap on empty space clears the
 // selection (and, in Cruise mode, stops the ship as before).
 export const TAP_SLOP = 26; // CSS px of forgiveness around a tap target
@@ -28,7 +28,7 @@ export const HOSTILE_COLOR = COLORS.hostile;
 export let selected = null; // { key, e }: the selected entity, found again by key every frame
 export let frameList = []; // the entities posed last frame, for hit-testing taps
 
-// What each kind of thing is: draw order, labels, the minimap, the context card (flight/entities.js).
+// What each kind of thing is: draw order, labels, the minimap, the context menu (flight/entities.js).
 export const KINDS = Entities.KINDS;
 
 // A stable identity for anything selectable, or null.
@@ -64,7 +64,7 @@ export function select(e) {
 export const isHostile = (e) => Entities.isHostile(e);
 export const fmtDist = Format.dist; // core/format.js
 
-// An action's button on the context card, from its state.
+// An action's button on the context menu, from its state.
 export function primary(id, state) {
   return { id, label: state.label, enabled: state.ok, busy: !!state.busy, progress: state.progress };
 }
@@ -75,7 +75,7 @@ export function approachActions(e, inRange) {
   return inRange ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
 }
 
-// What the context card shows for the selected object: what it is (its kind's card) and what can
+// What the context menu shows for the selected object: what it is (its kind's card) and what can
 // be done with it (its actions), plus Approach while it's out of reach. Anything without an
 // action (a friendly ship) can always be approached, and ships are followed.
 export function describe(e) {
@@ -133,6 +133,14 @@ export function tickAutopilot() {
   const facing = Math.cos(ship.targetAngle - ship.angle);
   const braking = Math.sqrt(2 * SHIP.accel * 0.7 * left);
   ship.targetSpeed = clamp(braking, 40, SHIP.maxSpeed) * (facing > 0.8 ? 1 : 0.35);
+}
+
+// The context menu follows the selected object across the screen (in screen px, round its brackets).
+export function placeMenu() {
+  const e = selected && selected.e;
+  if (!e || !ContextCard.isOpen) return;
+  const [x, y] = worldToScreen(e.x, e.y);
+  ContextCard.place(x, y, (hitRadius(e) + 12 / view.zoom) * view.zoom);
 }
 
 // Corner brackets around the selected object, and a dashed line to the approach target.

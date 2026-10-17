@@ -36,14 +36,14 @@
   .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
 
-  /* Map and settings: small icon buttons side by side in the bottom-right corner, level with the
-     speed bar and clear of the panels above it. */
+  /* Map and settings: icon buttons side by side in the bottom-right corner, level with the speed
+     bar and clear of the panels above it; a full touch target each (--hit, ui/kit.css). */
   .icon-btn {
     position: absolute; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    width: 34px; height: 34px; min-height: 0; padding: 0; display: grid; place-items: center;
+    width: var(--hit); height: var(--hit); min-height: 0; padding: 0; display: grid; place-items: center;
   }
-  .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
-  #map-btn { right: calc(12px + 34px + 6px + env(safe-area-inset-right, 0px)); }
+  .icon-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  #map-btn { right: calc(12px + var(--hit) + 8px + env(safe-area-inset-right, 0px)); }
   #settings-btn { right: calc(12px + env(safe-area-inset-right, 0px)); }
   .btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
 
@@ -94,8 +94,8 @@
     #map-title { flex: 1 1 0; }
   }
 
-  /* Panels above the speed bar: the context card and, in a fight, the combat panel. The coloured
-     left edge is each panel's own. */
+  /* Panels above the speed bar: in a fight, the combat panel. The coloured left edge is each
+     panel's own. */
   .panel {
     position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
     box-sizing: border-box; padding: 10px 10px 10px 12px;
@@ -104,36 +104,49 @@
   }
   .panel[hidden] { display: none; }
 
-  /* Context card: tap a station, asteroid or ship and its card shows above the speed bar
-     with what you can do there. Docked, the flight controls go away. */
-  #context { width: min(360px, calc(100vw - 24px)); border-left-color: var(--accent, var(--cyan)); }
+  /* Context menu (ui/context.js): tap a station, asteroid or ship and it shows around it, like the
+     map's callout: its name and details above it, what you can do there as round icon buttons
+     fanned out below it. Docked, the flight controls go away. */
+  #context { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
+  #context[hidden] { display: none; }
+  .cx-info {
+    position: absolute; left: 0; top: 0; max-width: min(300px, calc(100vw - 16px)); box-sizing: border-box;
+    padding: 4px 4px 5px 9px; background: rgba(5, 6, 10, 0.78); border-left: 3px solid var(--accent, var(--cyan)); border-radius: var(--r-md);
+    font: 14px var(--sans); color: var(--hud); pointer-events: auto;
+  }
   .cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
-  .cx-title { flex: 1; min-width: 0; color: var(--bright); font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-title { flex: 1; min-width: 0; color: var(--bright); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cx-tag { font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
   .cx-tag.hostile { color: var(--hostile); }
   .cx-tag.good { color: var(--good); }
   .cx-close {
-    width: 36px; height: 36px; flex: none; display: grid; place-items: center;
-    font: 400 22px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -6px -6px -6px 0;
+    width: 28px; height: 28px; flex: none; display: grid; place-items: center;
+    font: 400 20px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -4px -2px -4px 0;
     cursor: pointer; touch-action: manipulation;
   }
   .cx-close:hover, .cx-close:focus-visible { color: var(--cyan); outline: none; }
-  .cx-sub { font: 12px var(--mono); color: var(--dim); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .cx-actions { display: flex; gap: 6px; margin-top: 10px; }
-  .cx-actions .btn {
-    flex: 1 1 0; min-width: 0; min-height: var(--hit); padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    border-color: var(--cyan); color: var(--cyan); background: transparent; position: relative;
+  .cx-sub { font: 12px var(--mono); color: var(--dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cx-state { font: 12px var(--mono); color: var(--warn); margin-top: 1px; white-space: nowrap; }
+  .cx-state[hidden] { display: none; }
+  .cx-actions { position: absolute; left: 0; top: 0; }
+  .cx-act {
+    position: absolute; left: 0; top: 0; width: var(--hit); height: var(--hit); padding: 0; display: grid; place-items: center;
+    border: 1px solid var(--cyan); border-radius: 50%; background: var(--panel); color: var(--cyan);
+    cursor: pointer; touch-action: manipulation; pointer-events: auto;
   }
-  .cx-actions .btn:hover { background: var(--cyan-tint); }
-  .cx-actions .btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; background: transparent; }
-  /* A running action (mining) shows its progress filling up left to right. */
-  .cx-actions .btn.busy:disabled {
-    border-color: var(--busy); color: var(--busy); cursor: default;
-    background: linear-gradient(90deg, rgba(255, 157, 92, 0.22) var(--progress, 0%), var(--s1) var(--progress, 0%));
+  .cx-act svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  .cx-act:hover { background: #0f1a24; }
+  .cx-act:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  .cx-act:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+  /* A running action (mining) fills a ring round its button. */
+  .cx-act.busy:disabled {
+    border-color: transparent; color: var(--busy);
+    background: radial-gradient(closest-side, var(--panel) calc(100% - 3px), transparent calc(100% - 2px)),
+      conic-gradient(var(--busy) var(--progress, 0%), var(--line) var(--progress, 0%));
   }
   body.docked #map-btn, body.docked #settings-btn, body.docked #context { display: none; }
 
-  /* Combat panel: replaces the context card during a fight. One row per ship with shield (top)
+  /* Combat panel: replaces the context menu during a fight. One row per ship with shield (top)
      and hull (bottom) bars; enemy rows are buttons that focus fire. */
   #combat {
     --shd: var(--cyan); --hul: var(--good);
@@ -157,7 +170,6 @@
     min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
     border: 1px solid var(--good); border-radius: 6px; background: transparent; color: var(--good); cursor: pointer; touch-action: manipulation;
   }
-  .cb-ab .cd { font: 700 11px var(--mono); letter-spacing: 0.06em; }
   .cb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
   .cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
   .cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
@@ -395,9 +407,10 @@
   .cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
   .cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--r-sm); }
   body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
-  /* Someone talking on the comms during flight: the box takes the context card's place, and covers
-     the corner buttons on a narrow screen. */
+  /* Someone talking on the comms during flight: the box covers the bottom of the screen and the
+     corner buttons on a narrow screen; the context menu waits until they're done. */
   body.talking #context, body.talking #map-btn, body.talking #settings-btn { display: none; }
+  body.warping #context, body.warping #map-btn, body.warping #settings-btn { display: none; } /* a gate jump (game/warp.js) */
 </style>
 </head>
 <body>
@@ -408,14 +421,17 @@
 <button id="settings-btn" class="btn icon-btn" type="button" aria-haspopup="dialog" aria-label="Settings" title="Settings">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.9 10.2L20.5 10.5L20.5 13.5L17.9 13.8L17.5 14.9L19.0 17.0L17.0 19.0L14.9 17.5L13.8 17.9L13.5 20.5L10.5 20.5L10.2 17.9L9.1 17.5L7.0 19.0L5.0 17.0L6.5 14.9L6.1 13.8L3.5 13.5L3.5 10.5L6.1 10.2L6.5 9.1L5.0 7.0L7.0 5.0L9.1 6.5L10.2 6.1L10.5 3.5L13.5 3.5L13.8 6.1L14.9 6.5L17.0 5.0L19.0 7.0L17.5 9.1z"/><circle cx="12" cy="12" r="2.8"/></svg>
 </button>
-<div id="context" class="panel" role="region" aria-label="Selected object" aria-live="polite" hidden>
-  <div class="cx-head">
-    <span class="cx-title"></span>
-    <span class="cx-tag" hidden></span>
-    <button class="cx-close" type="button" aria-label="Close" title="Close (Esc)">×</button>
+<div id="context" role="region" aria-label="Selected object" hidden>
+  <div class="cx-info" aria-live="polite">
+    <div class="cx-head">
+      <span class="cx-title"></span>
+      <span class="cx-tag" hidden></span>
+      <button class="cx-close" type="button" aria-label="Close" title="Close (Esc)">×</button>
+    </div>
+    <div class="cx-sub"></div>
+    <div class="cx-state" hidden></div>
   </div>
-  <div class="cx-sub"></div>
-  <div class="cx-actions"></div>
+  <div class="cx-actions" role="group" aria-label="Actions"></div>
 </div>
 <div id="combat" class="panel" role="region" aria-label="Combat" aria-live="polite" hidden>
   <div class="cb-head">

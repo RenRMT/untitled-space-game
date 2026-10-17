@@ -17,6 +17,10 @@
 //   below); a tile that isn't built yet is left out while the frame's budget is spent. layer: for
 //   a view that moves a little each frame (the flight view), the tiles are drawn into a cached
 //   layer and the frame draws that (see Layer below).
+// Gas pocket: { type, seed, r }: a knot of dense gas r world units across in a nebula of that type,
+//   drawn like a small, bright nebula in the same style (bands, isolines, facets or dither): an
+//   outer cloud and a brighter core, turning slowly against each other and breathing.
+//   ArtBodies.drawGas(ctx, gas, style, { x, y, t, texel, force })
 // ArtBodies.MOONS, NEBULAE: the types, each with a label and colours; clearCache(), stats().
 // ES module (`ArtBodies`); needs a browser.
 
@@ -655,9 +659,143 @@ const ArtBodies = (() => {
     if (!o.force) buildAhead(neb, style, v, texel);
   }
 
+  // ---------- Gas pockets ----------
+  // A pocket's density is a few soft puffs, broken up by noise, sampled on a lattice over the
+  // sprite and banded like a nebula's, but brighter: an outer layer reaching the middle bands and
+  // a core reaching the top one. Each layer is a sprite of its own, so they can turn apart.
+  const GAS_EXT = 1.25; // the sprite's half-width, in pocket radii
+  const GAS_N = 36; // lattice cells across the sprite
+  function gasField(gas, layer) {
+    const r = mulberry32((gas.seed || 1) + (layer === 'core' ? 7919 : 0)), S = (gas.seed || 1) % 9973 + (layer === 'core' ? 31 : 0);
+    const puffs = layer === 'core'
+      ? [[0, 0, 0.3, 0.9], ...Array.from({ length: 4 }, () => { const a = r() * TAU, d = 0.12 + r() * 0.2; return [Math.cos(a) * d, Math.sin(a) * d, 0.14 + r() * 0.1, 0.45 + r() * 0.3]; })]
+      : Array.from({ length: 6 + Math.floor(r() * 3) }, (_, i) => i).map((i, _, all) => {
+        const a = (i / all.length) * TAU + r() * 0.8, d = 0.2 + r() * 0.35;
+        return [Math.cos(a) * d, Math.sin(a) * d, 0.3 + r() * 0.22, 0.45 + r() * 0.2];
+      });
+    const n = GAS_N + 1, d = new Float32Array(n * n), m = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      const x0 = (i / GAS_N * 2 - 1) * GAS_EXT, y0 = (j / GAS_N * 2 - 1) * GAS_EXT; // in pocket radii
+      // Domain-warped, so the puffs curl and fray instead of staying round.
+      const x = x0 + (fbm(x0 * 1.3 + 1.7, y0 * 1.3 + 5.1, 1.5, S + 1) - 0.5) * 0.7, y = y0 + (fbm(x0 * 1.3 + 8.3, y0 * 1.3 + 2.9, 2.5, S + 2) - 0.5) * 0.7;
+      let v = 0;
+      for (const [px, py, pr, pa] of puffs) v += pa * Math.exp(-((x - px) ** 2 + (y - py) ** 2) / (pr * pr));
+      const w = fbm(x * 2.4 + 4.1, y * 2.4 + 2.3, 0.5, S);
+      v *= 0.35 + 1.3 * w;
+      d[j * n + i] = clamp(v * (layer === 'core' ? 0.95 : 0.62), 0, 1) * smooth(0, 1, (GAS_EXT - Math.hypot(x0, y0)) * 3);
+      m[j * n + i] = fbm(x * 0.9 + 9, y * 0.9 + 9, 3.5, S + 5);
+    }
+    return { n, d, m };
+  }
+  // The field at (fx, fy) in lattice cells, bilinear.
+  function gasAt(F, A, fx, fy) {
+    const i = Math.min(F.n - 2, Math.max(0, Math.floor(fx))), j = Math.min(F.n - 2, Math.max(0, Math.floor(fy))), tx = fx - i, ty = fy - j, k = j * F.n + i;
+    return lerp(lerp(A[k], A[k + 1], tx), lerp(A[k + F.n], A[k + F.n + 1], tx), ty);
+  }
+  // The bands as a raster N px across (pixel art: dithered); colour(lv, hue) -> [r, g, b, a].
+  function gasRaster(F, N, colour, dither) {
+    const cv = canvas(N, N), c = cv.getContext('2d'), img = c.createImageData(N, N), D = img.data;
+    for (let py = 0; py < N; py++) for (let qx = 0; qx < N; qx++) {
+      const fx = ((qx + 0.5) / N) * GAS_N, fy = ((py + 0.5) / N) * GAS_N, dd = gasAt(F, F.d, fx, fy);
+      const lv = band(dither ? dd + (BAYER[py & 3][qx & 3] - 0.5) * 0.12 : dd);
+      if (lv < 0) continue;
+      const col = colour(lv, Math.min(3, Math.floor(gasAt(F, F.m, fx, fy) * 4))), o = (py * N + qx) * 4;
+      D[o] = col[0]; D[o + 1] = col[1]; D[o + 2] = col[2]; D[o + 3] = col[3];
+    }
+    c.putImageData(img, 0, 0);
+    return cv;
+  }
+  // Flat and pixel: the bands in the type's colours, a little denser than a nebula's.
+  function gasBands(F, T, N, dither) {
+    const A = ALPHA[T.dark ? 'dark' : 'normal'], tab = nebTable(T).map((row, lv) => row.map((hx) => [...U.hexToRgb(hx), Math.round(Math.min(1, A[lv] * 1.15) * 255)]));
+    return gasRaster(F, N, (lv, q) => tab[lv][q], dither);
+  }
+  // Line: a faint fill and the band edges as isolines, on a canvas N px across.
+  function gasLine(F, T, N) {
+    const lc = U.hexToRgb(T.line), fill = [0.05, 0.09, 0.13, 0.18].map((al) => [...lc, Math.round(al * 255)]);
+    const cv = gasRaster(F, N, (lv) => fill[lv], false), c = cv.getContext('2d');
+    const g = N / GAS_N;
+    c.lineCap = c.lineJoin = 'round';
+    LEVELS.forEach((L, li) => {
+      c.beginPath();
+      for (let jj = 0; jj < GAS_N; jj++) for (let ii = 0; ii < GAS_N; ii++) {
+        const k = jj * F.n + ii, a = F.d[k], b = F.d[k + 1], cc = F.d[k + F.n + 1], d = F.d[k + F.n];
+        const x = ii * g, y = jj * g;
+        const at = (va, vb, ax, ay, bx, by) => { if ((va >= L) === (vb >= L)) return null; const t = (L - va) / (vb - va); return [lerp(ax, bx, t), lerp(ay, by, t)]; };
+        const e = [at(a, b, x, y, x + g, y), at(b, cc, x + g, y, x + g, y + g), at(d, cc, x, y + g, x + g, y + g), at(a, d, x, y, x, y + g)].filter(Boolean);
+        if (e.length >= 2) { c.moveTo(e[0][0], e[0][1]); c.lineTo(e[1][0], e[1][1]); }
+        if (e.length === 4) { c.moveTo(e[2][0], e[2][1]); c.lineTo(e[3][0], e[3][1]); }
+      }
+      c.strokeStyle = U.mix(conf().bg, T.line, [0.35, 0.55, 0.8, 1][li]);
+      c.lineWidth = Math.max(1, N / 220) * [0.7, 0.8, 0.9, 1][li];
+      c.stroke();
+    });
+    return cv;
+  }
+  // Low-poly: a jittered lattice of translucent facets, one path per colour so they don't seam.
+  function gasLow(F, T, N, seed) {
+    const cv = canvas(N, N), c = cv.getContext('2d'), M = 12, cell = N / M, A = ALPHA[T.dark ? 'dark' : 'normal'], tab = nebTable(T);
+    const V = [];
+    for (let j = 0; j <= M; j++) for (let i = 0; i <= M; i++) {
+      const edge = i === 0 || j === 0 || i === M || j === M;
+      const x = (i + (edge ? 0 : (hash3(i, j, 1, seed) - 0.5) * 0.7)) * cell, y = (j + (edge ? 0 : (hash3(i, j, 2, seed) - 0.5) * 0.7)) * cell;
+      V.push([x, y, gasAt(F, F.d, (x / N) * GAS_N, (y / N) * GAS_N), gasAt(F, F.m, (x / N) * GAS_N, (y / N) * GAS_N)]);
+    }
+    const groups = new Map();
+    for (let j = 0; j < M; j++) for (let i = 0; i < M; i++) {
+      const v00 = V[j * (M + 1) + i], v10 = V[j * (M + 1) + i + 1], v01 = V[(j + 1) * (M + 1) + i], v11 = V[(j + 1) * (M + 1) + i + 1];
+      const tris = hash3(i, j, 3, seed) < 0.5 ? [[v00, v10, v11], [v00, v11, v01]] : [[v00, v10, v01], [v10, v11, v01]];
+      for (const [a, b, q] of tris) {
+        const lv = band((a[2] + b[2] + q[2]) / 3);
+        if (lv < 0) continue;
+        const lit = 0.85 + 0.3 * hash3(i, j, a === v00 ? 4 : 5, seed);
+        const col = U.shade(tab[lv][Math.min(3, Math.floor(((a[3] + b[3] + q[3]) / 3) * 4))], Math.round(lit / 0.05) * 0.05);
+        const key = `${col}|${lv}`;
+        let p = groups.get(key);
+        if (!p) groups.set(key, (p = { col, lv, path: new Path2D() }));
+        p.path.moveTo(a[0], a[1]); p.path.lineTo(b[0], b[1]); p.path.lineTo(q[0], q[1]); p.path.closePath();
+      }
+    }
+    for (const { col, lv, path } of [...groups.values()].sort((x, y) => x.lv - y.lv)) {
+      c.globalAlpha = Math.min(1, A[lv] * 1.15);
+      c.fillStyle = col;
+      c.fill(path);
+    }
+    return cv;
+  }
+
+  function drawGas(ctx, gas, style, o = {}) {
+    const { x = 0, y = 0, t = 0 } = o, mt = ctx.getTransform(), ppu = quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel;
+    const T = NEBULAE[gas.type] || NEBULAE.emission, ext = gas.r * GAS_EXT, pixel = style === 'pixel';
+    const rr = mulberry32(gas.seed || 1), dir = rr() < 0.5 ? -1 : 1, w = 0.05 + rr() * 0.05, ph = rr() * TAU;
+    ctx.save();
+    for (const layer of ['outer', 'core']) {
+      const key = `gas|${gas.type}|${gas.seed}|${gas.r}|${layer}|${style}|${pixel ? texel : ppu}`;
+      const slot = layer === 'core' ? '_gasCore' : '_gasOuter';
+      const spr = cache.get(key, () => {
+        const F = gasField(gas, layer);
+        const N = pixel ? Math.max(8, Math.round((ext * 2) / texel)) : Math.min(Math.ceil(ext * 2 * ppu), conf().maxSprite);
+        const cv = pixel || style === 'flat' ? gasBands(F, T, N, pixel) : style === 'line' ? gasLine(F, T, N) : gasLow(F, T, N, (gas.seed || 1) % 9973);
+        return { canvas: cv, half: ext, smooth: !pixel };
+      }, { fallback: gas[slot], force: o.force });
+      if (spr.key === key) gas[slot] = key;
+      ctx.save();
+      ctx.translate(x, y);
+      if (!pixel) { // turning and breathing; pixel art keeps to its grid
+        const k = 1 + (layer === 'core' ? 0.05 : 0.03) * Math.sin(t * (layer === 'core' ? 1.1 : 0.7) + ph);
+        ctx.rotate(ph + dir * t * w * (layer === 'core' ? -1.7 : 1));
+        ctx.scale(k, k);
+      }
+      ctx.imageSmoothingEnabled = spr.smooth;
+      ctx.drawImage(spr.canvas, -spr.half, -spr.half, spr.half * 2, spr.half * 2);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
   return {
     MOONS, MOON_TYPES: Object.keys(MOONS), NEBULAE, NEBULA_TYPES: Object.keys(NEBULAE),
-    drawMoon, drawNebula,
+    drawMoon, drawNebula, drawGas,
     clearCache: () => { cache.clear(); layerGen++; },
     stats: () => cache.stats(),
   };

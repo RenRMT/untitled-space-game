@@ -82,7 +82,7 @@ const StationMenu = (() => {
   const missionDot = h('span', { class: 'dot', hidden: true }); // something new or to hand in
   for (const t of tabs) {
     const { code, label } = TABS[t.dataset.tab];
-    const icon = Kit.icon(`tab-${t.dataset.tab}`, 24, { code });
+    const icon = Kit.icon(`tab-${t.dataset.tab}`, 28, { code });
     if (t.dataset.tab === 'missions') icon.append(missionDot);
     t.replaceChildren(icon, h('span', { class: 'lbl' }, label));
     t.setAttribute('aria-label', label);
