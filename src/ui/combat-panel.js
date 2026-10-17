@@ -1,19 +1,21 @@
 // The combat panel: shown above the speed bar while a fight runs, in place of the context menu.
-// One row per ship (you first, then your squad) with hull and shield bars; tap an enemy row to
-// focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
+// One row per ship (you first, then your squad) with hull and shield bars (numbers on your own
+// row only); an enemy's row says whom it is after (→ you), faint until it has locked on. Tap an
+// enemy row to focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a
 // real-time fight runs (you flee by flying), Close once the fight is over. The bar under the
 // title shows progress: the round timer, or in real time the lock coming on ('lock') or getting
 // clear ('escape').
 // game/combat.js describes it every frame; the DOM is rebuilt only when the rows, log or button change.
 // Hull and shield readings update the bars in place, and the progress bar is set only when it moves.
 //
-//   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run? }],
+//   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run?, aim? }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
 //                      abilities?: [{ id, code, label, count, enabled }], progress, bar?: 'lock' | 'escape' })
 // abilities: a button each (rules/abilities.js): its icon (by its code) and charges left; onButton gets its id.
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 // run: for a squad member, the program line it is running ('L2', or 'else' for none).
+// aim: for an enemy, { at (a name, or 'you'), you, locked }.
 //   CombatPanel.top   its top edge on screen, null while hidden (UI.topEdge)
 // ES module (`CombatPanel`); needs a browser.
 
@@ -60,10 +62,12 @@ const CombatPanel = (() => {
       type: pick && 'button', 'data-id': pick && r.id, 'aria-pressed': pick && String(!!r.focus), title: pick && 'Focus fire on this ship',
     },
     h('span', { class: 'cb-name' }, down ? `${r.name} · ${r.ally ? 'disabled' : 'destroyed'}` : r.name,
-      r.run ? h('span', { class: 'cb-run', title: 'The program line it is running' }, ` ${r.run}`) : null),
+      r.run ? h('span', { class: 'cb-run', title: 'The program line it is running' }, ` ${r.run}`) : null,
+      r.aim ? h('span', { class: `cb-aim${r.aim.you ? ' you' : ''}${r.aim.locked ? '' : ' locking'}`, title: r.aim.locked ? `Locked on ${r.aim.at}` : `Locking on ${r.aim.at}` }, ` → ${r.aim.at}`) : null),
     h('span', { class: 'cb-bars', 'aria-label': `Hull ${Math.ceil(r.hull)} of ${r.maxHull}, shield ${Math.floor(r.shield)} of ${r.maxShield}` },
       [['shd', r.shield, r.maxShield], ['hul', r.hull, r.maxHull]].map(([cls, v, max]) => h('span', { class: `cb-bar ${cls}` }, h('span', { style: { width: pct(v, max) } })))),
-    h('span', { class: 'cb-nums' }, `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`));
+    // Numbers on your own row only; the others read well enough as bars (their numbers are in the label).
+    h('span', { class: 'cb-nums' }, r.you ? `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}` : ''));
   }
 
   // A row's readings into its elements: the two bars' widths, the numbers and the label.
@@ -71,13 +75,13 @@ const CombatPanel = (() => {
     el.bars.setAttribute('aria-label', `Hull ${Math.ceil(r.hull)} of ${r.maxHull}, shield ${Math.floor(r.shield)} of ${r.maxShield}`);
     el.shd.style.width = pct(r.shield, r.maxShield);
     el.hul.style.width = pct(r.hull, r.maxHull);
-    el.nums.textContent = `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}`;
+    el.nums.textContent = r.you ? `${Math.ceil(r.hull)} · ${Math.floor(r.shield)}` : '';
   }
 
   function show(d) {
     const readings = d.rows.map((r) => [Math.ceil(r.hull), Math.floor(r.shield)]);
     const abil = d.abilities || [];
-    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || '']), abil])) {
+    if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || '', r.aim]), abil])) {
       abilEl.hidden = !abil.length;
       abilEl.replaceChildren(...abil.map((a) => h('button', {
         class: 'cb-ab', type: 'button', 'data-id': a.id, disabled: !a.enabled, title: `${a.label} · ${a.count} left`, 'aria-label': `${a.label}, ${a.count} left`,

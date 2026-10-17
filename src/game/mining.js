@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
+import { Feedback } from '../core/feedback.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Mining } from '../rules/mining.js';
@@ -93,6 +94,7 @@ export function finishMining() {
     });
     const names = [...new Set(gas.map((g) => Goods.type(g.kind).name))].join(', ');
     notify(`Gas pocket collected · ${gas.length} × ${names}`, 2.5);
+    Feedback.emit('mined');
     missionCollected('gas');
     saveCargo();
     return;
@@ -103,8 +105,10 @@ export function finishMining() {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
     cargo.drops.push(e);
     notify(`Asteroid broken up · ${e.label} found${rarityNote(e)}`, 2.5);
+    Feedback.emit('mined');
   } else {
     notify('Asteroid broken up · nothing of value', 2.5);
+    Feedback.emit('mined');
   }
   saveCargo();
 }

@@ -226,7 +226,7 @@ function progress(id, rules) {
     if (log.done(id, r.o) || (r.after && !log.done(id, r.after)) || Math.hypot(ship.x - x, ship.y - y) >= range) continue;
     if (!log.set(id, r.o, 1)) continue;
     changed = true;
-    if (r.notice) notify(r.notice, 3);
+    if (r.notice) notify(r.notice, 3, { priority: 1 });
     if (r.then) r.then();
   }
   return changed;
@@ -317,10 +317,10 @@ export function tickGate(dt) {
     if (log.set(GATE_JOB, 'work', Math.floor(mission.work)) && Math.floor(mission.work / 10) !== Math.floor(saved / 10)) changed = true;
     if (!gateDone('ambush') && mission.work >= Missions.GATE.workAt) {
       changed = log.set(GATE_JOB, 'ambush', 1) || changed;
-      notify('Contacts incoming · pirates', 2.5);
+      notify('Contacts incoming · pirates', 2.5, { priority: 2, tone: 'hostile' });
     }
   } else if (gateActive() && gateDone('reach') && !gateDone('work') && m && m.disabled) {
-    notify(`${m.name} disabled · it needs repairs at a station`, 2.5, { once: true });
+    notify(`${m.name} disabled · it needs repairs at a station`, 2.5, { once: true, priority: 2, tone: 'warn' });
   }
   // The pirates (counted as they go, above): the next wave after a pause; each fight started as it comes.
   mission.waveT = mission.waves[0].every((e) => cargo.removed.has(e.key)) && !inFight() && !fight.result ? mission.waveT + dt : mission.waveT;

@@ -12,6 +12,8 @@ import { warp } from './warp.js';
 export const DEADZONE = 8;
 export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
 export let interacted = false;
+// Bring the flight hints back (Settings' Controls): they show until the next touch on space.
+export function showHints() { interacted = false; }
 
 // While a finger is down, how much of the screen the panels cover stays as it was when the drag
 // began: a fight's panel or a message that pops up mid-drag doesn't reframe the camera or move the
@@ -27,10 +29,19 @@ export function steady(key, value) {
 // Drag length (CSS px) that maps to full speed.
 export const maxDrag = () => Math.min(view.w, view.h) * 0.3;
 
-// A tap selects what's under it; a tap on empty space clears the selection and any approach,
-// and in Cruise mode stops the ship. In Direct mode letting go always stops the ship (unless it's
+// A tap selects what's under it; a tap on empty space clears the selection and any approach, and
+// in Cruise mode a second tap there soon after (a double-tap) stops the ship, so one stray tap
+// doesn't throw away your speed. In Direct mode letting go always stops the ship (unless it's
 // approaching something). In a fight a tap on an enemy (or, in real time, its edge marker)
 // targets it; in real time the ship stops as it would outside a fight.
+export const DOUBLE_TAP = 0.4; // seconds between the taps of a double-tap
+let lastEmptyTap = -Infinity;
+function emptyTapStops(e) {
+  const t = (e.timeStamp || performance.now()) / 1000;
+  const double = t - lastEmptyTap <= DOUBLE_TAP;
+  lastEmptyTap = double ? -Infinity : t;
+  return double;
+}
 export function endDrag(e) {
   if (!drag.active || e.pointerId !== drag.id) return;
   drag.active = false;
@@ -39,7 +50,7 @@ export function endDrag(e) {
   if (warp.on) return; // a gate jump has the controls
   if (intro.on) { // nothing to select yet: only flying
     if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
-    if (intro.flying && (moveMode.value === 'direct' || tap)) ship.targetSpeed = 0;
+    if (intro.flying && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
     return;
   }
   const marker = tap && fight.s ? foeMarkerAt(e.clientX, e.clientY) : null;
@@ -47,13 +58,13 @@ export function endDrag(e) {
   if (inFight()) {
     const foe = marker || (hit && fight.ships.has(hit.key) ? hit.key : null);
     if (foe) focusOn(foe);
-    else if (flyingFight() && (moveMode.value === 'direct' || tap)) ship.targetSpeed = 0;
+    else if (flyingFight() && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
     return;
   }
   if (hit) select(hit);
   else if (tap) { select(null); autopilot.key = null; }
   if (moveMode.value === 'direct') { if (!autopilot.key) ship.targetSpeed = 0; }
-  else if (tap && !hit) ship.targetSpeed = 0;
+  else if (tap && !hit && emptyTapStops(e)) ship.targetSpeed = 0;
 }
 
 // Wiring, run once every module has loaded (src/main.js).

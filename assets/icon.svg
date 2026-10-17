@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The app icon: the Courier's outline in the line style, on the game's background. Also the
+       source of the PNG icons (icon-180/192/512.png, rendered from this file). -->
+  <rect width="512" height="512" fill="#05060a"/>
+  <g fill="none" stroke="#7df9ff" stroke-width="14" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M256 92 L352 380 L256 330 L160 380 Z"/>
+    <path d="M256 160 L304 316 L256 292 L208 316 Z" stroke-width="9" opacity="0.7"/>
+    <path d="M226 392 L256 430 L286 392" stroke="#ffb347" stroke-width="10"/>
+  </g>
+  <circle cx="256" cy="236" r="12" fill="#7df9ff"/>
+</svg>

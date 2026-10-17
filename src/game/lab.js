@@ -7,7 +7,7 @@ import { Clock } from '../core/clock.js';
 import { Params } from '../core/store.js';
 import { Goods } from '../rules/goods.js';
 import { Research } from '../rules/research.js';
-import { addTo, applyShip, buildDone, cargo, hold, saveCargo } from './cargo.js';
+import { addNews, addTo, applyShip, buildDone, cargo, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
 
 const FLIGHT_CHECK = 5000; // ms between checks in flight
@@ -66,7 +66,7 @@ export const lab = {
   settle({ quiet = false } = {}) {
     const done = Research.settle(cargo.lab, Clock.now());
     if (!done.length) return done;
-    if (!quiet) for (const id of done) notify(buildDone(id), 3.5);
+    if (!quiet) for (const id of done) { notify(buildDone(id), 3.5); addNews(buildDone(id), 'research'); }
     if (done.some((id) => Research.PACKAGES[id].kind !== 'logic')) applyShip();
     saveCargo();
     return done;

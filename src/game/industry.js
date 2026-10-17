@@ -14,7 +14,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { SystemMap } from '../ui/map.js';
-import { addTo, cargo, hold, saveCargo } from './cargo.js';
+import { addNews, addTo, cargo, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
 import { world } from './world.js';
 
@@ -44,7 +44,7 @@ export const industry = {
   settle({ quiet = false } = {}) {
     const { log } = Industry.settle(cargo.industry, Clock.now(), industry.env());
     if (!log.length) return log;
-    if (!quiet) for (const line of Industry.summary(cargo.industry, log)) notify(`Made · ${line}`, 3.5);
+    if (!quiet) for (const line of Industry.summary(cargo.industry, log)) { notify(`Made · ${line}`, 3.5); addNews(`Made · ${line}`, 'industry'); }
     saveCargo();
     return log;
   },

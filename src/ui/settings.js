@@ -5,7 +5,10 @@
 //
 //   Settings.add({ id, label, shortcut?, choices: [{ value, label, hint }], get(), set(value),
 //                  note?, locked?() -> reason string | null })
-//   Settings.add({ id, label, action: { label, hint?, run() }, note?, locked?() })
+//   Settings.add({ id, label, action: { label, hint?, run(), stay? }, note?, locked?() })
+//   Settings.add({ id, label, actions: [{ label, hint?, run(), stay? }, ...], note?, locked?() })
+//     note: a string, or a function asked each time the panel draws
+//   group: a name ('Accessibility'): the option sits under that folding heading, after the rest
 //   Settings.open(), Settings.close(), Settings.isOpen
 //   Settings.onToggle = (open) => ...   called when the panel opens or closes
 // ES module (`Settings`); needs a browser.
@@ -28,24 +31,27 @@ const Settings = (() => {
     render(o.id);
   }
 
-  // An action: its label, its button and what it does (or why it can't be done right now).
+  // An action (or a row of them): its label, its buttons and what they do (or why they can't be
+  // done right now). An action closes the menu once run unless it says `stay`.
   function actionGroup(o) {
     const locked = o.locked ? o.locked() : null;
     const labelId = `set-${o.id}-label`;
-    const run = () => { if (o.locked && o.locked()) return; close(); o.action.run(); };
+    const list = o.actions || [o.action];
+    const run = (a) => () => { if (o.locked && o.locked()) return; if (!a.stay) close(); a.run(); if (a.stay) render(); };
+    const hint = list.map((a) => a.hint).filter(Boolean).join(' ');
     return h('section', { class: 'set-group' },
       h('div', { class: 'set-label' }, h('span', { id: labelId }, o.label)),
-      h('div', { class: 'seg' }, h('button', {
-        class: 'btn', type: 'button', 'aria-describedby': labelId, disabled: !!locked, 'data-option': o.id, onclick: run,
-      }, o.action.label)),
-      o.action.hint ? h('p', { class: 'set-hint' }, o.action.hint) : null,
-      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, o.note) : null);
+      h('div', { class: 'seg' }, list.map((a) => h('button', {
+        class: 'btn', type: 'button', 'aria-describedby': labelId, disabled: !!locked, 'data-option': o.id, onclick: run(a),
+      }, a.label))),
+      hint ? h('p', { class: 'set-hint' }, hint) : null,
+      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, typeof o.note === 'function' ? o.note() : o.note) : null);
   }
 
   // One option: its label, the choices as a radio group, the selected choice's hint, and a note
   // (or why it can't be changed right now).
   function group(o) {
-    if (o.action) return actionGroup(o);
+    if (o.action || o.actions) return actionGroup(o);
     const current = o.get();
     const locked = o.locked ? o.locked() : null;
     const labelId = `set-${o.id}-label`;
@@ -70,10 +76,26 @@ const Settings = (() => {
       locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, o.note) : null);
   }
 
+  // Options with a `group` sit under a heading that folds them away (Accessibility, Help), closed
+  // until opened, after the options everyone uses.
+  const openGroups = new Set();
+  function folded() {
+    const names = [...new Set(options.filter((o) => o.group).map((o) => o.group))];
+    return names.map((name) => {
+      const on = openGroups.has(name);
+      const toggle = () => { if (on) openGroups.delete(name); else openGroups.add(name); render(); };
+      return [
+        h('button', { class: 'set-fold', type: 'button', 'aria-expanded': String(on), 'data-group': name, onclick: toggle },
+          h('span', {}, name), h('span', { 'aria-hidden': 'true' }, on ? '▴' : '▾')),
+        on ? options.filter((o) => o.group === name).map(group) : null,
+      ];
+    });
+  }
+
   // Rebuild the panel; keep focus on the option that just changed.
   function render(focusId) {
     if (!isOpen) return;
-    body.replaceChildren(...options.map(group));
+    body.replaceChildren(...options.filter((o) => !o.group).map(group), ...folded().flat(Infinity).filter(Boolean));
     if (focusId) {
       const b = body.querySelector(`[data-option="${focusId}"][aria-checked="true"]`);
       if (b) b.focus();

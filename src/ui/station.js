@@ -37,6 +37,7 @@
 
 import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
+import { Store } from '../core/store.js';
 import { ItemIcons } from '../art/icons.js';
 import { Abilities } from '../rules/abilities.js';
 import { Economy } from '../rules/economy.js';
@@ -71,26 +72,44 @@ const StationMenu = (() => {
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let openNode = null; // the research package whose sheet is open, if any
   let openOrder = null; // the production order sheet open (ui/industry-view.js sheet(open))
+  let openYard = false; // the shipyard's sheet is open
+  let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
-  let openOption = null, openStat = null, openHold = null, openHull = null, openKit = null; // expanded rows, chips, tiles
+  let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
   let briefAll = false; // the mission sheet shows every line of the message, not just the first
   let doneOpen = false; // completed missions unfolded
 
   const { h } = UI; // ui/ui.js
 
   // ---------- The tab bar ----------
+  // Five tabs, each named under its icon. Industry holds two screens, Research and Production
+  // (both spend materials and wait on the real clock), with a switch between them at the top; the
+  // tab remembers which was open. Internally the screens keep their own names ('research',
+  // 'industry'), so showTab() reaches either.
   const TABS = {
-    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, research: { code: 'RSC', label: 'Research' },
-    industry: { code: 'IND', label: 'Production' },
+    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, industry: { code: 'IND', label: 'Industry' },
     squad: { code: 'SQD', label: 'Squad' }, missions: { code: 'MSN', label: 'Missions' },
   };
-  const missionDot = h('span', { class: 'dot', hidden: true }); // something new or to hand in
+  const INDUSTRY = ['research', 'industry'];
+  const barTab = (name) => (INDUSTRY.includes(name) ? 'industry' : name);
+  let industrySub = 'research';
+  // A dot on a tab with something waiting: a mission to hand in or a story mission offered; research
+  // finished since the Research screen was last open, or a production order done or stuck.
+  const tabDots = {};
   for (const t of tabs) {
     const { code, label } = TABS[t.dataset.tab];
     const icon = Kit.icon(`tab-${t.dataset.tab}`, 28, { code });
-    if (t.dataset.tab === 'missions') icon.append(missionDot);
+    tabDots[t.dataset.tab] = icon.appendChild(h('span', { class: 'dot', hidden: true }));
     t.replaceChildren(icon, h('span', { class: 'lbl' }, label));
     t.setAttribute('aria-label', label);
+  }
+  let researchSeen = Store.getJSON('researchSeen', 0) || 0; // how many packages were done when Research was last open
+  function industryWaiting() {
+    const lab = ctx.lab && ctx.lab.state, ind = ctx.industry;
+    if (lab && Array.isArray(lab.done) && lab.done.length < researchSeen) researchSeen = lab.done.length; // another galaxy's save
+    const research = lab && Array.isArray(lab.done) && lab.done.length > researchSeen;
+    const orders = ind && ind.state && ind.state.orders.some((o) => ['done', 'blocked'].includes(Industry.status(ind.state, o).id));
+    return !!(research || orders);
   }
 
   function renderHeader() {
@@ -100,8 +119,48 @@ const StationMenu = (() => {
     root.style.setProperty('--culture', ctx.station.color);
   }
 
-  // A screen's title line: the title, then a count or note on the right.
-  const titleRow = (title, aside) => h('div', { class: 'st-title' }, h('h1', { class: 'ui-title' }, title), aside ? h('span', { class: 'aside num' }, aside) : null);
+  // A tab's first line: its count or note (what the tab's name above it used to sit beside; the
+  // tab bar already names the tab), and an ⓘ once the tab's explanations have folded away.
+  // Renders call lead(text); refresh() puts the line on top.
+  let leadText = '';
+  const lead = (text) => { leadText = text || ''; };
+  // A ship's name line (the Ship tab): its name, then a count or note.
+  const titleRow = (title, aside) => h('div', { class: 'st-title' }, h('h2', { class: 'ui-title' }, title), aside ? h('span', { class: 'aside num' }, aside) : null);
+  // Explanations ("Production orders make goods...") show on the first EXPLAIN_VISITS docks a tab is
+  // seen at; after that they fold behind the tab's ⓘ, which shows them all again.
+  const EXPLAIN_VISITS = 3;
+  const explained = Store.getJSON('explained', {}) || {};
+  const seenThisDock = new Set();
+  let infoOpen = false, folded = false;
+  function explain(key, text) {
+    if (!seenThisDock.has(key)) {
+      seenThisDock.add(key);
+      explained[key] = (explained[key] || 0) + 1;
+      Store.setJSON('explained', explained);
+    }
+    if (explained[key] <= EXPLAIN_VISITS || infoOpen) return h('p', { class: 'ui-note' }, text);
+    folded = true;
+    return null;
+  }
+  // A section folded away under a heading that says what's in it ("Spare gear · 3"); open ones stay
+  // open while docked here and at the next station.
+  const unfolded = new Set();
+  function fold(key, label, content) {
+    const open = unfolded.has(key);
+    return [Kit.disclosure({ label, open, onToggle: () => { if (open) unfolded.delete(key); else unfolded.add(key); refresh(); } }), open ? content : null];
+  }
+  // The switch at the top of the Industry tab, between its two screens.
+  const industrySwitch = () => Kit.choices(INDUSTRY.map((id) => ({
+    id, label: id === 'research' ? 'Research' : 'Production', on: tab === id, locked: isLocked(id), title: isLocked(id) ? locks().reason : undefined,
+  })), (id) => pick(id), { label: 'Industry' });
+  function leadLine() {
+    if (!leadText && !folded && !infoOpen) return null;
+    const info = folded || infoOpen ? h('button', {
+      class: 'ui-iconbtn st-info', type: 'button', 'aria-expanded': String(infoOpen), 'aria-label': infoOpen ? 'Hide the explanations' : 'Explain this screen',
+      title: infoOpen ? 'Hide the explanations' : 'Explain this screen', onclick: () => { infoOpen = !infoOpen; refresh(); },
+    }, 'ⓘ') : null;
+    return h('div', { class: 'st-lead' }, h('span', { class: 'num' }, leadText), info);
+  }
   const section = (label, ...children) => h('section', { class: 'st-sec', 'aria-label': label }, children);
   // A button that does something, then shows the result.
   const act = (fn, after) => () => { fn(); refresh(); if (after) after(); };
@@ -131,13 +190,16 @@ const StationMenu = (() => {
     const { hold } = ctx;
     const name = Goods.type(g.kind).name;
     const n = hold.count(g.kind);
+    // Hold Buy or Sell down to keep buying or selling, one a moment (Kit.button repeat).
+    const buyOne = () => { const ok = hold.buy(g.kind, g.buy, name); refresh(); return ok && hold.free > 0 && hold.credits >= g.buy; };
+    const sellOne = () => { const ok = hold.sell(g.kind, g.sell); refresh(); return ok && hold.count(g.kind) > 0; };
     const buy = g.buy === null
       ? h('span', { class: 'lock' }, 'Not sold')
-      : Kit.button('Buy', act(() => hold.buy(g.kind, g.buy, name)), {
-        price: g.buy, disabled: full || hold.credits < g.buy, aria: `Buy ${name} for ${g.buy} credits`,
+      : Kit.button('Buy', buyOne, {
+        price: g.buy, disabled: full || hold.credits < g.buy, aria: `Buy ${name} for ${g.buy} credits (hold to buy more)`, repeat: true,
       });
-    const sell = Kit.button('Sell', act(() => hold.sell(g.kind, g.sell)), {
-      kind: 'ghost', price: g.sell, disabled: n < 1, aria: `Sell ${name} for ${g.sell} credits`,
+    const sell = Kit.button('Sell', sellOne, {
+      kind: 'ghost', price: g.sell, disabled: n < 1, aria: `Sell ${name} for ${g.sell} credits (hold to sell more)`, repeat: true,
     });
     return Kit.optionRow({
       icon: h('span', { class: 'st-item' }, itemIcon(g.kind, 40), n ? h('span', { class: 'n num' }, `×${n}`) : null),
@@ -163,10 +225,21 @@ const StationMenu = (() => {
         h('div', { class: 'ui-list' }, stocked.map((g) => goodRow(g, full)))));
     }
     const carried = market.goods.filter((g) => g.buy === null && hold.count(g.kind) > 0);
+    // Sell all: everything in the hold this station buys, in one go.
+    const sellable = market.goods.filter((g) => g.sell !== null && hold.count(g.kind) > 0);
+    const sellAll = () => {
+      let n = 0, credits = 0;
+      for (const g of sellable) while (hold.count(g.kind) > 0 && hold.sell(g.kind, g.sell)) { n++; credits += g.sell; }
+      refresh();
+      if (n) Kit.toast(`Sold ${n} for ${credits.toLocaleString('en-US')} cr`);
+    };
+    lead('');
     return [
-      titleRow('Trade', `${hold.items.length}/${hold.capacity} hold`),
-      h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null })),
-      full ? Kit.callout('Your hold is full. Sell cargo to make room.', 'var(--warn)') : null,
+      explain('trade', 'Hold Buy or Sell down to buy or sell more than one.'),
+      h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null }),
+        h('span', { class: 'num st-holdn' }, `${hold.items.length}/${hold.capacity}`),
+        sellable.length ? Kit.button('Sell all', sellAll, { kind: 'ghost', aria: 'Sell everything in the hold that this station buys' }) : null),
+      full ? Kit.callout('Your hold is full. Sell goods to make room.', 'var(--warn)') : null,
       groups.length ? groups : h('p', { class: 'ui-empty' }, 'Nothing for sale here.'),
       carried.length ? section('Also in your hold', Kit.head('Also in your hold', h('span', { class: 'aside' }, 'not sold here')),
         h('div', { class: 'ui-list' }, carried.map((g) => goodRow(g, full)))) : null,
@@ -366,7 +439,7 @@ const StationMenu = (() => {
     const items = Abilities.LIST.filter((a) => kit[a.id] > 0).map((a) => ({ id: a.id, icon: Kit.icon(a.code, 32, { code: a.code }), name: a.name, count: kit[a.id], units: a.note }));
     return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used in a fight')),
       items.length ? Kit.itemTiles(items, openKit, (id) => { openKit = id; refresh(); })
-        : h('p', { class: 'ui-empty' }, 'No consumables. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
+        : h('p', { class: 'ui-empty' }, 'Empty. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
   }
 
   // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half. Android
@@ -375,7 +448,8 @@ const StationMenu = (() => {
     const { outfitting: o } = ctx;
     const ids = Object.keys(o.gear);
     if (!ids.length) return null;
-    return section('Spare gear', Kit.head('Spare gear', h('span', { class: 'aside' }, 'sells for half')),
+    const n = ids.reduce((t, id) => t + o.gear[id], 0);
+    return section('Spare gear', fold('spare-gear', `Spare gear · ${n} · sells for half`,
       h('div', { class: 'ui-list' }, ids.map((id) => {
         const item = { id, ...Loadout.EQUIPMENT[id] };
         return Kit.optionRow({
@@ -383,23 +457,35 @@ const StationMenu = (() => {
           tag: [item.npc ? 'Android' : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '), tagTone: item.npc ? 'cyan' : null,
           action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id), () => Kit.toast(`${item.name} sold`)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
-      })));
+      }))));
   }
 
   // The shipyard (capital and major stations): other hulls, against the one you fly, with it traded in.
   const HULL_METRICS = [
     { code: 'WPN', label: 'Weapon slots', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
     { code: 'HUL', label: 'Hull', get: (s) => s.hull, fmt: String, fmtDiff: String },
-    { code: 'CRG', label: 'Cargo', get: (s) => s.cargo, fmt: String, fmtDiff: String },
+    { code: 'CRG', label: 'Hold', get: (s) => s.cargo, fmt: String, fmtDiff: String },
     { code: 'HND', label: 'Handling', get: (s) => s.handling, fmt: (v) => `×${v}`, fmtDiff: (v) => `${r2(v)}` },
   ];
+  // The shipyard (where there is one) is a row that opens a sheet of hulls; elsewhere, a line saying
+  // where to find one.
+  function shipyardRow() {
+    if (!ctx.shipyard) return h('p', { class: 'ui-note st-foot-note' }, 'Capital and major stations sell new hulls.');
+    const n = Loadout.FOR_SALE.filter((id) => id !== ctx.outfitting.loadout.hull).length;
+    return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showYard() },
+      h('span', { class: 'main' }, h('span', { class: 'title' }, 'Shipyard'), h('span', { class: 'foot' }, `${n} hull${n === 1 ? '' : 's'} for sale · trade-in ${ctx.outfitting.tradeIn().toLocaleString('en-US')} cr`)),
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  function yardSheet() {
+    const o = ctx.outfitting;
+    return { title: 'Shipyard', sub: `Your ${Loadout.HULLS[o.loadout.hull].name} is traded in for ${o.tradeIn().toLocaleString('en-US')} cr`, code: 'HUL', body: renderShipyard() };
+  }
   function renderShipyard() {
     const { outfitting: o } = ctx;
-    if (!ctx.shipyard) return h('p', { class: 'ui-note st-foot-note' }, 'Capital and major stations sell new hulls.');
     const current = o.loadout.hull;
     const statsOf = (id) => ({ ...Loadout.stats({ hull: id, fitted: {} }, o.upgrades), handling: Loadout.HULLS[id].handling });
     const mine = statsOf(current);
-    return section('Shipyard', Kit.head('Shipyard', h('span', { class: 'aside' }, `trade-in ${o.tradeIn().toLocaleString('en-US')} cr`)),
+    return section('Shipyard',
       h('div', { class: 'ui-list' }, Loadout.FOR_SALE.map((id) => {
         const hull = Loadout.HULLS[id];
         const blocked = id === current ? null : o.hullBlocked(id);
@@ -416,6 +502,16 @@ const StationMenu = (() => {
       })));
   }
 
+  // A ship's performance: Firepower, Shield and Speed as chips, the rest under "All stats".
+  const HEADLINE = ['dps', 'shd', 'spd'];
+  function performance(stats) {
+    const head = HEADLINE.map((id) => stats.find((s) => s.id === id)).filter(Boolean);
+    const rest = stats.filter((s) => !HEADLINE.includes(s.id));
+    const onToggle = (id) => { openStat = id; refresh(); };
+    return section('Performance', Kit.head('Performance'), Kit.statChips(head, openStat, onToggle),
+      fold('all-stats', `All stats · ${rest.length} more`, Kit.statChips(rest, openStat, onToggle)));
+  }
+
   // The performance chips for a ship's stats (Loadout.stats) and its slots.
   function perfStats(ship, slots, hullId) {
     const fromItem = (type) => { const s = slots.find((x) => x.type === type && x.item); return s ? `From ${s.item.name}` : 'Nothing fitted'; };
@@ -429,7 +525,7 @@ const StationMenu = (() => {
       { id: 'aim', code: 'AIM', label: 'Accuracy', value: pct(ship.accuracy), detail: `Hit chance, weighed against the target's evasion. Locks on in ${r2(ship.lockTime)} s.`, from: fromItem('computer') },
       { id: 'sns', code: 'SNS', label: 'Sensors', value: Format.dist(ship.sensorRange), detail: `Identifies at ${Format.dist(ship.sensorRange)} · pings at ${Format.dist(ship.pingRange)} · locks at ${Format.dist(ship.lockRange)}.`, from: fromItem('scanner') },
       { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s` : '—', detail: ship.miningRate ? 'Seconds to mine an asteroid.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: no mining.', from: fromItem('computer') },
-      { id: 'crg', code: 'CRG', label: 'Cargo', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
+      { id: 'crg', code: 'CRG', label: 'Hold', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
     ];
   }
 
@@ -450,7 +546,7 @@ const StationMenu = (() => {
     if (next === viewing) return;
     closeSheet();
     viewing = next;
-    openStat = openHold = openHull = openKit = openOption = null;
+    openStat = openHull = openKit = openOption = null;
     body.scrollTop = 0;
     refresh();
   }
@@ -474,10 +570,7 @@ const StationMenu = (() => {
       arrow(-1, '‹'),
       h('span', { class: 'mid' },
         h('span', { class: 'who', 'aria-live': 'polite' }, m ? m.name : 'Your ship', h('span', { class: 'num' }, ` ${at + 1}/${views.length}`)),
-        h('span', { class: 'dots' }, views.map((id, i) => h('button', {
-          class: 'dot', type: 'button', 'aria-current': i === at ? 'true' : undefined, 'aria-label': `Show ${nameOf(id)}`, title: nameOf(id),
-          onclick: () => showShip(id),
-        })))),
+        h('span', { class: 'dots', 'aria-hidden': 'true' }, views.map((id, i) => h('span', { class: 'dot', 'aria-current': i === at ? 'true' : undefined })))),
       arrow(1, '›'));
   }
 
@@ -496,9 +589,9 @@ const StationMenu = (() => {
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
       schematic(slots),
-      section('Performance', Kit.head('Performance'), Kit.statChips(perfStats(st, slots, m.hull), openStat, (id) => { openStat = id; refresh(); })),
+      performance(perfStats(st, slots, m.hull)),
       section('Program', Kit.head('Program', h('span', { class: 'aside num' }, `${m.program.length} instruction${m.program.length === 1 ? '' : 's'}`)),
-        h('p', { class: 'ui-note' }, 'Androids are repaired at every dock. What they do in a fight is set by their instructions.'),
+        explain('member-program', 'Androids are repaired at every dock. What they do in a fight is set by their instructions.'),
         squadOpen ? Kit.button('Edit instructions', () => pick('squad'), { kind: 'ghost', wide: true, aria: `Edit ${m.name}'s instructions on the Squad tab` }) : null),
       renderGear(),
     ];
@@ -507,26 +600,18 @@ const StationMenu = (() => {
   function renderShip() {
     const member = viewedMember();
     if (member) return renderMemberShip(member);
-    const { ship, hold, outfitting: o } = ctx;
+    const { ship, outfitting: o } = ctx;
     const slots = Loadout.slots(o.loadout, o.upgrades);
     const stats = perfStats(ship, slots, o.loadout.hull);
-    const groups = new Map(); // item type -> count
-    for (const it of hold.items) groups.set(it.kind, (groups.get(it.kind) || 0) + 1);
-    const items = [...groups].map(([kind, n]) => {
-      const t = Goods.type(kind);
-      return { id: kind, icon: itemIcon(kind, 32), name: t.name, count: n, tier: t.rarity, rarity: Goods.RARITY[t.rarity].label };
-    });
+    // The hold isn't shown here: it's on Trade, where it's bought and sold.
     return [
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       schematic(slots),
-      section('Performance', Kit.head('Performance'), Kit.statChips(stats, openStat, (id) => { openStat = id; refresh(); })),
-      section('Hold', Kit.head('Hold', Kit.meter(hold.items.length / hold.capacity, { thin: true }), h('span', { class: 'aside num' }, `${hold.items.length}/${hold.capacity}`)),
-        items.length ? Kit.itemTiles(items, openHold, (id) => { openHold = id; refresh(); })
-          : h('p', { class: 'ui-empty' }, 'Empty. Buy goods at Trade or pick up cargo in space.')),
+      performance(stats),
       renderKit(),
       renderGear(),
-      renderShipyard(),
+      shipyardRow(),
     ];
   }
 
@@ -553,14 +638,14 @@ const StationMenu = (() => {
   // ---------- Research ----------
 
   const research = ResearchView.create({
-    ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, titleRow,
-    openId: () => openNode,
+    ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, lead, explain, fold,
+    switcher: () => industrySwitch(), openId: () => openNode,
   });
 
   // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, titleRow, itemIcon,
+    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, switcher: () => industrySwitch(), itemIcon,
     showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 
@@ -659,8 +744,8 @@ const StationMenu = (() => {
     const { reason } = locks();
     const current = list.filter((m) => m.status !== 'done').sort((a, b) => ORDER[a.status] - ORDER[b.status]);
     const done = list.filter((m) => m.status === 'done');
+    lead('');
     return [
-      titleRow('Missions', `${current.length} open`),
       reason ? Kit.callout(reason, 'var(--warn)') : null,
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
       h('div', { class: 'ui-list' }, current.map(missionCard),
@@ -717,28 +802,61 @@ const StationMenu = (() => {
     ];
   }
 
-  // The squad: each member, its hull, and its program.
+  // A member's last fight, step by step (game/squad.js timelines): when its program switched line,
+  // what that line did and to whom, and its hull then; the moment it was disabled stands out. A
+  // step opens its instruction for editing. Folded, its heading counting the steps.
+  const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+  function fightLog(m) {
+    const steps = ctx.squad.timeline ? ctx.squad.timeline(m.id) : [];
+    if (!steps.length) return null;
+    const down = steps.some((x) => x.disabled);
+    const rows = steps.map((x) => {
+      const what = [h('span', { class: 'num t' }, clock(x.t)),
+        h('span', { class: 'what' }, x.line >= 0 ? `${x.line + 1}. ${x.text}` : x.text, x.target ? h('span', { class: 'on' }, ` → ${x.target}`) : null),
+        h('span', { class: 'num hull' }, x.disabled ? '' : `${Math.round(x.hull * 100)}%`)];
+      return x.line >= 0 && x.line < m.program.length
+        ? h('button', { class: 'st-step', type: 'button', role: 'listitem', onclick: () => showLine(m.id, x.line), 'aria-label': `${clock(x.t)}: instruction ${x.line + 1}, ${x.text}${x.target ? `, on ${x.target}` : ''}, hull ${Math.round(x.hull * 100)}%. Edit` }, what)
+        : h('div', { class: `st-step${x.disabled ? ' bad' : ''}`, role: 'listitem' }, what);
+    });
+    return fold(`timeline-${m.id}`, `Last fight · ${steps.length} step${steps.length === 1 ? '' : 's'}${down ? ' · disabled' : ''}`, [
+      explain('timeline', 'Each time the program switched to another instruction: when, what it did and the hull then. Tap one to edit it.'),
+      h('div', { class: 'st-steps', role: 'list', 'aria-label': `${m.name}'s last fight` }, rows)]);
+  }
+
+  // Trying the program out (game/squad.js TEST_FIGHTS): each fight on paper and what the member
+  // would do in it, the instruction a tap away. Folded under the program.
+  const ACT_WORD = { attack: 'Attacks', guard: 'Guards', retreat: 'Retreats', use: 'Uses its kit on', follow: 'Follows the leader' };
+  function testBench(m) {
+    if (!ctx.squad.test || !m.program.length) return null;
+    const rows = ctx.squad.test(m.id).map((r) => {
+      const what = r.line >= 0 ? `${r.line + 1}. ${ACT_WORD[r.act] || r.act}${r.on && r.act !== 'retreat' ? ` ${r.on}` : ''}` : 'No instruction applies: follows the leader';
+      const parts = [h('span', { class: 'name' }, r.name), h('span', { class: `res${r.line < 0 ? ' idle' : ''}` }, what)];
+      return r.line >= 0
+        ? h('button', { class: 'st-test', type: 'button', role: 'listitem', onclick: () => showLine(m.id, r.line), 'aria-label': `${r.name}: ${what}. Edit instruction ${r.line + 1}` }, parts)
+        : h('div', { class: 'st-test', role: 'listitem' }, parts);
+    });
+    return fold(`test-${m.id}`, 'Try it out', [
+      explain('test', 'Fights set up on paper, and what this wingman would do in each with its program as it is.'),
+      h('div', { class: 'st-steps', role: 'list', 'aria-label': `${m.name}'s program, tried out` }, rows)]);
+  }
+
+  // The squad: each member, its status, and its program.
   function renderSquad() {
     const members = ctx.squad ? ctx.squad.members : [];
+    // Each member: its name, one status word and its program (its hull and gear are on the Ship
+    // tab, a tap away).
+    lead('');
     return [
-      titleRow('Squad', `${members.length} member${members.length === 1 ? '' : 's'}`),
-      members.length ? h('p', { class: 'ui-note' }, 'Your wingmen check their instructions from the top and follow the first one that applies; if none does, they keep formation with you. Tap an instruction to change it. In combat they show the instruction they are running as code.') : null,
+      members.length ? explain('squad', 'Your wingmen check their instructions from the top and follow the first one that applies; if none does, they keep formation with you. Tap an instruction to change it. In combat they show the instruction they are running as code.') : null,
       members.length ? members.map((m) => {
         const st = Squad.stats(m);
         const k = m.disabled ? 0 : m.hullPoints / st.hull;
-        const slots = Loadout.slots(m.loadout), gear = slots.filter((s) => s.item);
-        const best = Math.max(0, ...gear.map((s) => s.item.tier)); // its best gear's Mk
+        const status = m.disabled ? ['Disabled', 'var(--hostile)'] : k < 1 ? ['Damaged', 'var(--warn)'] : ['Intact', 'var(--good)'];
         return section(m.name,
-          h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND', tier: best }),
-            h('span', { class: 'main' },
-              h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), best ? Kit.mk(best) : null),
-              h('span', { class: 'sub' }, `Android ${Loadout.HULLS[m.hull].name.toLowerCase()} · ${gear.length}/${slots.length} slots fitted`)),
-            m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : null),
-          h('div', { class: 'st-hull' }, Kit.icon('hull', 24, { code: 'HUL' }),
-            h('div', { class: 'gauge' },
-              h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
-              Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' }))),
-          programBlock(m));
+          h('div', { class: 'st-member' }, Kit.icon('android', 40, { code: 'AND' }),
+            h('span', { class: 'main' }, h('span', { class: 'line' }, h('span', { class: 'name' }, m.name), Kit.tag(...status))),
+            Kit.button('Ship', () => { pick('ship'); showShip(m.id); }, { kind: 'ghost', aria: `${m.name}'s ship and gear` })),
+          programBlock(m), testBench(m), fightLog(m));
       }) : h('p', { class: 'ui-empty' }, 'No squad members yet.'),
     ];
   }
@@ -826,7 +944,7 @@ const StationMenu = (() => {
           : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
         field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
-        d.act === 'use' ? field('Ability', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Ability' }),
+        d.act === 'use' ? field('Kit', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Kit' }),
           h('p', { class: 'ui-note' }, `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
       ],
       foot: [
@@ -841,21 +959,36 @@ const StationMenu = (() => {
   // ---------- Sheets ----------
 
   function sheetOptions() {
-    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode) : openOrder ? industryView.sheet(openOrder) : null;
+    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode)
+      : openOrder ? industryView.sheet(openOrder) : openYard && ctx.shipyard ? yardSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = null; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = openNews = null; openYard = false; refresh(); } });
   }
   function closeSheet() {
-    openSlot = openMission = openLine = openNode = openOrder = null;
+    openSlot = openMission = openLine = openNode = openOrder = openNews = null;
+    openYard = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
   function showMission(id) { closeSheet(); openMission = id; briefAll = false; refresh(); openSheet(); }
   function showNode(id) { closeSheet(); openNode = id; refresh(); openSheet(); }
   function showOrder(open) { closeSheet(); openOrder = { ...open }; refresh(); openSheet(); }
+  // Since you last docked: research done and goods made, in one sheet on docking, each a way to
+  // the screen it concerns.
+  function newsSheet() {
+    const go = (name) => () => { closeSheet(); pick(name); };
+    return {
+      title: 'Since you last docked', sub: `${openNews.length} finished`, code: 'IND',
+      body: h('div', { class: 'ui-list' }, openNews.map((n) => h('button', { class: 'ui-card compact', type: 'button', onclick: go(n.tab) },
+        h('span', { class: 'main' }, h('span', { class: 'title' }, n.text)),
+        h('span', { class: 'go', 'aria-hidden': 'true' }, '›')))),
+      foot: Kit.button('Done', () => closeSheet(), { wide: true, kind: 'ghost' }),
+    };
+  }
+  function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;
@@ -881,15 +1014,21 @@ const StationMenu = (() => {
     const lock = locks();
     if (lock.tabs.includes(tab)) tab = firstOpen();
     renderHeader();
+    if (tab === 'research' && ctx.lab && ctx.lab.state && Array.isArray(ctx.lab.state.done) && ctx.lab.state.done.length !== researchSeen) {
+      researchSeen = ctx.lab.state.done.length;
+      Store.setJSON('researchSeen', researchSeen);
+    }
     for (const t of tabs) {
-      const on = t.dataset.tab === tab, locked = lock.tabs.includes(t.dataset.tab);
+      const name = t.dataset.tab;
+      const on = name === barTab(tab), locked = name === 'industry' ? INDUSTRY.every((x) => lock.tabs.includes(x)) : lock.tabs.includes(name);
       t.setAttribute('aria-selected', String(on));
       t.tabIndex = on ? 0 : -1;
       t.disabled = locked;
-      t.title = locked ? lock.reason : TABS[t.dataset.tab].label;
+      t.title = locked ? lock.reason : TABS[name].label;
     }
     // Something to hand in here, or a story mission offered (every station always has jobs posted).
-    missionDot.hidden = !missions().some((m) => m.here && (m.status === 'ready' || (m.status === 'offered' && !m.tier)));
+    if (tabDots.missions) tabDots.missions.hidden = !missions().some((m) => m.here && (m.status === 'ready' || (m.status === 'offered' && !m.tier)));
+    if (tabDots.industry) tabDots.industry.hidden = !industryWaiting();
     const launch = el('st-launch');
     launch.disabled = !!lock.launch;
     launch.title = lock.launch || '';
@@ -897,7 +1036,10 @@ const StationMenu = (() => {
     note.textContent = lock.launch || '';
     note.hidden = !lock.launch;
     const scroll = body.scrollTop;
-    body.replaceChildren(...RENDER[tab]().flat(Infinity).filter(Boolean)); // optional parts are null when absent
+    leadText = '';
+    folded = false;
+    const content = RENDER[tab]().flat(Infinity).filter(Boolean); // optional parts are null when absent
+    body.replaceChildren(...[leadLine(), ...content].filter(Boolean));
     body.scrollTop = scroll;
     if (sheet) {
       const o = sheetOptions();
@@ -906,27 +1048,34 @@ const StationMenu = (() => {
     }
   }
 
+  // The station reopens on the tab last used (saved), unless the flight view asks for another.
+  let lastTab = Store.get('stationTab', 'trade');
   function pick(name) {
+    if (name === 'industry-bar') name = isLocked(industrySub) ? INDUSTRY.find((x) => !isLocked(x)) || industrySub : industrySub;
     if (isLocked(name)) return;
     closeSheet();
     tab = name;
-    openStat = openHold = openHull = openKit = null;
+    if (INDUSTRY.includes(name)) industrySub = name;
+    lastTab = name;
+    Store.set('stationTab', name);
+    infoOpen = false;
+    openStat = openHull = openKit = null;
     research.reset();
     industryView.reset();
     body.scrollTop = 0;
     refresh();
   }
   for (const t of tabs) {
-    t.addEventListener('click', () => pick(t.dataset.tab));
+    t.addEventListener('click', () => pick(t.dataset.tab === 'industry' ? 'industry-bar' : t.dataset.tab));
     // Arrow keys move between the tabs that can be opened.
     t.addEventListener('keydown', (e) => {
       if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
       let i = tabs.indexOf(t);
       for (let k = 0; k < tabs.length; k++) {
         i = (i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length;
-        if (!isLocked(tabs[i].dataset.tab)) break;
+        if (!tabs[i].disabled) break;
       }
-      pick(tabs[i].dataset.tab);
+      pick(tabs[i].dataset.tab === 'industry' ? 'industry-bar' : tabs[i].dataset.tab);
       tabs[i].focus();
     });
   }
@@ -949,19 +1098,24 @@ const StationMenu = (() => {
   }
 
   return {
-    // options.tab: the tab to open on (Trade if not given, or the first that isn't locked).
+    // options.tab: the tab to open on (if not given, the last one used; the first that isn't
+    // locked if that one is).
     open(options) {
       ctx = options;
-      tab = options.tab || 'trade';
+      tab = options.tab || lastTab || 'trade';
+      if (INDUSTRY.includes(tab)) industrySub = tab;
+      seenThisDock.clear();
+      infoOpen = false;
       viewing = null;
       closeSheet();
-      openStat = openHold = openHull = openKit = null;
+      openStat = openHull = openKit = null;
       research.reset();
       doneOpen = false;
       root.hidden = false;
       body.scrollTop = 0;
       refresh();
       ((locks().launch && tabs.find((t) => t.dataset.tab === tab)) || el('st-launch')).focus({ preventScroll: true });
+      if (options.news && options.news.length && !isLocked(tab)) { openNews = options.news; openSheet(); }
       clearInterval(ticker);
       ticker = setInterval(tick, 1000);
       ticker.unref?.(); // (in Node, the tests: don't keep the process alive)
