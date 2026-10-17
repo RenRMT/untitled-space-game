@@ -20,7 +20,7 @@
 //   Entities.fighter({ key, art, x, y, orbit, speed, a0, tier }) -> a hostile fighter circling (x, y)
 //   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly,
 //                                          except one marked a pirate too)
-//   Entities.stationSubtitle(station)
+//   Entities.stationSubtitle(station)    what it is and who owns it
 // ES module (`Entities`); also runs in Node (the tests). Drawing and the
 // colours need art/render.js, art/bodies.js and core/theme.js, so only the factories work in Node.
 
@@ -30,6 +30,7 @@ import { Art } from '../art/render.js';
 import { Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
+import { Factions } from '../world/factions.js';
 
 const Entities = (() => {
   const ArtItemsRef = ArtItems;
@@ -61,10 +62,13 @@ const Entities = (() => {
   const isHostile = (e) => e.kind === 'ship' && !!e.pirate;
 
   const MARKET_LABEL = { capital: 'Capital station', major: 'Station', minor: 'Station' };
+  // What it is, and whose (world/factions.js): "Capital station · shipyard · Meridian Compact".
   function stationSubtitle(st) {
-    if (st.market.kind === 'outpost') return st.market.type[0].toUpperCase() + st.market.type.slice(1);
+    const owner = Factions.get((st.station || st).owner);
+    const whose = owner ? ` · ${owner.name}` : '';
+    if (st.market.kind === 'outpost') return st.market.type[0].toUpperCase() + st.market.type.slice(1) + whose;
     const type = MARKET_LABEL[st.market.type] || 'Station';
-    return ['capital', 'major'].includes(st.market.type) ? `${type} · shipyard` : type;
+    return (['capital', 'major'].includes(st.market.type) ? `${type} · shipyard` : type) + whose;
   }
 
   const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };

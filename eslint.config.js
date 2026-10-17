@@ -14,7 +14,7 @@ export default [
     },
   },
   {
-    files: ['tests/**/*.js', 'eslint.config.js'],
+    files: ['tests/**/*.js', 'tools/**/*.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
     rules: { 'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }] },
   },

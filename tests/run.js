@@ -9,6 +9,8 @@ import { Security } from '../src/world/security.js';
 import { SYSTEM_CONFIG } from '../src/world/system-config.js';
 import { SolarSystem } from '../src/world/solar-system.js';
 import { Galaxy } from '../src/world/galaxy.js';
+import { Factions } from '../src/world/factions.js';
+import { Regions } from '../src/world/regions.js';
 import { ArtUtil } from '../src/art/util.js';
 import { ArtCulture } from '../src/art/culture.js';
 import { ArtBlueprints } from '../src/art/blueprints.js';
@@ -80,23 +82,52 @@ test('generation is deterministic', () => {
 
 // ---------- The galaxy ----------
 
-test('two systems far apart, the first the tutorial, the second half the usual size, joined by a pair of gates', () => {
+test('systems far apart joined by gates, grown from the capital by region; the tutorial on the rim with one gate', () => {
   const gap = Galaxy.params.gap;
   // About five minutes' flight between the edges at the starter Courier's top speed.
   assert(Math.abs(gap / Loadout.stats(Loadout.starter('courier')).maxSpeed - 300) < 1, `gap ${gap}`);
+  const sizes = new Set();
   for (const [seed, g] of galaxies) {
     const where = `seed ${seed}`;
     const [a, b] = g.systems;
-    assert.strictEqual(g.systems.length, 2, where);
+    sizes.add(g.systems.length);
+    g.systems.forEach((s, i) => assert.strictEqual(s.index, i, `${where}: system ${i}`));
     assert.deepStrictEqual([a.origin.x, a.origin.y, a.star.x, a.star.y], [0, 0, 0, 0], `${where}: the first system is at the origin`);
+    assert.deepStrictEqual(g.systems.map((s) => s.region.key).slice(0, 2), ['tutorial', 'gateway'], where);
     assert.strictEqual(b.radius, SolarSystem.params.radius / 2, `${where}: the second is half the usual size`);
     assert(Math.abs(dist(a.origin, b.origin) - a.radius - b.radius - gap) < 1e-6, `${where}: systems ${dist(a.origin, b.origin)} apart`);
-    assert.strictEqual(g.systemAt(b.star.x, b.star.y), b);
+    // Every region as planned, one capital, and every system at least `gap` from every other.
+    for (const [key, [lo, hi]] of Galaxy.params.plan) {
+      const n = g.systems.filter((s) => s.region.key === key).length;
+      assert(n >= lo && n <= hi, `${where}: ${n} ${key} systems`);
+    }
+    assert.strictEqual(g.systems.filter((s) => s.region.key === 'capital').length, 1, `${where}: one capital system`);
+    for (const s of g.systems) {
+      assert.strictEqual(g.systemAt(s.star.x, s.star.y), s);
+      for (const o of g.systems) if (o.index > s.index) assert(dist(s.origin, o.origin) - s.radius - o.radius >= gap - 1e-6, `${where}: ${s.name} and ${o.name} too close`);
+    }
     const mid = { x: (a.origin.x + b.origin.x) / 2, y: (a.origin.y + b.origin.y) / 2 };
     assert.strictEqual(g.systemAt(mid.x, mid.y), null, `${where}: deep space between them`);
     assert.strictEqual(g.securityAt(mid.x, mid.y), 0);
-    // One gate each, linked to the other, in the outer system toward the other system.
-    assert.strictEqual(g.gates.length, 2, `${where}: gates`);
+    // Links: each pair once, between regions that route to each other; the tutorial's only one
+    // to the gateway; every system reachable through the gates.
+    const keyOf = (i) => g.systems[i].region.key;
+    assert.strictEqual(new Set(g.links.map(([i, j]) => `${i}-${j}`)).size, g.links.length, `${where}: a link twice`);
+    for (const [i, j] of g.links) {
+      assert(i < j && j < g.systems.length, `${where}: link ${i}-${j}`);
+      const [p, q] = [keyOf(i), keyOf(j)];
+      const grew = Regions.REGIONS[p].parents.includes(q) || Regions.REGIONS[q].parents.includes(p) || Regions.linkChance(p, q) > 0 || (i === 0 && j === 1);
+      assert(grew, `${where}: a ${p} system linked to a ${q} one`);
+    }
+    assert.deepStrictEqual(g.links.filter((l) => l.includes(0)), [[0, 1]], `${where}: the tutorial's links`);
+    const reached = new Set([0]);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const [i, j] of g.links) if (reached.has(i) !== reached.has(j)) { reached.add(i); reached.add(j); grew = true; }
+    }
+    assert.strictEqual(reached.size, g.systems.length, `${where}: systems no gate reaches`);
+    // One gate each end of every link, in the outer system toward the other system.
+    assert.strictEqual(g.gates.length, g.links.length * 2, `${where}: gates`);
     for (const gate of g.gates) {
       const home = g.systems[gate.system], there = g.gates[gate.link];
       assert(there.link === gate.id && there.system === gate.to && gate.system === there.to, `${where}: gate link`);
@@ -108,6 +139,7 @@ test('two systems far apart, the first the tutorial, the second half the usual s
       assert.strictEqual(gate.name, `${g.systems[gate.to].name} Gate`);
       for (const st of home.stations) assert(dist(st, gate) > 2000, `${where}: ${gate.name} by ${st.name}`);
       for (const k of home.packs) assert(dist(k, gate) > Security.PACK.clear, `${where}: pirates at ${gate.name}`);
+      for (const o of home.gates) if (o !== gate) assert(dist(o, gate) > 4000, `${where}: ${gate.name} by ${o.name}`);
     }
     // The second system: everything inside its edge, a capital and some stations to dock at.
     for (const o of [...b.planets, ...b.stations, ...b.asteroids, ...b.wrecks]) assert(dist(o, b.origin) < b.radius, `${where}: ${o.name || o.key} outside the second system`);
@@ -117,10 +149,29 @@ test('two systems far apart, the first the tutorial, the second half the usual s
     for (const st of b.stations) assert.strictEqual(g.securityAt(st.x, st.y), 3, `${where}: ${st.name} is not high security`);
     // Lists together, every id an index into them, every reference to the right system.
     for (const k of ['planets', 'moons', 'stations', 'packs', 'gates']) g[k].forEach((o, i) => assert.strictEqual(o.id, i, `${where}: ${k} ${i}`));
-    for (const m of b.moons) assert(g.planets[m.parent].moons.includes(m.id) && g.planets[m.parent].system === 1, `${where}: moon ${m.name}'s planet`);
-    for (const st of b.stations) if (st.planet !== undefined) assert.strictEqual(g.planets[st.planet].system, 1, `${where}: ${st.name}'s planet`);
-    for (const c of b.contacts) if (c.pack !== undefined) assert.strictEqual(g.packs[c.pack].system, 1, `${where}: ${c.id}'s pack`);
-    assert.strictEqual(g.stations.length, a.stations.length + b.stations.length);
+    for (const m of g.moons) assert(g.planets[m.parent].moons.includes(m.id) && g.planets[m.parent].system === m.system, `${where}: moon ${m.name}'s planet`);
+    for (const st of g.stations) if (st.planet !== undefined) assert.strictEqual(g.planets[st.planet].system, st.system, `${where}: ${st.name}'s planet`);
+    for (const c of g.contacts) if (c.pack !== undefined) assert.strictEqual(g.packs[c.pack].system, c.system, `${where}: ${c.id}'s pack`);
+    assert.strictEqual(g.stations.length, g.systems.reduce((n, s) => n + s.stations.length, 0));
+    for (const k of ['stations', 'asteroids', 'wrecks', 'gates', 'pockets']) assert.strictEqual(new Set(g[k].map((o) => o.key)).size, g[k].length, `${where}: ${k} keys`);
+  }
+  assert(sizes.size > 2, 'galaxies of different sizes');
+});
+
+test('the tutorial system is the one the seed always gave, whatever the rest of the galaxy', () => {
+  // Generated on its own from the seed, as before the galaxy grew: the same star, planet, belt,
+  // nebula, waystation and gate, and the gateway in the same direction.
+  const G = Galaxy.params;
+  const strip = (s) => JSON.parse(layout({ ...s, region: undefined, holder: undefined, branch: undefined, factions: undefined, situations: undefined, index: undefined }), (k, v) => (['system', 'link', 'owner'].includes(k) ? undefined : v));
+  for (const seed of [1, 2, 7, 'abc', 'Untitled']) {
+    const a0 = mulberry32(hashInt(seedToInt(seed), 0, 0x6a1a))() * Math.PI * 2, d = G.tutorial.radius + G.gap + G.gateway.radius;
+    const alone = SolarSystem.generate(seed, {
+      params: { ...SolarSystem.params, ...G.tutorial }, origin: { x: 0, y: 0 }, gates: [{ to: 1, angle: Math.atan2(Math.sin(a0) * d, Math.cos(a0) * d) }],
+      waystation: { name: G.waystation.name, opposite: true },
+    });
+    const t = galaxies.get(seed).systems[0];
+    const gate = { ...strip(t).gates[0], name: alone.gates[0].name };
+    assert.deepStrictEqual({ ...strip(t), gates: [gate] }, strip(alone), `seed ${seed}`);
   }
 });
 
@@ -211,6 +262,90 @@ test('stations orbit planets in all three cultures, with bases out in space; the
   }
 });
 
+// ---------- Factions and the politics of each system ----------
+
+test('sixteen factions, each with its six points, and the standing matrix of notes/factions.md', () => {
+  assert.strictEqual(Factions.LIST.length, 16);
+  assert.strictEqual(new Set(Factions.LIST.map((f) => f.id)).size, 16);
+  for (const f of Factions.LIST) {
+    for (const k of ['name', 'abbr', 'law', 'territory', 'ideals', 'drive', 'concern', 'color']) assert(typeof f[k] === 'string' && f[k].length, `${f.id}: ${k}`);
+    assert(['power', 'breakaway', 'raiders', 'guild', 'neutral', 'hidden'].includes(f.kind), `${f.id}: ${f.kind}`);
+    if (f.kind === 'breakaway') assert(Factions.hostile(f.id, f.of), `${f.id} is not hostile to ${f.of}`);
+  }
+  assert.strictEqual(Factions.MATRIX.length, 16);
+  Factions.MATRIX.forEach((row, i) => {
+    assert.strictEqual(row.length, 16, `row ${i}`);
+    assert.strictEqual(row[i], 0, `row ${i}: itself`);
+    for (const v of row) assert(v === null || (Number.isInteger(v) && v >= -5 && v <= 5), `row ${i}: ${v}`);
+  });
+  // Enforced neutrality: the Registry holds everyone at 0 and everyone holds it at 0, but the Remainder.
+  for (const f of Factions.LIST) {
+    assert.strictEqual(Factions.standing('registry', f.id), 0, f.id);
+    assert.strictEqual(Factions.standing(f.id, 'registry'), f.id === 'remainder' ? -5 : 0, f.id);
+  }
+  // The hidden androids and the Thren are unknown to every human faction.
+  for (const f of Factions.LIST.filter((x) => !['registry', 'remainder', 'thren', 'facet', 'pirates', 'unfaceted'].includes(x.id))) {
+    assert.strictEqual(Factions.standing(f.id, 'remainder'), null, f.id);
+    assert.strictEqual(Factions.standing(f.id, 'thren'), null, f.id);
+  }
+  // The hostile pairs at the start, and no others.
+  const pairs = [['compact', 'brokenWheel'], ['compact', 'pirates'], ['combines', 'scorched'], ['combines', 'pirates'], ['union', 'blackline'], ['scorched', 'blackline'],
+    ['freeClaim', 'blackline'], ['freeClaim', 'pirates'], ['facet', 'unfaceted'], ['remainder', 'registry'], ['remainder', 'combines'], ['remainder', 'breakers']];
+  const key = (a, b) => [a, b].sort().join('/');
+  const found = [];
+  for (const a of Factions.LIST) for (const b of Factions.LIST) if (a.id < b.id && Factions.hostile(a.id, b.id)) found.push(key(a.id, b.id));
+  assert.deepStrictEqual(found.sort(), pairs.map(([a, b]) => key(a, b)).sort());
+  // Hostile pairs are hostile both ways where both know of the other, but for the Registry, whose
+  // neutrality holds even towards the Remainder.
+  for (const [a, b] of pairs) if (Factions.standing(b, a) !== null && b !== 'registry') assert(Factions.standing(a, b) <= -4 && Factions.standing(b, a) <= -4, `${a} and ${b}`);
+});
+
+test('each system has its region, holder, factions, stations owned to match and a situation with mission hooks', () => {
+  const seen = new Set();
+  for (const [seed, g] of galaxies) {
+    for (const s of g.systems) {
+      const where = `seed ${seed}: ${s.name}`, R = Regions.REGIONS[s.region.key];
+      assert(R && s.region.label === R.label, where);
+      assert.strictEqual(s.holder, R.holder, where);
+      const here = new Set(s.factions.map((f) => f.id));
+      assert.strictEqual(here.size, s.factions.length, `${where}: a faction twice`);
+      for (const f of s.factions) assert(Factions.get(f.id) && f.hidden === Factions.get(f.id).hidden, `${where}: ${f.id}`);
+      if (s.holder) assert.strictEqual(s.factions[0].id, s.holder, `${where}: the holder first`);
+      assert.strictEqual(s.branch !== null, s.region.key === 'combine', `${where}: branch`);
+      // Stations: the capital the holder's, the yard the Breakers', a waystation the Registry's;
+      // a station of a faction with a culture is built in it, gates in the holder's.
+      for (const st of s.stations) {
+        assert(Factions.get(st.owner), `${where}: ${st.name} owned by ${st.owner}`);
+        assert(here.has(st.owner), `${where}: ${st.name}'s owner isn't here`);
+        if (st.market.type === 'capital') assert.strictEqual(st.owner, s.holder, `${where}: ${st.name}`);
+        if (st.market.type === 'salvage yard') assert.strictEqual(st.owner, 'breakers', `${where}: ${st.name}`);
+        if (st.waystation) assert.strictEqual(st.owner, 'registry', `${where}: ${st.name}`);
+        if (s.index && Regions.CULTURE[st.owner] !== undefined) assert.strictEqual(st.culture, Regions.CULTURE[st.owner], `${where}: ${st.name}'s culture`);
+      }
+      if (s.index) for (const gate of s.gates) assert.strictEqual(gate.culture, Regions.CULTURE[s.holder] ?? R.build, `${where}: ${gate.name}'s culture`);
+      // One or two situations from its region, every name filled in, every hook from and
+      // against a faction that is here.
+      assert(s.situations.length >= 1 && s.situations.length <= 2, `${where}: ${s.situations.length} situations`);
+      for (const sit of s.situations) {
+        const def = s.index ? Regions.SITUATIONS.find((x) => x.id === sit.id) : Regions.TUTORIAL;
+        assert(def && (!s.index || def.regions.includes(s.region.key)), `${where}: ${sit.id}`);
+        seen.add(sit.id);
+        assert(sit.title && sit.text && !/[{}]/.test(sit.text), `${where}: ${sit.id}: ${sit.text}`);
+        assert(sit.hooks.length >= 2, `${where}: ${sit.id} hooks`);
+        for (const h of sit.hooks) {
+          assert(!/[{}]/.test(h.text), `${where}: ${h.text}`);
+          for (const id of [h.from, h.against].filter(Boolean)) assert(here.has(id) && sit.factions.includes(id), `${where}: ${sit.id}: ${id} isn't here`);
+        }
+      }
+      if (s.index) assert.notStrictEqual(s.situations[0].id, s.situations[1]?.id, `${where}: the same situation twice`);
+    }
+    // The tutorial is the Registry's, its one station the waystation; the capital is the Compact's.
+    assert.deepStrictEqual([g.systems[0].holder, g.systems[0].situations[0].id], ['registry', 'balance'], `seed ${seed}`);
+  }
+  // Across the galaxies, every situation turns up somewhere.
+  for (const sit of Regions.SITUATIONS) assert(seen.has(sit.id), `${sit.id} never happens`);
+});
+
 test('the scene builds every system, filing everything where near() finds it', () => {
   for (const seed of [1, 2, 3, 'abc']) {
     const sc = sceneOf(seed), s = galaxies.get(seed);
@@ -218,14 +353,14 @@ test('the scene builds every system, filing everything where near() finds it', (
     assert.strictEqual(thingsOf(seed, 'asteroid').length, s.asteroids.length);
     assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length);
     assert.strictEqual(thingsOf(seed, 'moon').length, s.moons.length);
-    assert.strictEqual(thingsOf(seed, 'star').length, 2);
+    assert.strictEqual(thingsOf(seed, 'star').length, s.systems.length);
     assert.strictEqual(thingsOf(seed, 'gate').length, s.gates.length);
     assert.strictEqual(thingsOf(seed, 'nebula').length, s.nebulae.length);
     assert.strictEqual(thingsOf(seed, 'ship').length, s.packs.reduce((n, k) => n + k.ships.length, 0));
     // Whatever is within range of a point (by where it is or circles) is among what near() returns.
     const r = mulberry32(5);
     for (let i = 0; i < 30; i++) {
-      const home = s.systems[i % 2];
+      const home = s.systems[i % s.systems.length];
       const at = { x: home.origin.x + (r() - 0.5) * home.radius * 1.6, y: home.origin.y + (r() - 0.5) * home.radius * 1.6 }, range = 3000 + r() * 9000;
       const found = new Set(sc.near(at.x, at.y, range));
       for (const e of sc.entities) {
@@ -1655,7 +1790,13 @@ test('the first system has an android waystation alone on its outer edge, in a s
   for (const [seed, g] of galaxies) {
     const where = `seed ${seed}`, s = g.systems[0];
     const ways = g.stations.filter((st) => st.waystation);
-    assert.strictEqual(ways.length, 1, `${where}: one waystation`);
+    // Others are spread thin: at most one a system, the gateway's always, each with its own number.
+    assert.deepStrictEqual(s.stations.filter((st) => st.waystation).length, 1, `${where}: one waystation in the first system`);
+    for (const o of g.systems) assert(o.stations.filter((st) => st.waystation).length <= 1, `${where}: waystations in ${o.name}`);
+    assert.strictEqual(g.systems[1].stations.find((st) => st.waystation).name, 'Waystation HD-1908', where);
+    assert.strictEqual(new Set(ways.map((st) => st.name)).size, ways.length, `${where}: waystation numbers`);
+    assert(ways.length < (g.systems.length * 2) / 3, `${where}: ${ways.length} waystations`);
+    for (const o of ways) assert(o.culture === SolarSystem.ANDROID && o.owner === 'registry', `${where}: ${o.name}`);
     const w = ways[0];
     assert.strictEqual(g.stations[g.waystation], w);
     assert.strictEqual(w.system, 0, `${where}: in the first system`);
@@ -1671,7 +1812,7 @@ test('the first system has an android waystation alone on its outer edge, in a s
     for (const k of g.packs) assert(dist(k, w) > 6000, `${where}: pirates by the waystation`);
     assert.ok(Economy.market(g.seed, w).goods.some((x) => x.buy !== null), `${where}: something for sale`);
     // Every other station is built by humans; gates and wrecks too.
-    for (const o of [...g.stations.filter((x) => x !== w), ...g.gates, ...g.wrecks]) assert(o.culture < SolarSystem.SETTLED, `${where}: ${o.key}`);
+    for (const o of [...g.stations.filter((x) => !x.waystation), ...g.gates, ...g.wrecks]) assert(o.culture < SolarSystem.SETTLED, `${where}: ${o.key}`);
   }
   // Built in the androids' culture, the same one squad members are; pirates borrow only from humans.
   const g = galaxies.get(1), c = ArtCulture.forGalaxy(g);
