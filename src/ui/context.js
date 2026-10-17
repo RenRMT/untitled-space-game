@@ -14,6 +14,7 @@
 //   ContextCard.onClose = () => ...      the close button was pressed
 // ES module (`ContextCard`); needs a browser.
 
+import { Theme } from '../core/theme.js';
 import { Glyphs } from './glyphs.js';
 import { UI } from './ui.js';
 
@@ -84,10 +85,13 @@ const ContextCard = (() => {
   // The details centred above the thing, the buttons on an arc below it, all kept on screen. A thing
   // off the screen (or too near its edge for all that) has its menu at the edge nearest it, as if
   // it were a point there.
-  function place(x0, y0, r0) {
-    anchor = { x: x0, y: y0, r: r0 };
+  function place(sx, sy, sr) {
+    anchor = { x: sx, y: sy, r: sr };
     if (!view.shown) return;
-    const W = window.innerWidth, H = window.innerHeight;
+    // The card is zoomed by the text size setting (index.html), so it works in its own, zoomed, px.
+    const k = Theme.scale;
+    const x0 = sx / k, y0 = sy / k, r0 = sr / k;
+    const W = window.innerWidth / k, H = window.innerHeight / k;
     const clampX = (v, w) => Math.max(EDGE, Math.min(W - EDGE - w, v));
     const clampY = (v, h) => Math.max(EDGE, Math.min(H - EDGE - h, v));
     const iw = infoEl.offsetWidth || 0, ih = infoEl.offsetHeight || 0;

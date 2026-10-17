@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { CombatCore } from '../combat/combat-core.js';
+import { Feedback } from '../core/feedback.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { mulberry32 } from '../core/rng.js';
 import { COLORS, Theme } from '../core/theme.js';
@@ -48,6 +49,7 @@ import { world } from './world.js';
 export const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 export const RESPAWN_GRACE = 8;
 export const SHOT_COLOR = { player: COLORS.cyan, ally: '#5ad8ff', enemy: COLORS.hostile };
+Theme.onPalette(() => { SHOT_COLOR.enemy = COLORS.hostile; });
 export const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
 // Where a combatant is: the player ship, a wingman, or an enemy's pose.
@@ -110,12 +112,13 @@ export function engage(target, ambushed = false) {
   // mission) a named android.
   const attackers = target.android ? `${target.name} attacks!` : `${target.crew || 'Pirates'} attack!`;
   fight.log = [ambushed ? attackers : `You engage the ${names[0]}.`];
+  fight.lowHull = false;
   fight.result = null;
   stopMining();
   autopilot.key = null;
   select(null);
   setMode('in-combat', true);
-  notify(ambushed ? attackers : 'Combat');
+  notify(ambushed ? attackers : 'Combat', 2, { priority: 2, tone: 'hostile' });
 }
 
 // A pirate flying into range joins a fight under way (in modes where ships can join).
@@ -162,6 +165,7 @@ export function playEvents(s, events) {
     fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: hit, t: look.shield, max: look.shield, at: ev.to });
     if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
+    if (ev.to === 'player' && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => Feedback.emit('hit', { hull: ev.hullDamage > 0 }) });
     if (look.sum) { if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0); }
     else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${ev.damage}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
     else fight.fx.push({ type: 'number', delay: hit, t: 0.8, max: 0.8, at: ev.to, jx: jitter(), text: 'miss', color: COLORS.dim });
@@ -175,6 +179,13 @@ export function playEvents(s, events) {
     }
   }
   fight.log = fightMode().log(s, events, fight.log);
+  // What the player feels: the guns locking on, the shields failing, the hull getting low (once a fight).
+  const me = s.player;
+  for (const ev of events) {
+    if (ev.type === 'locked') Feedback.emit('locked');
+    if (ev.type === 'shot' && ev.to === 'player' && ev.shieldDamage > 0 && me.shield <= 0) Feedback.emit('shields-down');
+  }
+  if (me && !fight.lowHull && me.hull > 0 && me.hull < me.stats.hull / 3) { fight.lowHull = true; Feedback.emit('low-hull'); }
 }
 
 // Damage numbers that add up: hits on a ship in quick succession show as one growing number.
@@ -217,6 +228,7 @@ export function shipDestroyed(key) {
 // The player ship destroyed: the cargo spills, and after a moment it's towed home.
 export function playerDestroyed() {
   explode(ship.x, ship.y, SHIP.radius * 2);
+  Feedback.emit('destroyed');
   const tag = Date.now().toString(36);
   cargo.items.forEach((it, i) => {
     const a = Math.random() * TAU, r = 30 + Math.random() * 90;
@@ -243,7 +255,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
-  notify(`Ship destroyed · towed to ${home ? home.name : startStation().name}`, 4);
+  notify(`Ship destroyed · towed to ${home ? home.name : startStation().name}`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
 
@@ -266,8 +278,8 @@ export function endFight(result) {
   } else {
     setMode('in-combat', false);
   }
-  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5); }
-  else if (result === 'won') notify('Victory', 2.5);
+  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5, { priority: 2 }); }
+  else if (result === 'won') { notify('Victory', 2.5, { priority: 2, tone: 'good' }); Feedback.emit('won'); }
   saveCargo();
 }
 

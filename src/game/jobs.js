@@ -171,7 +171,7 @@ export function tickJobs(dt) {
       if (s.type === 'go' && open) {
         s.points.forEach((p, k) => {
           if (p.station || Math.hypot(ship.x - p.x, ship.y - p.y) >= Jobs.REACH) return;
-          if (reachPoint(J, i, k)) { changed = true; notify(`Reached · ${p.name}`, 2.5); }
+          if (reachPoint(J, i, k)) { changed = true; notify(`Reached · ${p.name}`, 2.5, { priority: 1 }); }
         });
       } else if (s.type === 'fight' || s.type === 'take' || s.type === 'gas') {
         changed = L.set(id, o, stepKeys(J, i).filter((k) => cargo.removed.has(k)).length) || changed;
@@ -214,7 +214,7 @@ function rushIn(J, i) {
     if (!rushReady(J.steps[i])) return;
     const a = Math.random() * TAU;
     jobRun.centre.set(k, { x: ship.x + Math.cos(a) * RUSH.arrive, y: ship.y + Math.sin(a) * RUSH.arrive });
-    notify(`Contacts inbound · ${(Jobs.CREWS[J.steps[i].wave.crew] || Jobs.CREWS.pirates).label.toLowerCase()}`, 2.5);
+    notify(`Contacts inbound · ${(Jobs.CREWS[J.steps[i].wave.crew] || Jobs.CREWS.pirates).label.toLowerCase()}`, 2.5, { priority: 2, tone: 'hostile' });
   }
   const list = things(J, i), due = list.find((e) => !cargo.removed.has(e.key) && !fight.dying.has(e.key));
   if (!due) return;

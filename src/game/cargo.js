@@ -419,7 +419,7 @@ export function collectItems(list, dt = 0) {
     }
     const component = Goods.isSalvage(e.itemKind);
     if (!component && hold.free < 1) {
-      notify('Cargo hold full', 2.5, { once: true }); // and leave it floating
+      notify('Hold full', 2.5, { once: true, tone: 'warn' }); // and leave it floating
       continue;
     }
     if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);

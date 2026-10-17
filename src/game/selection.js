@@ -4,7 +4,7 @@
 
 import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
-import { COLORS } from '../core/theme.js';
+import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
 import { packOf } from './combat.js';
@@ -24,7 +24,8 @@ import { world } from './world.js';
 // selection (and, in Cruise mode, stops the ship as before).
 export const TAP_SLOP = 26; // CSS px of forgiveness around a tap target
 export const SELECT_COLOR = COLORS.cyan;
-export const HOSTILE_COLOR = COLORS.hostile;
+export let HOSTILE_COLOR = COLORS.hostile;
+Theme.onPalette(() => { HOSTILE_COLOR = COLORS.hostile; }); // the colour-safe palette changes it
 export let selected = null; // { key, e }: the selected entity, found again by key every frame
 export let frameList = []; // the entities posed last frame, for hit-testing taps
 

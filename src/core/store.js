@@ -8,6 +8,8 @@
 //   Store.set(key, value), Store.remove(key)
 //   Store.getJSON(key, fallback), Store.setJSON(key, value)
 //   Store.choice(key, options, fallback) a saved choice among options; ?key= overrides it
+//   Store.dump() -> { key: value }, Store.load(data) -> ok   everything saved, for a backup file
+//   Store.persist()                      ask the browser not to clear saved data under storage pressure
 // ES module (`Params`, `Store`); also runs in Node, where nothing is saved.
 
 const Params = (() => {
@@ -58,7 +60,28 @@ const Store = (() => {
     const saved = get(key);
     return options.includes(saved) ? saved : fallback;
   }
-  return { get, set, remove, getJSON, setJSON, choice };
+  // Everything saved, as { key: string }, for a backup file; and putting a backup back, replacing
+  // what's there. load() returns whether it could write.
+  function dump() {
+    const out = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); out[k] = localStorage.getItem(k); } } catch (e) { /* storage unavailable */ }
+    return out;
+  }
+  function load(data) {
+    try {
+      localStorage.clear();
+      for (const [k, v] of Object.entries(data)) if (typeof v === 'string') localStorage.setItem(k, v);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  // Ask the browser to keep saved data even when the device runs short of space (granted silently
+  // or not at all in Chromium, asked in Firefox). Best asked after something the player did.
+  function persist() {
+    try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* no storage API */ }
+  }
+  return { get, set, remove, getJSON, setJSON, choice, dump, load, persist };
 })();
 
 export { Params, Store };

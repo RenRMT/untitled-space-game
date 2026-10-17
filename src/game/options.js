@@ -8,11 +8,14 @@ import { Art } from '../art/render.js';
 import { ArtUtil } from '../art/util.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Combat } from '../combat/combat.js';
+import { Feedback } from '../core/feedback.js';
 import { Store } from '../core/store.js';
+import { Theme } from '../core/theme.js';
 import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
+import { Security } from '../world/security.js';
 import { actions, docked } from './docking.js';
-import { drag } from './input.js';
+import { drag, showHints } from './input.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
 import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
@@ -50,11 +53,66 @@ export function chooseSetting(key, value) {
   if (SETTINGS[key]) SETTINGS[key].set(value);
 }
 
+// Accessibility (Settings' Accessibility group): text size, palette, flashes and motion, haptics.
+// Each is applied at once and on load (applyAccess).
+export const TEXT_SIZES = ['100', '115', '130'];
+export const textSize = setting('textsize', TEXT_SIZES, '100', () => applyAccess());
+export const PALETTES = ['standard', 'safe'];
+export const palette = setting('palette', PALETTES, 'standard', () => applyAccess());
+const prefersReduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+export const MOTIONS = ['full', 'reduce'];
+export const motion = setting('motion', MOTIONS, prefersReduced ? 'reduce' : 'full', () => applyAccess());
+export const HAPTICS = ['on', 'off'];
+export const haptics = setting('haptics', HAPTICS, 'on');
+// The security levels' colours in each palette (world/security.js), lawless to high.
+const SECURITY_COLORS = {
+  standard: ['#ff5a6e', '#ff9d5c', '#ffcf5a', '#b6ff8a'],
+  safe: ['#ff4fd8', '#ff9a3d', '#ffd84a', '#7fd0ff'],
+};
+export function applyAccess() {
+  const k = Number(textSize.value) / 100;
+  Theme.setScale(k);
+  Theme.setPalette(palette.value);
+  Security.LEVELS.forEach((l, i) => { l.color = SECURITY_COLORS[palette.value][i]; });
+  const root = document.documentElement;
+  root.style.setProperty('--ui-scale', String(k));
+  root.setAttribute('data-palette', palette.value);
+  root.setAttribute('data-motion', motion.value);
+  Art.clearCache(); // sprites drawn in the old colours
+  invalidate();
+}
+export const reducedMotion = () => motion.value === 'reduce';
+
+// What a vibration says, per game event (core/feedback.js): short for small things, longer and
+// broken up for warnings. Hits are kept to one buzz in HIT_GAP seconds, so a burst of fire isn't
+// one long rattle.
+export const BUZZ = {
+  hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10],
+};
+const HIT_GAP = 0.15;
+let lastHit = 0;
+function buzz(event, detail) {
+  if (haptics.value !== 'on') return;
+  if (event === 'hit') {
+    const now = performance.now() / 1000;
+    if (now - lastHit < HIT_GAP) return;
+    lastHit = now;
+    Feedback.vibrate(BUZZ[detail.hull ? 'hit-hull' : 'hit']);
+  } else if (BUZZ[event]) Feedback.vibrate(BUZZ[event]);
+}
+
 export const ART_HINT = {
   line: 'Neon outlines on the dark.',
   pixel: 'Coarse pixels with dithered shading.',
   flat: 'Solid fills with a simple rim shadow.',
   lowpoly: 'Faceted shapes with flat lighting.',
+};
+
+// The controls, as the Controls section of Settings lists them (and the flight hints show them).
+export const CONTROLS = {
+  cruise: ['Drag anywhere to fly: the direction you drag is your heading, its length your speed.', 'You keep going when you let go; double-tap empty space to stop.', 'Tap a station, asteroid or ship for what you can do with it.'],
+  direct: ['Hold and drag to fly: the direction you drag is your heading, its length your speed.', 'Let go to brake to a stop.', 'Tap a station, asteroid or ship for what you can do with it.'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
@@ -109,6 +167,44 @@ export function init() {
     ],
     get: () => combatMode.value, set: (v) => combatMode.set(v),
   });
+  Settings.add({
+    id: 'controls', label: 'Controls', group: 'Help',
+    note: () => CONTROLS[moveMode.value].join(' '),
+    action: { label: 'Show hints in flight', run: showHints },
+  });
+  Settings.add({
+    id: 'textsize', label: 'Text size', group: 'Accessibility',
+    choices: TEXT_SIZES.map((v) => ({ value: v, label: `${v}%`, hint: v === '100' ? 'The standard size.' : 'Text, buttons and panels are drawn larger.' })),
+    get: () => textSize.value, set: (v) => textSize.set(v),
+  });
+  Settings.add({
+    id: 'palette', label: 'Colours', group: 'Accessibility',
+    choices: [
+      { value: 'standard', label: 'Standard', hint: 'Red for hostile, green for good.' },
+      { value: 'safe', label: 'Colour-safe', hint: 'Magenta for hostile, pale yellow for good, blue for high security: told apart without red and green.' },
+    ],
+    get: () => palette.value, set: (v) => palette.set(v),
+  });
+  Settings.add({
+    id: 'motion', label: 'Flashes and motion', group: 'Accessibility',
+    choices: [
+      { value: 'full', label: 'Full', hint: 'Gate jumps and a lost ship white out the screen; panels slide in.' },
+      { value: 'reduce', label: 'Reduced', hint: 'A soft fade instead of white-outs, and no sliding panels.' },
+    ],
+    get: () => motion.value, set: (v) => motion.set(v),
+  });
+  if (Feedback.canVibrate) {
+    Settings.add({
+      id: 'haptics', label: 'Vibration', group: 'Accessibility',
+      choices: [
+        { value: 'on', label: 'On', hint: 'A short buzz when you are hit, locked on or low on hull.' },
+        { value: 'off', label: 'Off', hint: 'No vibration.' },
+      ],
+      get: () => haptics.value, set: (v) => { haptics.set(v); if (v === 'on') Feedback.vibrate(BUZZ.locked); },
+    });
+  }
+  Feedback.on(buzz);
+  applyAccess();
   settingsBtn.addEventListener('click', () => { if (!inFight() && !docked && !intro.on) Settings.open(); });
   Settings.onToggle = (open) => {
     setMode('settings', open); // no map on top of the menu

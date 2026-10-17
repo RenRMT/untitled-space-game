@@ -168,7 +168,7 @@ export function checkMarker() {
   const m = SystemMap.marker;
   if (!m || Math.hypot(m.x - ship.x, m.y - ship.y) > MARKER_REACH + ((m.ref && m.ref.r) || 0)) return;
   SystemMap.marker = null;
-  notify(m.name ? `Reached your marker: ${m.name}` : 'Reached your marker', 3);
+  notify(m.name ? `Reached your marker: ${m.name}` : 'Reached your marker', 3, { priority: 1 });
 }
 
 // The station whose edge marker is under a tap, if any.
@@ -308,7 +308,7 @@ export function drawHud() {
   ctx.fillStyle = COLORS.hud;
   ctx.globalAlpha = 0.85;
   ctx.fillText(`SPD ${String(Math.round(speed)).padStart(3, ' ')}`, pad, y - 12);
-  if (cargo.items.length) ctx.fillText(`CARGO ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
+  if (cargo.items.length) ctx.fillText(`HOLD ${cargo.items.length}/${SHIP.cargo}`, pad + 84, y - 12);
   if (cargo.hull < SHIP.hull) { // damage shows until it's repaired at a station
     ctx.fillStyle = cargo.hull < SHIP.hull * 0.35 ? COLORS.hostile : COLORS.flame;
     ctx.fillText(`HULL ${Math.ceil(cargo.hull)}/${SHIP.hull}`, pad + 180, y - 12);

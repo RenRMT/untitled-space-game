@@ -191,7 +191,7 @@ export function wingDisabled(id) {
   m.disabled = true;
   m.hullPoints = 0;
   if (w) explode(w.x, w.y, w.radius);
-  notify(`${m.name} disabled · repaired at the next dock`, 3);
+  notify(`${m.name} disabled · repaired at the next dock`, 3, { priority: 2, tone: 'warn' });
   saveCargo();
 }
 

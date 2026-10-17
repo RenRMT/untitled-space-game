@@ -12,6 +12,8 @@ import { warp } from './warp.js';
 export const DEADZONE = 8;
 export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
 export let interacted = false;
+// Bring the flight hints back (Settings' Controls): they show until the next touch on space.
+export function showHints() { interacted = false; }
 
 // While a finger is down, how much of the screen the panels cover stays as it was when the drag
 // began: a fight's panel or a message that pops up mid-drag doesn't reframe the camera or move the

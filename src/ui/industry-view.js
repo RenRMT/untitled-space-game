@@ -308,11 +308,11 @@ const IndustryView = {
     }
 
     // What to make here, grouped by what comes out, recycling last.
-    const GROUPS = ['Refined goods', 'Advanced goods', 'Parts', 'Gear', 'Mods', 'Consumables', 'Recycling'];
+    const GROUPS = ['Refined goods', 'Advanced goods', 'Parts', 'Gear', 'Mods', 'Kit', 'Recycling'];
     function groupOf(R) {
       if (R.id.startsWith('recycle.')) return 'Recycling';
       const it = Recipes.item(Object.keys(R.out)[0]);
-      return { gear: 'Gear', mod: 'Mods', consumable: 'Consumables' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
+      return { gear: 'Gear', mod: 'Mods', consumable: 'Kit' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
     }
     function orderSheet(open) {
       const stage = ind().stage(), B = Recipes.BAYS[stage], here = ind().here;

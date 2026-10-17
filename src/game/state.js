@@ -7,8 +7,9 @@ import { MathUtil } from '../core/math.js';
 import { Flight } from '../flight/flight.js';
 import { Loadout } from '../rules/loadout.js';
 import { SystemMap } from '../ui/map.js';
+import { Messages } from '../ui/messages.js';
 import { invalidate } from './loop.js';
-import { COMBAT } from './options.js';
+import { COMBAT, reducedMotion } from './options.js';
 
 export const canvas = document.getElementById('game');
 export const ctx = canvas.getContext('2d', { alpha: false }); // every frame starts with an opaque fill
@@ -69,15 +70,18 @@ export const inFight = () => !!fight.s || fight.wreckT > 0;
 export const fightMode = () => COMBAT[fight.mode];
 export const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
 export let flash = 0; // white-out when the wrecked ship is towed home or jumps through a gate, fading from 1
-export function whiteOut() { flash = 0.8; }
+// Reduced motion (Settings): a soft fade rather than a white-out.
+export function whiteOut() { flash = reducedMotion() ? 0.22 : 0.8; }
 export function fadeFlash(dt) { flash = Math.max(0, flash - dt * 1.8); }
-export const toast = { text: '', t: 0 }; // short centre-screen notice, fading out
-// Show a notice for t seconds. once: leave the same notice alone while it's still showing, so
-// something checked every frame doesn't keep restarting it.
-export const notify = (text, t = 2, { once = false } = {}) => {
+export const toast = { text: '', t: 0 }; // the latest notice and how long it has left (the tests read it)
+// Show a notice for t seconds, through the one message queue (ui/messages.js). once: leave the same
+// notice alone while it's still showing, so something checked every frame doesn't keep restarting
+// it. priority: 0 information, 1 a mission's progress, 2 combat; tone: 'info' | 'good' | 'warn' | 'hostile'.
+export const notify = (text, t = 2, { once = false, priority = 0, tone = 'info' } = {}) => {
   if (once && toast.text === text && toast.t >= 0.5) return;
   toast.text = text;
   toast.t = t;
+  Messages.push(text, { time: t, priority, tone });
 };
 // What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'settings'. Each sets the
 // body class of the same name (index.html hides controls by it); the map can't open during any of

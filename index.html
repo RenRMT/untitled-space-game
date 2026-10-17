@@ -5,9 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#05060a">
 <title>Untitled Space Game</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<!-- Installable as a home-screen app: full screen, and its saved data is no longer cleared after a
+     week away (Safari clears a site's storage after seven days without a visit). -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Space Game">
+<!-- The two fonts, served with the game (assets/fonts, declared in kit.css). -->
+<link rel="preload" href="assets/fonts/barlow-semi-condensed-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <!-- The UI kit: colour tokens, type and the components every panel is built from (src/ui/kit.js). -->
 <link href="src/ui/kit.css" rel="stylesheet">
 <style>
@@ -119,9 +128,10 @@
   .cx-tag { font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
   .cx-tag.hostile { color: var(--hostile); }
   .cx-tag.good { color: var(--good); }
+  /* Drawn 28 px, but a full touch target: the button overhangs the card by its margins. */
   .cx-close {
-    width: 28px; height: 28px; flex: none; display: grid; place-items: center;
-    font: 400 20px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -4px -2px -4px 0;
+    width: var(--hit); height: var(--hit); flex: none; display: grid; place-items: center;
+    font: 400 20px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -12px -10px -12px -8px;
     cursor: pointer; touch-action: manipulation;
   }
   .cx-close:hover, .cx-close:focus-visible { color: var(--cyan); outline: none; }
@@ -264,12 +274,12 @@
     border: 0; background: transparent; color: var(--cyan); font: 400 28px/1 var(--sans); cursor: pointer;
   }
   .st-switch-btn:hover { background: var(--cyan-tint); }
-  .st-switch-btn:focus-visible, .st-switch .dot:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+  .st-switch-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
   .st-switch .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; }
   .st-switch .who { font: 600 14px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
   .st-switch .who .num { font: 400 12px var(--mono); letter-spacing: 0; color: var(--dim); }
   .st-switch .dots { display: flex; gap: 2px; }
-  .st-switch .dot { width: 18px; height: 14px; padding: 0; border: 0; background: transparent; cursor: pointer; display: grid; place-items: center; }
+  .st-switch .dot { width: 12px; height: 10px; display: grid; place-items: center; } /* where you are among the ships; the arrows step */
   .st-switch .dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
   .st-switch .dot[aria-current="true"]::after { background: var(--cyan); }
 
@@ -373,9 +383,10 @@
   .pr-node .where { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pr-node .what { font-size: 13px; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pr-node .st { font: 700 10px/1.4 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone); }
-  .pr-node .prio { position: absolute; right: calc(4% + 4px); bottom: 8px; display: flex; align-items: center; gap: 2px; }
+  .pr-node .prio { position: absolute; right: calc(4% + 4px); bottom: 8px; display: flex; align-items: center; gap: 8px; }
   .pr-node .prio .num { font-size: 11px; color: var(--dim); margin-right: 2px; }
-  .pr-node .prio .ar { width: 22px; height: 22px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--s2); color: var(--hud); font: 12px var(--mono); cursor: pointer; }
+  .pr-node .prio .ar { position: relative; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--s2); color: var(--hud); font: 12px var(--mono); cursor: pointer; }
+  .pr-node .prio .ar::after { content: ''; position: absolute; inset: -7px -4px; } /* a 44 px touch target round the drawn button */
   .pr-node .prio .ar:hover { color: var(--cyan); border-color: var(--cyan); }
   .pr-node.gap { border-style: dashed; border-color: var(--warn); background: transparent; }
   .pr-node.gap .main { cursor: default; }
@@ -406,7 +417,7 @@
     .pr-node { height: auto; min-height: 64px; }
     .pr-node .main { padding-bottom: 6px; }
     .pr-node .prio { right: 6px; top: 6px; bottom: auto; }
-    .pr-node .where { padding-right: 84px; }
+    .pr-node .where { padding-right: 104px; }
     .pr-feeds { display: flex; padding: 0 8px 6px; }
   }
   .st-left { font-size: 12px; color: var(--hud); }
@@ -455,6 +466,15 @@
   .seg .btn[aria-checked="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
   .seg .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .set-hint { margin: 8px 0 0; font-size: 14px; color: var(--hud); }
+  /* A folding heading for a group of options (Accessibility, Help). */
+  .set-fold {
+    display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: var(--hit); margin-top: 8px; padding: 0;
+    background: none; border: 0; border-top: 1px solid var(--line-soft); color: var(--dim); cursor: pointer;
+    font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .set-fold[aria-expanded="true"] { color: var(--bright); }
+  .set-fold:hover, .set-fold:focus-visible { color: var(--cyan); outline: none; }
+  .set-fold + .set-group { border-top: 0; margin-top: 0; }
   .set-note { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
   .set-note.locked { color: var(--warn); }
 
@@ -483,8 +503,8 @@
   .cm-head { display: flex; align-items: center; gap: 8px; }
   .cm-from { flex: 1; min-width: 0; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--from); }
   .cm-skip {
-    min-height: 32px; font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
-    background: none; border: 0; padding: 0 4px; margin: -8px -4px -8px 0; cursor: pointer; pointer-events: auto;
+    min-height: var(--hit); font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
+    background: none; border: 0; padding: 0 8px; margin: -14px -8px -14px 0; cursor: pointer; pointer-events: auto;
   }
   .cm-skip:hover, .cm-skip:focus-visible { color: var(--cyan); outline: none; }
   .cm-skip[hidden] { display: none; }
@@ -502,6 +522,38 @@
      corner buttons on a narrow screen; the context menu waits until they're done. */
   body.talking #context, body.talking #map-btn, body.talking #settings-btn { display: none; }
   body.warping #context, body.warping #map-btn, body.warping #settings-btn { display: none; } /* a gate jump (game/warp.js) */
+
+  /* Text size (Settings > Accessibility): the DOM panels are zoomed by --ui-scale (1, 1.15, 1.3; set
+     on <html> by game/options.js). A zoomed element's own lengths are zoomed too, so positions and
+     sizes measured against the screen are divided by the scale to stay where they were. */
+  :root { --ui-scale: 1; }
+  #station { zoom: var(--ui-scale); inset: 0 auto auto 0; width: calc(100vw / var(--ui-scale)); height: calc(100dvh / var(--ui-scale)); }
+  #station .ui-sheet { left: calc(50vw / var(--ui-scale)); width: min(560px, calc(100vw / var(--ui-scale))); max-height: calc(80dvh / var(--ui-scale)); }
+  #station .ui-sheet.tall { height: calc(88dvh / var(--ui-scale)); }
+  #station .ui-scrim { inset: 0 auto auto 0; width: calc(100vw / var(--ui-scale)); height: calc(100dvh / var(--ui-scale)); }
+  .set-panel { zoom: var(--ui-scale); width: min(420px, calc((100vw - 32px) / var(--ui-scale))); max-height: calc((100dvh - 32px) / var(--ui-scale)); }
+  #comms { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); width: min(560px, calc((100vw - 24px) / var(--ui-scale)));
+    bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+  #comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+  .panel { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((60px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+  #combat { width: min(380px, calc((100vw - 24px) / var(--ui-scale))); }
+  .ui-messages { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); width: min(440px, calc((100vw - 32px) / var(--ui-scale)));
+    top: calc((env(safe-area-inset-top, 0px) + max(96px, 18vh)) / var(--ui-scale)); }
+  body.docked .ui-messages { top: auto; bottom: calc((84px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); width: min(528px, calc((100vw - 32px) / var(--ui-scale))); }
+  .icon-btn { zoom: var(--ui-scale); bottom: calc((12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+  #map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
+  #settings-btn { right: calc((12px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
+  #context { zoom: var(--ui-scale); }
+  #map-overlay .bar { zoom: var(--ui-scale); right: auto; width: calc(100vw / var(--ui-scale)); box-sizing: border-box; }
+  #map-overlay .bottom { bottom: 0; }
+  #map-prompt { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((80px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); width: min(340px, calc((100vw - 24px) / var(--ui-scale))); }
+
+  /* Colour-safe palette (Settings > Accessibility): hostile magenta, good pale yellow, so the two are
+     told apart without red and green (core/theme.js swaps the canvas colours to match). */
+  :root[data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
+
+  /* Reduced motion (Settings, or the system's own setting by default): nothing slides or animates. */
+  :root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation: none !important; transition: none !important; }
 </style>
 </head>
 <body>
@@ -530,7 +582,7 @@
     <button class="btn cb-btn" type="button"></button>
   </div>
   <div class="cb-track" aria-hidden="true"><span class="cb-timer"></span></div>
-  <div class="cb-abil" role="group" aria-label="Abilities" hidden></div>
+  <div class="cb-abil" role="group" aria-label="Kit" hidden></div>
   <div class="cb-rows"></div>
   <div class="cb-log"></div>
 </div>

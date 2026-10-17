@@ -166,7 +166,7 @@ const StationMenu = (() => {
     return [
       titleRow('Trade', `${hold.items.length}/${hold.capacity} hold`),
       h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null })),
-      full ? Kit.callout('Your hold is full. Sell cargo to make room.', 'var(--warn)') : null,
+      full ? Kit.callout('Your hold is full. Sell goods to make room.', 'var(--warn)') : null,
       groups.length ? groups : h('p', { class: 'ui-empty' }, 'Nothing for sale here.'),
       carried.length ? section('Also in your hold', Kit.head('Also in your hold', h('span', { class: 'aside' }, 'not sold here')),
         h('div', { class: 'ui-list' }, carried.map((g) => goodRow(g, full)))) : null,
@@ -366,7 +366,7 @@ const StationMenu = (() => {
     const items = Abilities.LIST.filter((a) => kit[a.id] > 0).map((a) => ({ id: a.id, icon: Kit.icon(a.code, 32, { code: a.code }), name: a.name, count: kit[a.id], units: a.note }));
     return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used in a fight')),
       items.length ? Kit.itemTiles(items, openKit, (id) => { openKit = id; refresh(); })
-        : h('p', { class: 'ui-empty' }, 'No consumables. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
+        : h('p', { class: 'ui-empty' }, 'Empty. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
   }
 
   // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half. Android
@@ -390,7 +390,7 @@ const StationMenu = (() => {
   const HULL_METRICS = [
     { code: 'WPN', label: 'Weapon slots', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
     { code: 'HUL', label: 'Hull', get: (s) => s.hull, fmt: String, fmtDiff: String },
-    { code: 'CRG', label: 'Cargo', get: (s) => s.cargo, fmt: String, fmtDiff: String },
+    { code: 'CRG', label: 'Hold', get: (s) => s.cargo, fmt: String, fmtDiff: String },
     { code: 'HND', label: 'Handling', get: (s) => s.handling, fmt: (v) => `×${v}`, fmtDiff: (v) => `${r2(v)}` },
   ];
   function renderShipyard() {
@@ -429,7 +429,7 @@ const StationMenu = (() => {
       { id: 'aim', code: 'AIM', label: 'Accuracy', value: pct(ship.accuracy), detail: `Hit chance, weighed against the target's evasion. Locks on in ${r2(ship.lockTime)} s.`, from: fromItem('computer') },
       { id: 'sns', code: 'SNS', label: 'Sensors', value: Format.dist(ship.sensorRange), detail: `Identifies at ${Format.dist(ship.sensorRange)} · pings at ${Format.dist(ship.pingRange)} · locks at ${Format.dist(ship.lockRange)}.`, from: fromItem('scanner') },
       { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s` : '—', detail: ship.miningRate ? 'Seconds to mine an asteroid.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: no mining.', from: fromItem('computer') },
-      { id: 'crg', code: 'CRG', label: 'Cargo', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
+      { id: 'crg', code: 'CRG', label: 'Hold', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
     ];
   }
 
@@ -474,10 +474,7 @@ const StationMenu = (() => {
       arrow(-1, '‹'),
       h('span', { class: 'mid' },
         h('span', { class: 'who', 'aria-live': 'polite' }, m ? m.name : 'Your ship', h('span', { class: 'num' }, ` ${at + 1}/${views.length}`)),
-        h('span', { class: 'dots' }, views.map((id, i) => h('button', {
-          class: 'dot', type: 'button', 'aria-current': i === at ? 'true' : undefined, 'aria-label': `Show ${nameOf(id)}`, title: nameOf(id),
-          onclick: () => showShip(id),
-        })))),
+        h('span', { class: 'dots', 'aria-hidden': 'true' }, views.map((id, i) => h('span', { class: 'dot', 'aria-current': i === at ? 'true' : undefined })))),
       arrow(1, '›'));
   }
 
@@ -826,7 +823,7 @@ const StationMenu = (() => {
           : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
         field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
-        d.act === 'use' ? field('Ability', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Ability' }),
+        d.act === 'use' ? field('Kit', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Kit' }),
           h('p', { class: 'ui-note' }, `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
       ],
       foot: [

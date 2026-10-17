@@ -2,8 +2,15 @@
 // use the same values as CSS variables in the UI kit (src/ui/kit.css; named in the comments); keep
 // the two in step. Colours only one view uses stay with that view.
 //
-//   Theme.color.cyan, ...         hex strings
-//   Theme.font(13)                "13px 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"
+//   Theme.color.cyan, ...         hex strings (the current palette's)
+//   Theme.font(13)                "13px 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace",
+//                                 scaled by the text size setting
+//   Theme.scale                   the text size setting as a factor (1, 1.15, 1.3)
+//   Theme.setScale(k)
+//   Theme.setPalette(id)          'standard' | 'safe': colours told apart without red–green (the
+//                                 colour-safe palette swaps hostile, good and the security levels'
+//                                 colours; kit.css does the same under html[data-palette="safe"])
+//   Theme.onPalette(fn)           called after the palette changes (things that copied a colour)
 // ES module (`Theme`).
 
 const Theme = (() => {
@@ -25,9 +32,30 @@ const Theme = (() => {
     marker: '#d49bff', // the player's own marker (set on the map)
     planet: '#8ab4ff',
   };
+  // The colour-safe palette: hostile and good differ in hue and lightness for every common kind of
+  // colour blindness (magenta against yellow-white), the amber warning stays orange.
+  const PALETTES = {
+    standard: { hostile: '#ff5a6e', good: '#b6ff8a', flame: '#ffb347' },
+    safe: { hostile: '#ff4fd8', good: '#f4f0a0', flame: '#ff9a3d' },
+  };
+  const listeners = [];
+  let palette = 'standard';
+  function setPalette(id) {
+    if (!PALETTES[id] || id === palette) return;
+    palette = id;
+    Object.assign(color, PALETTES[id]);
+    for (const fn of listeners) fn(id);
+  }
   const mono = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"; // --mono
-  const font = (px) => `${px}px ${mono}`;
-  return { color, mono, font };
+  const theme = {
+    color, mono, PALETTES, setPalette,
+    get palette() { return palette; },
+    onPalette: (fn) => listeners.push(fn),
+    scale: 1,
+    setScale(k) { theme.scale = k; },
+    font: (px) => `${Math.round(px * theme.scale * 10) / 10}px ${mono}`,
+  };
+  return theme;
 })();
 const COLORS = Theme.color; // the flight view's name for them
 

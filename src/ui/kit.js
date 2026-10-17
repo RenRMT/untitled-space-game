@@ -49,6 +49,7 @@
 // ES module (`Kit`); needs a browser.
 
 import { Glyphs } from './glyphs.js';
+import { Messages } from './messages.js';
 import { UI } from './ui.js';
 
 const Kit = (() => {
@@ -270,16 +271,8 @@ const Kit = (() => {
   }
 
   // ---------- Toast ----------
-  let toastEl = null, toastTimer = null;
-  function toast(text, tone = 'good') {
-    toastEl ||= document.body.appendChild(h('div', { class: 'ui-toast ui', role: 'status', 'aria-live': 'polite', hidden: true }));
-    toastEl.textContent = text;
-    toastEl.style.setProperty('--tone', `var(--${tone})`);
-    toastEl.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastEl.hidden = true; }, 2400);
-    return toastEl;
-  }
+  // A short notice, through the one message queue (ui/messages.js).
+  const toast = (text, tone = 'good') => Messages.push(text, { tone, now: true });
 
   // ---------- Code ----------
   const code = (lines, { label } = {}) => h('div', { class: 'ui-code', role: 'list', 'aria-label': label }, lines);

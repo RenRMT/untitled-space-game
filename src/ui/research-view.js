@@ -143,7 +143,7 @@ const ResearchView = {
       const stats = [
         { id: 'mem', code: 'MEM', label: 'Program lines', value: `${lines}/${Squad.MAX_LINES}`, detail: 'Lines of each squad member\'s program that run.', from: from((p) => p.lines) },
         { id: 'hul', code: 'HUL', label: 'Hull', value: `+${pct(u.hull)}`, detail: 'Added to the hull of every ship you fly.', from: from((p) => p.upgrade?.hull) },
-        { id: 'crg', code: 'CRG', label: 'Cargo', value: `+${pct(u.cargo)}`, detail: 'Added to the hold of every ship you fly.', from: from((p) => p.upgrade?.cargo) },
+        { id: 'crg', code: 'CRG', label: 'Hold', value: `+${pct(u.cargo)}`, detail: 'Added to the hold of every ship you fly.', from: from((p) => p.upgrade?.cargo) },
         { id: 'wpn', code: 'WPN', label: 'Hardpoints', value: `+${u.weapons}`, detail: `Weapon slots added to every hull (${Loadout.MAX_WEAPONS} at most).`, from: from((p) => p.upgrade?.weapons) },
         { id: 'blu', code: 'BLU', label: 'Blueprints', value: `${done.filter((id) => Research.PACKAGES[id]?.kind === 'blueprint').length}/${Research.LIST.filter((p) => p.kind === 'blueprint').length}`, detail: 'Gear an assembler can make, beyond Mk I.', from: 'Research, and schematics recovered from pirates' },
         { id: 'que', code: 'QUE', label: 'Queue', value: `${Research.queueMax(lab().state)}`, detail: 'Packages that can wait behind the one building.', from: from((p) => p.industry?.queue) },
@@ -175,7 +175,7 @@ const ResearchView = {
     // What a hull refit does to the ship as it is: without it, then with it.
     const SHIP_METRICS = [
       { code: 'HUL', label: 'Hull', get: (s) => s.hull, fmt: String, fmtDiff: String },
-      { code: 'CRG', label: 'Cargo', get: (s) => s.cargo, fmt: String, fmtDiff: String },
+      { code: 'CRG', label: 'Hold', get: (s) => s.cargo, fmt: String, fmtDiff: String },
       { code: 'WPN', label: 'Weapon slots', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
     ];
     function shipChange(id) {
