@@ -1111,6 +1111,52 @@ test('markets: raw and refined goods are stocked, parts less often, the rarest p
   assert(rate('raw') > rate('part') && rate('refined') > rate('part'), JSON.stringify(stocked));
 });
 
+test('markets: stockpiles move prices, run out, and drift back to rest', () => {
+  const seed = 7, H = Economy.config.halfLife, T = 1e12;
+  const st = { key: 'st-camp', market: { kind: 'outpost', type: 'mining camp' } };
+  const rest = Economy.market(seed, st);
+  const good = (m, kind) => m.goods.find((g) => g.kind === kind);
+  // An untouched state is the seeded market.
+  assert.deepStrictEqual(Economy.market(seed, st, Economy.empty(), T), rest);
+  const ore = rest.goods.find((g) => g.buy !== null && g.produced && g.rarity === 1);
+  assert(ore.produced && ore.stock > ore.target, 'a camp rests above target in what it produces');
+  // Selling a lot drives the price down, unit by unit, and never below the clamp.
+  const state = Economy.empty();
+  let last = ore.sell;
+  for (let i = 0; i < 2000; i++) {
+    Economy.trade(state, seed, st, ore.kind, 1, T);
+    const now = good(Economy.market(seed, st, state, T), ore.kind).sell;
+    assert(now <= last, `sell price rose after unit ${i}: ${last} -> ${now}`);
+    last = now;
+  }
+  assert(last < ore.sell * 0.5, `the price only fell to ${last} from ${ore.sell}`);
+  const floor = Goods.type(ore.kind).price * Economy.config.clamp[0] * (1 - Economy.config.spread);
+  assert(last >= Math.round(floor) - 1, `below the clamp: ${last}`);
+  // Half the push is gone after a half-life, and almost all after many.
+  const pushed = good(Economy.market(seed, st, state, T), ore.kind).stock - ore.stock;
+  const half = good(Economy.market(seed, st, state, T + H), ore.kind).stock - ore.stock;
+  assert(Math.abs(half - pushed / 2) < 1e-6, `${half} is not half of ${pushed}`);
+  assert(Math.abs(good(Economy.market(seed, st, state, T + 20 * H), ore.kind).sell - ore.sell) <= 1, 'back at its usual price');
+  // Buying empties the stockpile; then it's sold out, and buying it up raised the price.
+  const buys = Economy.empty();
+  for (let i = 0; i < ore.left; i++) Economy.trade(buys, seed, st, ore.kind, -1, T);
+  const out = good(Economy.market(seed, st, buys, T), ore.kind);
+  assert.strictEqual(out.left, 0, 'sold out');
+  assert(out.buy > ore.buy * 3, `an empty stockpile is dear: ${out.buy} vs ${ore.buy}`);
+  // A round trip never pays: what a unit sells back for is less than it cost.
+  const rt = Economy.empty();
+  const cost = good(Economy.market(seed, st, rt, T), ore.kind).buy;
+  Economy.trade(rt, seed, st, ore.kind, -1, T);
+  assert(good(Economy.market(seed, st, rt, T), ore.kind).sell < cost);
+  // A stockpile back at rest is forgotten: by trading it back, or by pruning once settled.
+  Economy.trade(rt, seed, st, ore.kind, 1, T);
+  assert.deepStrictEqual(rt, {}, 'traded back to rest');
+  assert.deepStrictEqual(Economy.prune(state, T + 40 * H), {}, 'pruned');
+  // Saved state is checked: unknown goods, salvage and nonsense are dropped.
+  const read = Economy.read({ a: { [ore.kind]: { stock: 5, at: T }, nope: { stock: 1, at: T }, 'hull-simple': { stock: 1, at: T } }, b: { iron: { stock: NaN, at: T } }, c: 3 });
+  assert.deepStrictEqual(read, { a: { [ore.kind]: { stock: 5, at: T } } });
+});
+
 // Stations of each type, as the scene names them.
 const CAMP = { key: 'st-camp', name: 'Almar Camp', type: 'mining camp' };
 const PORT = { key: 'st-port', name: 'Rito Port', type: 'minor' };

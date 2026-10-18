@@ -1612,7 +1612,9 @@ test('docked: what finished since the last dock, Sell all, and a program tried o
   const credits = game('cargo.credits');
   pressOnStation('Sell all');
   assert.strictEqual(game('cargo.items.length'), 0, 'the hold sold');
-  assert.strictEqual(game('cargo.credits'), credits + 3 * game('__sellable.sell'));
+  // Each unit at the price the last left: no more than three at the first price.
+  const gained = game('cargo.credits') - credits, first = game('__sellable.sell');
+  assert.ok(gained <= 3 * first && gained >= 3 * first * 0.9, `Sell all made ${gained}, at ${first} each`);
   // The squad's program tried in fights on paper: one result per fight, the first instruction
   // that holds.
   const id = game('cargo.squad[0] && cargo.squad[0].id');
@@ -1650,6 +1652,27 @@ test('settings open and close', () => {
   browser.key('Escape');
   browser.frames(2);
   assert.ok(game('cargo.removed.has(__item.key)'), 'picked up once flight resumes');
+});
+
+test('selling drives a station\'s price down, and it recovers on the clock, saved', () => {
+  game(`globalThis.__T = 1e12; Clock.now = () => __T; globalThis.__mk = marketAt(__startStation());
+    globalThis.__g = __mk.goods.find((g) => g.buy !== null && g.rarity === 1);
+    cargo.items = []; for (let i = 0; i < 60; i++) cargo.items.push({ kind: __g.kind, label: 'x', category: 'trade' });`);
+  const price = () => game('__mk.good(__g.kind).sell');
+  const first = price();
+  for (let i = 0; i < 60; i++) assert.ok(game('__mk.sell(__g.kind)'));
+  const low = price();
+  assert.ok(low < first, `the price fell: ${first} -> ${low}`);
+  assert.ok(game('__mk.good(__g.kind).left') > game('__g.left'), 'the stockpile grew');
+  game('saveCargoNow(); loadCargo(world.galaxy); globalThis.__mk = marketAt(__startStation())');
+  assert.strictEqual(price(), low, 'the stockpile is saved');
+  game('__T += 10 * Economy.config.halfLife');
+  assert.ok(Math.abs(price() - first) <= 1, `recovered: ${price()} vs ${first}`);
+  // Buying it out: sold out, and Buy refuses.
+  game(`cargo.credits = 1e9; cargo.items = []; for (let i = 0; i < 1000 && __mk.good(__g.kind).left > 0; i++) { if (!__mk.buy(__g.kind)) cargo.items = []; }`);
+  assert.strictEqual(game('__mk.good(__g.kind).left'), 0, 'sold out');
+  assert.ok(!game('__mk.buy(__g.kind)'), 'nothing left to buy');
+  game('cargo.items = []; cargo.market = Economy.empty(); Clock.now = () => Date.now(); saveCargoNow()');
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {
