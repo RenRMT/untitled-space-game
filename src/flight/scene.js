@@ -126,7 +126,7 @@ const Scene = (() => {
     // tier: their gear (rules/loadout.js); pack: which pack a ship belongs to.
     for (const k of galaxy.packs) {
       for (const s of k.ships) {
-        const art = ArtBlueprints.create('fighter', cultures.pirates, s.seed);
+        const art = ArtBlueprints.create(Entities.fighterClass(k.tier, s.seed), cultures.pirates, s.seed);
         add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id }, k.x, k.y);
       }
     }

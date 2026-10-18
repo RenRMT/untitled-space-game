@@ -4,7 +4,8 @@
 // Parts and marks are listed in draw order (a mark before a part is hidden by it).
 //
 //   ArtCrew.create(seed, culture) -> portrait { seed, culture, pal, items, traits }  (ArtPortraits.draw)
-// ES module (`ArtCrew`); needs a browser. Project addition, not in the repo.
+// ES module (`ArtCrew`); needs a browser.
+//   ArtCrew.create(seed, culture, { classic }) — classic: the first human design, for comparison.
 
 import { ArtPortraits } from './portraits.js';
 import { ArtAndroids } from './androids.js';
@@ -29,13 +30,25 @@ const ArtCrew = (() => {
 
   // ---------- Humans ----------
 
-  function human(seed, c) {
+  // o.classic: the first version, kept for comparison. The default ("v2") pushes what still reads
+  // at small sizes: each culture's suit colour and silhouette (Wedge flight collar and epaulettes,
+  // Block broad hi-vis shoulders, Shard pale suit and tall collar flares), more head shapes, hair
+  // volumes and dyes, and slightly larger eyes and brows.
+  function human(seed, c, o = {}) {
     const { r, pick, items, P, M } = base(seed, 3);
+    const v2 = !o.classic;
     const kind = c.lineage === 'kitbash' ? 'drifter' : ['wedge', 'block', 'shard'].includes(c.lineage) ? c.lineage : 'wedge';
     const cp = c.pal, side = r() < 0.5 ? -1 : 1;
     const skin = pick(SKINS);
-    const hair = kind === 'shard' && r() < 0.45 ? pick(['#d8dbe6', '#e8e4f0', U.mix(cp.accent, '#ffffff', 0.35), '#2a2238']) : pick(HAIRS);
-    const suits = {
+    const hair = kind === 'shard' && r() < 0.45 ? pick(['#d8dbe6', '#e8e4f0', U.mix(cp.accent, '#ffffff', 0.35), '#2a2238'])
+      : v2 && kind === 'drifter' && r() < 0.3 ? pick(['#b8432e', '#2a9d8f', '#e9c46a', '#8e5ab8'])
+      : v2 && kind === 'wedge' && r() < 0.2 ? U.mix(pick(HAIRS), cp.accent, 0.25) : pick(HAIRS);
+    const suits = v2 ? {
+      wedge: [U.mix(cp.hull2, cp.accent, 0.5), U.shade(cp.hull2, 0.45), U.mix(cp.trim, '#ffffff', 0.15)],
+      block: [U.mix('#b8783a', cp.hull, 0.3), U.shade(U.mix('#6a4a2a', cp.hull2, 0.4), 0.8), '#e8c040'],
+      shard: [U.mix(cp.trim, '#e8e6f0', 0.45), U.mix(cp.panel, cp.accent, 0.35), cp.accent],
+      drifter: [pick(['#7a6040', '#4f6a58', '#7a4a3a', '#5a6070', '#7e6e50', '#4a5a78']), '#2e2a24', pick((c.donors || []).map((d) => d.pal.accent).concat(['#c8ad78']))],
+    }[kind] : {
       wedge: [U.mix(U.shade(cp.hull2, 0.8), cp.accent, 0.18), U.shade(cp.hull2, 0.5), cp.trim],
       block: [U.mix(cp.hull2, '#5a4a2e', 0.35), U.shade(cp.hull2, 0.55), cp.hull],
       shard: [U.shade(cp.hull2, 0.85), U.mix(cp.panel, cp.accent, 0.35), cp.trim],
@@ -53,14 +66,19 @@ const ArtCrew = (() => {
       scarf: pick(['#8a6a4a', '#5a6a5a', '#7a4a3a', '#6a6a7a', U.mix(cp.accent, '#5a5048', 0.4)]), pad: U.mix(donorPal.hull, '#7a7266', 0.3), patch: U.mix(donorPal.accent, '#6a6258', 0.35),
     };
 
-    let hw = 15.5 + r() * 2.5, hh = 20 + r() * 2.5, n = 2.2 + r() * 0.4, taper = 0.72 + r() * 0.12, tw = 36 + r() * 4;
+    let hw = v2 ? 14 + r() * 5 : 15.5 + r() * 2.5, hh = v2 ? 18.5 + r() * 5 : 20 + r() * 2.5, n = 2.2 + r() * 0.4, taper = (v2 ? 0.66 : 0.72) + r() * (v2 ? 0.24 : 0.12), tw = 36 + r() * 4;
     if (kind === 'shard') { hw -= 1.6; hh += 1.4; taper -= 0.08; n = 2; tw = 32 + r() * 3; }
-    if (kind === 'block') { hw += 1.4; n += 0.4; taper = Math.min(0.95, taper + 0.1); tw = 42 + r() * 4; }
+    if (kind === 'block') { hw += 1.4; n += 0.4; taper = Math.min(0.95, taper + 0.1); tw = v2 ? 46 + r() * 4 : 42 + r() * 4; }
     if (kind === 'drifter') tw = 36 + r() * 6;
     const hy = -12, eyeY = hy + hh * 0.06, eyeX = hw * 0.42, noseY = hy + hh * 0.34, mouthY = hy + hh * 0.6, mw = hw * (0.26 + r() * 0.08);
     const nw = hw * 0.46, hairY = hy - hh * (0.48 + r() * 0.14);
 
-    const hairStyles = {
+    const hairStyles = v2 ? {
+      wedge: ['crop', 'part', 'buzz', 'bun', 'tail', 'big', 'part'],
+      block: ['buzz', 'crop', 'shaved', 'big', 'long', 'buzz'],
+      shard: ['long', 'undercut', 'bun', 'tail', 'shaved', 'undercut'],
+      drifter: ['crop', 'long', 'part', 'buzz', 'shaved', 'bun', 'mohawk', 'big', 'tail'],
+    }[kind] : {
       wedge: ['crop', 'crop', 'part', 'buzz', 'bun', 'long'],
       block: ['buzz', 'crop', 'shaved', 'crop', 'long'],
       shard: ['long', 'undercut', 'undercut', 'bun', 'shaved'],
@@ -71,12 +89,14 @@ const ArtCrew = (() => {
     const stache = !beard && (kind === 'drifter' || kind === 'block') && r() < 0.35;
     let hat = 'none';
     if (kind === 'wedge') hat = pick(['none', 'none', 'headset', 'headset', 'cap']);
-    if (kind === 'block') hat = pick(['none', 'hardhat', 'hardhat', 'beanie', 'goggles']);
+    if (kind === 'block') hat = pick(v2 ? ['hardhat', 'hardhat', 'hardhat', 'beanie', 'goggles', 'none'] : ['none', 'hardhat', 'hardhat', 'beanie', 'goggles']);
     if (kind === 'shard') hat = pick(['none', 'circlet', 'circlet']);
     if (kind === 'drifter') hat = pick({ freelancer: ['none', 'headset', 'cap'], salvager: ['goggles', 'goggles', 'beanie'], explorer: ['hood', 'hood', 'scanner', 'headset'], outlaw: ['none', 'bandana', 'hood'] }[role]);
     const eyeMod = role === 'outlaw' ? pick(['none', 'patch', 'cyber']) : role === 'salvager' && r() < 0.2 ? 'cyber' : 'none';
 
     // Long hair behind everything
+    if (hs === 'big') P('hair', { cx: 0, cy: hy - hh * 0.12, rx: hw * 1.5, ry: hh * 1.18, n: 2.1, depth: hw, oy: hy });
+    if (hs === 'tail') P('hair2', { cx: side * (hw + 2.5), cy: hy + hh * 0.25, rx: 4.2, ry: hh * 0.72, n: 2, taper: 0.6, depth: 4 });
     if (hs === 'long') P('hair2', { cx: 0, cy: hy + hh * 0.35, rx: hw * 1.18, ry: hh * 1.25, n: 2, taper: 0.92, depth: 6, oy: hy });
     if (hat === 'hood') P('scarf', { cx: 0, cy: hy + 3, rx: hw * 1.38, ry: hh * 1.28, n: 2.2, taper: 0.9, depth: 8, oy: hy - 2 });
     if (hat === 'bandana') P('scarf', { cx: side * (hw + 2.5), cy: hy - hh * 0.25, rx: 2.8, ry: 7, n: 2, taper: 0.5, depth: 2 });
@@ -88,9 +108,10 @@ const ArtCrew = (() => {
       const ix = side * tw * 0.45;
       M(stroke('accent', [[ix - 3.5, 42], [ix, 38.5], [ix + 3.5, 42]], 1.6));
       M(stroke('accent', [[ix - 3.5, 45.5], [ix, 42], [ix + 3.5, 45.5]], 1.6));
+      if (v2) for (const s of [-1, 1]) P('trim', { cx: s * (tw - 9), cy: 32.5, rx: 10, ry: 3.2, n: 3, depth: 2.5 });
     }
     if (kind === 'block') {
-      for (const s of [-1, 1]) P('trim', { cx: s * (tw - 8), cy: 35, rx: 12, ry: 8, n: 3, depth: 6 });
+      for (const s of [-1, 1]) P('trim', v2 ? { cx: s * (tw - 10), cy: 33, rx: 15, ry: 10, n: 3.2, depth: 7 } : { cx: s * (tw - 8), cy: 35, rx: 12, ry: 8, n: 3, depth: 6 });
       M(stroke('accent', [[-tw * 0.62, 47], [tw * 0.62, 47]], 3));
       for (const s of [-1, 1]) M(stroke('suit2', [[s * (tw - 14), 31], [s * (tw - 3), 31]], 1.2));
     }
@@ -114,9 +135,9 @@ const ArtCrew = (() => {
     }
 
     // Collar
-    if (kind === 'shard') for (const s of [-1, 1]) P('suit2', { cx: s * (nw + 5), cy: 21, rx: 5, ry: 13, n: 1.3, depth: 4 });
+    if (kind === 'shard') for (const s of [-1, 1]) P(v2 ? 'trim' : 'suit2', v2 ? { cx: s * (nw + 6.5), cy: 15, rx: 5.5, ry: 19, n: 1.25, taper: 0.55, depth: 4 } : { cx: s * (nw + 5), cy: 21, rx: 5, ry: 13, n: 1.3, depth: 4 });
     P('skin2', { cx: 0, cy: hy + hh + 4, rx: nw, ry: 12, n: 2.4, prof: 3, depth: 5, keep: (x, y) => y < 33 });
-    if (kind === 'wedge') P('trim', { cx: 0, cy: 29, rx: nw * 1.55, ry: 6, n: 3, depth: 4, keep: (x, y) => y > 25 });
+    if (kind === 'wedge') P('trim', v2 ? { cx: 0, cy: 27, rx: nw * 1.6, ry: 9, n: 3, depth: 5, keep: (x, y) => y > 19 } : { cx: 0, cy: 29, rx: nw * 1.55, ry: 6, n: 3, depth: 4, keep: (x, y) => y > 25 });
     if (kind === 'block') P('suit2', { cx: 0, cy: 29, rx: nw * 1.9, ry: 7, n: 2.6, depth: 5, keep: (x, y) => y > 24 });
     if (kind === 'shard') P('trim', { cx: 0, cy: 28, rx: nw * 1.3, ry: 5, n: 2.4, depth: 3, keep: (x, y) => y > 25 });
     if (kind === 'drifter') P(hat === 'hood' || role === 'explorer' || r() < 0.4 ? 'scarf' : 'suit2', { cx: 0, cy: 29, rx: nw * 1.8, ry: 7, n: 2, depth: 5, keep: (x, y) => y > 23.5 });
@@ -132,7 +153,7 @@ const ArtCrew = (() => {
 
     // Hair on top
     const top = { cx: 0, cy: hy, rx: hw * 1.05, ry: hh * 1.05, n, taper, depth: hw * 0.92, oy: hy - hh * 0.75 };
-    if (hs === 'crop' || hs === 'long' || hs === 'bun') P('hair', { ...top, keep: (x, y) => y < hairY + Math.max(0, Math.abs(x) - hw * (hs === 'long' ? 0.4 : 0.55)) * (hs === 'long' ? 3 : 1.4) });
+    if (hs === 'crop' || hs === 'long' || hs === 'bun' || hs === 'big' || hs === 'tail') P('hair', { ...top, keep: (x, y) => y < hairY + Math.max(0, Math.abs(x) - hw * (hs === 'long' ? 0.4 : 0.55)) * (hs === 'long' ? 3 : 1.4) });
     if (hs === 'part') P('hair', { ...top, keep: (x, y) => y < hairY + side * x * 0.18 + Math.max(0, Math.abs(x) - hw * 0.55) * 1.4 });
     if (hs === 'buzz') P('hair', { ...top, rx: hw * 1.01, ry: hh * 1.01, depth: hw * 0.87, keep: (x, y) => y < hairY + 2 + Math.max(0, Math.abs(x) - hw * 0.6) * 1.2 });
     if (hs === 'mohawk') P('hair', { ...top, rx: hw * 1.08, ry: hh * 1.12, keep: (x, y) => Math.abs(x) < hw * 0.2 && y < hy - hh * 0.25 });
@@ -199,9 +220,9 @@ const ArtCrew = (() => {
         M(ell('lamp', x, eyeY, 0.9, 0.9, { line: 'fill', glow: true }));
         continue;
       }
-      M(stroke(beard || hs === 'shaved' ? 'hair2' : 'hair', [[x - s * 3.4, eyeY - 4 + brow * 0.6], [x + s * 3, eyeY - 4.4 - brow]], 1.5));
-      M(ell('white', x, eyeY, 2.7, 1.6));
-      M(ell('iris', x, eyeY, 1.2, 1.25, { line: 'fill' }));
+      M(stroke(beard || hs === 'shaved' ? 'hair2' : 'hair', [[x - s * 3.4, eyeY - 4 + brow * 0.6], [x + s * 3, eyeY - 4.4 - brow]], v2 ? 2 : 1.5));
+      M(ell('white', x, eyeY, v2 ? 3 : 2.7, v2 ? 1.85 : 1.6));
+      M(ell('iris', x, eyeY, v2 ? 1.4 : 1.2, v2 ? 1.45 : 1.25, { line: 'fill' }));
       if (kind === 'shard' && hat !== 'circlet') M(stroke('accent', [[x, eyeY + 2.6], [x + s * 0.6, eyeY + 7]], 0.9, { glow: true }));
     }
     if (kind === 'shard' && hat === 'circlet' && r() < 0.5) M(ell('accent', 0, eyeY - 6, 0.9, 0.9, { line: 'fill', glow: true }));
@@ -317,12 +338,12 @@ const ArtCrew = (() => {
     return { seed, culture: c, pal, items, traits: { kind: 'alien', head: headType, eyes, mouth, fronds, crest } };
   }
 
-  function create(seed, culture) {
+  function create(seed, culture, o = {}) {
     seed = seed >>> 0 || 1;
     const lin = culture && culture.lineage;
     if (lin === 'android') return ArtAndroids.create(seed, culture);
     if (lin === 'alien') return alien(seed, culture);
-    return human(seed, culture);
+    return human(seed, culture, o);
   }
 
   return { create };

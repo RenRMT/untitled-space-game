@@ -89,7 +89,7 @@ export function heldPose(e, name) {
 export function enemySpec(e, name) {
   const back = fight.returning.get(e.key); // still flying back from an earlier fight
   const [vx, vy] = back ? [back.vx, back.vy] : pathVelocity(e);
-  return { id: e.key, name, stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.radius } };
+  return { id: e.key, name, stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.hitRadius || e.radius } };
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
