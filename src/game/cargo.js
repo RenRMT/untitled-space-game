@@ -55,7 +55,11 @@ export const cargo = {
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online (nothing does that yet: until then the first system is all there is).
 export const STORY = ['intro', 'gates'];
-export const gatesOnline = () => cargo.story.has('gates');
+// ?dev (for testing): the jump gates online, every station service open and production orders
+// taken everywhere, even in a fresh game, without touching the save (see stationLocks, the jobs
+// board and game/industry.js). Combat god mode is the same switch (game/combat.js).
+export const devUnlock = Params.has('dev');
+export const gatesOnline = () => devUnlock || cargo.story.has('gates');
 // The opening missions (story/missions.js), which follow the introduction and pay off the player's
 // debt: "Payment in kind", then "The remaining balance". Until the second is handed in, station
 // screens offer only Missions (and Squad, once the first has brought a squad member): see The

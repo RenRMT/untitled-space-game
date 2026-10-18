@@ -22,7 +22,7 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, gatesOnline, hold, opening, saveCargo } from './cargo.js';
+import { addTo, cargo, devUnlock, gatesOnline, hold, opening, saveCargo } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { faceOf } from './intro.js';
@@ -291,7 +291,7 @@ export function trackedJob() {
 // goes to reachable (the gates online, outside the first system), and not withdrawn: a situation's
 // jobs from a faction are, once a job in that situation has been done against it.
 export function available(J) {
-  if (opening()) return false;
+  if (opening() && !devUnlock) return false;
   if (!gatesOnline() && J.systems.some((s) => s !== 0)) return false;
   return !withdrawn(J);
 }

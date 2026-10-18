@@ -20,7 +20,7 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?skipintro` | skip the introduction and the opening missions |
-| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, and god mode: your ship and your squad's take no damage |
+| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: the jump gates online, every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
 | `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
 

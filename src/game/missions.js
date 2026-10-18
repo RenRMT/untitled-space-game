@@ -16,7 +16,7 @@ import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
-import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, gatesOnline, opening, saveCargo, validLoadout } from './cargo.js';
+import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, devUnlock, gatesOnline, opening, saveCargo, validLoadout } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
@@ -508,7 +508,7 @@ export function skipOpening() {
 // once the first mission has brought a squad member; no Launch while the next opening mission
 // waits to be accepted.
 export function stationLocks() {
-  if (!opening()) return { tabs: [], reason: '', launch: null };
+  if (!opening() || devUnlock) return { tabs: [], reason: '', launch: null };
   const first = cargo.missions.status(OPENING) !== 'done', next = first ? OPENING : SALVAGE;
   return {
     tabs: first ? MISSION_LOCKED : MISSION_LOCKED.filter((t) => t !== 'squad'),

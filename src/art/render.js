@@ -158,6 +158,13 @@ const Art = (() => {
     return path;
   }
   const partSize = (p) => (p.shape === 'ring' ? p.w : p.shape === 'circle' ? p.r * 2 : Math.sqrt(Math.abs(U.area(p.pts))));
+  // How wide a polygon part is across its narrowest way, about: 2 × area / perimeter (a long
+  // strip's width). Rings and circles: Infinity (a thin ring is meant to read as one line).
+  function partWidth(p) {
+    if (p.shape !== 'poly') return Infinity;
+    const per = p.pts.reduce((t, [x, y], i) => { const [x2, y2] = p.pts[(i + 1) % p.pts.length]; return t + Math.hypot(x2 - x, y2 - y); }, 0);
+    return per ? (2 * Math.abs(U.area(p.pts))) / per : 0;
+  }
 
   // ---------- Line style ----------
 
@@ -216,12 +223,15 @@ const Art = (() => {
       const glow = V.glow === 'none' ? false : V.glow === 'all' ? bp.glow && !bp.wrecked : bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');
       ctx.shadowColor = pal.line;
       ctx.shadowBlur = glow ? Math.min(10 * dpr, 6 * k) * (V.blur || 1) : 0;
-      ctx.lineWidth = lw * (p.lineWidth || (p.mat === 'glass' || p.mat === 'accent' ? 0.75 : 1));
+      // Narrow parts (a fighter's fins, a station's spokes) get thinner strokes, so the lines either
+      // side of them don't meet and fill the part in; never under about a device pixel.
+      const fit = Math.max(partWidth(p) * 0.35, 1 / k);
+      ctx.lineWidth = Math.min(lw * (p.lineWidth || (p.mat === 'glass' || p.mat === 'accent' ? 0.75 : 1)), fit);
       ctx.stroke(path);
       ctx.shadowBlur = 0;
       const lines = detailLines(p);
       if (lines.length) {
-        ctx.lineWidth = lw * 0.7;
+        ctx.lineWidth = Math.min(lw * 0.7, fit);
         ctx.globalAlpha = V.detail ?? 1;
         ctx.beginPath();
         for (const l of lines) { ctx.moveTo(l[0], l[1]); ctx.lineTo(l[2], l[3]); }
@@ -1699,7 +1709,7 @@ const Art = (() => {
     STYLE_IMPL[id] = { ...STYLE_IMPL[sv.base], label: sv.label, v: sv.v, byType, base: sv.base };
   }
   // The game's Line and Low-poly styles, per kind of thing drawn (the iteration that was chosen):
-  //   line:    ships and items hairline, stations the original strokes, natural bodies and
+  //   line:    ships and items hairline, stations the original strokes at hairline width, natural bodies and
   //            portraits hairline with hatching, suns hairline (starHair)
   //   lowpoly: ships and stations banded ink, items the original, natural bodies soft facets,
   //            portraits 2D cel shading in two tones,
@@ -1707,7 +1717,7 @@ const Art = (() => {
   // Kinds: ship, station (stations, gates, station wrecks), item, natural (planets, moons,
   // asteroids, nebulae, wormholes), portrait, star.
   const BASE_BY_TYPE = {
-    line: { ship: HAIR, station: {}, item: HAIR, natural: { ...HAIR, pfill: 'hatch' }, portrait: { ...HAIR, pfill: 'hatch' }, star: { star: 'hair' } },
+    line: { ship: HAIR, station: { lw: HAIR.lw }, item: HAIR, natural: { ...HAIR, pfill: 'hatch' }, portrait: { ...HAIR, pfill: 'hatch' }, star: { star: 'hair' } },
     lowpoly: { ship: INK, station: INK, item: {}, natural: { smoothN: 0.9 }, portrait: { cel: 'tone' }, star: { star: 'facet' } },
   };
   for (const [id, byType] of Object.entries(BASE_BY_TYPE)) {
