@@ -16,6 +16,7 @@ import { HullMods } from '../rules/hullmods.js';
 import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
+import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Jobs } from '../story/jobs.js';
@@ -45,10 +46,11 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
 // map follow (an id, or null for the first under way). market: station stockpiles the player's
 // trading has moved away from rest (rules/economy.js), drifting back on the real-world clock.
+// rep: how each faction regards the player (rules/reputation.js), moved by the jobs handed in.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null,
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
-  missions: Missions.create(), board: null, track: null, market: Economy.empty(),
+  missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online (nothing does that yet: until then the first system is all there is).
@@ -120,6 +122,7 @@ export function loadCargo(galaxy) {
   cargo.industry = Industry.empty();
   cargo.loyalty = {};
   cargo.market = Economy.empty();
+  cargo.rep = Reputation.empty();
   cargo.squad = []; // the first member joins at the end of the first mission
   cargo.story = new Set();
   cargo.board = Jobs.board(galaxy);
@@ -282,6 +285,11 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     if (!d.market) d.market = {};
   },
+  // 15. Reputation with the factions: earned again from the jobs already handed in (readCargo,
+  //     once the mission log is read).
+  (d) => {
+    if (!d.rep) d.repFromJobs = true;
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -338,6 +346,8 @@ export function readCargo(d) {
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions, cargo.board ? cargo.board.byId : {});
+  cargo.rep = Reputation.read(d.rep);
+  if (d.repFromJobs && cargo.board) for (const J of cargo.board.list) if (cargo.missions.status(J.id) === 'done') Reputation.earn(cargo.rep, J);
   if (typeof d.track === 'string' && cargo.board && cargo.board.byId[d.track]) cargo.track = d.track;
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
@@ -362,7 +372,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
-  market: cargo.market, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track,
+  market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track,
 }), 1000);
 export const saveCargo = () => cargoSave.change();
 export const saveCargoNow = () => cargoSave.now();

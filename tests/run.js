@@ -24,6 +24,7 @@ import { Travel } from '../src/flight/travel.js';
 import { Flight } from '../src/flight/flight.js';
 import { Knowledge } from '../src/rules/knowledge.js';
 import { Economy } from '../src/rules/economy.js';
+import { Reputation } from '../src/rules/reputation.js';
 import { Mining } from '../src/rules/mining.js';
 import { Loadout } from '../src/rules/loadout.js';
 import { Logic } from '../src/rules/logic.js';
@@ -2637,6 +2638,50 @@ test('real time: an ally told to keep its distance stays out near gun range, and
   assert(far.closest > range * 0.4, `kept ${far.closest.toFixed(0)} away (range ${range})`);
   assert(far.closest > close.closest + 100, `further than an attack run (${far.closest.toFixed(0)} vs ${close.closest.toFixed(0)})`);
   assert(far.hits > 0, 'and it still hits');
+});
+
+test('reputation: a change ripples through how the factions regard each other', () => {
+  const rep = Reputation.empty();
+  const moved = Reputation.change(rep, 'union', 20);
+  assert.strictEqual(rep.union, 20);
+  // Read down the Union's column: Free Claim (+3) and the Scorched (+2) are pleased, the Combines
+  // (-3) and Blackline (-4) are not.
+  assert.strictEqual(rep.freeClaim, 6);
+  assert.strictEqual(rep.scorched, 4);
+  assert.strictEqual(rep.combines, -6);
+  assert.strictEqual(rep.blackline, -8);
+  assert.strictEqual(rep.registry, undefined, 'the Registry holds everyone at 0');
+  assert.strictEqual(moved.blackline, -8);
+  // Helping the Registry moves no one the player knows of; factions that don't know a faction exists don't react.
+  const reg = Reputation.empty();
+  Reputation.change(reg, 'registry', 30);
+  assert.deepStrictEqual(Reputation.visible().filter((f) => reg[f.id]).map((f) => f.id), ['registry']);
+  assert(reg.remainder < 0, 'only the Remainder, which no one knows of yet, holds a grudge');
+  const rem = Reputation.empty();
+  Reputation.change(rem, 'remainder', -10);
+  assert.strictEqual(rem.compact, undefined, 'the Compact doesn\'t know the Remainder');
+  // Clamped, tiered, read back.
+  const big = Reputation.empty();
+  for (let i = 0; i < 20; i++) Reputation.change(big, 'facet', 20);
+  assert.strictEqual(big.facet, Reputation.MAX);
+  assert.strictEqual(Reputation.tier(100).id, 'devoted');
+  assert.strictEqual(Reputation.tier(0).id, 'neutral');
+  assert.strictEqual(Reputation.tier(-100).id, 'hostile');
+  assert.deepStrictEqual(Reputation.read({ union: 12.34, nope: 5, compact: 'x', facet: 500 }), { union: 12.3, facet: 100 });
+  // A job: regard for its giver, the same taken from the faction it works against.
+  const job = Reputation.empty();
+  Reputation.earn(job, { tier: 'system', faction: 'freeClaim', against: 'pirates' });
+  assert(job.freeClaim > 0 && job.pirates < 0, JSON.stringify(job));
+  // The list: known factions only, highest regard first; allies and enemies from the matrix.
+  const names = Reputation.ranked(rep).map((f) => f.id);
+  assert.strictEqual(names[0], 'union');
+  assert(!names.includes('remainder') && !names.includes('thren'));
+  const ids = (list) => list.map((f) => f.id).sort();
+  assert.deepStrictEqual(ids(Reputation.hostiles('compact')), ['brokenWheel', 'pirates']);
+  assert(ids(Reputation.allies('combines')).includes('breakers'), 'the Combines count on the Breakers');
+  for (const f of Reputation.visible()) {
+    for (const a of Reputation.allies(f.id)) assert(!Reputation.hostiles(f.id).includes(a), `${f.id} both allied with and hostile to ${a.id}`);
+  }
 });
 
 test('every icon code the UI uses has a line icon', () => {

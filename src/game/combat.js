@@ -16,6 +16,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
+import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
@@ -169,7 +170,7 @@ export function joinFight(e) {
 // Pirates attack a ship that comes too close, unless it just got away from them. In a fight that
 // others can join (real time), those that come close join it.
 export function checkAggro(list) {
-  if (docked || Settings.isOpen) return;
+  if (docked || Settings.isOpen || FactionsMenu.isOpen) return;
   const near = (e) => isHostile(e) && !fight.dying.has(e.key) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= CombatCore.config.aggroRange;
   if (fight.s && fightMode().join) {
     for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);

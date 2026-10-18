@@ -16,6 +16,7 @@ import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
+import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { addTo, cargo, gatesOnline, hold, opening, saveCargo } from './cargo.js';
@@ -324,7 +325,7 @@ export function jobViews(station) {
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,
       reward: J.rewardText,
-      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: J.reward.loyalty.map((l) => l.text) },
+      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...J.reward.loyalty.map((l) => l.text), ...J.reward.regard] },
       note: status === 'done' ? doneNote(J) : status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
       handIn: where ? where.name : null,
       tracked: trackedJob() === J.id,
@@ -354,7 +355,7 @@ export function acceptJob(id, at) {
   saveCargo();
 }
 // Handing in: the goods a bring step asked for leave the hold; then the pay, the components and
-// the loyalty (never below nothing).
+// the loyalty (never below nothing) and the factions' regard (rules/reputation.js).
 export function completeJob(id) {
   const J = jobOf(id);
   if (!J || log().status(id) !== 'ready') return;
@@ -369,6 +370,7 @@ export function completeJob(id) {
   cargo.credits += J.reward.credits;
   for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);
   for (const l of J.reward.loyalty) for (const key of l.keys) cargo.loyalty[key] = Math.max(0, (cargo.loyalty[key] ?? Industry.LOYALTY.start) + l.n);
+  Reputation.earn(cargo.rep, J);
   jobRun.built.delete(id);
   if (cargo.track === id) cargo.track = null;
   saveCargo();

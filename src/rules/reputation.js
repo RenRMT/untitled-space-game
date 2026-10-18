@@ -1,0 +1,92 @@
+// How each faction regards the player: one number per faction, from -100 (hostile) to +100
+// (devoted), 0 for every faction at the start. Jobs move it (game/jobs.js): the faction a job is
+// done for gains, the one it works against loses. Every change ripples (notes/factions.md, Ripple
+// rule): when the player's regard with faction A changes by d, every other faction B's changes by
+// d × (how B regards A, world/factions.js standing) / RIPPLE. So helping the Bay Union pleases Free
+// Claim and angers Blackline, and helping the Registry, whom everyone holds at 0, moves no one
+// else. A faction that doesn't know A exists doesn't react.
+// Only factions humans know of are listed (the Remainder and the Thren stay off the list until
+// the story brings them in).
+//
+//   Reputation.empty() -> rep                  { [faction id]: regard }; missing is 0
+//   Reputation.regard(rep, id) -> -100..100
+//   Reputation.change(rep, id, d) -> { [id]: delta }   what moved, the ripple included
+//   Reputation.tier(regard) -> { id, label, min }    Hostile, Unfriendly, Neutral, Friendly, Devoted
+//   Reputation.visible() -> [faction]          the factions the player knows of, in Factions.LIST order
+//   Reputation.ranked(rep) -> [faction]        those, highest regard first (ties by name)
+//   Reputation.allies(id), hostiles(id) -> [faction]   among the visible ones, from the standing matrix
+//   Reputation.JOB[tier] -> d                  regard a job of that tier (story/jobs.js) gives
+//   Reputation.earn(rep, job) -> { [id]: delta }   a job handed in: JOB[tier] for its faction, the
+//                                              same taken from the one it works against
+//   Reputation.read(d) -> rep                  a saved one, checked
+// ES module (`Reputation`); also runs in Node (the tests).
+
+import { clamp } from '../core/math.js';
+import { Factions } from '../world/factions.js';
+
+const Reputation = (() => {
+  const MAX = 100;
+  const RIPPLE = 10; // a standing of +5 passes on half the change, -5 half of it reversed
+  const ALLY = 2; // a standing at or above this toward another faction makes it an ally
+  const JOB = { station: 4, system: 6, faction: 10 };
+  // Tiers by regard, highest first: the first whose `min` the regard reaches.
+  const TIERS = [
+    { id: 'devoted', label: 'Devoted', min: 60 },
+    { id: 'friendly', label: 'Friendly', min: 15 },
+    { id: 'neutral', label: 'Neutral', min: -15 },
+    { id: 'unfriendly', label: 'Unfriendly', min: -60 },
+    { id: 'hostile', label: 'Hostile', min: -Infinity },
+  ];
+
+  const empty = () => ({});
+  const regard = (rep, id) => rep[id] || 0;
+  const tier = (v) => TIERS.find((t) => v >= t.min);
+  const visible = () => Factions.LIST.filter((f) => f.known);
+  const round = (v) => Math.round(v * 10) / 10;
+
+  function change(rep, id, d) {
+    const moved = {};
+    if (!Factions.get(id) || !d) return moved;
+    const move = (to, n) => {
+      const before = regard(rep, to), after = round(clamp(before + n, -MAX, MAX));
+      if (after === before) return;
+      if (after === 0) delete rep[to]; else rep[to] = after;
+      moved[to] = round(after - before);
+    };
+    move(id, d);
+    for (const f of Factions.LIST) {
+      if (f.id === id) continue;
+      const s = Factions.standing(f.id, id);
+      if (s) move(f.id, (d * s) / RIPPLE);
+    }
+    return moved;
+  }
+
+  function earn(rep, job) {
+    const d = JOB[job.tier] || 0, moved = {};
+    const add = (m) => { for (const [id, n] of Object.entries(m)) moved[id] = round((moved[id] || 0) + n); };
+    add(change(rep, job.faction, d));
+    if (job.against) add(change(rep, job.against, -d));
+    return moved;
+  }
+
+  function ranked(rep) {
+    return visible().sort((a, b) => regard(rep, b.id) - regard(rep, a.id) || a.name.localeCompare(b.name));
+  }
+
+  const others = (id) => visible().filter((f) => f.id !== id && Factions.standing(id, f.id) !== null);
+  const allies = (id) => others(id).filter((f) => Factions.standing(id, f.id) >= ALLY && !Factions.hostile(id, f.id));
+  const hostiles = (id) => others(id).filter((f) => Factions.hostile(id, f.id));
+
+  function read(d) {
+    const out = {};
+    if (d && typeof d === 'object') {
+      for (const [id, v] of Object.entries(d)) if (Factions.get(id) && Number.isFinite(v) && v) out[id] = round(clamp(v, -MAX, MAX));
+    }
+    return out;
+  }
+
+  return { MAX, RIPPLE, JOB, TIERS, empty, regard, change, earn, tier, visible, ranked, allies, hostiles, read };
+})();
+
+export { Reputation };

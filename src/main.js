@@ -28,6 +28,7 @@ import { Mining } from './rules/mining.js';
 import { HullMods } from './rules/hullmods.js';
 import { Industry } from './rules/industry.js';
 import { Recipes } from './rules/recipes.js';
+import { Reputation } from './rules/reputation.js';
 import { Research } from './rules/research.js';
 import { Clock } from './core/clock.js';
 import { Squad } from './rules/squad.js';
@@ -39,8 +40,10 @@ import { CombatPanel } from './ui/combat-panel.js';
 import { Comms } from './ui/comms.js';
 import { ContextCard } from './ui/context.js';
 import { SystemMap } from './ui/map.js';
+import { FactionsMenu } from './ui/factions.js';
 import { Settings } from './ui/settings.js';
 import { StationMenu } from './ui/station.js';
+import { Factions } from './world/factions.js';
 import { Galaxy } from './world/galaxy.js';
 import { Security } from './world/security.js';
 import * as state from './game/state.js';
@@ -76,8 +79,8 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, Galaxy, Goods, HullMods, Industry, Jobs, Knowledge, Loadout,
-  Logic, Mining, Missions, Recipes, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, HullMods, Industry, Jobs, Knowledge, Loadout,
+  Logic, Mining, Missions, Recipes, Reputation, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

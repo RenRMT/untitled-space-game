@@ -1424,6 +1424,7 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   assert.match(onStation(), new RegExp(title));
   openMission(title);
   assert.match(onStation(), /Loyalty \+1 at/, 'what it pays, loyalty with it');
+  assert.match(onStation(), /Regard \+4 with /, 'and regard with its faction');
   pressOnStation('Accept mission');
   assert.deepStrictEqual(game(`[cargo.missions.status('${id}'), cargo.missions.at('${id}'), cargo.track]`), ['active', key, id]);
   game('launch()');
@@ -1443,8 +1444,9 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   winFight('the hunt');
   assert.strictEqual(game(`cargo.missions.status('${id}')`), 'ready');
   assert.match(game('objective().text'), /^Report to /);
-  // Handed in: paid, and the station trusts you.
+  // Handed in: paid, the station trusts you, and its faction thinks better of you.
   const credits = game('cargo.credits'), reward = game('__job.reward.credits');
+  const regard = game(`Reputation.regard(cargo.rep, __job.faction)`);
   dockAt(key);
   openMission(title);
   pressOnStation('Complete mission');
@@ -1452,6 +1454,7 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   assert.strictEqual(game('cargo.credits'), credits + reward, 'paid');
   assert.ok(reward >= 400, `worth the trip (${reward} cr)`);
   assert.strictEqual(game(`cargo.loyalty['${key}']`), 1);
+  assert.strictEqual(game(`Reputation.regard(cargo.rep, __job.faction)`), regard + game('Reputation.JOB.station'), 'regard with the giver');
   assert.match(onStation(), /now takes your production orders/);
   game(`StationMenu.showTab('industry')`);
   assert.doesNotMatch(onStation(), /Complete a mission for/, 'production orders open');
@@ -1673,6 +1676,40 @@ test('selling drives a station\'s price down, and it recovers on the clock, save
   assert.strictEqual(game('__mk.good(__g.kind).left'), 0, 'sold out');
   assert.ok(!game('__mk.buy(__g.kind)'), 'nothing left to buy');
   game('cargo.items = []; cargo.market = Economy.empty(); Clock.now = () => Date.now(); saveCargoNow()');
+});
+
+test('the factions menu: regard highest first, a row unfolds to allies and enemies', () => {
+  game(`cargo.rep = Reputation.empty(); Reputation.change(cargo.rep, 'union', 30); Reputation.change(cargo.rep, 'compact', -30)`);
+  const root = browser.document.getElementById('factions').querySelector('.fac-body');
+  const btn = browser.document.getElementById('factions-btn');
+  btn.dispatch('click', {});
+  assert.ok(game('FactionsMenu.isOpen'), 'opened from its button');
+  assert.strictEqual(btn.getAttribute('aria-expanded'), 'true');
+  const rows = () => allOf(root).filter((el) => el.className === 'fac-row');
+  const names = rows().map((el) => textOf(allOf(el).find((x) => x.className === 'name')));
+  assert.strictEqual(names.length, game('Reputation.visible().length'));
+  assert.strictEqual(names[0], 'The Bay Union', 'the highest regard first');
+  assert.strictEqual(names[names.length - 1], 'Meridian Compact', 'the lowest last');
+  assert.ok(!names.includes('The Remainder') && !names.includes('The Thren'), 'unknown factions stay off the list');
+  const regards = game('Reputation.ranked(cargo.rep).map((f) => Reputation.regard(cargo.rep, f.id))');
+  assert.deepStrictEqual(regards, [...regards].sort((a, b) => b - a), 'ordered high to low');
+  // The Compact's row unfolds: what it stands for, its allies and its enemies.
+  rows().find((el) => /Meridian Compact/.test(textOf(el))).dispatch('click', {});
+  const text = textOf(root);
+  assert.match(text, /Ideals.*Allies.*Hostile to/s);
+  assert.match(text, /Hostile to.*The Broken Wheel/s);
+  assert.match(text, /Hostile to.*Pirates/s);
+  // A chip jumps to that faction's row.
+  allOf(root).find((el) => el.className === 'fac-chip' && textOf(el) === 'Pirates').dispatch('click', {});
+  assert.strictEqual(textOf(rows().find((el) => el.getAttribute('aria-expanded') === 'true')).includes('Pirates'), true, 'the chip opened its row');
+  assert.ok(game("MAP_BLOCKERS.includes('factions') && document.body.classList.contains('factions')"), 'no map over the menu');
+  browser.key('Escape');
+  assert.ok(!game('FactionsMenu.isOpen'), 'Escape closes it');
+  browser.key('r');
+  assert.ok(game('FactionsMenu.isOpen'), 'R opens it');
+  browser.key('r');
+  assert.ok(!game('FactionsMenu.isOpen'), 'and closes it');
+  game('cargo.rep = Reputation.empty()');
 });
 
 test('cargo saves once after a burst of changes, and survives a reload', () => {

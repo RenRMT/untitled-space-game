@@ -27,7 +27,8 @@
 //     it), faction (theirs), system (where it's offered, or null for a faction's), systems (every
 //     system it goes to), briefing, report, debrief: [lines], steps, objectives, byId, escort?,
 //     handIn (station key, or null: where it was accepted), situation?, against?, provided?,
-//     reward: { credits, components: { [kind]: n }, loyalty: [{ keys, n, text }] }, rewardText }
+//     reward: { credits, components: { [kind]: n }, loyalty: [{ keys, n, text }], regard: [text] }, rewardText }
+//     regard: how the job moves the giver's and the opponent's regard for the player (rules/reputation.js)
 //   step: { type, label, say?, twist?, points?, wave?, items?, kind?, n?, rock?, at?, pockets?,
 //     nebula? } (positions in world units; keys for things in space are relative: `${step}.${k}`)
 //   Jobs.TIERS, Jobs.CREWS, Jobs.REACH, Jobs.value(job), Jobs.offeredAt(job, station)
@@ -37,6 +38,7 @@ import { TAU, clamp, dist } from '../core/math.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
+import { Reputation } from '../rules/reputation.js';
 import { Factions } from '../world/factions.js';
 import { Security } from '../world/security.js';
 import { JobTexts } from './job-texts.js';
@@ -313,8 +315,10 @@ const Jobs = (() => {
     const components = {};
     for (const [cat, t, n] of w.components || []) components[Goods.component(cat, t)] = n;
     const loyal = loyalty(galaxy, o.tier, o.scope, o.faction, o.against, o.system);
-    job.reward = { credits, components, loyalty: loyal };
-    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text)].join(' · ');
+    const d = Reputation.JOB[o.tier], name = (id) => Factions.get(id).name.replace(/^The /, '');
+    const regard = [`Regard +${d} with ${name(o.faction)}`, ...(o.against ? [`Regard −${d} with ${name(o.against)}`] : [])];
+    job.reward = { credits, components, loyalty: loyal, regard };
+    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text), ...regard].join(' · ');
     return job;
   }
   // What the giver says once the job is done, before it's handed in, unless the job says otherwise.
