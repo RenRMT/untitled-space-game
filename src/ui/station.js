@@ -8,9 +8,11 @@
 // sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
 // nodes (inputs, the stage, what it makes), the shared storage as tiles and the production pipeline,
 // the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
-// StationMenu.open({ station: { name, subtitle, color }, market (Economy.market), hold, ship,
+// StationMenu.open({ station: { name, subtitle, color }, market, hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
+// market: { goods (Economy.market's, at the stockpiles now), good(kind), buy(kind), sell(kind) }:
+//   buying and selling one unit at today's price, which moves it (game/docking.js marketAt).
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
@@ -182,25 +184,35 @@ const StationMenu = (() => {
       h('span', { class: `mark ${tone}`, style: { left: `${k * 100}%` } }));
   }
 
-  // A trade good: its icon and name, how many you hold, where the price sits, Buy (if stocked here) and Sell.
+  // A trade good: its icon and name, how many you hold, how many the station has left, where the
+  // price sits, Buy (if stocked here) and Sell. Each unit moves the price (rules/economy.js).
   function goodRow(g, full) {
-    const { hold } = ctx;
+    const { hold, market } = ctx;
     const name = Goods.type(g.kind).name;
     const n = hold.count(g.kind);
-    // Hold Buy or Sell down to keep buying or selling, one a moment (Kit.button repeat).
-    const buyOne = () => { const ok = hold.buy(g.kind, g.buy, name); refresh(); return ok && hold.free > 0 && hold.credits >= g.buy; };
-    const sellOne = () => { const ok = hold.sell(g.kind, g.sell); refresh(); return ok && hold.count(g.kind) > 0; };
+    // Hold Buy or Sell down to keep buying or selling, one a moment (Kit.button repeat), each at
+    // the price after the last.
+    const buyOne = () => {
+      const ok = market.buy(g.kind);
+      refresh();
+      const now = market.good(g.kind);
+      return ok && hold.free > 0 && now.left > 0 && hold.credits >= now.buy;
+    };
+    const sellOne = () => { const ok = market.sell(g.kind); refresh(); return ok && hold.count(g.kind) > 0; };
     const buy = g.buy === null
       ? h('span', { class: 'lock' }, 'Not sold')
-      : Kit.button('Buy', buyOne, {
-        price: g.buy, disabled: full || hold.credits < g.buy, aria: `Buy ${name} for ${g.buy} credits (hold to buy more)`, repeat: true,
-      });
+      : g.left < 1
+        ? h('span', { class: 'lock' }, 'Sold out')
+        : Kit.button('Buy', buyOne, {
+          price: g.buy, disabled: full || hold.credits < g.buy, aria: `Buy ${name} for ${g.buy} credits (hold to buy more)`, repeat: true,
+        });
     const sell = Kit.button('Sell', sellOne, {
       kind: 'ghost', price: g.sell, disabled: n < 1, aria: `Sell ${name} for ${g.sell} credits (hold to sell more)`, repeat: true,
     });
     return Kit.optionRow({
       icon: h('span', { class: 'st-item' }, itemIcon(g.kind, 40), n ? h('span', { class: 'n num' }, `×${n}`) : null),
       name,
+      sub: g.buy !== null && g.left > 0 ? `${g.left} in stock` : null,
       // Against the usual price on the same side of the spread, so an ordinary price sits mid-track.
       extra: gauge(g.buy ?? g.sell, Economy.basePrice(g.kind) * (1 + (g.buy === null ? -1 : 1) * Economy.config.spread)),
       action: h('span', { class: 'st-deal' }, buy, sell),
@@ -223,12 +235,14 @@ const StationMenu = (() => {
     const { market, hold } = ctx;
     const full = hold.free < 1;
     const byName = (a, b) => Goods.type(a.kind).name.localeCompare(Goods.type(b.kind).name);
-    const stocked = market.goods.filter((g) => g.buy !== null).sort(byName);
-    const carried = market.goods.filter((g) => g.buy === null && hold.count(g.kind) > 0).sort(byName);
-    // Sell all: everything in the hold this station buys, in one go.
-    const sellable = market.goods.filter((g) => g.sell !== null && hold.count(g.kind) > 0);
+    const goods = market.goods;
+    const stocked = goods.filter((g) => g.buy !== null).sort(byName);
+    const carried = goods.filter((g) => g.buy === null && hold.count(g.kind) > 0).sort(byName);
+    // Sell all: everything in the hold this station buys, in one go, a unit at a time (so each at
+    // the price the last left).
+    const sellable = goods.filter((g) => g.sell !== null && hold.count(g.kind) > 0);
     const sellAll = () => {
-      for (const g of sellable) while (hold.count(g.kind) > 0 && hold.sell(g.kind, g.sell));
+      for (const g of sellable) while (hold.count(g.kind) > 0 && market.sell(g.kind));
       refresh();
     };
     // Store all: the whole hold into the shared storage (the Industry tab's), as much as fits.
@@ -241,7 +255,7 @@ const StationMenu = (() => {
     const empty = hold.items.length < 1;
     lead('');
     return [
-      explain('trade', 'Hold Buy or Sell down to buy or sell more than one.'),
+      explain('trade', 'Hold Buy or Sell down to buy or sell more than one. Prices follow supply: selling a lot drives the price down, buying a lot drives it up, and stations recover over time.'),
       h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null }),
         h('span', { class: 'num st-holdn' }, `${hold.items.length}/${hold.capacity}`),
         h('span', { class: 'st-acts' },

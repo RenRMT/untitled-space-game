@@ -2,11 +2,13 @@
 // other end), and the action registry every interaction adds to (flight/interactions.js).
 // Part of the flight view; src/main.js starts it.
 
+import { Clock } from '../core/clock.js';
 import { Feedback } from '../core/feedback.js';
 import { Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
 import { Interactions } from '../flight/interactions.js';
 import { Economy } from '../rules/economy.js';
+import { Goods } from '../rules/goods.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
 import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
@@ -43,6 +45,29 @@ export const shipSpeed = () => Math.hypot(ship.vx, ship.vy);
 // is false while the ship has to come closer first.
 export const actions = Interactions.create({ gap: gapTo, speed: shipSpeed });
 
+// A station's market as the station menu sees it: its goods at their stockpiles now, and buying or
+// selling one unit, which moves the stockpile and so the price (rules/economy.js).
+export function marketAt(station) {
+  const seed = world.galaxy.seed;
+  const m = {
+    get goods() { return Economy.market(seed, station, cargo.market, Clock.now()).goods; },
+    good: (kind) => m.goods.find((g) => g.kind === kind),
+    buy(kind) {
+      const g = m.good(kind);
+      if (!g || g.buy === null || g.left < 1 || !hold.buy(kind, g.buy, Goods.type(kind).name)) return false;
+      Economy.trade(cargo.market, seed, station, kind, -1, Clock.now());
+      return true;
+    },
+    sell(kind) {
+      const g = m.good(kind);
+      if (!g || !hold.sell(kind, g.sell)) return false;
+      Economy.trade(cargo.market, seed, station, kind, 1, Clock.now());
+      return true;
+    },
+  };
+  return m;
+}
+
 export function dock(station) {
   if (docked || inFight() || !actions.state('dock', station).ok) return;
   Feedback.emit('docked');
@@ -66,7 +91,7 @@ export function dock(station) {
   setMode('docked', true);
   StationMenu.open({
     station: { name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color },
-    market: Economy.market(world.galaxy.seed, station),
+    market: marketAt(station),
     hold,
     ship: SHIP,
     outfitting,
