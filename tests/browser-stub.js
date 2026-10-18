@@ -140,6 +140,7 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
     // Panels sit near the bottom of the window, as the CSS places them.
     getBoundingClientRect() { return { x: 0, y: height - 160, left: 0, top: height - 160, right: 360, bottom: height - 60, width: 360, height: 100 }; }
     focus() {}
+    scrollIntoView() {}
     blur() {}
     setPointerCapture() {}
     releasePointerCapture() {}

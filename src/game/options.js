@@ -11,15 +11,18 @@ import { Combat } from '../combat/combat.js';
 import { Feedback } from '../core/feedback.js';
 import { Store } from '../core/store.js';
 import { Theme } from '../core/theme.js';
+import { FactionsMenu } from '../ui/factions.js';
 import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
 import { Security } from '../world/security.js';
+import { cargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { drag, showHints } from './input.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
 import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
 import { warp } from './warp.js';
+import { world } from './world.js';
 
 // A saved choice among `options` (core/store.js; a URL parameter of the same name overrides the saved
 // one); onChange runs after every change.
@@ -118,6 +121,16 @@ export const CONTROLS = {
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
 export const settingsBtn = document.getElementById('settings-btn');
+// The factions menu (ui/factions.js): how each faction regards the player. It pauses flight like
+// the settings menu.
+export const factionsBtn = document.getElementById('factions-btn');
+export function toggleFactions() {
+  if (FactionsMenu.isOpen) { FactionsMenu.close(); return; }
+  if (inFight() || docked || intro.on) return;
+  SystemMap.close();
+  Settings.close();
+  FactionsMenu.open(cargo.rep, new Set(world.galaxy.stations.map((st) => st.owner)));
+}
 
 // How each hull the player can fly is drawn: the Courier is the original ship; the others are
 // fixed designs in the same original style.
@@ -206,19 +219,26 @@ export function init() {
   }
   Feedback.on(buzz);
   applyAccess();
-  // The map and settings buttons stay above both (index.html): a second tap closes what the first
-  // opened, and either one swaps the other's menu for its own.
+  // The factions, map and settings buttons stay above all three (index.html): a second tap closes
+  // what the first opened, and each one swaps the others' menus for its own.
   settingsBtn.addEventListener('click', () => {
     if (Settings.isOpen) { Settings.close(); return; }
     if (inFight() || docked || intro.on) return;
     SystemMap.close();
+    FactionsMenu.close();
     Settings.open();
   });
-  // The map's own handler (ui/map.js) toggles it; the settings menu blocks the map, so a tap on the
-  // map button there closes the menu and then opens the map.
+  factionsBtn.addEventListener('click', toggleFactions);
+  // The map's own handler (ui/map.js) toggles it; the menus block the map, so a tap on the map
+  // button with one open closes it and then opens the map.
   document.getElementById('map-btn').addEventListener('click', () => {
-    if (Settings.isOpen) { Settings.close(); SystemMap.open(); }
+    if (Settings.isOpen || FactionsMenu.isOpen) { Settings.close(); FactionsMenu.close(); SystemMap.open(); }
   });
+  FactionsMenu.onToggle = (open) => {
+    setMode('factions', open);
+    factionsBtn.setAttribute('aria-expanded', String(open));
+    if (open) drag.active = false;
+  };
   Settings.onToggle = (open) => {
     setMode('settings', open); // no map on top of the menu
     invalidate(); // a changed setting shows behind the panel
@@ -231,6 +251,7 @@ export function init() {
     if (SystemMap.isOpen || docked || intro.on || warp.on) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
+    if (e.key === 'r' || e.key === 'R') toggleFactions();
     if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
     if (e.key === 'Escape') select(null);
     // Several actions can share a key (E mines an asteroid or collects gas): the first that has a

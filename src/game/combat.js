@@ -13,9 +13,11 @@ import { Flight } from '../flight/flight.js';
 import { Scene } from '../flight/scene.js';
 import { Abilities } from '../rules/abilities.js';
 import { Loadout } from '../rules/loadout.js';
+import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
+import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
@@ -166,11 +168,14 @@ export function joinFight(e) {
   fightLog(`${name} joins the fight`);
 }
 
-// Pirates attack a ship that comes too close, unless it just got away from them. In a fight that
-// others can join (real time), those that come close join it.
+// Pirates attack a ship that comes too close, unless it just got away from them, or the pirates
+// count it Friendly (rules/reputation.js passage): then their packs leave it be, though a job's or
+// a mission's pirates still don't. In a fight that others can join (real time), those that come
+// close join it.
+export const letsPass = (e) => e.pack !== undefined && Reputation.passage(cargo.rep);
 export function checkAggro(list) {
-  if (docked || Settings.isOpen) return;
-  const near = (e) => isHostile(e) && !fight.dying.has(e.key) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= CombatCore.config.aggroRange;
+  if (docked || Settings.isOpen || FactionsMenu.isOpen) return;
+  const near = (e) => isHostile(e) && !letsPass(e) && !fight.dying.has(e.key) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= CombatCore.config.aggroRange;
   if (fight.s && fightMode().join) {
     for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);
     return;
@@ -237,9 +242,11 @@ export function explode(x, y, r) {
 }
 
 // An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
-// schematic: the blueprint for that gear, researched at once).
+// schematic: the blueprint for that gear, researched at once). One of the pirates' own (a pack's)
+// costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
+  if (!cargo.removed.has(key) && world.scene.get(key)?.pack !== undefined) Reputation.change(cargo.rep, 'pirates', -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
   if (!p) { saveCargo(); return; }

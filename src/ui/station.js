@@ -11,8 +11,9 @@
 // StationMenu.open({ station: { name, subtitle, color }, market, hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
-// market: { goods (Economy.market's, at the stockpiles now), good(kind), buy(kind), sell(kind) }:
-//   buying and selling one unit at today's price, which moves it (game/docking.js marketAt).
+// market: { goods (Economy.market's, at the stockpiles now), good(kind), buy(kind), sell(kind), regard }:
+//   buying and selling one unit at today's price, which moves it (game/docking.js marketAt);
+//   regard: { owner, tier, shift } how the owner regards the player and what it does to prices.
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
@@ -219,6 +220,15 @@ const StationMenu = (() => {
     });
   }
 
+  // What the owner's regard does to prices here (rules/reputation.js), when it does anything.
+  function regardLine(r) {
+    if (!r || !r.shift) return null;
+    const pct = `${Math.round(Math.abs(r.shift) * 100)}%`;
+    return r.shift < 0
+      ? Kit.callout(`${r.owner} · ${r.tier}: ${pct} better prices here, buying and selling.`, 'var(--good)')
+      : Kit.callout(`${r.owner} · ${r.tier}: ${pct} worse prices here, buying and selling.`, 'var(--warn)');
+  }
+
   // How many of the hold's goods the shared storage can take now (game/industry.js deposit), and
   // why none if it can't: the Industry tab still locked, or storage full.
   function storeRoom() {
@@ -270,6 +280,7 @@ const StationMenu = (() => {
             aria: 'Sell everything in the hold that this station buys',
           }))),
       full ? Kit.callout('Your hold is full. Sell or store goods to make room.', 'var(--warn)') : null,
+      regardLine(market.regard),
       section('Sold here', Kit.head('Sold here'),
         stocked.length ? h('div', { class: 'ui-list' }, stocked.map((g) => goodRow(g, full))) : h('p', { class: 'ui-empty' }, 'Nothing for sale here.')),
       carried.length ? section('Not sold here', Kit.head('Not sold here', h('span', { class: 'aside' }, 'in your hold')),

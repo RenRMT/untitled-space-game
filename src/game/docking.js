@@ -9,6 +9,8 @@ import { Entities } from '../flight/entities.js';
 import { Interactions } from '../flight/interactions.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
+import { Reputation } from '../rules/reputation.js';
+import { Factions } from '../world/factions.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
 import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
@@ -30,11 +32,14 @@ import { world } from './world.js';
 export const DOCK = { range: 320, maxSpeed: 150 }; // range: world units beyond the station's radius
 export let docked = null; // { station } while docked; flight is paused and the station menu is open
 
-// Whether the player may dock at a station. Everyone is welcome for now; reputation
-// (refusing a wanted pilot, say) belongs here: return { ok: false, reason: 'Docking refused' }.
+// Whether the player may dock at a station: not where its owner counts them Hostile
+// (rules/reputation.js; the Registry's waystations turn no one away).
 export function canDock(station) {
+  const owner = ownerOf(station);
+  if (Reputation.refuses(cargo.rep, owner)) return { ok: false, reason: `Refused · ${Factions.get(owner).name.replace(/^The /, '')} hostile` };
   return { ok: true, reason: '' };
 }
+const ownerOf = (station) => (station.station || station).owner;
 
 // Distance from the ship to an object's edge.
 export const gapTo = (e) => Math.hypot(ship.x - e.x, ship.y - e.y) - e.radius;
@@ -46,11 +51,18 @@ export const shipSpeed = () => Math.hypot(ship.vx, ship.vy);
 export const actions = Interactions.create({ gap: gapTo, speed: shipSpeed });
 
 // A station's market as the station menu sees it: its goods at their stockpiles now, and buying or
-// selling one unit, which moves the stockpile and so the price (rules/economy.js).
+// selling one unit, which moves the stockpile and so the price (rules/economy.js). How its owner
+// regards the player widens or narrows the spread (rules/reputation.js); regard: { owner, tier,
+// shift } for the Trade tab to say so.
 export function marketAt(station) {
   const seed = world.galaxy.seed;
+  const owner = ownerOf(station);
   const m = {
-    get goods() { return Economy.market(seed, station, cargo.market, Clock.now()).goods; },
+    get regard() {
+      const f = Factions.get(owner);
+      return f ? { owner: f.name, tier: Reputation.tier(Reputation.regard(cargo.rep, owner)).label, shift: Reputation.priceShift(cargo.rep, owner) } : null;
+    },
+    get goods() { return Economy.market(seed, station, cargo.market, Clock.now(), Reputation.priceShift(cargo.rep, owner)).goods; },
     good: (kind) => m.goods.find((g) => g.kind === kind),
     buy(kind) {
       const g = m.good(kind);

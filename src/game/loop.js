@@ -7,6 +7,7 @@ import { Art } from '../art/render.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
+import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { collectItems } from './cargo.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
@@ -166,7 +167,7 @@ export function frame(now) {
   Messages.tick(dt);
   tickTravel(dt);
   if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
-    const paused = Settings.isOpen || resume.on; // the settings menu pauses it too, but keeps it drawn
+    const paused = Settings.isOpen || FactionsMenu.isOpen || resume.on; // the menus pause it too, but keep it drawn
     if (!paused) {
       update(dt);
       stillDrawn = false;
