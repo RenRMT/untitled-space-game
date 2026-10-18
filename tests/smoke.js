@@ -133,14 +133,14 @@ test('a new game opens on the introduction: the pod is talked in, flown to the w
   browser.frames(30);
   assert.ok(game('Math.hypot(ship.vx, ship.vy) < 1'), 'the pod waits while the station talks');
   game('Comms.next()');
-  // Diagnostic one: four answers, each with the portrait in its style; it sets the art style.
+  // Diagnostic one: two answers, each with the portrait in its style; it sets the art style.
   assert.match(text(), /Diagnostic one: please confirm visual functions/);
-  assert.match(text(), /Looks bright.*Looks blocky.*Looks flat.*Looks sharp/);
-  assert.strictEqual(faces().length, 4, 'a portrait per answer');
+  assert.match(text(), /Looks bright.*Looks sharp/);
+  assert.strictEqual(faces().length, 2, 'a portrait per answer');
   game('Comms.next()');
   assert.match(text(), /Diagnostic one/, 'a question waits for its answer');
   game('Comms.choose(1)');
-  assert.strictEqual(game('artStyle.value'), 'pixel');
+  assert.strictEqual(game('artStyle.value'), 'lowpoly');
   assert.match(text(), /Must be a pre-existing condition/);
   assert.strictEqual(faces().length, 1, 'the station\'s portrait from now on');
   game('Comms.next()');
@@ -535,9 +535,11 @@ test('flies in every art style and both movement modes', () => {
   game(`moveMode.set('cruise'); artStyle.set('line'); ship.targetSpeed = 0; ship.vx = ship.vy = 0;`);
   // The V shortcut cycles the style and says so.
   browser.key('v');
-  assert.strictEqual(game('artStyle.value'), 'pixel');
-  assert.match(game('toast.text'), /Art style: Pixel/);
-  game(`artStyle.set('flat')`);
+  assert.strictEqual(game('artStyle.value'), 'lowpoly');
+  assert.match(game('toast.text'), /Art style: Low-poly/);
+  browser.key('v');
+  assert.strictEqual(game('artStyle.value'), 'line', 'and back: only Line and Low-poly');
+  game(`artStyle.set('lowpoly')`);
   browser.frames(5);
 });
 
@@ -559,7 +561,7 @@ test('moons and nebulae come from art/bodies.js, in every style', () => {
   game(`{ const n = world.galaxy.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
   for (const style of game('ART_STYLES')) { game(`artStyle.set('${style}')`); browser.frames(4); }
   assert.ok(game('ArtBodies.stats().builds') > before + 20, 'nebula chunks were built');
-  game(`artStyle.set('flat'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
+  game(`artStyle.set('line'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
   browser.frames(2);
 });
 
@@ -599,7 +601,7 @@ test('switching art style spreads the rebuild over frames', () => {
     settled = game('Art.stats().deferred') === d;
   }
   assert.ok(settled, 'every sprite was rebuilt within two seconds');
-  game(`Art.config.buildBudgetMs = 4; artStyle.set('flat');`);
+  game(`Art.config.buildBudgetMs = 4; artStyle.set('line');`);
   browser.frames(3);
 });
 
@@ -1472,6 +1474,9 @@ test('jobs: an escort with a twist on the comms, handed in where it delivers; go
   assert.ok(title.startsWith(`${game('world.galaxy.systems[__job.system].name')}: `), `named for its system: ${title}`);
   dockAt(game('__at.key'));
   openMission(title);
+  // Away from the waystation too, the giver has a portrait (art/crew.js) of their faction's culture.
+  const stBody = browser.document.getElementById('st-body');
+  assert.ok(allOf(stBody).some((el) => el.tagName === 'CANVAS' && el.className === 'ui-face'), 'the giver\'s portrait');
   pressOnStation('Accept mission');
   game('launch()');
   browser.frames(2);

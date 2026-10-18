@@ -109,7 +109,7 @@ const ArtBlueprints = (() => {
   function ship(culture, seed, role) {
     const r = mulberry32(hashInt(seed, role === 'fighter' ? 1 : 2, culture.seed));
     const b = builder(role, culture, seed);
-    const fighter = role === 'fighter';
+    const fighter = role === 'fighter', kb = culture.lineage === 'kitbash';
     const hc = donor(culture, r);
     const L = (fighter ? 34 : 92) * culture.length * (0.92 + r() * 0.16);
     const W = (fighter ? 0.15 : 0.21) * L * hc.width;
@@ -142,61 +142,65 @@ const ArtBlueprints = (() => {
       for (const a of [0, Math.PI]) b.poly(U.rect(hx + Math.cos(a) * hr, 0, hw * 0.6, hw * 0.6), 'glass', { lvl: 1.3, h: hullH * 0.45 });
     }
     for (const s of (wingKind === 'halo' ? [] : [1, -1])) {
+      // Drifters (kitbash) often fit the second wing from another culture's hull.
+      const wcs = kb && s < 0 && r() < 0.7 ? donor(culture, r) : wc;
+      const gg = wcs === wc ? g : { ...g, span: (fighter ? L * 0.42 : L * 0.2) * wcs.span, sweep: wcs.sweep * L * 0.4, sweepRaw: wcs.sweep };
+      const wk = wcs.wings, wm = wcs === wc ? 'wing' : U.mix(wcs.pal.hull, '#8a8070', 0.35);
       const k = s < 0 && culture.asym > 0.1 ? 1 - culture.asym * 0.45 * r() : 1;
-      if (wingKind === 'fronds') {
+      if (wk === 'fronds') {
         // Tapering tentacle-like fronds, each tipped with a glowing bud.
         const n = fighter ? 2 : 3;
         for (let i = 0; i < n; i++) {
-          const x0 = lerp(g.rootX1, g.rootX0, i / Math.max(1, n - 1)), len = g.span * k * (1 - i * 0.18), ph = r() * TAU;
-          const line = Array.from({ length: 9 }, (_, t) => { const u = t / 8; return [x0 - g.sweep * 0.8 * u ** 1.4 + Math.sin(u * 4 + ph) * L * 0.02, s * (W * 0.55 + len * u)]; });
+          const x0 = lerp(gg.rootX1, gg.rootX0, i / Math.max(1, n - 1)), len = gg.span * k * (1 - i * 0.18), ph = r() * TAU;
+          const line = Array.from({ length: 9 }, (_, t) => { const u = t / 8; return [x0 - gg.sweep * 0.8 * u ** 1.4 + Math.sin(u * 4 + ph) * L * 0.02, s * (W * 0.55 + len * u)]; });
           const w = U.chaikin(U.strip(line, (u) => L * (fighter ? 0.07 : 0.045) * (1 - u * 0.8)), 1);
-          b.poly(w, 'wing', { lvl: 1 - i * 0.01, h: hullH * 0.3, bevel: hullH * 0.3, roof: true });
+          b.poly(w, wm, { lvl: 1 - i * 0.01, h: hullH * 0.3, bevel: hullH * 0.3, roof: true });
           b.circle(line[8][0], line[8][1], L * 0.018, 'glass', { lvl: 1.2, h: hullH * 0.32, dome: true });
           wings.push(w);
         }
         continue;
       }
-      if (wingKind === 'membrane') {
+      if (wk === 'membrane') {
         // A bat-like wing: leading edge to the tip, scalloped trailing edge back to the root, ribs.
-        const tipY = g.rootY + g.span * k, tip = [g.rootX0 - g.sweep * 0.5, s * tipY];
-        const pts = [[g.rootX1, s * g.rootY], [lerp(g.rootX1, tip[0], 0.55), s * lerp(g.rootY, tipY, 0.85)], tip];
+        const tipY = gg.rootY + gg.span * k, tip = [gg.rootX0 - gg.sweep * 0.5, s * tipY];
+        const pts = [[gg.rootX1, s * gg.rootY], [lerp(gg.rootX1, tip[0], 0.55), s * lerp(gg.rootY, tipY, 0.85)], tip];
         const ribs = [];
         const sc = 3;
         for (let i = 1; i <= sc; i++) {
           const u = i / sc, um = u - 0.5 / sc;
-          pts.push([lerp(tip[0], g.rootX0, um) + L * 0.06, s * lerp(tipY, g.rootY, um)], [lerp(tip[0], g.rootX0, u), s * lerp(tipY, g.rootY, u)]);
-          if (i < sc) ribs.push([g.rootX1 - L * 0.04, s * g.rootY, lerp(tip[0], g.rootX0, u), s * lerp(tipY, g.rootY, u)]);
+          pts.push([lerp(tip[0], gg.rootX0, um) + L * 0.06, s * lerp(tipY, gg.rootY, um)], [lerp(tip[0], gg.rootX0, u), s * lerp(tipY, gg.rootY, u)]);
+          if (i < sc) ribs.push([gg.rootX1 - L * 0.04, s * gg.rootY, lerp(tip[0], gg.rootX0, u), s * lerp(tipY, gg.rootY, u)]);
         }
         const w = U.chaikin(pts, 2);
-        b.poly(w, 'wing', { lvl: 1, h: hullH * 0.3, bevel: hullH * 0.25, roof: true, lines: [[g.rootX1, s * g.rootY, tip[0], tip[1]], ...ribs] });
+        b.poly(w, wm, { lvl: 1, h: hullH * 0.3, bevel: hullH * 0.25, roof: true, lines: [[gg.rootX1, s * gg.rootY, tip[0], tip[1]], ...ribs] });
         wings.push(w);
         continue;
       }
-      if (wingKind === 'vanes') {
+      if (wk === 'vanes') {
         // Parallel blades floating clear of the hull.
         const n = fighter ? 2 : 3, gap = W * 0.35, th = Math.max(1.2, W * 0.16);
         for (let i = 0; i < n; i++) {
-          const y = s * (W * 0.8 + gap + i * (th + gap * 0.8)), len = L * (fighter ? 0.5 : 0.4) * (1 - i * 0.18) * wc.span, vx = -L * 0.08 - i * L * 0.04;
+          const y = s * (W * 0.8 + gap + i * (th + gap * 0.8)), len = L * (fighter ? 0.5 : 0.4) * (1 - i * 0.18) * wcs.span, vx = -L * 0.08 - i * L * 0.04;
           const v = U.rect(vx, y, len, th);
-          b.poly(v, 'wing', { lvl: 1, h: hullH * 0.4, bevel: th * 0.3 });
+          b.poly(v, wm, { lvl: 1, h: hullH * 0.4, bevel: th * 0.3 });
           b.poly(U.rect(vx + len * 0.3, y, len * 0.08, th * 0.5), 'glass', { lvl: 1.3, h: hullH * 0.45 });
           wings.push(v);
         }
         continue;
       }
-      if (wingKind === 'pods') {
-        const py = s * (W + g.span * 0.55), pl = L * (fighter ? 0.55 : 0.45), pw = W * (fighter ? 0.7 : 0.9);
+      if (wk === 'pods') {
+        const py = s * (W + gg.span * 0.55), pl = L * (fighter ? 0.55 : 0.45), pw = W * (fighter ? 0.7 : 0.9);
         b.strut(-L * 0.1, s * W * 0.7, -L * 0.1, py, W * 0.35, 'hull2', { lvl: 0, h: hullH * 0.3 });
-        const pod = U.chaikin(U.rect(-L * 0.12, py, pl, pw), roundIters(wc));
-        b.poly(pod, 'wing', { lvl: 1, h: hullH * 0.8, bevel: pw * 0.35, roof: true });
+        const pod = U.chaikin(U.rect(-L * 0.12, py, pl, pw), roundIters(wcs));
+        b.poly(pod, wm, { lvl: 1, h: hullH * 0.8, bevel: pw * 0.35, roof: true });
         b.engine(-L * 0.12 - pl / 2 - 1, py, pw * 0.5);
         b.poly(U.rect(-L * 0.12 - pl / 2, py, pl * 0.12, pw * 0.6), 'engine', { lvl: 0.5, h: hullH * 0.5 });
         wings.push(pod);
         continue;
       }
-      for (const pts of wingShape(wingKind, s, k, g)) {
-        const w = U.chaikin(pts, wc.round > 0.6 ? 1 : 0);
-        b.poly(w, 'wing', { lvl: 1, h: hullH * 0.35, bevel: hullH * 0.4, roof: true });
+      for (const pts of wingShape(wk, s, k, gg)) {
+        const w = U.chaikin(pts, wcs.round > 0.6 ? 1 : 0);
+        b.poly(w, wm, { lvl: 1, h: hullH * 0.35, bevel: hullH * 0.4, roof: true });
         wings.push(w);
       }
     }
@@ -216,6 +220,12 @@ const ArtBlueprints = (() => {
     const nl = L * 0.07;
     for (let i = 0; i < n; i++) {
       const y = n === 1 ? 0 : lerp(tail[0] * 0.6, tail[1] * 0.6, i / (n - 1));
+      if (kb) {
+        const k = 0.7 + r() * 0.6, ec = donor(culture, r);
+        b.poly(U.rect(-L / 2 - nl * 0.2 * k, y, nl * k, ew * k), r() < 0.5 ? 'engine' : U.shade(ec.pal.hull2, 0.7), { lvl: 1.8, h: hullH * 0.7 * k });
+        b.engine(-L / 2 - nl * 0.7 * k, y, ew * 0.55 * k);
+        continue;
+      }
       if (hc.hull === 'bio') b.circle(-L / 2 + nl * 0.15, y, ew * 0.55, 'engine', { lvl: 1.8, h: hullH * 0.6, dome: true });
       else b.poly(U.rect(-L / 2 - nl * 0.2, y, nl, ew), 'engine', { lvl: 1.8, h: hullH * 0.7 });
       b.engine(-L / 2 - nl * 0.7, y, ew * 0.55);
@@ -307,7 +317,10 @@ const ArtBlueprints = (() => {
       if (culture.asym < 0.2 && Math.abs(y) > h) b.poly(U.rect(x, -y, w, h), 'hull2', { lvl: 3, h: 0.5 });
     }
 
-    if (culture.lineage === 'kitbash') addPatches(b, culture, r, hull, L * 0.12, 2);
+    if (kb) {
+      addPatches(b, culture, r, hull, L * 0.12, fighter ? 2 : 3);
+      jury(b, culture, r, hull, L, W, hullH, fighter);
+    }
 
     b.bp.glow = true;
     b.bp.label = `${fighter ? 'Fighter' : 'Freighter'} · ${hc.hull} hull, ${wingKind} wings, ${n} engine${n > 1 ? 's' : ''}`;
@@ -374,7 +387,7 @@ const ArtBlueprints = (() => {
     }
   }
 
-  // Pirate patches: mismatched plates in donor colours, plus scorch.
+  // Drifter (kitbash) patches: mismatched plates in donor colours, plus scorch.
   function addPatches(b, c, r, inside, size, n) {
     const [x0, y0, x1, y1] = U.bbox(inside);
     const colors = (c.donors || []).map((d) => d.pal.hull).concat(['#6a5f52', '#9a8a70']);
@@ -386,6 +399,41 @@ const ArtBlueprints = (() => {
     }
     const x = lerp(x0, x1, r()), y = lerp(y0, y1, r()) * 0.5;
     b.poly(U.blob(x, y, size, size * 0.8, r, 0.5, 8), 'scorch', { lvl: 9, overlay: true, line: false });
+  }
+
+  // A truss: two rails with zig-zag bracing, for scaffolding and stopgap repairs.
+  function truss(b, x1, y1, x2, y2, w, o = {}) {
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1, nx = (-dy / len) * w / 2, ny = (dx / len) * w / 2;
+    const n = Math.max(2, Math.round(len / (w * 1.3))), th = Math.max(0.6, w * 0.14), P = { lvl: 0.4, h: w * 0.15, thin: true, ...o };
+    b.strut(x1 + nx, y1 + ny, x2 + nx, y2 + ny, th, 'strut', P);
+    b.strut(x1 - nx, y1 - ny, x2 - nx, y2 - ny, th, 'strut', P);
+    for (let i = 0; i < n; i++) {
+      const t0 = i / n, t1 = (i + 1) / n, s0 = i % 2 ? 1 : -1;
+      b.strut(x1 + dx * t0 + nx * s0, y1 + dy * t0 + ny * s0, x1 + dx * t1 - nx * s0, y1 + dy * t1 - ny * s0, th * 0.8, 'strut', P);
+    }
+  }
+
+  // Drifter ships are kept flying with what was at hand: straps around the hull, a tank or crate
+  // lashed on, a salvaged sensor boom.
+  function jury(b, c, r, hull, L, W, hullH, fighter) {
+    for (let i = 0, n = fighter ? 1 : 2; i < n; i++) {
+      const x = lerp(-L * 0.3, L * 0.15, r()), sp = U.spanAt(hull, x);
+      if (sp) b.strut(x, sp[0] - 0.6, x + L * 0.02, sp[1] + 0.6, Math.max(0.8, L * 0.012), '#3a3530', { lvl: 3.8, h: hullH * 0.05, thin: true });
+    }
+    const s = r() < 0.5 ? 1 : -1, tc = donor(c, r);
+    if (!fighter) {
+      const x = lerp(-L * 0.25, L * 0.1, r()), y = s * W * (1.15 + r() * 0.2), tl = L * (0.18 + r() * 0.1), tw = W * 0.5;
+      const box = r() < 0.5 ? U.rect(x, y, tl, tw) : U.chaikin(U.rect(x, y, tl, tw), 2);
+      b.poly(box, U.mix(tc.pal.trim, '#8a7a60', 0.3), { lvl: 0.8, h: hullH * 0.5, bevel: tw * 0.3, roof: true });
+      for (const k of [-0.3, 0.3]) b.strut(x + tl * k, y - tw * 0.6, x + tl * k, y + tw * 0.6, Math.max(0.7, L * 0.008), '#3a3530', { lvl: 0.9, h: hullH * 0.52, thin: true });
+      b.strut(x, y - s * tw * 0.5, x, s * W * 0.7, Math.max(0.8, W * 0.08), 'strut', { lvl: 0.3, h: hullH * 0.3, thin: true });
+    }
+    const bx = lerp(-L * 0.1, L * 0.2, r()), sp = U.spanAt(hull, bx) || [-W * 0.5, W * 0.5], by = s > 0 ? sp[1] : sp[0];
+    const a = s * (Math.PI / 2 + (r() - 0.5) * 1.2), bl = L * (fighter ? 0.22 : 0.16);
+    const ex = bx + Math.cos(a) * bl, ey = by + Math.sin(a) * bl;
+    b.strut(bx, by, ex, ey, Math.max(0.7, L * 0.01), 'strut', { lvl: 2.6, h: hullH * 0.4, thin: true });
+    b.circle(ex, ey, L * (fighter ? 0.03 : 0.022), 'glass', { lvl: 2.7, h: hullH * 0.45, dome: true });
+    b.light(ex, ey, 2, c.pal.light, { blink: r() * 3 });
   }
 
   // ---------- Stations ----------
@@ -407,6 +455,21 @@ const ArtBlueprints = (() => {
       const mod = other.round > 0.5 ? U.blob(Math.cos(a) * d, Math.sin(a) * d, R * 0.2, R * 0.15, r, 0.3, 9, a) : U.rect(Math.cos(a) * d, Math.sin(a) * d, R * 0.32, R * 0.2, a);
       b.poly(mod, other.pal.hull, { lvl: 2.5, h: R * 0.08, bevel: R * 0.06, roof: other.round > 0.5 });
       addPatches(b, culture, r, U.circle(0, 0, R * 0.8, 12), R * 0.12, 4);
+      // A second module from yet another donor, on a truss.
+      const a2 = a + Math.PI * (0.6 + r() * 0.8), o2 = donor(culture, r), d2 = R * (0.9 + r() * 0.2);
+      truss(b, Math.cos(a2) * R * 0.45, Math.sin(a2) * R * 0.45, Math.cos(a2) * d2, Math.sin(a2) * d2, R * 0.07);
+      const m2 = o2.hull === 'shard'
+        ? [[R * 0.22, 0], [0, R * 0.09], [-R * 0.16, 0], [0, -R * 0.09]].map((p) => U.add(U.rot(p, a2), [Math.cos(a2) * d2, Math.sin(a2) * d2]))
+        : U.rect(Math.cos(a2) * d2, Math.sin(a2) * d2, R * 0.24, R * 0.16, a2);
+      b.poly(m2, U.mix(o2.pal.hull, '#8a8070', 0.25), { lvl: 2.4, h: R * 0.07, bevel: R * 0.04, roof: o2.hull === 'shard', grid: o2.hull === 'block' ? [3, 1] : undefined });
+      b.light(Math.cos(a2) * d2, Math.sin(a2) * d2, 2.2, culture.pal.light, { blink: 1.3 });
+      // Unfinished scaffolding reaching out on a third side.
+      const a3 = a2 + Math.PI * (0.5 + r() * 0.4), l3 = R * (0.35 + r() * 0.25);
+      truss(b, Math.cos(a3) * R * 0.55, Math.sin(a3) * R * 0.55, Math.cos(a3) * (R * 0.55 + l3), Math.sin(a3) * (R * 0.55 + l3), R * 0.06);
+      // A salvaged solar panel or radiator, a little askew.
+      const a4 = a3 + Math.PI * (0.4 + r() * 0.3), d4 = R * 1.05, pc = [Math.cos(a4) * d4, Math.sin(a4) * d4];
+      b.strut(Math.cos(a4) * R * 0.5, Math.sin(a4) * R * 0.5, ...pc, R * 0.03, 'strut', { lvl: 0.3, thin: true });
+      b.poly(U.rect(...pc, R * 0.18, R * 0.4, a4 + (r() - 0.5) * 0.4), r() < 0.5 ? 'panel' : '#6a6458', { lvl: 0.5, h: R * 0.02, grid: [2, 4] });
     }
     b.bp.label = `${major ? 'Major' : 'Minor'} station · ${topo}`;
     return finish(b.bp);
@@ -595,7 +658,7 @@ const ArtBlueprints = (() => {
   // ---------- Jump gates and wormholes ----------
 
   // A jump gate: a glowing aperture with broken rings turning in it, inside a frame built in the
-  // culture's language. Pirates bolt each frame segment together from a different donor.
+  // culture's language. Drifters bolt each frame segment together from a different donor.
   function gate(culture, seed) {
     const r = mulberry32(hashInt(seed, 6, culture.seed));
     const b = builder('gate', culture, seed);
@@ -613,8 +676,16 @@ const ArtBlueprints = (() => {
     if (kind === 'synth') b.ring(0, 0, Rf, R * 0.015, 'strut', { lvl: 0, h: R * 0.01 });
     else b.ring(0, 0, Rf, fw * (kind === 'bio' ? 1 : 0.8), kind === 'bio' ? 'hull' : 'hull2', { lvl: 0, h: R * 0.08 });
     const N = { wedge: 8, block: 8, shard: 10, bio: 9, synth: 12 }[kind] || 8;
+    const gap = kind === 'kitbash' ? Math.floor(r() * N) : -1;
     for (let i = 0; i < N; i++) {
       const a = (i / N) * TAU, h = kind === 'kitbash' ? donor(culture, r).hull : kind;
+      if (i === gap) {
+        // A lost segment, bridged with a truss and a coil of cable.
+        const a0 = a - (TAU / N) * 0.45, a1 = a + (TAU / N) * 0.45;
+        truss(b, Math.cos(a0) * Rf, Math.sin(a0) * Rf, Math.cos(a1) * Rf, Math.sin(a1) * Rf, fw * 0.7, { lvl: 1.2, h: R * 0.06 });
+        b.light(Math.cos(a) * Rf, Math.sin(a) * Rf, 2.4, culture.pal.light, { blink: 0.5 });
+        continue;
+      }
       const dir = [Math.cos(a), Math.sin(a)], nrm = [-dir[1], dir[0]];
       const P = (d, o) => [dir[0] * d + nrm[0] * o, dir[1] * d + nrm[1] * o];
       const seg = (TAU * Rf) / N;

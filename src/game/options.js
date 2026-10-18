@@ -33,7 +33,10 @@ export function setting(key, options, fallback, onChange) {
   return s;
 }
 
-export const ART_STYLES = Art.STYLES.map((s) => s.id);
+// The game's art styles: Line and Low-poly. art/render.js keeps Pixel and Flat (and the variants)
+// for its own iteration, but they aren't offered here; a saved choice of either falls back to Line.
+export const ART_STYLES = ['line', 'lowpoly'];
+export const STYLE_LIST = Art.STYLES.filter((s) => ART_STYLES.includes(s.id));
 export const artStyle = setting('style', ART_STYLES, 'line');
 
 // Cruise: the ship holds the set speed after you let go (tap to stop).
@@ -108,8 +111,6 @@ function buzz(event, detail) {
 
 export const ART_HINT = {
   line: 'Neon outlines on the dark.',
-  pixel: 'Coarse pixels with dithered shading.',
-  flat: 'Solid fills with a simple rim shadow.',
   lowpoly: 'Faceted shapes with flat lighting.',
 };
 
@@ -162,7 +163,7 @@ export function escapePod(culture) {
 export function init() {
   Settings.add({
     id: 'style', label: 'Art style', shortcut: 'V',
-    choices: Art.STYLES.map((s) => ({ value: s.id, label: s.label, hint: ART_HINT[s.id] })),
+    choices: STYLE_LIST.map((s) => ({ value: s.id, label: s.label, hint: ART_HINT[s.id] })),
     get: () => artStyle.value, set: (v) => artStyle.set(v),
   });
   Settings.add({
@@ -250,7 +251,7 @@ export function init() {
   window.addEventListener('keydown', (e) => {
     if (SystemMap.isOpen || docked || intro.on || warp.on) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
-    if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${Art.STYLES.find((s) => s.id === artStyle.value).label}`); }
+    if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();
     if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
     if (e.key === 'Escape') select(null);

@@ -80,7 +80,7 @@ const ArtPortraits = (() => {
   // ---------- Line ----------
 
   function drawLine(ctx, P, k) {
-    const C = conf(), dpr = dprOf(), lw = Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k, blur = Math.min(8 * dpr, 5 * k);
+    const V = Art.V, C = conf(), dpr = dprOf(), lw = (Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k) * (V.lw || 1), blur = Math.min(8 * dpr, 5 * k) * (V.blur || 1);
     ctx.lineJoin = ctx.lineCap = 'round';
     for (const it of P.items) {
       if (it.line === 'skip') continue;
@@ -101,18 +101,100 @@ const ArtPortraits = (() => {
         const path = pathOf(it.pts);
         ctx.fillStyle = C.bg;
         ctx.fill(path);
+        if (V.fill) { ctx.fillStyle = U.rgba(col, V.fill); ctx.fill(path); }
+        if (V.pfill) partFill(ctx, it, P, col, lw, V.pfill);
+        if (V.glow === 'all') ctx.shadowBlur = blur * 0.6;
         ctx.stroke(path);
       } else if (it.kind === 'ell') {
         const path = ellPath(it);
-        if (it.glow) ctx.shadowBlur = blur;
+        if (it.glow && V.glow !== 'none') ctx.shadowBlur = blur;
         if (it.line === 'fill') { ctx.fillStyle = col; ctx.fill(path); } else { ctx.fillStyle = C.bg; ctx.fill(path); ctx.stroke(path); }
       } else {
-        if (it.glow) ctx.shadowBlur = blur;
+        if (it.glow && V.glow !== 'none') ctx.shadowBlur = blur;
         ctx.lineWidth = clamp(it.w * 0.6, lw, lw * 2.2);
         ctx.stroke(linePath(it));
       }
     }
     ctx.shadowBlur = 0;
+  }
+
+  // Hairline fills (style variants): shading, hatching or a colour gradient inside each part.
+  function partFill(ctx, it, P, col, lw, mode) {
+    const path = pathOf(it.pts), [x0, y0, x1, y1] = U.bbox(it.pts);
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.max(x1 - x0, y1 - y0) / 2;
+    if (mode === 'shade') {
+      const g = ctx.createLinearGradient(cx + L2[0] * R, cy + L2[1] * R, cx - L2[0] * R, cy - L2[1] * R);
+      g.addColorStop(0, U.rgba(col, 0.32)); g.addColorStop(1, U.rgba(col, 0.02));
+      ctx.fillStyle = g; ctx.fill(path);
+    }
+    if (mode === 'grad') {
+      const base = P.pal[it.mat] || col;
+      const g = ctx.createRadialGradient(cx + L2[0] * R * 0.45, cy + L2[1] * R * 0.45, R * 0.05, cx, cy, R * 1.1);
+      g.addColorStop(0, U.rgba(U.mix(base, '#ffffff', 0.08), 0.8)); g.addColorStop(1, U.rgba(U.shade(base, 0.22), 0.8));
+      ctx.fillStyle = g; ctx.fill(path);
+    }
+    if (mode === 'hatch') {
+      const d = clamp(Math.min(it.rx, it.ry) * 0.45, 1.2, 9);
+      ctx.save();
+      ctx.clip(path);
+      const rim = new Path2D();
+      rim.rect(x0 - 20, y0 - 20, x1 - x0 + 40, y1 - y0 + 40);
+      rim.addPath(pathOf(it.pts, L2[0] * d, L2[1] * d));
+      ctx.clip(rim, 'evenodd');
+      ctx.strokeStyle = U.rgba(col, 0.6);
+      ctx.lineWidth = lw * 0.75;
+      ctx.beginPath();
+      const h = y1 - y0 + 2;
+      for (let t = x0 - h - 2; t < x1 + 2; t += 1.7) { ctx.moveTo(t, y1 + 1); ctx.lineTo(t + h, y0 - 1); }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // ---------- Cel (style variant) ----------
+  // 2D cel shading: a flat base, one hard shadow shape away from the light, a small rim of light;
+  // 'ink' adds dark outlines, 'tone' keeps it outline-free with a deeper shadow.
+  function drawCel(ctx, P, k, mode) {
+    const big = new Path2D();
+    big.rect(-HALF * 2, -HALF * 2, HALF * 4, HALF * 4);
+    const ink = mode === 'ink';
+    ctx.lineJoin = ctx.lineCap = 'round';
+    for (const it of P.items) {
+      const base = P.pal[it.mat];
+      if (it.kind === 'part') {
+        const path = pathOf(it.pts);
+        ctx.fillStyle = base;
+        ctx.fill(path);
+        const s = it.lineArc ? 0 : clamp(Math.min(it.rx, it.ry) * (ink ? 0.42 : 0.5), 0.8, 10);
+        ctx.save();
+        ctx.clip(path);
+        for (const [d, col] of [[s, U.shade(base, ink ? 0.68 : 0.58)], [-s * 0.22, U.mix(base, '#ffffff', ink ? 0.18 : 0.28)]]) {
+          const rim = new Path2D(big);
+          rim.addPath(pathOf(it.pts, L2[0] * d, L2[1] * d));
+          ctx.fillStyle = col;
+          ctx.fill(rim, 'evenodd');
+        }
+        ctx.restore();
+        const inkC = U.mix(U.shade(base, 0.28), '#0b0d12', 0.4);
+        if (it.lineArc) {
+          // Small features (the nose): just the arc, in ink or shadow tone.
+          const A = Math.floor(it.lineArc[0] * RAYS), B = Math.ceil(it.lineArc[1] * RAYS);
+          ctx.beginPath();
+          for (let i = A; i <= B; i++) { const [x, y] = it.pts[i % RAYS]; i === A ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+          ctx.strokeStyle = ink ? inkC : U.shade(base, 0.6);
+          ctx.lineWidth = Math.max(0.7, 1.2 / k);
+          ctx.stroke();
+        } else if (ink) { ctx.strokeStyle = inkC; ctx.lineWidth = Math.max(0.9, 1.6 / k); ctx.stroke(path); }
+      } else if (it.kind === 'ell') {
+        ctx.fillStyle = base;
+        ctx.fill(ellPath(it));
+        if (ink && it.rx > 1.6) { ctx.strokeStyle = U.mix(U.shade(base, 0.3), '#0b0d12', 0.4); ctx.lineWidth = Math.max(0.6, 1 / k); ctx.stroke(ellPath(it)); }
+      } else {
+        ctx.strokeStyle = base;
+        ctx.lineWidth = it.w;
+        ctx.stroke(linePath(it));
+      }
+    }
   }
 
   // ---------- Flat ----------
@@ -151,9 +233,9 @@ const ArtPortraits = (() => {
   // ---------- Low-poly ----------
 
   function lowTris(it, seed) {
-    const rnd = mulberry(seed), rings = [0.45, 0.75, 0.92, 1];
+    const coarse = Art.V.coarse, rnd = mulberry(seed), rings = coarse ? [0.6, 1] : [0.45, 0.75, 0.92, 1];
     const per = it.pts.reduce((a, p, i) => a + Math.hypot(p[0] - it.pts[(i + 1) % RAYS][0], p[1] - it.pts[(i + 1) % RAYS][1]), 0);
-    const seg = clamp(Math.round(per / 6.5), 8, 22);
+    const seg = coarse ? clamp(Math.round(per / 13), 5, 10) : clamp(Math.round(per / 6.5), 8, 22);
     const V = (x, y) => [x, y, it.h(x, y)];
     const ringPts = rings.map((f, ri) => Array.from({ length: seg }, (_, j) => {
       const t = ((j + (ri % 2) * 0.5 + (f < 1 ? (rnd() - 0.5) * 0.35 : 0)) / seg) * TAU;
@@ -185,10 +267,14 @@ const ArtPortraits = (() => {
         for (const [a, b, c] of lowTris(it, P.seed * 31 + n)) {
           let nn = norm(cross(sub(b, a), sub(c, a)));
           if (nn[2] < 0) nn = nn.map((v) => -v);
-          const jit = 0.95 + 0.1 * (((Math.sin((a[0] + b[1] + c[0]) * 12.9898 + P.seed * 78.233) * 43758.5453) % 1 + 1) % 1);
-          const col = U.shade(base, (0.24 + 0.95 * Math.max(0, dot(nn, LIGHT))) * jit);
+          const V = Art.V, jit = V.coarse ? 1 : 0.95 + 0.1 * (((Math.sin((a[0] + b[1] + c[0]) * 12.9898 + P.seed * 78.233) * 43758.5453) % 1 + 1) % 1);
+          let d = Math.max(0, dot(nn, LIGHT));
+          if (V.bands) d = Math.round(d * V.bands) / V.bands;
+          const col = U.shade(base, (0.24 + 0.95 * d) * jit);
           ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(c[0], c[1]); ctx.closePath();
-          ctx.fillStyle = ctx.strokeStyle = col;
+          ctx.fillStyle = col;
+          ctx.strokeStyle = V.edge ? U.shade(col, V.edge) : col;
+          ctx.lineWidth = (V.edge ? 0.6 * (V.edgeW || 1.4) : 0.6) / k;
           ctx.fill(); ctx.stroke();
         }
       } else if (it.kind === 'ell') {
@@ -262,6 +348,9 @@ const ArtPortraits = (() => {
   }
 
   function draw(ctx, P, style, o = {}) {
+    return Art.withV(Art.pickV(style, 'portrait'), () => draw0(ctx, P, Art.baseOf(style), o));
+  }
+  function draw0(ctx, P, style, o) {
     const texel = o.texel || 2, m = ctx.getTransform(), k = Math.hypot(m.a, m.b);
     ctx.save();
     ctx.beginPath();
@@ -274,6 +363,7 @@ const ArtPortraits = (() => {
       ctx.drawImage(spr.canvas, -HALF, -HALF, spr.size, spr.size);
     } else if (style === 'line') drawLine(ctx, P, k);
     else if (style === 'flat') drawFlat(ctx, P);
+    else if (Art.V.cel) drawCel(ctx, P, k, Art.V.cel);
     else drawLow(ctx, P, k);
     ctx.restore();
   }

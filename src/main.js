@@ -10,7 +10,7 @@
 //   story/        the introduction, the missions' data and the galaxy's jobs
 //   combat/       combat rules: round-based and real time
 //   flight/       things in space: entities, the scene, flying, map travel
-//   art/          procedural art in four styles
+//   art/          procedural art in two styles (Line, Low-poly)
 //   rules/        items, markets, ships, refits, research, the squad, fog of war
 //   world/        galaxy generation
 //   core/         maths, randomness, saved data, display, colours

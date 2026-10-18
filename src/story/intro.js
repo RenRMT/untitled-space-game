@@ -34,8 +34,6 @@ const Intro = (() => {
       say: 'Diagnostic one: please confirm visual functions.', ask: 'style', portraits: true,
       options: [
         { label: 'Looks bright', value: 'line' },
-        { label: 'Looks blocky', value: 'pixel' },
-        { label: 'Looks flat', value: 'flat' },
         { label: 'Looks sharp', value: 'lowpoly' },
       ],
     },

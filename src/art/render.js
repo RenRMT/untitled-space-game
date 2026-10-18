@@ -43,12 +43,39 @@ const Art = (() => {
     bg: '#05060a',
     outline: '#0e1016',
   };
+  // Style variants (project addition): hidden styles that reuse a base style with a few knobs
+  // changed (STYLE_VARIANTS, near the end). V holds the knobs while a variant draws.
+  let V = {};
+  const curV = () => V;
+  const withV = (v, fn) => { const o = V; V = v || {}; try { return fn(); } finally { V = o; } };
   const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((a) => a / l); };
   const LIGHT = norm([-0.45, -0.6, 0.66]); // world space: up-left, toward the viewer
   const BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]].map((r) => r.map((v) => v / 16));
   const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
   const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+
+  // Hatching (Line style): diagonal hairlines on the side of `path` away from the light, and a
+  // cross-hatch in the deepest shadow. (cx, cy, R): the shape's centre and radius; (lx, ly): the
+  // light direction in the drawing's frame; lw: line width in drawing units.
+  function hatch(ctx, path, cx, cy, R, lx, ly, col, lw, rule = 'nonzero') {
+    for (const [sh, a, rot] of [[0.34, 0.55, 0.8], [0.66, 0.42, -0.8]]) {
+      ctx.save();
+      ctx.shadowBlur = 0;
+      ctx.clip(path, rule);
+      const rim = new Path2D();
+      rim.rect(cx - R * 4, cy - R * 4, R * 8, R * 8);
+      rim.addPath(path, new DOMMatrix().translate(lx * R * sh, ly * R * sh));
+      ctx.clip(rim, 'evenodd');
+      ctx.translate(cx, cy); ctx.rotate(rot);
+      ctx.strokeStyle = U.rgba(col, a); ctx.lineWidth = lw; ctx.globalAlpha = 1; ctx.beginPath();
+      const step = Math.max(R * 0.075, lw * 2.4);
+      for (let y = -R * 1.5; y < R * 1.5; y += step) { ctx.moveTo(-R * 1.5, y); ctx.lineTo(R * 1.5, y); }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+  const L2D = (() => { const l = Math.hypot(LIGHT[0], LIGHT[1]); return [LIGHT[0] / l, LIGHT[1] / l]; })();
 
   // ---------- Sprite caches ----------
 
@@ -141,7 +168,7 @@ const Art = (() => {
     const ctx = cv.getContext('2d');
     const pal = palette(bp);
     const dpr = dprOf();
-    const lw = Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k;
+    const lw = (Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k) * (V.lw || 1);
     ctx.setTransform(k, 0, 0, k, S / 2, S / 2);
     ctx.rotate(ang);
     ctx.lineJoin = 'round';
@@ -149,6 +176,7 @@ const Art = (() => {
     for (const p of layerParts(bp, layer)) {
       if (p.line === false || p.overlay) continue;
       ctx.strokeStyle = pal.line;
+      ctx.globalAlpha = 1;
       if (p.thin) {
         ctx.lineWidth = lw;
         ctx.beginPath();
@@ -161,24 +189,46 @@ const Art = (() => {
       const rule = p.shape === 'ring' ? 'evenodd' : 'nonzero';
       ctx.fillStyle = config.bg;
       ctx.fill(path, rule);
-      if (p.mat === 'accent') {
-        ctx.fillStyle = U.rgba(pal.line, 0.3);
+      if (V.fill) {
+        // Tinted body: a faint wash of the line colour, stronger toward the light.
+        const big = p.mat === 'hull' || p.mat === 'wing' || p.mat === 'hull2' || p.mat === 'trim';
+        ctx.fillStyle = U.rgba(pal.line, big ? V.fill : V.fill * 0.6);
         ctx.fill(path, rule);
       }
-      const glow = bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');
+      if (p.mat === 'accent') {
+        ctx.fillStyle = U.rgba(pal.line, V.accent ?? 0.3);
+        ctx.fill(path, rule);
+      }
+      if (V.pfill === 'shade') {
+        const [x0, y0, x1, y1] = p.shape === 'poly' ? U.bbox(p.pts) : [p.cx - p.r - (p.w || 0), p.cy - p.r - (p.w || 0), p.cx + p.r + (p.w || 0), p.cy + p.r + (p.w || 0)];
+        const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rr = Math.max(x1 - x0, y1 - y0) / 2;
+        const [lx, ly] = U.rot([LIGHT[0], LIGHT[1]], -ang).map((v) => v / Math.hypot(LIGHT[0], LIGHT[1]));
+        const g = ctx.createLinearGradient(cx + lx * rr, cy + ly * rr, cx - lx * rr, cy - ly * rr);
+        g.addColorStop(0, U.rgba(pal.line, 0.3)); g.addColorStop(1, U.rgba(pal.line, 0.02));
+        ctx.fillStyle = g; ctx.fill(path, rule);
+      }
+      if (V.pfill === 'hatch') {
+        const [x0, y0, x1, y1] = p.shape === 'poly' ? U.bbox(p.pts) : [p.cx - p.r - (p.w || 0), p.cy - p.r - (p.w || 0), p.cx + p.r + (p.w || 0), p.cy + p.r + (p.w || 0)];
+        const [lx, ly] = U.rot(L2D, -ang);
+        hatch(ctx, path, (x0 + x1) / 2, (y0 + y1) / 2, Math.max(x1 - x0, y1 - y0) / 2, lx, ly, pal.line, lw * 0.55, rule);
+      }
+      if (p.mat === 'glass' && V.glassFill) { ctx.fillStyle = U.rgba(pal.glass || pal.line, V.glassFill); ctx.fill(path, rule); }
+      const glow = V.glow === 'none' ? false : V.glow === 'all' ? bp.glow && !bp.wrecked : bp.glow && !bp.wrecked && (p.mat === 'hull' || p.mat === 'wing');
       ctx.shadowColor = pal.line;
-      ctx.shadowBlur = glow ? Math.min(10 * dpr, 6 * k) : 0;
+      ctx.shadowBlur = glow ? Math.min(10 * dpr, 6 * k) * (V.blur || 1) : 0;
       ctx.lineWidth = lw * (p.lineWidth || (p.mat === 'glass' || p.mat === 'accent' ? 0.75 : 1));
       ctx.stroke(path);
       ctx.shadowBlur = 0;
       const lines = detailLines(p);
       if (lines.length) {
         ctx.lineWidth = lw * 0.7;
+        ctx.globalAlpha = V.detail ?? 1;
         ctx.beginPath();
         for (const l of lines) { ctx.moveTo(l[0], l[1]); ctx.lineTo(l[2], l[3]); }
         ctx.stroke();
       }
     }
+    ctx.globalAlpha = 1;
     return { canvas: cv, half, smooth: true };
   }
 
@@ -414,15 +464,15 @@ const Art = (() => {
     const top = z0 + p.h;
     const T = (a, b, c, hint, color = col) => tris.push({ p: [a, b, c], hint, col: color, emit });
     if (p.shape === 'ring') {
-      const Un = clamp(Math.round(p.r * 0.35), 16, 40), V = 6, rz = Math.max(p.h / 2, p.w * 0.4), zc = z0 + rz;
+      const Un = V.coarse ? clamp(Math.round(p.r * 0.12), 8, 14) : clamp(Math.round(p.r * 0.35), 16, 40), Vn = V.coarse ? 4 : 6, rz = Math.max(p.h / 2, p.w * 0.4), zc = z0 + rz;
       const P = (i, j) => {
-        const u = (i / Un) * TAU, v = (j / V) * TAU;
+        const u = (i / Un) * TAU, v = (j / Vn) * TAU;
         const rr = p.r + (p.w / 2) * Math.cos(v);
         return [p.cx + rr * Math.cos(u), p.cy + rr * Math.sin(u), zc + rz * Math.sin(v)];
       };
       for (let i = 0; i < Un; i++) {
-        for (let j = 0; j < V; j++) {
-          const um = ((i + 0.5) / Un) * TAU, vm = ((j + 0.5) / V) * TAU;
+        for (let j = 0; j < Vn; j++) {
+          const um = ((i + 0.5) / Un) * TAU, vm = ((j + 0.5) / Vn) * TAU;
           const hint = [Math.cos(vm) * Math.cos(um), Math.cos(vm) * Math.sin(um), Math.sin(vm)];
           T(P(i, j), P(i + 1, j), P(i + 1, j + 1), hint);
           T(P(i, j), P(i + 1, j + 1), P(i, j + 1), hint);
@@ -431,7 +481,7 @@ const Art = (() => {
       return { tris, top: () => zc + rz, contains: (x, y) => Math.abs(Math.hypot(x - p.cx, y - p.cy) - p.r) <= p.w / 2 };
     }
     if (p.shape === 'circle' && p.dome) {
-      const n = clamp(Math.round(p.r * 0.6), 10, 20), rings = 3, cap = p.r * 0.55;
+      const n = V.coarse ? clamp(Math.round(p.r * 0.25), 5, 8) : clamp(Math.round(p.r * 0.6), 10, 20), rings = V.coarse ? 1 : 3, cap = p.r * 0.55;
       const P = (i, k) => {
         const phi = (k / rings) * (Math.PI / 2), a = (i / n) * TAU, rr = p.r * Math.cos(phi);
         return [p.cx + rr * Math.cos(a), p.cy + rr * Math.sin(a), top + cap * Math.sin(phi)];
@@ -456,7 +506,7 @@ const Art = (() => {
     // Polygons (circles without a dome become polygons), extruded with one of three tops:
     // a roof (raised ridge or apex: hulls, wings, crystals, pods), a chamfer (inset raised top:
     // boxes and modules) or flat (decals and thin panels).
-    let pts = p.shape === 'circle' ? U.circle(p.cx, p.cy, p.r, clamp(Math.round(p.r * ppu * 0.25), 8, 24)) : p.pts;
+    let pts = p.shape === 'circle' ? U.circle(p.cx, p.cy, p.r, V.coarse ? clamp(Math.round(p.r * ppu * 0.1), 5, 8) : clamp(Math.round(p.r * ppu * 0.25), 8, 24)) : p.pts;
     if (U.area(pts) < 0) pts = pts.slice().reverse();
     const n = pts.length;
     const c = U.centroid(pts);
@@ -495,7 +545,7 @@ const Art = (() => {
         built = true;
       }
     }
-    if (!built && starShaped && p.h >= 0.6 && size > 1) {
+    if (!built && !V.coarse && starShaped && p.h >= 0.6 && size > 1) {
       // Chamfer: inset the outline toward the centre and raise it.
       const rise = Math.max(p.bevel * 0.7, Math.min(size * 0.12, p.h * 0.8));
       const f = 0.72;
@@ -534,7 +584,8 @@ const Art = (() => {
 
   function buildMesh(bp, layer, ppu) {
     bp._mesh = bp._mesh || {};
-    if (bp._mesh[layer]) return bp._mesh[layer];
+    const mk = layer + (V.id ? '|' + V.id : '');
+    if (bp._mesh[mk]) return bp._mesh[mk];
     const parts = layerParts(bp, layer);
     const done = [];
     const tris = [];
@@ -548,14 +599,14 @@ const Art = (() => {
       const z0 = p.shape === 'ring' ? 0 : surfaceAt(cx, cy, p.lvl) + (p.h < 0.6 ? 0.05 : 0);
       const m = partMesh(bp, p, z0, ppu);
       // Per-face jitter so coplanar facets don't merge into one flat colour.
-      for (const t of m.tris) t.jit = 0.94 + 0.12 * (((Math.sin(tris.length * 12.9898 + t.p[0][0] * 78.233) * 43758.5453) % 1 + 1) % 1);
+      if (!V.coarse) for (const t of m.tris) t.jit = 0.94 + 0.12 * (((Math.sin(tris.length * 12.9898 + t.p[0][0] * 78.233) * 43758.5453) % 1 + 1) % 1);
       tris.push(...m.tris);
       done.push({ lvl: p.lvl, top: m.top, contains: m.contains });
       // Detail lines as thin strips draped on the part's top surface.
       const base = colorOf(bp, p.mat);
       const lc = p.grid ? U.mix(base, '#ffffff', 0.3) : U.shade(base, 0.55);
       const w = clamp(partSize(p) * 0.03, 0.25, 0.9);
-      for (const l of detailLines(p)) {
+      for (const l of V.coarse ? [] : detailLines(p)) {
         const dx = l[2] - l[0], dy = l[3] - l[1], len = Math.hypot(dx, dy) || 1;
         const nx = (-dy / len) * w / 2, ny = (dx / len) * w / 2;
         const z = (x, y) => m.top(x, y) + 0.08;
@@ -567,8 +618,8 @@ const Art = (() => {
     const overlays = parts.filter((q) => q.overlay).map((p) => ({ p, z: surfaceAt(...U.centroid(p.pts)) }));
     let maxZ = 0;
     for (const t of tris) for (const v of t.p) maxZ = Math.max(maxZ, v[2]);
-    bp._mesh[layer] = { tris, overlays, maxZ, surfaceAt };
-    return bp._mesh[layer];
+    bp._mesh[mk] = { tris, overlays, maxZ, surfaceAt };
+    return bp._mesh[mk];
   }
 
   // Shade and draw triangles. `proj` maps a yawed world point to [sx, sy, depth].
@@ -584,14 +635,16 @@ const Art = (() => {
       let vis = dot(n, view);
       if (t.two && vis < 0) { n = n.map((v) => -v); vis = -vis; }
       if (vis <= 0.001) continue;
-      const d = Math.max(0, dot(n, LIGHT));
+      const nl = V.smoothN ? norm(n.map((a, i) => lerp(a, h[i], V.smoothN))) : n;
+      let d = Math.max(0, dot(nl, LIGHT));
+      if (V.bands) d = Math.round(d * V.bands) / V.bands;
       const k = (t.emit ? 0.85 + 0.25 * d : t.decal ? 0.9 + 0.2 * d : 0.24 + 0.95 * d) * (t.jit || 1);
       const S = P.map(proj);
-      out.push({ S, z: (S[0][2] + S[1][2] + S[2][2]) / 3 + (t.decal ? 0.05 : 0) + (t.bias || 0), col: U.shade(t.col, k) });
+      const col = U.shade(t.col, k);
+      out.push({ S, z: (S[0][2] + S[1][2] + S[2][2]) / 3 + (t.decal ? 0.05 : 0) + (t.bias || 0), col, edge: V.edge && !t.decal ? U.shade(col, V.edge) : col });
     }
     out.sort((a, b) => a.z - b.z);
     ctx.lineJoin = 'round';
-    ctx.lineWidth = lwPx;
     for (const o of out) {
       ctx.beginPath();
       ctx.moveTo(o.S[0][0], o.S[0][1]);
@@ -599,7 +652,8 @@ const Art = (() => {
       ctx.lineTo(o.S[2][0], o.S[2][1]);
       ctx.closePath();
       ctx.fillStyle = o.col;
-      ctx.strokeStyle = o.col;
+      ctx.strokeStyle = o.edge;
+      ctx.lineWidth = o.edge === o.col ? lwPx : lwPx * (V.edgeW || 1.4);
       ctx.fill();
       ctx.stroke();
     }
@@ -750,6 +804,9 @@ const Art = (() => {
   // texel (pixel style only), force (build the sprite now, whatever the frame's budget), keep: false
   // (build it now and don't cache it: menu icons, drawn once into an image of their own).
   function drawAsset(ctx, bp, requested, o = {}) {
+    return withV(pickV(requested, bp), () => drawAsset0(ctx, bp, requested, o));
+  }
+  function drawAsset0(ctx, bp, requested, o) {
     const { x = 0, y = 0, angle = 0, spin = 0, t = 0, thrust = 0 } = o;
     const m = ctx.getTransform();
     const ppu = Math.hypot(m.a, m.b);
@@ -836,23 +893,115 @@ const Art = (() => {
       ctx.globalAlpha = 0.3; ctx.beginPath(); ctx.ellipse(0, 0, A * 0.88, B * 0.88, tilt, Math.PI, TAU); ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    const body = ctx.createRadialGradient(Math.cos(lit) * r * 0.45, Math.sin(lit) * r * 0.45, r * 0.1, 0, 0, r * 1.05);
-    body.addColorStop(0, pl.type === 'blue' ? '#3f6db8' : P.c[1]);
-    body.addColorStop(1, '#070b16');
-    ctx.fillStyle = body;
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
-    ctx.save();
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.clip();
-    ctx.globalAlpha = 0.35;
-    ctx.lineWidth = 1.5;
-    for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(0, i * r * 0.27, r * 1.1, r * 0.12, tilt, 0, Math.PI); ctx.stroke(); }
-    ctx.restore();
+    if (V.planet === 'wire') {
+      // Hairline globe: an outline with surface features drawn like the moons' (planetFeatures).
+      ctx.fillStyle = config.bg;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      const lx = Math.cos(lit), ly = Math.sin(lit);
+      if (V.pfill === 'shade') {
+        const g = ctx.createRadialGradient(lx * r * 0.4, ly * r * 0.4, r * 0.05, 0, 0, r * 1.05);
+        g.addColorStop(0, U.rgba(P.line, 0.34)); g.addColorStop(0.6, U.rgba(P.line, 0.1)); g.addColorStop(1, U.rgba(P.line, 0));
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      }
+      if (V.pfill === 'grad') {
+        const n = P.c.length, g = ctx.createRadialGradient(lx * r * 0.42, ly * r * 0.42, r * 0.05, 0, 0, r * 1.05);
+        g.addColorStop(0, P.c[Math.min(n - 1, Math.floor(n * 0.6))]); g.addColorStop(0.45, P.c[Math.floor(n * 0.3)]); g.addColorStop(1, '#070b16');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+      }
+      const disc = new Path2D(); disc.arc(0, 0, r, 0, TAU);
+      if (V.pfill === 'hatch') hatch(ctx, disc, 0, 0, r, lx, ly, P.line, 0.7);
+      ctx.stroke(disc);
+      ctx.save();
+      ctx.clip(disc);
+      planetFeatures(ctx, pl, P, r, tilt);
+      ctx.restore();
+    } else {
+      if (V.planet === 'glow') {
+        const halo = ctx.createRadialGradient(0, 0, r * 0.9, 0, 0, r * 1.25);
+        halo.addColorStop(0, U.rgba(P.line, 0.35)); halo.addColorStop(1, U.rgba(P.line, 0));
+        ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(0, 0, r * 1.25, 0, TAU); ctx.fill();
+        ctx.lineWidth = 2.6;
+      }
+      const body = ctx.createRadialGradient(Math.cos(lit) * r * 0.45, Math.sin(lit) * r * 0.45, r * 0.1, 0, 0, r * 1.05);
+      body.addColorStop(0, pl.type === 'blue' ? '#3f6db8' : P.c[1]);
+      body.addColorStop(1, '#070b16');
+      ctx.fillStyle = body;
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill(); ctx.stroke();
+      ctx.save();
+      ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.clip();
+      ctx.globalAlpha = V.planet === 'glow' ? 0.5 : 0.35;
+      ctx.lineWidth = 1.5;
+      for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(0, i * r * 0.27, r * 1.1, r * 0.12, tilt, 0, Math.PI); ctx.stroke(); }
+      ctx.restore();
+    }
     if (pl.ring) {
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(0, 0, A, B, tilt, 0, Math.PI); ctx.stroke();
       ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.ellipse(0, 0, A * 0.88, B * 0.88, tilt, 0, Math.PI); ctx.stroke();
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Surface features for the hairline planet, in the manner of the moons' maria, cracks and craters:
+  // seeded regions on the facing hemisphere (continents, islands, dune seas, ice sheets), cloud bands
+  // and a storm on gas giants, fissures on lava worlds.
+  function planetFeatures(ctx, pl, P, r, tilt) {
+    const rnd = mulberry(((pl.seed || 1) * 31 + 7) >>> 0), type = pl.type;
+    const proj = (p) => { if (p[2] >= 0) return [p[0] * r, p[1] * r]; const l = Math.hypot(p[0], p[1]) || 1; return [(p[0] / l) * r, (p[1] / l) * r]; };
+    const sph = (d, u, w, aa, t) => { const c = Math.cos(aa), sn = Math.sin(aa); return [0, 1, 2].map((k) => d[k] * c + (u[k] * Math.cos(t) + w[k] * Math.sin(t)) * sn); };
+    const basis = (d) => { const u = norm(Math.abs(d[1]) < 0.9 ? cross(d, [0, 1, 0]) : cross(d, [1, 0, 0])); return [u, cross(d, u)]; };
+    const cap = (d, ang, wob = 0.35, n = 40) => {
+      const [u, w] = basis(d), ph = rnd() * 9, ph2 = rnd() * 9, pts = [];
+      for (let i = 0; i < n; i++) {
+        const t = (i / n) * TAU;
+        pts.push(proj(sph(d, u, w, ang * (1 + wob * (0.6 * Math.sin(t * 2 + ph) + 0.4 * Math.sin(t * 5 + ph2))), t)));
+      }
+      return pathOf(U.chaikin(pts, 1));
+    };
+    const dir = (zmin = 0.2) => { for (let g = 0; g < 50; g++) { const p = [rnd() * 2 - 1, rnd() * 2 - 1, rnd()], l = Math.hypot(...p); if (l > 0.2 && l <= 1 && p[2] / l > zmin) return p.map((x) => x / l); } return [0, 0, 1]; };
+    const crack = (len, n = 7) => {
+      let d = dir(0.3), [u] = basis(d), out = [];
+      for (let i = 0; i < n; i++) {
+        out.push(proj(d));
+        const turn = (rnd() - 0.5) * 1.4, w = cross(d, u);
+        u = norm(u.map((x, k) => x * Math.cos(turn) + w[k] * Math.sin(turn)));
+        d = norm(d.map((x, k) => x + u[k] * (len / n)));
+      }
+      return out;
+    };
+    ctx.strokeStyle = ctx.fillStyle = P.line;
+    ctx.lineJoin = ctx.lineCap = 'round';
+    const region = (p, fa = 0.1, sa = 0.55, w = 0.8) => { ctx.globalAlpha = fa; ctx.fill(p); ctx.globalAlpha = sa; ctx.lineWidth = w; ctx.stroke(p); };
+    const line = (pts, a, w) => { ctx.globalAlpha = a; ctx.lineWidth = w; ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(...q) : ctx.moveTo(...q))); ctx.stroke(); };
+    if (type === 'gas') {
+      ctx.save();
+      ctx.rotate(tilt);
+      const n = 5 + Math.floor(rnd() * 3);
+      for (let i = 0; i < n; i++) {
+        const y0 = -0.85 + (1.7 * (i + 0.3 + rnd() * 0.4)) / n, wd = Math.sqrt(Math.max(0, 1 - y0 * y0)), ph = rnd() * 9, amp = 0.012 + rnd() * 0.025, pts = [];
+        for (let k = 0; k <= 32; k++) { const x = -wd + (2 * wd * k) / 32; pts.push([x * r, (y0 + 0.16 * Math.sqrt(Math.max(0, wd * wd - x * x)) + amp * Math.sin(x * 9 + ph)) * r]); }
+        line(pts, 0.35 + rnd() * 0.25, 0.7 + rnd() * 0.4);
+      }
+      ctx.restore();
+      const d = dir(0.45);
+      region(cap(d, 0.17, 0.15), 0.14, 0.7, 0.9);
+      region(cap(d, 0.08, 0.1), 0.1, 0.5, 0.6);
+    } else if (type === 'lava') {
+      for (let i = 0; i < 3; i++) region(cap(dir(), 0.25 + rnd() * 0.2, 0.4), 0.08, 0.35, 0.6);
+      ctx.save();
+      ctx.shadowColor = P.c[0]; ctx.shadowBlur = r * 0.12; ctx.strokeStyle = P.c[0];
+      for (let i = 0; i < 6; i++) line(crack(0.5 + rnd() * 0.5), 0.75, 0.7);
+      ctx.restore();
+    } else {
+      const cfg = { terran: [3, 0.3, 0.5, 2], blue: [5, 0.07, 0.16, 0], desert: [3, 0.25, 0.45, 5], ice: [3, 0.2, 0.4, 0] }[type] || [3, 0.2, 0.4, 2];
+      for (let i = 0; i < cfg[0]; i++) region(cap(dir(), cfg[1] + rnd() * (cfg[2] - cfg[1])));
+      if (type === 'terran' || type === 'ice') region(cap(norm([Math.sin(tilt) * 0.9, -0.9, 0.35]), 0.3, 0.2), 0.12, 0.55, 0.8);
+      if (type === 'ice') for (let i = 0; i < 4; i++) line(crack(0.4 + rnd() * 0.4), 0.5, 0.6);
+      for (let i = 0; i < cfg[3]; i++) { const d = dir(0.25); ctx.globalAlpha = 0.25 + 0.4 * d[2]; ctx.lineWidth = 0.7; ctx.stroke(cap(d, 0.04 + rnd() * 0.06, 0.05, 20)); }
+      if (type === 'terran') { ctx.save(); ctx.rotate(tilt); for (let i = 0; i < 3; i++) { const y0 = (rnd() - 0.5) * 1.2, wd = Math.sqrt(1 - y0 * y0), x0 = -wd * rnd() * 0.6, pts = []; for (let k = 0; k <= 12; k++) { const x = x0 + (wd * 0.9 * k) / 12; pts.push([x * r, (y0 + 0.16 * Math.sqrt(Math.max(0, wd * wd - x * x)) + 0.02 * Math.sin(k)) * r]); } line(pts, 0.3, 0.6); } ctx.restore(); }
+    }
+    ctx.globalAlpha = 1;
   }
 
   function planetFlat(ctx, pl) {
@@ -968,17 +1117,23 @@ const Art = (() => {
 
   function planetLow(ctx, pl) {
     const { r } = pl, P = PLANETS[pl.type], tilt = pl.ringTilt ?? -0.35;
-    const { v, f } = icosphere(2);
+    const { v, f } = icosphere(curV().coarse ? 1 : 2);
     const s = (pl.seed || 1) % 9973, sea = P.t ? P.t[1] : 0.5;
-    const H = v.map((p) => (pl.type === 'gas' || pl.type === 'blue' ? 0.5 : fbm(p[0] * 1.8 + 3, p[1] * 1.8 + 3, p[2] * 1.8 + 3, s)));
-    const V = v.map((p, i) => p.map((a) => a * r * (1 + Math.max(0, H[i] - sea) * 0.4)));
+    const H = v.map((p) => (pl.type === 'gas' || pl.type === 'blue' || curV().smoothN ? 0.5 : fbm(p[0] * 1.8 + 3, p[1] * 1.8 + 3, p[2] * 1.8 + 3, s)));
+    const Vs = v.map((p, i) => p.map((a) => a * r * (1 + Math.max(0, H[i] - sea) * 0.4)));
     const tris = f.map(([a, b, c]) => {
       const m = [0, 1, 2].map((i) => (v[a][i] + v[b][i] + v[c][i]) / 3);
       // Surface bands run parallel to the ring plane, so the pole is the model z axis.
-      return { p: [V[a], V[b], V[c]], hint: m, col: surface(pl, m[0], m[2], m[1]) };
+      let col = surface(pl, m[0], m[2], m[1]);
+      if (curV().smoothN) {
+        // Soft facets: average the surface over the facet's corners too, so colour regions blend.
+        const cs = [col, ...[a, b, c].map((i) => surface(pl, v[i][0], v[i][2], v[i][1]))].map(U.hexToRgb);
+        col = U.rgbToHex([0, 1, 2].map((k) => cs.reduce((t, q) => t + q[k], 0) / cs.length));
+      }
+      return { p: [Vs[a], Vs[b], Vs[c]], hint: m, col };
     });
     if (pl.ring) {
-      const n = 40, [A] = ringAxes(pl);
+      const n = curV().coarse ? 16 : 40, [A] = ringAxes(pl);
       for (const [r0, r1, cols] of [[A * 0.8, A * 0.88, P.ring], [A * 0.9, A * 1.0, P.ring]]) {
         for (let i = 0; i < n; i++) {
           const a0 = (i / n) * TAU, a1 = ((i + 1) / n) * TAU;
@@ -1006,6 +1161,9 @@ const Art = (() => {
   }
 
   function drawPlanet(ctx, pl, style, o = {}) {
+    return withV(pickV(style, 'natural'), () => drawPlanet0(ctx, pl, style, o));
+  }
+  function drawPlanet0(ctx, pl, style, o) {
     const { x = 0, y = 0, lightAngle = Math.atan2(LIGHT[1], LIGHT[0]) } = o;
     const m = ctx.getTransform();
     const ppu = quant(Math.hypot(m.a, m.b));
@@ -1026,6 +1184,7 @@ const Art = (() => {
   };
 
   function starLine(ctx, st, t) {
+    if (V.star === 'hair') return starHair(ctx, st, t);
     const { r } = st, P = STAR_CLASSES[st.cls || 'G'];
     const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 3.2);
     glow.addColorStop(0, U.rgba(P[2], 0.35));
@@ -1048,6 +1207,60 @@ const Art = (() => {
     }
     ctx.stroke();
     ctx.globalAlpha = 1;
+  }
+
+  // Line sun: hairline disc with limb rings, granules and spots, inside a soft glow and corona.
+  function starHair(ctx, st, t) {
+    const { r } = st, P = STAR_CLASSES[st.cls || 'G'], rnd = mulberry(((st.seed || 41) * 13 + 5) >>> 0);
+    const m = ctx.getTransform(), k = Math.hypot(m.a, m.b) || 1, lw = Math.max(r * 0.04, 0.9 / k);
+    const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 3.2);
+    glow.addColorStop(0, U.rgba(P[2], 0.35)); glow.addColorStop(1, U.rgba(P[3], 0));
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, r * 3.2, 0, TAU); ctx.fill();
+    const cor = ctx.createRadialGradient(0, 0, r, 0, 0, r * 1.7);
+    cor.addColorStop(0, U.rgba(P[1], 0.3)); cor.addColorStop(1, U.rgba(P[2], 0));
+    ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(0, 0, r * 1.7, 0, TAU); ctx.fill();
+    ctx.lineCap = ctx.lineJoin = 'round';
+    ctx.shadowColor = P[2]; ctx.shadowBlur = r * 0.35 * k;
+    const body = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    body.addColorStop(0, U.rgba(P[0], 0.95)); body.addColorStop(0.55, U.rgba(P[1], 0.6)); body.addColorStop(1, U.rgba(P[3], 0.35));
+    ctx.fillStyle = body; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = P[0]; ctx.lineWidth = lw * 1.2; ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = P[2];
+    for (const [f, a] of [[0.82, 0.5], [0.62, 0.3]]) { ctx.globalAlpha = a; ctx.lineWidth = lw * 0.7; ctx.beginPath(); ctx.arc(0, 0, r * f, 0, TAU); ctx.stroke(); }
+    ctx.strokeStyle = P[3];
+    for (let i = 0; i < 12; i++) {
+      const a = rnd() * TAU, d = Math.sqrt(rnd()) * r * 0.78, gr = r * (0.04 + rnd() * 0.05);
+      ctx.globalAlpha = 0.35; ctx.lineWidth = lw * 0.6; ctx.beginPath(); ctx.arc(Math.cos(a) * d, Math.sin(a) * d, gr, 0, TAU); ctx.stroke();
+    }
+    for (let i = 0, ns = 1 + Math.floor(rnd() * 2); i < ns; i++) {
+      const a = rnd() * TAU, d = r * (0.3 + rnd() * 0.4), sr = r * (0.07 + rnd() * 0.05), x = Math.cos(a) * d, y = Math.sin(a) * d;
+      ctx.globalAlpha = 0.85; ctx.fillStyle = P[4]; ctx.beginPath(); ctx.ellipse(x, y, sr, sr * 0.75, a, 0, TAU); ctx.fill();
+      ctx.strokeStyle = P[3]; ctx.lineWidth = lw * 0.7; ctx.beginPath(); ctx.ellipse(x, y, sr * 1.7, sr * 1.3, a, 0, TAU); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Low-poly sun: a faceted body lit from inside, in three bands from core to limb, inside a soft
+  // glow. Facet edges match their faces.
+  function starFacet(ctx, st) {
+    const { r } = st, P = STAR_CLASSES[st.cls || 'G'];
+    const m = ctx.getTransform(), k = Math.hypot(m.a, m.b) || 1, ew = 0.9 / k;
+    const glow = ctx.createRadialGradient(0, 0, r * 0.7, 0, 0, r * 3);
+    glow.addColorStop(0, U.rgba(P[2], 0.32)); glow.addColorStop(1, U.rgba(P[3], 0));
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, r * 3, 0, TAU); ctx.fill();
+    const cor = ctx.createRadialGradient(0, 0, r, 0, 0, r * 1.7);
+    cor.addColorStop(0, U.rgba(P[1], 0.3)); cor.addColorStop(1, U.rgba(P[2], 0));
+    ctx.fillStyle = cor; ctx.beginPath(); ctx.arc(0, 0, r * 1.7, 0, TAU); ctx.fill();
+    ctx.lineJoin = 'round';
+    const tri = (pts, col) => { ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(...q) : ctx.moveTo(...q))); ctx.closePath(); ctx.fillStyle = ctx.strokeStyle = col; ctx.lineWidth = ew; ctx.fill(); ctx.stroke(); };
+    const { v, f } = icosphere(2);
+    const W = v.map((p) => p.map((x) => x * r));
+    const faces = f.map(([a, b, c]) => ({ p: [W[a], W[b], W[c]], z: (W[a][2] + W[b][2] + W[c][2]) / 3 })).filter((o) => o.z > -r * 0.05).sort((a, b) => a.z - b.z);
+    for (const o of faces) {
+      const nz = o.z / r, col = nz > 0.8 ? P[0] : nz > 0.52 ? P[1] : nz > 0.22 ? P[2] : P[3];
+      tri(o.p.map((q) => [q[0], q[1]]), col);
+    }
   }
 
   function starPixel(st, texel) {
@@ -1097,6 +1310,7 @@ const Art = (() => {
   }
 
   function starLow(ctx, st) {
+    if (curV().star === 'facet') return starFacet(ctx, st);
     const { r } = st, P = STAR_CLASSES[st.cls || 'G'], rnd = mulberry(st.seed || 77);
     ctx.beginPath();
     for (let i = 0; i < 13; i++) { const a = (i / 13) * TAU, rr = r * 1.7 * (0.92 + rnd() * 0.16); ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
@@ -1115,14 +1329,17 @@ const Art = (() => {
       ctx.fill();
     }
     const { v, f } = icosphere(1);
-    const V = v.map((p) => p.map((a) => a * r * (1 + (rnd() - 0.5) * 0.1)));
+    const Vs = v.map((p) => p.map((a) => a * r * (1 + (rnd() - 0.5) * 0.1)));
     const pal = [P[2], P[1], P[3], P[1], P[2]];
-    drawTris(ctx, f.map(([a, b, c]) => ({ p: [V[a], V[b], V[c]], hint: norm([0, 1, 2].map((i) => V[a][i] + V[b][i] + V[c][i])), col: pal[Math.floor(rnd() * pal.length)], emit: true })),
+    drawTris(ctx, f.map(([a, b, c]) => ({ p: [Vs[a], Vs[b], Vs[c]], hint: norm([0, 1, 2].map((i) => Vs[a][i] + Vs[b][i] + Vs[c][i])), col: pal[Math.floor(rnd() * pal.length)], emit: true })),
       0.4, (q) => [q[0], q[1], q[2]], [0, 0, 1], 0.6 / Math.hypot(ctx.getTransform().a, ctx.getTransform().b));
   }
 
   // A star turns slowly (texel styles excepted, to stay on their grid).
   function drawStar(ctx, st, style, o = {}) {
+    return withV(pickV(style, 'star'), () => drawStar0(ctx, st, style, o));
+  }
+  function drawStar0(ctx, st, style, o) {
     const { x = 0, y = 0, t = 0 } = o;
     const impl = STYLE_IMPL[style];
     if (!impl.star) {
@@ -1202,14 +1419,14 @@ const Art = (() => {
     const S = asteroidShape(ast);
     const { v, f } = icosphere(part);
     const D = v.map(S.disp);
-    const V = D.map((d) => d.q.map((x) => x / S.R));
-    const N = V.map(() => [0, 0, 0]);
+    const Vs = D.map((d) => d.q.map((x) => x / S.R));
+    const N = Vs.map(() => [0, 0, 0]);
     for (const [a, b, c] of f) {
-      const n = cross(sub3(V[b], V[a]), sub3(V[c], V[a]));
+      const n = cross(sub3(Vs[b], Vs[a]), sub3(Vs[c], Vs[a]));
       for (const i of [a, b, c]) for (let k = 0; k < 3; k++) N[i][k] += n[k];
     }
     N.forEach((n, i) => { const m = norm(n); N[i] = dot(m, v[i]) < 0 ? m.map((x) => -x) : m; });
-    ast._astM[part] = { V, N, f, cr: D.map((d) => d.cr), pat: D.map((d) => d.pat) };
+    ast._astM[part] = { V: Vs, N, f, cr: D.map((d) => d.cr), pat: D.map((d) => d.pat) };
     return ast._astM[part];
   }
   const sub3 = sub;
@@ -1256,11 +1473,18 @@ const Art = (() => {
   function asteroidLine(ctx, ast, M, k) {
     const P = astPal(ast), md = asteroidModel(ast, 2), r = ast.r;
     const sil = U.chaikin(astSilhouette(md.V.map((q) => { const w = apply(M, q); return [w[0] * r, w[1] * r]; }), md.f), 1);
-    const dpr = dprOf(), lw = Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k;
+    const dpr = dprOf(), lw = (Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k) * (V.lw || 1);
     const path = pathOf(sil);
     ctx.lineJoin = 'round';
     ctx.fillStyle = config.bg;
     ctx.fill(path);
+    if (V.pfill === 'shade') {
+      const [lx, ly] = [LIGHT[0], LIGHT[1]].map((v) => v / Math.hypot(LIGHT[0], LIGHT[1]));
+      const g = ctx.createRadialGradient(lx * r * 0.4, ly * r * 0.4, r * 0.05, 0, 0, r * 1.05);
+      g.addColorStop(0, U.rgba(P.line, 0.34)); g.addColorStop(0.6, U.rgba(P.line, 0.1)); g.addColorStop(1, U.rgba(P.line, 0));
+      ctx.fillStyle = g; ctx.fill(path);
+    }
+    if (V.pfill === 'hatch') hatch(ctx, path, 0, 0, r, L2D[0], L2D[1], P.line, lw * 0.55);
     ctx.strokeStyle = P.line;
     ctx.lineWidth = lw;
     ctx.stroke(path);
@@ -1370,7 +1594,7 @@ const Art = (() => {
     const tris = md.f.map(([a, b, c], i) => {
       const ce = [0, 1, 2].map((k) => (W[a][k] + W[b][k] + W[c][k]) / 3);
       const col = astMatColor(P, (md.pat[a] + md.pat[b] + md.pat[c]) / 3, (md.cr[a] + md.cr[b] + md.cr[c]) / 3);
-      const jit = 0.93 + 0.14 * (((Math.sin(i * 12.9898 + (ast.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1);
+      const jit = V.smoothN ? 1 : 0.93 + 0.14 * (((Math.sin(i * 12.9898 + (ast.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1);
       return { p: [W[a], W[b], W[c]], hint: ce, col, jit };
     });
     drawTris(ctx, tris, 0, (q) => [q[0], q[1], q[2]], [0, 0, 1], 0.6 / Math.hypot(ctx.getTransform().a, ctx.getTransform().b));
@@ -1378,6 +1602,9 @@ const Art = (() => {
 
   // Draw an asteroid. ctx must already map world units; options: x, y, spin (tumble angle), texel.
   function drawAsteroid(ctx, ast, style, o = {}) {
+    return withV(pickV(style, 'natural'), () => drawAsteroid0(ctx, ast, style, o));
+  }
+  function drawAsteroid0(ctx, ast, style, o) {
     const { x = 0, y = 0, spin = 0 } = o;
     const m = ctx.getTransform();
     const ppu = quant(Math.hypot(m.a, m.b));
@@ -1443,7 +1670,54 @@ const Art = (() => {
       light: lightLow, flame: flameLow,
     },
   };
+  // Hidden variants for iteration (not in the settings menu). base: the style they adjust.
+  // byType: knobs per kind of blueprint (ship, station, item); v is the default and is used for
+  // planets and portraits.
+  const HAIR = { lw: 0.6, glow: 'none', accent: 0.75, detail: 1, planet: 'wire' };
+  const INK = { bands: 3, edge: 0.72, edgeW: 1.2 };
+  const STYLE_VARIANTS = {
+    'line-classic': { base: 'line', label: 'Line · Original', v: {} },
+    'lowpoly-classic': { base: 'lowpoly', label: 'Low-poly · Original', v: {} },
+    'line-glow': { base: 'line', label: 'Line · Glow wash', v: { lw: 1.35, glow: 'all', blur: 1.5, fill: 0.1, accent: 0.45, glassFill: 0.35, detail: 0.55, planet: 'glow' } },
+    'line-hair': { base: 'line', label: 'Line · Hairline', v: HAIR },
+    'line-mix': { base: 'line', label: 'Line · Hairline ships, original stations', v: HAIR, byType: { station: {} } },
+    'line-shade': { base: 'line', label: 'Line · Hairline, shaded', v: { ...HAIR, pfill: 'shade' } },
+    'line-hatch': { base: 'line', label: 'Line · Hairline, hatched', v: { ...HAIR, pfill: 'hatch' } },
+    'line-grad': { base: 'line', label: 'Line · Hairline, gradient', v: { ...HAIR, pfill: 'grad' } },
+    'lowpoly-coarse': { base: 'lowpoly', label: 'Low-poly · Coarse', v: { coarse: true } },
+    'lowpoly-ink': { base: 'lowpoly', label: 'Low-poly · Banded ink', v: INK },
+    'lowpoly-mix': { base: 'lowpoly', label: 'Low-poly · Ink ships and stations, original items', v: INK, byType: { item: {} } },
+    'lowpoly-soft': { base: 'lowpoly', label: 'Low-poly · Soft facets', v: { smoothN: 0.9 } },
+    'lowpoly-coarse-soft': { base: 'lowpoly', label: 'Low-poly · Coarse, soft facets', v: { coarse: true, smoothN: 0.9 } },
+    'lowpoly-cel': { base: 'lowpoly', label: 'Low-poly · Cel, inked', v: { cel: 'ink' } },
+    'lowpoly-cel2': { base: 'lowpoly', label: 'Low-poly · Cel, two-tone', v: { cel: 'tone' } },
+  };
   const STYLES = Object.entries(STYLE_IMPL).map(([id, s]) => ({ id, label: s.label }));
+  for (const [id, sv] of Object.entries(STYLE_VARIANTS)) {
+    sv.v = { ...sv.v, id };
+    const byType = sv.byType && Object.fromEntries(Object.entries(sv.byType).map(([k, v]) => [k, { ...v, id: id + ':' + k }]));
+    STYLE_IMPL[id] = { ...STYLE_IMPL[sv.base], label: sv.label, v: sv.v, byType, base: sv.base };
+  }
+  // The game's Line and Low-poly styles, per kind of thing drawn (the iteration that was chosen):
+  //   line:    ships and items hairline, stations the original strokes, natural bodies and
+  //            portraits hairline with hatching, suns hairline (starHair)
+  //   lowpoly: ships and stations banded ink, items the original, natural bodies soft facets,
+  //            portraits 2D cel shading in two tones,
+  //            suns faceted in bands (starFacet)
+  // Kinds: ship, station (stations, gates, station wrecks), item, natural (planets, moons,
+  // asteroids, nebulae, wormholes), portrait, star.
+  const BASE_BY_TYPE = {
+    line: { ship: HAIR, station: {}, item: HAIR, natural: { ...HAIR, pfill: 'hatch' }, portrait: { ...HAIR, pfill: 'hatch' }, star: { star: 'hair' } },
+    lowpoly: { ship: INK, station: INK, item: {}, natural: { smoothN: 0.9 }, portrait: { cel: 'tone' }, star: { star: 'facet' } },
+  };
+  for (const [id, byType] of Object.entries(BASE_BY_TYPE)) {
+    STYLE_IMPL[id].v = {};
+    STYLE_IMPL[id].byType = Object.fromEntries(Object.entries(byType).map(([k, v]) => [k, { ...v, id: id + ':' + k }]));
+  }
+  const kindOf = (bp) => (typeof bp === 'string' ? bp : bp.type === 'wormhole' ? 'natural' : /station|gate/.test(bp.type) ? 'station' : bp.type === 'item' ? 'item' : 'ship');
+  const pickV = (style, bp) => { const im = STYLE_IMPL[style]; return (im && im.byType && im.byType[kindOf(bp)]) || (im && im.v) || null; };
+  const baseOf = (style) => (STYLE_IMPL[style] && STYLE_IMPL[style].base) || style;
+  const variantOf = (style) => (STYLE_IMPL[style] && STYLE_IMPL[style].v) || null;
 
   // A planet, star or asteroid sprite, from the cache or made by the style: painted onto a canvas
   // reaching ext world units either side of the centre (at most cap px across), or rasterised on
@@ -1480,8 +1754,9 @@ const Art = (() => {
   return {
     // Shared with art/bodies.js and art/portraits.js: the world light, dithering, noise, meshes and
     // sprite helpers, and the per-frame build budget (sprite-cache.js) every cache spends from.
-    kit: { LIGHT, BAYER, norm, dot, sub, cross, hash3, noise3, fbm, icosphere, ramp, level, quant, dprOf, canvas, idOf, budget },
-    STYLES, config, PLANET_TYPES, STAR_CLASSES: Object.keys(STAR_CLASSES),
+    hatch, kit: { LIGHT, BAYER, norm, dot, sub, cross, hash3, noise3, fbm, icosphere, ramp, level, quant, dprOf, canvas, idOf, budget },
+    STYLES, config, PLANET_TYPES,
+    VARIANTS: Object.entries(STYLE_VARIANTS).map(([id, s]) => ({ id, base: s.base, label: s.label })), baseOf, variantOf, pickV, withV, get V() { return V; }, STAR_CLASSES: Object.keys(STAR_CLASSES),
 
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,

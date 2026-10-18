@@ -10,8 +10,10 @@
 // taken again starts over.
 // Part of the flight view; src/main.js starts it.
 
-import { ArtAndroids } from '../art/androids.js';
 import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtCrew } from '../art/crew.js';
+import { ArtCulture } from '../art/culture.js';
+import { hashInt, seedToInt } from '../core/rng.js';
 import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
@@ -19,6 +21,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
+import { Factions } from '../world/factions.js';
 import { addTo, cargo, gatesOnline, hold, opening, saveCargo } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
@@ -297,13 +300,33 @@ export function withdrawn(J) {
   return cargo.board.list.some((o) => o.situation === J.situation && o.system === J.system && o.against === J.faction && log().status(o.id) === 'done');
 }
 
-// A waystation's android, as the face of its own jobs.
+// The face of whoever gives a job (art/crew.js): for a station's own jobs, someone of the culture
+// the station is built in (a waystation's android); for a system's or a faction's, someone of the
+// giving faction's culture (world/factions.js): the Drifters for the breakaways, a human of one of
+// the three settled cultures for the guilds. A faction the player hasn't heard of sends a Drifter
+// go-between, so its face gives nothing away. Each giver keeps one face.
 const faces = new Map();
+function cultureOf(lineage, seed) {
+  if (lineage === 'android') return world.android;
+  if (lineage === 'alien') return ArtCulture.xeno(world.galaxy.seed).alien;
+  if (lineage === 'kitbash') return world.cultures.pirates;
+  const human = world.cultures.cultures.filter((c) => c.kind === 'settled' && c.lineage !== 'android');
+  return human.find((c) => c.lineage === lineage) || human[seed % human.length];
+}
 function giverFace(J) {
-  const st = J.tier === 'station' ? world.galaxy.stations.find((x) => x.key === J.scope) : null;
-  if (!st || !st.waystation) return null;
-  if (!faces.has(st.key)) faces.set(st.key, ArtAndroids.create(st.seed, world.cultures.of(st.culture)));
-  return faceOf(faces.get(st.key));
+  const key = `${world.galaxy.seed}|${J.from}|${J.tier}|${J.scope}`;
+  if (!faces.has(key)) {
+    const st = J.tier === 'station' ? world.galaxy.stations.find((x) => x.key === J.scope) : null;
+    const seed = st ? st.seed : hashInt(seedToInt(J.from), seedToInt(String(J.scope)), 0xface);
+    let culture;
+    if (st) culture = world.cultures.of(st.culture);
+    else {
+      const f = Factions.get(J.faction);
+      culture = cultureOf(f && f.hidden && !f.known ? 'kitbash' : f && f.culture, seed);
+    }
+    faces.set(key, ArtCrew.create(seed, culture));
+  }
+  return faceOf(faces.get(key));
 }
 
 // The station screen's view of the jobs here: those offered here, every one under way (wherever

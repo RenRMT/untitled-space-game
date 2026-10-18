@@ -22,7 +22,7 @@ URL parameters:
 | `?skipintro` | skip the introduction and the opening missions |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, and god mode: your ship and your squad's take no damage |
 | `?perf` | the performance overlay only (P toggles it) |
-| `?style=pixel`, `?move=direct`, `?combat=realtime` | a setting for this visit |
+| `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
 
 ## Code layout
 
@@ -36,7 +36,7 @@ URL parameters:
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
-| `src/art/` | procedural art in four styles (line, pixel, flat, low-poly) and the sprite caches |
+| `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`) and the sprite caches |
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, regions and their politics, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |

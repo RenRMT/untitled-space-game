@@ -1982,7 +1982,7 @@ test('the introduction: lines, questions that set the art style and movement, an
   assert.strictEqual(says[says.length - 1], '<docked>');
   assert.strictEqual(says[says.length - 2], 'Registration complete. Welcome to Waystation HD-1863.');
   // Every answer is a value its setting takes.
-  const VALUES = { style: ['line', 'pixel', 'flat', 'lowpoly'], move: ['cruise', 'direct'], combat: ['rounds', 'realtime'] };
+  const VALUES = { style: ['line', 'lowpoly'], move: ['cruise', 'direct'], combat: ['rounds', 'realtime'] };
   for (const st of Intro.SCRIPT.filter((x) => x.ask)) assert.deepStrictEqual(st.options.map((o) => o.value).sort(), [...VALUES[st.ask]].sort(), st.ask);
   // The combat mode is asked on the first mission's launch instead, with the same choices.
   const ask = Missions.LIST.repayment.launch.filter((l) => l.ask);
