@@ -133,10 +133,10 @@ export function toggleFactions() {
   FactionsMenu.open(cargo.rep, new Set(world.galaxy.stations.map((st) => st.owner)));
 }
 
-// How each hull the player can fly is drawn: the Courier is the original ship; the others are
-// fixed designs in the same original style.
+// How each hull the player can fly is drawn: fixed designs in the original ship's colours (the
+// legacy culture, a Wedge lineage). The Courier looks like a Wedge fighter.
 export const HULL_ART = {
-  courier: () => ArtBlueprints.playerShip(ArtCulture.legacy),
+  courier: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 3),
   hauler: () => ArtBlueprints.create('freighter', ArtCulture.legacy, 7),
   corvette: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 11),
   gunship: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 29),

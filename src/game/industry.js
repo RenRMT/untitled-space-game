@@ -14,7 +14,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { SystemMap } from '../ui/map.js';
-import { addNews, addTo, cargo, hold, saveCargo } from './cargo.js';
+import { addNews, addTo, cargo, devUnlock, hold, saveCargo } from './cargo.js';
 import { notify } from './state.js';
 import { world } from './world.js';
 
@@ -33,7 +33,7 @@ export const industry = {
   slots: () => Industry.slots(industry.env()),
   // The stage the station docked at works (Recipes.BAYS id), whether it takes orders, and its orders.
   stage: () => (industry.here ? Industry.STAGE[industry.here.type] || null : null),
-  trusted: () => !!industry.here && Industry.trusted(cargo.loyalty, industry.here.key),
+  trusted: () => !!industry.here && (devUnlock || Industry.trusted(cargo.loyalty, industry.here.key)),
   orders: () => (industry.here ? Industry.at(cargo.industry, industry.here.key) : []),
   // The name of the system a station is in ('' if it isn't in the scene).
   system(key) {
@@ -56,7 +56,7 @@ export const industry = {
     return ok !== false && ok !== null && ok !== 0;
   },
   // A production order here: set up only while docked at its station.
-  place: (recipe, count) => !!industry.here && industry.change((s, e, now) => Industry.place(s, industry.here, recipe, count, e, now, cargo.loyalty)),
+  place: (recipe, count) => !!industry.here && industry.change((s, e, now) => Industry.place(s, industry.here, recipe, count, e, now, devUnlock ? null : cargo.loyalty)),
   edit(id, recipe, count) {
     if (!industry.orders().some((o) => o.id === id)) return false;
     return industry.change((s, e, now) => Industry.change(s, id, recipe, count, e, now));
