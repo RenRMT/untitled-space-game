@@ -27,6 +27,7 @@
 import { ArtBodies } from '../art/bodies.js';
 import { ArtItems } from '../art/items.js';
 import { Art } from '../art/render.js';
+import { hashInt, mulberry32 } from '../core/rng.js';
 import { Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Factions } from '../world/factions.js';
@@ -51,11 +52,25 @@ const Entities = (() => {
   });
 
   // A pirate fighter (or one marked a pirate), circling (x, y) at `orbit`, `speed` world units a
-  // second, starting at angle a0. tier: its gear (rules/loadout.js).
+  // second, starting at angle a0. tier: its gear (rules/loadout.js). hitRadius: how big it is in a
+  // fight, the size of a plain fighter whatever class it's drawn as (the class is looks only).
   const fighter = ({ key, art, x, y, orbit, speed, a0, tier }) => ({
-    kind: 'ship', role: 'fighter', pirate: true, key, art, radius: art.radius, x, y, tier,
+    kind: 'ship', role: 'fighter', pirate: true, key, art, radius: art.radius, hitRadius: art.radius / (CLASS_SIZE[art.type] || 1), x, y, tier,
     motion: { type: 'orbit', cx: x, cy: y, r: orbit, w: speed / orbit, a0 },
   });
+
+  // Which class of fighter a pirate is drawn as (art/blueprints.js), by its seed: packs mix them,
+  // more of the heavy ones in more dangerous space (tier: their gear, Mk I–IV). Looks only.
+  const CLASSES = ['fighter-light', 'fighter', 'fighter-heavy'];
+  const CLASS_MIX = { 1: [0.6, 0.4, 0], 2: [0.35, 0.5, 0.15], 3: [0.2, 0.5, 0.3], 4: [0.1, 0.4, 0.5] };
+  // About how big each class is drawn next to a plain fighter (their hull lengths: 25, 34, 46).
+  const CLASS_SIZE = { 'fighter-light': 25 / 34, fighter: 1, 'fighter-heavy': 46 / 34 };
+  function fighterClass(tier, seed) {
+    const mix = CLASS_MIX[Math.min(4, Math.max(1, tier || 1))];
+    let u = mulberry32(hashInt(seed >>> 0, 0xc1a55, 7))();
+    for (let i = 0; i < CLASSES.length; i++) if ((u -= mix[i]) < 0) return CLASSES[i];
+    return 'fighter';
+  }
 
   // Pirates are the only hostile ships (and, for now, the only ships).
   const isHostile = (e) => e.kind === 'ship' && !!e.pirate;
@@ -199,7 +214,7 @@ const Entities = (() => {
     },
   };
 
-  return { KINDS, ROLE_LABEL, SHIP_SCALE, item, asteroid, fighter, isHostile, stationSubtitle };
+  return { KINDS, ROLE_LABEL, SHIP_SCALE, item, asteroid, fighter, fighterClass, isHostile, stationSubtitle };
 })();
 
 export { Entities };

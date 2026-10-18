@@ -70,7 +70,7 @@ export const FIELD_REACHED = 1500; // the field counts as reached this far beyon
 // A mission's pirate fighter ({ key, seed, orbit, speed, a0 }, story/missions.js), circling (x, y),
 // built in the pirates' culture or another.
 const pirate = (p, x, y, tier, culture = world.cultures.pirates) => Entities.fighter({
-  key: p.key, art: ArtBlueprints.create('fighter', culture, p.seed), x, y, orbit: p.orbit, speed: p.speed, a0: p.a0, tier,
+  key: p.key, art: ArtBlueprints.create(Entities.fighterClass(tier, p.seed), culture, p.seed), x, y, orbit: p.orbit, speed: p.speed, a0: p.a0, tier,
 });
 
 export function buildMission() {

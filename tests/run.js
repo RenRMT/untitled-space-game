@@ -645,6 +645,30 @@ test('art ids name what an asset is built from, so a rebuilt scene finds its spr
   assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
 });
 
+test('pirate fighter classes: mixed packs, heavier in dangerous space, the same size in a fight', () => {
+  const count = (tier) => {
+    const n = { 'fighter-light': 0, fighter: 0, 'fighter-heavy': 0 };
+    for (let seed = 1; seed <= 600; seed++) n[Entities.fighterClass(tier, seed)]++;
+    return n;
+  };
+  const t1 = count(1), t4 = count(4);
+  assert.strictEqual(t1['fighter-heavy'], 0, 'no heavies in safe space');
+  assert.ok(t1['fighter-light'] > t1.fighter, 'mostly light ones there');
+  assert.ok(t4['fighter-heavy'] > t4['fighter-light'], 'more heavies than light ones in the most dangerous');
+  assert.strictEqual(Entities.fighterClass(3, 42), Entities.fighterClass(3, 42), 'the same seed, the same class');
+  // Drawn smaller or bigger, but hit as a plain fighter would be (within a fifth).
+  const cul = ArtCulture.forGalaxy(Galaxy.generate(1, SYSTEM_CONFIG)).pirates;
+  const hit = (type) => {
+    let t = 0;
+    for (let seed = 1; seed <= 40; seed++) t += Entities.fighter({ key: 'k', art: ArtBlueprints.create(type, cul, seed), x: 0, y: 0, orbit: 1, speed: 1, a0: 0, tier: 1 }).hitRadius;
+    return t / 40;
+  };
+  const mid = hit('fighter');
+  for (const type of ['fighter-light', 'fighter-heavy']) assert.ok(Math.abs(hit(type) / mid - 1) < 0.2, `${type}: ${hit(type).toFixed(1)} vs ${mid.toFixed(1)}`);
+  const [light, heavy] = ['fighter-light', 'fighter-heavy'].map((t) => ArtBlueprints.create(t, cul, 5).radius);
+  assert.ok(light < heavy, 'a light fighter is drawn smaller than a heavy one');
+});
+
 const fakeSprite = (w, h = w) => ({ canvas: { width: w, height: h } });
 
 test('sprite cache: drops the least recently used by pixels, but never a sprite drawn this frame', () => {

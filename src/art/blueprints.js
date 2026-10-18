@@ -107,12 +107,17 @@ const ArtBlueprints = (() => {
   }
 
   function ship(culture, seed, role) {
-    const r = mulberry32(hashInt(seed, role === 'fighter' ? 1 : 2, culture.seed));
+    // Fighter classes: 'fighter-light' (interceptor: small, slim, swept, one engine), 'fighter'
+    // and 'fighter-heavy' (gunship: long and broad, armour plates, an extra gun pair and missile racks).
+    const cls = role === 'fighter-light' ? 'light' : role === 'fighter-heavy' ? 'heavy' : 'mid';
+    const r = mulberry32(hashInt(seed, role === 'fighter' ? 1 : cls === 'light' ? 6 : cls === 'heavy' ? 7 : 2, culture.seed));
     const b = builder(role, culture, seed);
-    const fighter = role === 'fighter', kb = culture.lineage === 'kitbash';
+    const fighter = role === 'fighter' || cls !== 'mid', kb = culture.lineage === 'kitbash';
+    const light = cls === 'light', heavy = cls === 'heavy';
     const hc = donor(culture, r);
-    const L = (fighter ? 34 : 92) * culture.length * (0.92 + r() * 0.16);
-    const W = (fighter ? 0.15 : 0.21) * L * hc.width;
+    const L = (fighter ? (light ? 25 : heavy ? 46 : 34) : 92) * culture.length * (0.92 + r() * 0.16);
+    const W = (fighter ? (light ? 0.115 : heavy ? 0.2 : 0.15) : 0.21) * L * hc.width;
+    const fspan = light ? 0.3 : heavy ? 0.36 : 0.42, fsw = light ? 1.7 : heavy ? 0.7 : 1;
     const hull = hullOutline({ ...hc, asym: culture.asym }, L, W, r);
     const hullH = W * 0.55;
     const panelLines = [];
@@ -127,7 +132,7 @@ const ArtBlueprints = (() => {
     const wc = donor(culture, r);
     const g = {
       L, W, rootX0: -L * 0.32, rootX1: L * (fighter ? 0.1 : -0.02), rootY: W * 0.55,
-      span: (fighter ? L * 0.42 : L * 0.2) * wc.span, sweep: wc.sweep * L * 0.4, sweepRaw: wc.sweep,
+      span: (fighter ? L * fspan : L * 0.2) * wc.span, sweep: wc.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wc.sweep,
     };
     const wingKind = wc.wings;
     const wings = [];
@@ -144,7 +149,7 @@ const ArtBlueprints = (() => {
     for (const s of (wingKind === 'halo' ? [] : [1, -1])) {
       // Drifters (kitbash) often fit the second wing from another culture's hull.
       const wcs = kb && s < 0 && r() < 0.7 ? donor(culture, r) : wc;
-      const gg = wcs === wc ? g : { ...g, span: (fighter ? L * 0.42 : L * 0.2) * wcs.span, sweep: wcs.sweep * L * 0.4, sweepRaw: wcs.sweep };
+      const gg = wcs === wc ? g : { ...g, span: (fighter ? L * fspan : L * 0.2) * wcs.span, sweep: wcs.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wcs.sweep };
       const wk = wcs.wings, wm = wcs === wc ? 'wing' : U.mix(wcs.pal.hull, '#8a8070', 0.35);
       const k = s < 0 && culture.asym > 0.1 ? 1 - culture.asym * 0.45 * r() : 1;
       if (wk === 'fronds') {
@@ -206,16 +211,48 @@ const ArtBlueprints = (() => {
     }
 
     // Guns on fighters: barrels forward of the wing roots.
-    if (fighter && wingKind !== 'none' && wingKind !== 'halo') {
+    // Light fighters carry a single weapon: one long barrel on the centreline, reaching past the nose.
+    if (light) {
+      b.strut(L * 0.12, 0, L * 0.66, 0, Math.max(1.2, W * 0.28), 'hull2', { lvl: 2.6, h: hullH * 0.9 });
+      b.circle(L * 0.66, 0, Math.max(0.8, W * 0.17), 'accent', { lvl: 2.7, h: hullH * 0.92 });
+    } else if (fighter && wingKind !== 'none' && wingKind !== 'halo') {
       for (const s of [1, -1]) {
         const y = s * Math.min(W * 1.05 + g.span * 0.15, W + 3);
         b.strut(g.rootX0 + L * 0.2, y, L * 0.3, y, 1.2, 'hull2', { lvl: 1.5, h: 1 });
       }
     }
+    if (heavy) {
+      const ac = donor(culture, r), round = roundIters(ac);
+      // Armour plates along both flanks, in the culture's hull language.
+      for (const s of [1, -1]) for (const [x0, x1] of [[-L * 0.3, -L * 0.05], [-L * 0.02, L * 0.2]]) {
+        const sp = U.spanAt(hull, (x0 + x1) / 2);
+        if (!sp) continue;
+        const y = s > 0 ? sp[1] : sp[0], len = x1 - x0, th = W * 0.32;
+        let plate = U.rect((x0 + x1) / 2, y - s * th * 0.2, len, th);
+        if (ac.hull === 'shard') plate = [[x1, y - s * th * 0.5], [x1 - len * 0.2, y + s * th * 0.5], [x0, y + s * th * 0.4], [x0 + len * 0.1, y - s * th * 0.5]];
+        else if (round) plate = U.chaikin(plate, round);
+        b.poly(plate, 'hull2', { lvl: 1.3, h: hullH * 0.72, bevel: th * 0.3 });
+      }
+      // A dorsal turret with twin barrels, a second gun pair inboard, missile racks under the wings.
+      const tx = -L * 0.08, tr = W * 0.5;
+      b.circle(tx, 0, tr, 'hull2', { lvl: 3, h: hullH * 1.15, dome: true });
+      for (const s of [1, -1]) b.strut(tx, s * tr * 0.35, tx + L * 0.24, s * tr * 0.35, Math.max(0.9, W * 0.1), 'trim', { lvl: 3.1, h: hullH * 1.2 });
+      b.circle(tx, 0, tr * 0.45, 'glass', { lvl: 3.2, h: hullH * 1.25, dome: true });
+      if (wingKind !== 'halo') for (const s of [1, -1]) {
+        const y = s * W * 0.62;
+        b.strut(L * 0.05, y, L * 0.42, y, 1.6, 'hull2', { lvl: 2.2, h: hullH * 0.8 });
+        const my = s * (W + g.span * 0.45), mx = g.rootX0 + L * 0.06 - g.sweep * 0.3;
+        for (let k = 0; k < 2; k++) {
+          const yy = my + s * k * W * 0.32;
+          b.poly(U.chaikin(U.rect(mx, yy, L * 0.16, W * 0.22), 1), 'trim', { lvl: 1.6, h: hullH * 0.35, bevel: W * 0.06, roof: true });
+          b.circle(mx + L * 0.08, yy, W * 0.08, 'accent', { lvl: 1.7, h: hullH * 0.37 });
+        }
+      }
+    }
 
     // Engines at the stern.
     const tail = U.spanAt(hull, -L / 2 + L * 0.04) || [-W * 0.6, W * 0.6];
-    const n = fighter ? clamp(culture.engines, 1, 2) : clamp(culture.engines + 1, 2, 4);
+    const n = fighter ? (light ? 1 : heavy ? clamp(culture.engines + 1, 2, 3) : clamp(culture.engines, 1, 2)) : clamp(culture.engines + 1, 2, 4);
     const ew = Math.min(W * 0.55, ((tail[1] - tail[0]) * 0.85) / n);
     const nl = L * 0.07;
     for (let i = 0; i < n; i++) {
@@ -252,7 +289,7 @@ const ArtBlueprints = (() => {
 
     // Markings: spots (alien), circuit traces (android) or stripes across the hull; an insignia on
     // each wing.
-    const stripes = fighter ? Math.min(culture.stripes, 2) : culture.stripes;
+    const stripes = fighter ? Math.min(culture.stripes, light ? 1 : 2) : culture.stripes;
     const inHull = (pts) => pts.every(([px, py]) => U.inPoly(px, py, hull));
     if (hc.hull === 'bio') {
       const [sx0, sy0, sx1, sy1] = U.bbox(hull);
@@ -294,7 +331,7 @@ const ArtBlueprints = (() => {
     }
 
     // Greebles: small plates, mirrored on symmetric cultures.
-    const count = Math.round(culture.greeble * (fighter ? 3 : 10));
+    const count = Math.round(culture.greeble * (fighter ? (light ? 2 : heavy ? 6 : 3) : 10));
     const [bx0, by0, bx1, by1] = U.bbox(hull);
     for (let i = 0, tries = 0; i < count && tries < 60; tries++) {
       let x = lerp(bx0 + L * 0.15, bx1 - L * 0.2, r()), y = lerp(by0, by1, r()) * 0.7;
@@ -323,7 +360,7 @@ const ArtBlueprints = (() => {
     }
 
     b.bp.glow = true;
-    b.bp.label = `${fighter ? 'Fighter' : 'Freighter'} · ${hc.hull} hull, ${wingKind} wings, ${n} engine${n > 1 ? 's' : ''}`;
+    b.bp.label = `${fighter ? (light ? 'Light fighter' : heavy ? 'Heavy fighter' : 'Fighter') : 'Freighter'} · ${hc.hull} hull, ${wingKind} wings, ${n} engine${n > 1 ? 's' : ''}`;
     return finish(b.bp);
   }
 
@@ -787,7 +824,7 @@ const ArtBlueprints = (() => {
   // drop loose parts, kill the lights and scorch the hull.
   function wreck(source, seed) {
     const r = mulberry32(hashInt(seed, 5, source.seed >>> 0));
-    const isShip = source.type === 'fighter' || source.type === 'freighter' || source.type === 'player';
+    const isShip = /^fighter/.test(source.type) || source.type === 'freighter' || source.type === 'player';
     const R = source.bodyRadius;
     const b = builder(isShip ? 'wreck-ship' : 'wreck-station', source.culture, seed);
     b.bp.wrecked = true;
@@ -918,12 +955,14 @@ const ArtBlueprints = (() => {
 
   // ---------- Entry points ----------
 
-  const TYPES = ['fighter', 'freighter', 'station-minor', 'station-major', 'gate', 'wreck-ship', 'wreck-station', 'wormhole'];
+  const TYPES = ['fighter-light', 'fighter', 'fighter-heavy', 'freighter', 'station-minor', 'station-major', 'gate', 'wreck-ship', 'wreck-station', 'wormhole'];
 
   function create(type, culture, seed = 1) {
     const s = seed >>> 0;
     switch (type) {
       case 'fighter': return ship(culture, s, 'fighter');
+      case 'fighter-light': return ship(culture, s, 'fighter-light');
+      case 'fighter-heavy': return ship(culture, s, 'fighter-heavy');
       case 'freighter': return ship(culture, s, 'freighter');
       case 'station-minor': return station(culture, s, 'minor');
       case 'station-major': return station(culture, s, 'major');

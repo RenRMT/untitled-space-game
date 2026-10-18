@@ -134,12 +134,13 @@ export function toggleFactions() {
 }
 
 // How each hull the player can fly is drawn: fixed designs in the original ship's colours (the
-// legacy culture, a Wedge lineage). The Courier looks like a Wedge fighter.
+// legacy culture, a Wedge lineage), growing with the hull: the Courier a light fighter, the
+// Corvette a fighter, the Gunship a heavy fighter.
 export const HULL_ART = {
-  courier: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 3),
+  courier: () => ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3),
   hauler: () => ArtBlueprints.create('freighter', ArtCulture.legacy, 7),
   corvette: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 11),
-  gunship: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 29),
+  gunship: () => ArtBlueprints.create('fighter-heavy', ArtCulture.legacy, 29),
   pod: () => escapePod(ArtCulture.legacy),
 };
 

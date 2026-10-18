@@ -57,7 +57,7 @@ function hostile(J, i, k, p, cx, cy) {
   const w = J.steps[i].wave, crew = Jobs.CREWS[w.crew] || Jobs.CREWS.pirates;
   const culture = crew.culture === 'pirates' ? world.cultures.pirates : world.cultures.of(crew.culture);
   return {
-    ...Entities.fighter({ key: keyOf(J.id, i, k), art: ArtBlueprints.create('fighter', culture, p.seed), x: cx, y: cy, orbit: p.orbit, speed: p.speed, a0: p.a0, tier: w.tier }),
+    ...Entities.fighter({ key: keyOf(J.id, i, k), art: ArtBlueprints.create(Entities.fighterClass(w.tier, p.seed), culture, p.seed), x: cx, y: cy, orbit: p.orbit, speed: p.speed, a0: p.a0, tier: w.tier }),
     crew: crew.label,
   };
 }
