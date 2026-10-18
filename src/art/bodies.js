@@ -144,10 +144,16 @@ const ArtBodies = (() => {
   const visibleCraters = (S) => S.craters.filter((c) => c.d[2] > 0.12);
 
   function moonLine(ctx, m, k) {
-    const S = moonShape(m), T = S.T, r = m.r, dpr = dprOf(), lw = Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k;
+    const V = Art.V, S = moonShape(m), T = S.T, r = m.r, dpr = dprOf(), lw = (Math.max(1, Math.min(2 * k, 2.6 * dpr)) / k) * (V.lw || 1);
     const body = new Path2D(); body.arc(0, 0, r, 0, TAU);
     ctx.lineJoin = ctx.lineCap = 'round';
     ctx.fillStyle = conf().bg; ctx.fill(body);
+    if (V.pfill === 'shade') {
+      const g = ctx.createRadialGradient(L2[0] * r * 0.4, L2[1] * r * 0.4, r * 0.05, 0, 0, r * 1.05);
+      g.addColorStop(0, U.rgba(T.line, 0.34)); g.addColorStop(0.6, U.rgba(T.line, 0.1)); g.addColorStop(1, U.rgba(T.line, 0));
+      ctx.fillStyle = g; ctx.fill(body);
+    }
+    if (V.pfill === 'hatch') Art.hatch(ctx, body, 0, 0, r, L2[0], L2[1], T.line, lw * 0.55);
     ctx.strokeStyle = ctx.fillStyle = ctx.shadowColor = T.line;
     ctx.lineWidth = lw; ctx.stroke(body);
     ctx.save();
@@ -166,7 +172,7 @@ const ArtBodies = (() => {
     for (const c of visibleCraters(S)) { ctx.globalAlpha = 0.25 + 0.45 * c.d[2]; ctx.stroke(pathOf(capOutline(c, 0.95, r, 28))); }
     ctx.globalAlpha = 1;
     ctx.fillStyle = ctx.shadowColor = T.hot || T.line;
-    ctx.shadowBlur = Math.min(8 * dpr, 5 * k);
+    ctx.shadowBlur = V.glow === 'none' ? 0 : Math.min(8 * dpr, 5 * k);
     for (const v of S.vents) if (v.d[2] > 0.1) ctx.fill(pathOf(capOutline(v, 1, r, 16)));
     ctx.restore();
   }
@@ -238,8 +244,9 @@ const ArtBodies = (() => {
       let n = norm(cross(sub(V[b], V[a]), sub(V[c], V[a])));
       if (dot(n, ce) < 0) n = n.map((x) => -x);
       if (n[2] <= 0) return;
-      const mat = moonMat(S, norm(ce));
-      const jit = 0.94 + 0.12 * (((Math.sin(i * 12.9898 + (m.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1);
+      const mat = moonMat(S, norm(ce)), sm = Art.V.smoothN;
+      if (sm) { const cn = norm(ce); n = norm(n.map((x, q) => lerp(x, cn[q], sm))); }
+      const jit = sm ? 1 : 0.94 + 0.12 * (((Math.sin(i * 12.9898 + (m.seed || 1) * 78.233) * 43758.5453) % 1 + 1) % 1);
       let k = (0.24 + 0.95 * Math.max(0, dot(n, LIGHT))) * jit;
       if (mat === 4) k = Math.max(k, 1);
       tris.push({ p: [V[a], V[b], V[c]], z: ce[2], col: U.shade(S.cols[mat], k) });
@@ -257,6 +264,9 @@ const ArtBodies = (() => {
   // The moon's sprite for this style and scale, keyed by what it is drawn from (so a moon rebuilt
   // from its seed finds it again); while the budget is spent, the last one drawn stands in.
   function drawMoon(ctx, m, style, o = {}) {
+    return Art.withV(Art.pickV(style, 'natural'), () => drawMoon0(ctx, m, style, o));
+  }
+  function drawMoon0(ctx, m, style, o) {
     const { x = 0, y = 0 } = o, mt = ctx.getTransform(), ppu = quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel;
     const key = `moon|${idOf(m)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`;
     const spr = cache.get(key, () => {
@@ -395,7 +405,7 @@ const ArtBodies = (() => {
   // lattice), each tile tracing only its own cells.
   function tileLine(neb, G, T, ti, tj) {
     const F = tileField(neb, G, ti, tj), lc = U.hexToRgb(T.line);
-    const fill = [0.04, 0.07, 0.1, 0.14].map((a) => [...lc, Math.round(a * 255)]);
+    const fill = (Art.V.pfill ? [0.06, 0.11, 0.17, 0.24] : [0.04, 0.07, 0.1, 0.14]).map((a) => [...lc, Math.round(a * 255)]);
     const g = G.g, paths = LEVELS.map((L) => {
       const p = new Path2D();
       for (let jj = 1; jj <= TILE; jj++) for (let ii = 1; ii <= TILE; ii++) {
@@ -442,7 +452,9 @@ const ArtBodies = (() => {
         if (lv < 0) continue;
         let n = norm(cross(sub(b, a), sub(q, a)));
         if (n[2] < 0) n = n.map((x) => -x);
-        const m = (a[4] + b[4] + q[4]) / 3, jit = 0.95 + 0.1 * hash3(i, j, lv + 5, S);
+        const sm = Art.V.smoothN;
+        if (sm) n = norm([n[0] * (1 - sm), n[1] * (1 - sm), lerp(n[2], 1, sm)]);
+        const m = (a[4] + b[4] + q[4]) / 3, jit = sm ? 1 : 0.95 + 0.1 * hash3(i, j, lv + 5, S);
         const lit = Math.round(((0.35 + 0.85 * Math.max(0, dot(n, LIGHT))) * jit) / 0.04) * 0.04;
         const col = U.shade(U.mix(bg, tab[lv][Math.min(3, Math.floor(m * 4))], A[lv]), lit);
         let p = groups.get(col);
@@ -485,7 +497,7 @@ const ArtBodies = (() => {
       for (const [col, p] of v.facets) { ctx.fillStyle = ctx.strokeStyle = col; ctx.fill(p); ctx.stroke(p); }
     }
     if (v.paths) {
-      const lw = Math.max(1, Math.min(1.5 * ppu, 2 * dprOf())) / ppu;
+      const lw = (Math.max(1, Math.min(1.5 * ppu, 2 * dprOf())) / ppu) * (Art.V.lw || 1);
       ctx.lineCap = ctx.lineJoin = 'round';
       v.paths.forEach((p, li) => { ctx.strokeStyle = v.colors[li]; ctx.lineWidth = lw * [0.6, 0.75, 0.9, 1][li]; ctx.stroke(p); });
     }
@@ -652,6 +664,9 @@ const ArtBodies = (() => {
   }
 
   function drawNebula(ctx, neb, style, o = {}) {
+    return Art.withV(Art.pickV(style, 'natural'), () => drawNebula0(ctx, neb, style, o));
+  }
+  function drawNebula0(ctx, neb, style, o) {
     const texel = o.texel || conf().texel;
     if (o.layer && o.view && !o.force) { drawLayered(ctx, neb, style, o.view, texel); return; }
     const v = Object.assign([...(o.view || [neb.x, neb.y, neb.x + neb.w, neb.y + neb.h])], { texel });

@@ -31,6 +31,11 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
   }
   for (const m of ['addPath', 'arc', 'arcTo', 'bezierCurveTo', 'closePath', 'ellipse', 'lineTo', 'moveTo',
     'quadraticCurveTo', 'rect', 'roundRect']) Path2D.prototype[m] = function () { this.ops++; };
+  // Just enough of a 2D matrix for Path2D.addPath(path, matrix) (the Line style's hatching).
+  class DOMMatrix {
+    constructor() { Object.assign(this, { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }); }
+    translate(x, y) { const m = new DOMMatrix(); Object.assign(m, this, { e: this.e + this.a * x + this.c * y, f: this.f + this.b * x + this.d * y }); return m; }
+  }
 
   class Ctx2D {
     constructor(canvas) {
@@ -189,7 +194,7 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
   let clock = 0;
   const href = `http://localhost/index.html${search}`;
   const globals = {
-    document, localStorage, Path2D,
+    document, localStorage, Path2D, DOMMatrix,
     innerWidth: width, innerHeight: height, devicePixelRatio: dpr,
     location: { search, href, pathname: '/index.html' },
     history: { replaceState() {} },

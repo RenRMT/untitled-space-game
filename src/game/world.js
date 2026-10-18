@@ -2,8 +2,8 @@
 // and map travel; loadGalaxy() swaps them all, as Settings' Re-roll does. Saves on leaving the page.
 // Part of the flight view; src/main.js starts it.
 
-import { ArtAndroids } from '../art/androids.js';
 import { ArtBodies } from '../art/bodies.js';
+import { ArtCrew } from '../art/crew.js';
 import { ArtCulture } from '../art/culture.js';
 import { Art } from '../art/render.js';
 import { Params, Store } from '../core/store.js';
@@ -43,7 +43,7 @@ export function loadGalaxy(galaxy) {
   world.knowledge = Knowledge.create(galaxy, { fresh: Params.has('fresh') });
   world.android = ArtCulture.xeno(galaxy.seed).android; // what squad members are built in
   const way = galaxy.stations[galaxy.waystation];
-  world.wayFace = way ? ArtAndroids.create(way.seed, world.cultures.of(way.culture)) : null; // its android
+  world.wayFace = way ? ArtCrew.create(way.seed, world.cultures.of(way.culture)) : null; // its android
   endTalk(false);
   buildMission();
   loadCargo(galaxy);

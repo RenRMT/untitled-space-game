@@ -97,16 +97,18 @@ const ArtCulture = (() => {
     return Object.assign(c, extra);
   }
 
-  // Pirates: each asset borrows its parts from the cultures they raid.
+  // Drifters (kitbash): freelancers, salvagers, explorers and outlaws on the periphery. Each asset
+  // is rebuilt from parts of the three human cultures, patched and kept flying.
   function kitbash(donors, seed, accent, extra = {}) {
     const r = mulberry32(seed >>> 0);
     const base = create(pickFrom(HUMAN, r), seed, accent);
     const c = {
-      ...base, lineage: 'kitbash', label: 'Kitbash', note: 'Captured hulls rebuilt from mismatched parts; patched, asymmetric and scorched.',
-      donors, asym: 0.45, greeble: 0.7,
+      ...base, lineage: 'kitbash', label: 'Kitbash', note: 'Freelancers, salvagers, explorers and outlaws on the periphery. Hulls rebuilt from Wedge, Block and Shard parts: mismatched wings and engines, strapped-on tanks, trusses where segments used to be.',
+      donors, asym: 0.4, greeble: 0.75,
     };
     c.pal = {
-      ...base.pal, hull: '#8f8578', hull2: '#4f4840', trim: '#b8ab98', glass: '#ff8a6b', light: '#ff5a4a', flame: '#ff7a3a', panel: '#5a4a3a',
+      ...base.pal, hull: '#8f877a', hull2: '#4f4a42', trim: '#b8ad98', glass: '#9fe0d0', light: '#ffc85a', flame: '#ffb050', panel: '#3e5a66',
+      strut: '#6a645a', engine: '#3a3631',
     };
     return Object.assign(c, extra);
   }
@@ -120,7 +122,8 @@ const ArtCulture = (() => {
     const settled = galaxy.cultures.map((c) => (c.lineage === 'android'
       ? Object.assign(xeno(galaxy.seed).android, { cultureId: c.id })
       : create(c.lineage, hashInt(base, c.id, 0xa47), c.color, { cultureId: c.id, name: c.name, color: c.color, kind: 'settled' })));
-    const pirates = kitbash(settled.filter((c) => c.kind === 'settled'), hashInt(base, 99, 0xa47), '#ff4d4d', { name: 'Pirates', color: '#ff4d4d', kind: 'pirates' });
+    // Kept under `pirates` for the game's code; shown as the Drifters.
+    const pirates = kitbash(settled.filter((c) => c.kind === 'settled'), hashInt(base, 99, 0xa47), '#d8824a', { name: 'Drifters', color: '#d8824a', kind: 'pirates' });
     return { cultures: settled, pirates, of: (id) => settled[id] || settled[0] };
   }
 

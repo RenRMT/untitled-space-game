@@ -34,15 +34,11 @@ const SECONDS = 6;
 const SCENARIOS = [
   { name: 'nebula (line)', style: 'line', place: 'nebula' },
   { name: 'nebula (lowpoly)', style: 'lowpoly', place: 'nebula' },
-  { name: 'nebula (flat)', style: 'flat', place: 'nebula' },
-  { name: 'nebula (pixel)', style: 'pixel', place: 'nebula' },
-  { name: 'big nebula (flat, desktop)', style: 'flat', place: 'bigNebula', desktop: true },
   { name: 'big nebula (line, desktop)', style: 'line', place: 'bigNebula', desktop: true },
   { name: 'big nebula (lowpoly, desktop)', style: 'lowpoly', place: 'bigNebula', desktop: true },
-  { name: 'open space (flat, desktop)', style: 'flat', place: 'open', desktop: true },
+  { name: 'open space (lowpoly, desktop)', style: 'lowpoly', place: 'open', desktop: true },
   { name: 'station (line)', style: 'line', place: 'station' },
   { name: 'station (lowpoly)', style: 'lowpoly', place: 'station' },
-  { name: 'station (pixel)', style: 'pixel', place: 'station' },
   { name: 'belt (line)', style: 'line', place: 'belt' },
 ];
 const PLACE = {

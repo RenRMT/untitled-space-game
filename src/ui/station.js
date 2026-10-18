@@ -10,7 +10,7 @@
 // the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color }, market, hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
-// artStyle: the art style item icons are drawn in (Art.STYLES; 'line' if not given).
+// artStyle: the art style item icons are drawn in (game/options.js ART_STYLES; 'line' if not given).
 // market: { goods (Economy.market's, at the stockpiles now), good(kind), buy(kind), sell(kind), regard }:
 //   buying and selling one unit at today's price, which moves it (game/docking.js marketAt);
 //   regard: { owner, tier, shift } how the owner regards the player and what it does to prices.
