@@ -8,6 +8,16 @@
 // Only factions humans know of are listed (the Remainder and the Thren stay off the list until
 // the story brings them in).
 //
+// What regard does, by the tier of the faction that owns a station (or flies the ship):
+// - prices: a faction that likes you trades a little cheaper, one that doesn't charges more
+//   (PRICE: a share added to the station's spread, both ways),
+// - docking: a faction that counts you Hostile refuses it, except the Registry, whose
+//   waystations turn no one away,
+// - pirates: once they count you Friendly, their packs leave you be (no attack on sight, no
+//   ambush on a trip); you can still attack them,
+// - and the other way: every pirate you destroy costs a point with the pirates (KILL), which
+//   ripples like any other change, so a bounty hunter pleases the Compact.
+//
 //   Reputation.empty() -> rep                  { [faction id]: regard }; missing is 0
 //   Reputation.regard(rep, id) -> -100..100
 //   Reputation.change(rep, id, d) -> { [id]: delta }   what moved, the ripple included
@@ -19,6 +29,12 @@
 //   Reputation.earn(rep, job) -> { [id]: delta }   a job handed in: JOB[tier] for its faction, the
 //                                              same taken from the one it works against
 //   Reputation.read(d) -> rep                  a saved one, checked
+//   Reputation.priceShift(rep, id) -> share    added to the spread at a station of faction id
+//   Reputation.refuses(rep, id) -> bool        whether faction id's stations refuse docking
+//   Reputation.passage(rep) -> bool            whether pirate packs leave the player be
+//   Reputation.effects(rep, id, stations) -> [text]   what the faction's regard means now, in words;
+//                                              stations: whether it owns any (else no word on prices or docking)
+//   Reputation.KILL                            regard lost with the pirates per pirate destroyed
 // ES module (`Reputation`); also runs in Node (the tests).
 
 import { clamp } from '../core/math.js';
@@ -29,6 +45,9 @@ const Reputation = (() => {
   const RIPPLE = 10; // a standing of +5 passes on half the change, -5 half of it reversed
   const ALLY = 2; // a standing at or above this toward another faction makes it an ally
   const JOB = { station: 4, system: 6, faction: 10 };
+  const KILL = 1;
+  const PRICE = { devoted: -0.04, friendly: -0.02, neutral: 0, unfriendly: 0.06, hostile: 0.12 };
+  const OPEN_DOORS = ['registry']; // never refuse docking
   // Tiers by regard, highest first: the first whose `min` the regard reaches.
   const TIERS = [
     { id: 'devoted', label: 'Devoted', min: 60 },
@@ -78,6 +97,20 @@ const Reputation = (() => {
   const allies = (id) => others(id).filter((f) => Factions.standing(id, f.id) >= ALLY && !Factions.hostile(id, f.id));
   const hostiles = (id) => others(id).filter((f) => Factions.hostile(id, f.id));
 
+  const tierOf = (rep, id) => tier(regard(rep, id)).id;
+  const priceShift = (rep, id) => (Factions.get(id) ? PRICE[tierOf(rep, id)] : 0);
+  const refuses = (rep, id) => !!Factions.get(id) && !OPEN_DOORS.includes(id) && tierOf(rep, id) === 'hostile';
+  const passage = (rep) => regard(rep, 'pirates') >= TIERS.find((t) => t.id === 'friendly').min;
+
+  function effects(rep, id, stations = true) {
+    const out = [];
+    const shift = priceShift(rep, id);
+    if (stations && refuses(rep, id)) out.push('Their stations refuse you docking.');
+    else if (stations && shift) out.push(`Their stations give you ${Math.round(Math.abs(shift) * 100)}% ${shift < 0 ? 'better' : 'worse'} prices, buying and selling.`);
+    if (id === 'pirates') out.push(passage(rep) ? 'Their packs leave you be.' : 'Their packs attack you on sight.');
+    return out;
+  }
+
   function read(d) {
     const out = {};
     if (d && typeof d === 'object') {
@@ -86,7 +119,7 @@ const Reputation = (() => {
     return out;
   }
 
-  return { MAX, RIPPLE, JOB, TIERS, empty, regard, change, earn, tier, visible, ranked, allies, hostiles, read };
+  return { MAX, RIPPLE, JOB, KILL, PRICE, TIERS, empty, regard, change, earn, tier, visible, ranked, allies, hostiles, read, priceShift, refuses, passage, effects };
 })();
 
 export { Reputation };

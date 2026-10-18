@@ -1,11 +1,13 @@
 // The factions menu: every faction the player knows of and how it regards them (rules/reputation.js),
 // highest regard first, opened with the Factions button in flight beside Map and Settings. Each row
 // shows the faction's colour, name, its regard's tier and where it sits between hostile and devoted;
-// a tap unfolds what the faction stands for (world/factions.js) and its allies and enemies, each a
-// chip that jumps to that faction's row.
+// a tap unfolds what that regard means (prices, docking, pirates leaving you be), what the faction
+// stands for (world/factions.js) and its allies and enemies, each a chip that jumps to that
+// faction's row.
 //
-//   FactionsMenu.open(rep), FactionsMenu.close(), FactionsMenu.isOpen
-//     rep: { [faction id]: regard } (cargo.rep), read each time the menu draws
+//   FactionsMenu.open(rep, owners), FactionsMenu.close(), FactionsMenu.isOpen
+//     rep: { [faction id]: regard } (cargo.rep), read each time the menu draws; owners: a Set of
+//     the factions that own stations (only theirs say what regard does to prices and docking)
 //   FactionsMenu.onToggle = (open) => ...   called when the menu opens or closes
 // ES module (`FactionsMenu`); needs a browser.
 
@@ -17,6 +19,7 @@ const FactionsMenu = (() => {
   const body = root.querySelector('.fac-body');
   const { h } = UI; // ui/ui.js
   let rep = {};
+  let owners = new Set();
   let isOpen = false;
   let unfolded = null; // the faction id whose row is open
   let onToggle = null;
@@ -39,8 +42,9 @@ const FactionsMenu = (() => {
 
   function row(f) {
     const v = Reputation.regard(rep, f.id), t = Reputation.tier(v), shown = unfolded === f.id;
-    const allies = Reputation.allies(f.id), hostiles = Reputation.hostiles(f.id);
+    const allies = Reputation.allies(f.id), hostiles = Reputation.hostiles(f.id), effects = Reputation.effects(rep, f.id, owners.has(f.id));
     const more = shown ? h('div', { class: 'fac-more', id: `fac-${f.id}-more` },
+      effects.length ? h('p', { class: 'fac-line fac-effects', style: { color: TONE[t.id] } }, h('span', { class: 'set-label' }, 'Toward you'), effects.join(' ')) : null,
       ABOUT.map(([key, label]) => (f[key] ? h('p', { class: 'fac-line' }, h('span', { class: 'set-label' }, label), f[key]) : null)),
       h('div', { class: 'fac-rel' }, h('span', { class: 'set-label' }, 'Allies'),
         allies.length ? h('span', { class: 'fac-chips' }, allies.map(chip)) : h('span', { class: 'fac-none' }, 'None')),
@@ -71,8 +75,9 @@ const FactionsMenu = (() => {
     }
   }
 
-  function open(r) {
+  function open(r, o) {
     rep = r || {};
+    owners = o || new Set();
     if (isOpen) { render(); return; }
     isOpen = true;
     returnFocus = document.activeElement;

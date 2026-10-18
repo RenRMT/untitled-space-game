@@ -2684,6 +2684,34 @@ test('reputation: a change ripples through how the factions regard each other', 
   }
 });
 
+test('reputation: what regard does: prices, docking, pirates letting you pass', () => {
+  const rep = Reputation.empty();
+  assert.strictEqual(Reputation.priceShift(rep, 'compact'), 0, 'neutral: the usual prices');
+  rep.compact = 70; rep.union = 20; rep.facet = -30; rep.combines = -80; rep.registry = -80;
+  assert(Reputation.priceShift(rep, 'compact') < Reputation.priceShift(rep, 'union'), 'devoted beats friendly');
+  assert(Reputation.priceShift(rep, 'union') < 0 && Reputation.priceShift(rep, 'facet') > 0);
+  // A friend's spread stays a spread: buying back never pays.
+  assert(Economy.config.spread + Reputation.PRICE.devoted > 0);
+  assert(!Reputation.refuses(rep, 'facet'), 'unfriendly still docks');
+  assert(Reputation.refuses(rep, 'combines'), 'hostile refuses');
+  assert(!Reputation.refuses(rep, 'registry'), 'a waystation never refuses');
+  assert(!Reputation.passage(rep), 'pirates attack by default');
+  rep.pirates = 20;
+  assert(Reputation.passage(rep), 'friendly pirates let you pass');
+  assert.match(Reputation.effects(rep, 'pirates').join(' '), /leave you be/);
+  assert.match(Reputation.effects(rep, 'combines').join(' '), /refuse/);
+  assert.match(Reputation.effects(rep, 'compact').join(' '), /4% better prices/);
+  assert.deepStrictEqual(Reputation.effects(rep, 'owed', false), [], 'no stations, no word on prices');
+  // The shift reaches the market: a friend's prices are better both ways.
+  const st = { key: 'st-port', market: { kind: 'system', type: 'minor' } };
+  const usual = Economy.market(7, st), friend = Economy.market(7, st, null, 0, Reputation.PRICE.devoted), foe = Economy.market(7, st, null, 0, Reputation.PRICE.unfriendly);
+  for (let i = 0; i < usual.goods.length; i++) {
+    const [u, f, x] = [usual.goods[i], friend.goods[i], foe.goods[i]];
+    assert(f.sell >= u.sell && x.sell <= u.sell, `${u.kind}: sell ${x.sell} / ${u.sell} / ${f.sell}`);
+    if (u.buy !== null) assert(f.buy <= u.buy && x.buy >= u.buy && f.buy > f.sell, `${u.kind}: buy ${x.buy} / ${u.buy} / ${f.buy}`);
+  }
+});
+
 test('every icon code the UI uses has a line icon', () => {
   // The codes in the panels' sources (code: 'XYZ', and the codes rules give abilities, bays and
   // consumables), plus the tabs, slots, research groups and the context menu's actions.

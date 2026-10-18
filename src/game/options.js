@@ -22,6 +22,7 @@ import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
 import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
 import { warp } from './warp.js';
+import { world } from './world.js';
 
 // A saved choice among `options` (core/store.js; a URL parameter of the same name overrides the saved
 // one); onChange runs after every change.
@@ -128,7 +129,7 @@ export function toggleFactions() {
   if (inFight() || docked || intro.on) return;
   SystemMap.close();
   Settings.close();
-  FactionsMenu.open(cargo.rep);
+  FactionsMenu.open(cargo.rep, new Set(world.galaxy.stations.map((st) => st.owner)));
 }
 
 // How each hull the player can fly is drawn: the Courier is the original ship; the others are

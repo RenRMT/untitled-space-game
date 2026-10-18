@@ -26,9 +26,10 @@
 // clock (core/clock.js), halfway every halfLife: production, consumption and the galaxy's traders
 // in one, worked out when someone looks, never ticked. Only stockpiles away from rest are saved.
 //
-//   Economy.market(galaxySeed, station, state?, now?) -> { goods: [{ kind, category, rarity, produced,
+//   Economy.market(galaxySeed, station, state?, now?, shift?) -> { goods: [{ kind, category, rarity, produced,
 //     consumed, buy (null: not stocked), sell, stock, target, left (whole units to buy; 0: sold out) }] }
-//     without state, every stockpile is at rest
+//     without state, every stockpile is at rest; shift: a share added to the spread both ways (how
+//     the station's owner regards the player, rules/reputation.js priceShift)
 //   Economy.empty() -> state                 { [station key]: { [kind]: { stock, at } } }
 //   Economy.trade(state, galaxySeed, station, kind, n, now)   n units in (sold to it) or out (< 0)
 //   Economy.prune(state, now)                forget stockpiles long since back at rest
@@ -137,7 +138,8 @@ const Economy = (() => {
 
   // The market at a station: { goods }, every trade good as { kind, category, rarity, buy, sell,
   // produced, consumed, stock, target, left }; buy is null where the station doesn't stock it.
-  function market(galaxySeed, station, state = null, now = 0) {
+  function market(galaxySeed, station, state = null, now = 0, shift = 0) {
+    const spread = config.spread + shift;
     const saved = state?.[station.key] || {};
     const goods = profile(galaxySeed, station).map((g) => {
       const rest = restOf(g);
@@ -147,8 +149,8 @@ const Economy = (() => {
       const price = G.type(g.kind).price * (entry ? factorAt(g, stock) : g.factor);
       return {
         kind: g.kind, category: g.category, rarity: g.rarity, produced: g.produced, consumed: g.consumed,
-        buy: g.stocked ? Math.max(1, Math.round(price * (1 + config.spread))) : null,
-        sell: Math.max(1, Math.round(price * (1 - config.spread))),
+        buy: g.stocked ? Math.max(1, Math.round(price * (1 + spread))) : null,
+        sell: Math.max(1, Math.round(price * (1 - spread))),
         stock, target: targetOf(g), left: g.stocked ? Math.max(0, Math.floor(stock)) : 0,
       };
     });

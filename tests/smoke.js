@@ -1712,6 +1712,45 @@ test('the factions menu: regard highest first, a row unfolds to allies and enemi
   game('cargo.rep = Reputation.empty()');
 });
 
+test('regard has consequences: docking refused, prices, pirates letting you pass, and kills costing regard', () => {
+  if (game('!!docked')) game('launch()');
+  game(`fight.grace = 0; combatMode.set('rounds'); cargo.hull = SHIP.hull; cargo.rep = Reputation.empty();
+    globalThis.__owned = world.scene.stations.find((s) => s.station && s.station.owner && s.station.owner !== 'registry');
+    globalThis.__way = world.scene.stations.find((s) => s.station && s.station.owner === 'registry');`);
+  const owner = game('__owned.station.owner');
+  // Hostile: the dock button says why, and docking does nothing.
+  game(`cargo.rep['${owner}'] = -80; placeShip(__owned.x, __owned.y + __owned.radius + 150)`);
+  assert.ok(!game(`actions.state('dock', __owned).ok`), 'refused');
+  assert.match(game(`actions.state('dock', __owned).label`), /^Refused · .* hostile$/);
+  game('dock(__owned)');
+  assert.ok(!game('docked'), 'not docked');
+  // The Registry's waystations take everyone.
+  game(`cargo.rep.registry = -100; placeShip(__way.x, __way.y + __way.radius + 150)`);
+  assert.ok(game(`actions.state('dock', __way).ok`), 'a waystation never refuses');
+  // Devoted: better prices, and the Trade tab says so.
+  const usual = game(`(cargo.rep = Reputation.empty(), marketAt(__owned).goods.map((g) => [g.buy, g.sell]))`);
+  game(`cargo.rep['${owner}'] = 80`);
+  const better = game(`marketAt(__owned).goods.map((g) => [g.buy, g.sell])`);
+  assert.ok(better.every(([b, s], i) => s >= usual[i][1] && (b === null || b <= usual[i][0])), 'better both ways');
+  assert.ok(better.some(([, s], i) => s > usual[i][1]), 'and some better by a credit or more');
+  game(`placeShip(__owned.x, __owned.y + __owned.radius + 150); dock(__owned); StationMenu.showTab('trade')`);
+  assert.match(onStation(), /Devoted: 4% better prices here/);
+  game('launch()');
+  // A pirate pack: it attacks on sight, unless the pirates count you Friendly.
+  game(`globalThis.__pirate = world.scene.entities.find((e) => e.kind === 'ship' && e.pack !== undefined && !cargo.removed.has(e.key));
+    cargo.rep.pirates = 30; fight.grace = 0; placeShip(__pirate.x + __pirate.radius + 300, __pirate.y);`);
+  browser.frames(20);
+  assert.ok(!game('inFight()'), 'friendly pirates leave you be');
+  assert.ok(game(`world.travel && Reputation.passage(cargo.rep)`), 'and their ambushes let a trip pass');
+  game('cargo.rep.pirates = 0');
+  assert.ok(until('inFight()', 60), 'neutral pirates attack');
+  winFight('the pack');
+  // Every pirate of a pack destroyed cost regard with the pirates, and pleased their enemies.
+  assert.ok(game('cargo.rep.pirates') < 0, `regard with the pirates: ${game('cargo.rep.pirates')}`);
+  assert.ok(game('cargo.rep.compact') > 0, 'the Compact approves');
+  game('cargo.rep = Reputation.empty(); fight.grace = 1e9');
+});
+
 test('cargo saves once after a burst of changes, and survives a reload', () => {
   game('saveCargoNow()');
   const key = game('cargo.key'), saved = () => browser.storage.get(key);
