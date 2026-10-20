@@ -4,7 +4,10 @@
 //
 //   Theme.color.cyan, ...         hex strings (the current palette's)
 //   Theme.font(13)                "13px 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace",
-//                                 scaled by the text size setting
+//                                 scaled by the text size setting, in the UI style's number font
+//   Theme.mono                    that font family (the UI style's --mono)
+//   Theme.setStyle(id)            'line' | 'lowpoly': the UI style (ui/kit-line.css, ui/kit-lowpoly.css),
+//                                 which picks the number font
 //   Theme.scale                   the text size setting as a factor (1, 1.15, 1.3)
 //   Theme.setScale(k)
 //   Theme.setPalette(id)          'standard' | 'safe': colours told apart without red–green (the
@@ -46,14 +49,19 @@ const Theme = (() => {
     Object.assign(color, PALETTES[id]);
     for (const fn of listeners) fn(id);
   }
-  const mono = "'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"; // --mono
+  // The number font of each UI style (--mono in ui/kit-line.css, ui/kit-lowpoly.css); the kit's own
+  // (ui/kit.css) for any other.
+  const FALLBACK = 'ui-monospace, Menlo, Consolas, monospace';
+  const MONO = { line: `'B612 Mono', ${FALLBACK}`, lowpoly: `'Martian Mono', ${FALLBACK}` };
   const theme = {
-    color, mono, PALETTES, setPalette,
+    color, PALETTES, setPalette,
+    mono: `'IBM Plex Mono', ${FALLBACK}`, // --mono
+    setStyle(id) { theme.mono = MONO[id] || `'IBM Plex Mono', ${FALLBACK}`; },
     get palette() { return palette; },
     onPalette: (fn) => listeners.push(fn),
     scale: 1,
     setScale(k) { theme.scale = k; },
-    font: (px) => `${Math.round(px * theme.scale * 10) / 10}px ${mono}`,
+    font: (px) => `${Math.round(px * theme.scale * 10) / 10}px ${theme.mono}`,
   };
   return theme;
 })();

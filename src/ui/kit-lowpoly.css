@@ -1,0 +1,502 @@
+/* The Low-poly style's UI kit (UI kit v2 · Low-poly), over the base kit (kit.css) while the Low-poly
+   art style is chosen (html[data-ui="lowpoly"], game/options.js). Menus are small faceted models:
+   dark hull bays that recede, light hull plates that rise out of them, glass readouts set into them,
+   lit from the upper left. The culture's material palette colours everything: the player's own UI
+   in the Wedge materials, a docked station's screen in its culture's (ui/station.js data-culture).
+   - Controls are plates lit in three bands, with a lip below; pressing pushes the plate onto its
+     lip. Bays recede, controls rise, readouts sink: height says what can be touched.
+   - Emissive colour (glass, lights) is kept for the primary action, readouts and running lights.
+   - Unavailable controls are wrecks: desaturated, darkened, flush with no lip.
+   - Rarity colours the lip of an item; tier is a row of two-tone gems. Meters are segments.
+   - Lettering in Chakra Petch, numbers in Martian Mono.
+   A lip is the part's box-shadow, shown below it by a clip-path that reaches past its bottom edge
+   (the --*-l4 / --*-l6 shapes: 4 or 6 px of lip); a press moves the plate down by `translate`, so
+   positions set by `transform` (the context menu, the callout) are kept. */
+@font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 500; font-display: swap; src: url('../../assets/fonts/chakra-petch-latin-500-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../assets/fonts/chakra-petch-latin-600-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../assets/fonts/chakra-petch-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'Martian Mono'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('../../assets/fonts/martian-mono-latin-wght-normal.woff2') format('woff2'); }
+
+/* Materials: the Wedge culture's, then each other culture's for a station built in it. */
+:root[data-ui="lowpoly"] {
+  --hull: #c3cbd5; --hull2: #7a8696; --trim: #e6ecf2; --glass: #7df9ff; --light: #b6ff8a; --flame: #ffb347; --marking: #2f5aa0; --plate-ink: #10141a;
+  --sky: #05060a;
+  --sans: 'Chakra Petch', 'Arial Narrow', system-ui, sans-serif;
+  --mono: 'Martian Mono', ui-monospace, Menlo, Consolas, monospace;
+  --r-sm: 0; --r-md: 0; --r-lg: 0; --r-sheet: 0;
+  --wreck: color-mix(in srgb, #8a8f96 42%, var(--sky)); --wreck-ink: #a3a8ae;
+  --cut: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  --cut-s: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  --cut-l4: polygon(10px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 10px) calc(100% + 4px), 0 calc(100% + 4px), 0 10px);
+  --cut-l6: polygon(10px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 10px) calc(100% + 6px), 0 calc(100% + 6px), 0 10px);
+  --cut-s-l4: polygon(6px 0, 100% 0, 100% calc(100% - 2px), calc(100% - 6px) calc(100% + 4px), 0 calc(100% + 4px), 0 6px);
+  --cut-s-l6: polygon(6px 0, 100% 0, 100% 100%, calc(100% - 6px) calc(100% + 6px), 0 calc(100% + 6px), 0 6px);
+  --oct: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);
+  --oct-l4: polygon(28% 0, 72% 0, 100% 28%, 100% calc(72% + 4px), 72% calc(100% + 4px), 28% calc(100% + 4px), 0 calc(72% + 4px), 0 28%);
+  --oct-l6: polygon(28% 0, 72% 0, 100% 28%, 100% calc(72% + 6px), 72% calc(100% + 6px), 28% calc(100% + 6px), 0 calc(72% + 6px), 0 28%);
+  --sheet-cut: polygon(18px 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 0 100%, 0 18px);
+  --bay-facets: conic-gradient(from 210deg at 22% 28%, rgba(255, 255, 255, 0.045) 0 19%, rgba(255, 255, 255, 0.015) 0 44%, rgba(0, 0, 0, 0.14) 0 66%, rgba(0, 0, 0, 0.05) 0 84%, rgba(255, 255, 255, 0.03) 0);
+  --well: inset 0 3px 0 rgba(0, 0, 0, 0.7), inset 0 -1px 0 color-mix(in srgb, var(--glass) 35%, var(--sky));
+}
+:root[data-ui="lowpoly"] #station[data-culture="block"] { --hull: #b9b59b; --hull2: #6e6a52; --trim: #d9d4b6; --glass: #ffd66b; --light: #ff9a3c; --flame: #fff2b3; --marking: #8a8f96; --plate-ink: #15140e; }
+:root[data-ui="lowpoly"] #station[data-culture="shard"] { --hull: #646b7d; --hull2: #363b48; --trim: #b4bccf; --glass: #c77dff; --light: #e0b0ff; --flame: #c77dff; --marking: #4a3a6a; --plate-ink: #f0f2f8; }
+:root[data-ui="lowpoly"] #station[data-culture="kitbash"] { --hull: #8f877a; --hull2: #4f4a42; --trim: #c9bea8; --glass: #9fe0d0; --light: #ffc85a; --flame: #ffb050; --marking: #3e5a66; --plate-ink: #0f0e0c; }
+:root[data-ui="lowpoly"] #station[data-culture="alien"] { --hull: #9a7a8e; --hull2: #4a3048; --trim: #e3d2bd; --glass: #9dff6a; --light: #c4ff5a; --flame: #9dff6a; --marking: #5a7a3a; --plate-ink: #140c12; }
+:root[data-ui="lowpoly"] #station[data-culture="android"] { --hull: #3a4048; --hull2: #3a4048; --trim: #e8ecf0; --glass: #e6f6ff; --light: #5ad8ff; --flame: #9ae8ff; --marking: #14181e; --plate-ink: #e8ecf0; }
+/* What's made from the materials, worked out again on a station that has its own. */
+:root[data-ui="lowpoly"], :root[data-ui="lowpoly"] #station[data-culture] {
+  --bay: color-mix(in srgb, var(--hull2) 26%, var(--sky)); --bay-hi: color-mix(in srgb, var(--hull2) 36%, var(--sky)); --bay-lo: color-mix(in srgb, var(--hull2) 16%, var(--sky));
+  --deep: color-mix(in srgb, var(--hull) 10%, var(--sky)); --lip: color-mix(in srgb, var(--hull) 52%, var(--sky)); --key-down: color-mix(in srgb, var(--hull) 72%, #000);
+  --mute: color-mix(in srgb, var(--trim) 74%, var(--sky));
+  --plate: linear-gradient(155deg, color-mix(in srgb, var(--hull) 80%, #fff) 0 30%, var(--hull) 0 70%, color-mix(in srgb, var(--hull) 88%, #000) 0);
+  --plate-glass: linear-gradient(155deg, color-mix(in srgb, var(--glass) 70%, #fff) 0 30%, var(--glass) 0 70%, color-mix(in srgb, var(--glass) 90%, #000) 0);
+  --plate-bay: linear-gradient(155deg, var(--bay-hi) 0 30%, color-mix(in srgb, var(--hull2) 30%, var(--sky)) 0);
+  --bg: var(--sky); --s1: var(--bay); --s2: var(--bay-hi); --nav: var(--bay-lo); --panel: var(--bay);
+  --line-soft: var(--bay-lo); --line: color-mix(in srgb, var(--hull2) 50%, var(--sky)); --line-strong: color-mix(in srgb, var(--hull) 45%, var(--sky));
+  --bright: var(--trim); --hud: color-mix(in srgb, var(--trim) 90%, var(--sky)); --dim: var(--mute);
+  --cyan: var(--glass); --cyan-hi: color-mix(in srgb, var(--glass) 70%, #fff); --cyan-tint: color-mix(in srgb, var(--glass) 12%, transparent);
+}
+:root[data-ui="lowpoly"][data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
+
+:root[data-ui="lowpoly"] .ui { color: var(--hud); font-weight: 500; }
+:root[data-ui="lowpoly"] .ui-label { font: 700 12px/1.3 var(--sans); letter-spacing: 0.16em; color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-title { font: 700 24px/1.1 var(--sans); letter-spacing: 0.04em; color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-head > .ui-label:first-child { color: var(--trim); font-size: 13px; }
+:root[data-ui="lowpoly"] .ui-head .aside { font-size: 11px; color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-note { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-empty { border: 0; background: color-mix(in srgb, var(--bay-lo) 55%, #000); box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.55); clip-path: var(--cut-s); color: var(--mute); }
+:root[data-ui="lowpoly"] .num, :root[data-ui="lowpoly"] .ui-num { font-weight: 500; }
+
+/* Buttons. Action: a hull plate. Primary: emissive glass. Ghost: a bay-coloured plate. Warn, good:
+   status paint. Disabled: a wreck, flush. Busy: a plate filling its socket. */
+:root[data-ui="lowpoly"] .ui-btn {
+  --lipc: var(--lip);
+  border: 0; border-radius: 0; background: var(--plate); color: var(--plate-ink);
+  clip-path: var(--cut-l6); box-shadow: 0 6px 0 var(--lipc); transition: translate 70ms;
+  font: 700 14px/1 var(--sans); letter-spacing: 0.1em;
+}
+:root[data-ui="lowpoly"] .ui-btn.lg { font-size: 16px; letter-spacing: 0.14em; }
+:root[data-ui="lowpoly"] .ui-btn:hover { background: var(--plate); filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .ui-btn:active:not(:disabled) { translate: 0 6px; box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-btn:focus-visible { outline: none; box-shadow: 0 6px 0 var(--lipc), inset 0 0 0 2px currentColor; }
+:root[data-ui="lowpoly"] .ui-btn .price {
+  margin-top: 4px; padding: 2px 6px 1px; background: var(--sky); color: var(--glass); box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.7);
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%); font-weight: 500;
+}
+:root[data-ui="lowpoly"] .ui-btn.primary, :root[data-ui="lowpoly"] .ui-btn.primary:hover { --lipc: color-mix(in srgb, var(--glass) 62%, var(--sky)); background: var(--plate-glass); color: var(--sky); }
+:root[data-ui="lowpoly"] .ui-btn.good, :root[data-ui="lowpoly"] .ui-btn.good:hover {
+  --lipc: color-mix(in srgb, var(--good) 55%, var(--sky)); color: #0e1a06;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--good) 60%, #fff) 0 30%, var(--good) 0 70%, color-mix(in srgb, var(--good) 88%, #000) 0);
+}
+:root[data-ui="lowpoly"] .ui-btn.warn, :root[data-ui="lowpoly"] .ui-btn.warn:hover {
+  --lipc: color-mix(in srgb, var(--warn) 55%, var(--sky)); color: #1a1206;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--warn) 60%, #fff) 0 30%, var(--warn) 0 70%, color-mix(in srgb, var(--warn) 90%, #000) 0);
+}
+:root[data-ui="lowpoly"] .ui-btn.warn .price { color: var(--warn); }
+:root[data-ui="lowpoly"] .ui-btn.ghost, :root[data-ui="lowpoly"] .ui-btn.ghost:hover { --lipc: var(--bay-lo); background: var(--plate-bay); color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-btn.ghost:hover { filter: brightness(1.2); }
+:root[data-ui="lowpoly"] .ui-btn:disabled, :root[data-ui="lowpoly"] .ui-btn:disabled:hover {
+  background: var(--wreck); color: var(--wreck-ink); box-shadow: none; clip-path: var(--cut); translate: 0 6px; filter: none;
+}
+:root[data-ui="lowpoly"] .ui-btn:disabled .price { color: #8a8f96; }
+:root[data-ui="lowpoly"] .ui-btn.busy, :root[data-ui="lowpoly"] .ui-btn.busy:disabled {
+  --lipc: var(--bay-lo); color: var(--trim); translate: none; clip-path: var(--cut-l6); box-shadow: 0 6px 0 var(--lipc);
+  background: linear-gradient(155deg, #ffbb88 0 30%, var(--busy) 0 70%, #e8874a 0) 0 0 / var(--progress, 0%) 100% no-repeat, var(--deep);
+}
+:root[data-ui="lowpoly"] .ui-btn.busy::before { content: none; }
+:root[data-ui="lowpoly"] .ui-btn.busy > span { text-shadow: 0 1px 2px #000, 0 0 4px #000; }
+
+/* Octagon keys: × on a sheet. */
+:root[data-ui="lowpoly"] .ui-iconbtn {
+  background: var(--bay); clip-path: var(--oct-l4); box-shadow: 0 4px 0 var(--bay-lo); color: var(--trim); font: 600 22px/1 var(--sans);
+  transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-iconbtn:hover, :root[data-ui="lowpoly"] .ui-iconbtn:focus-visible { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-iconbtn:active { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-link { color: var(--glass); font: 700 13px var(--sans); }
+:root[data-ui="lowpoly"] .ui-link:hover { color: var(--cyan-hi); }
+:root[data-ui="lowpoly"] .ui-cr > i { background: linear-gradient(90deg, color-mix(in srgb, currentColor 55%, #fff) 0 50%, currentColor 0); }
+
+/* Icon sockets: an octagonal recess, shadowed at the top edge; art and line icons sit in it. */
+:root[data-ui="lowpoly"] .ui-icon.ph { border: 0; border-radius: 0; background: var(--deep); clip-path: var(--oct); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.6); color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-icon .dot { border: 0; border-radius: 0; width: 9px; height: 9px; transform: rotate(45deg); background: linear-gradient(90deg, #fff1c0 0 50%, var(--new) 0); }
+
+/* Tier as gems, two-tone; rarity alike. */
+:root[data-ui="lowpoly"] .ui-pips { gap: 5px; padding: 0 2px; align-items: center; }
+:root[data-ui="lowpoly"] .ui-pips i { width: 6px; height: 6px; border-radius: 0; transform: rotate(45deg); background: var(--deep); }
+:root[data-ui="lowpoly"] .ui-pips i.on { background: linear-gradient(90deg, color-mix(in srgb, var(--tier) 70%, #fff) 0 50%, var(--tier) 0); }
+:root[data-ui="lowpoly"] .ui-mk { font: 600 10px var(--mono); }
+:root[data-ui="lowpoly"] .ui-tag { font: 700 11px/1.2 var(--sans); }
+
+/* Segment meters: ten slanted segments, lit up to the value. */
+:root[data-ui="lowpoly"] .ui-meter {
+  height: 9px; border-radius: 0; background: var(--deep); transform: skewX(-24deg);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 3px), transparent 0 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 3px), transparent 0 10%);
+}
+:root[data-ui="lowpoly"] .ui-meter > span {
+  border-radius: 0;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--meter, var(--glass)) 80%, #fff) 0 40%, var(--meter, var(--glass)) 0 75%, color-mix(in srgb, var(--meter, var(--glass)) 60%, var(--sky)) 0);
+}
+:root[data-ui="lowpoly"] .ui-meter.thin { height: 5px; }
+:root[data-ui="lowpoly"] .ui-segs { gap: 3px; padding: 0 3px; }
+:root[data-ui="lowpoly"] .ui-segs i { height: 7px; border-radius: 0; transform: skewX(-24deg); background: var(--deep); }
+:root[data-ui="lowpoly"] .ui-segs i.done { background: linear-gradient(180deg, color-mix(in srgb, var(--good) 80%, #fff) 0 40%, var(--good) 0 75%, color-mix(in srgb, var(--good) 60%, var(--sky)) 0); }
+:root[data-ui="lowpoly"] .ui-segs i.open { background: linear-gradient(180deg, color-mix(in srgb, var(--glass) 80%, #fff) 0 40%, var(--glass) 0 75%, color-mix(in srgb, var(--glass) 60%, var(--sky)) 0); }
+
+/* Deltas and values always sit in glass. */
+:root[data-ui="lowpoly"] .ui-deltas {
+  align-self: flex-start; padding: 3px 8px; background: var(--sky); box-shadow: var(--well);
+  font: 500 11px var(--mono); color: color-mix(in srgb, var(--glass) 55%, var(--sky));
+}
+:root[data-ui="lowpoly"] .ui-vals { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-vals .k { color: color-mix(in srgb, var(--glass) 55%, var(--sky)); }
+
+/* The ship schematic: the hull a dark plate in its bay, slots rising round it. */
+:root[data-ui="lowpoly"] .st-outline .leaders { stroke: var(--bay-hi); stroke-width: 2; stroke-dasharray: none; }
+:root[data-ui="lowpoly"] .st-outline .anchors { fill: var(--glass); }
+:root[data-ui="lowpoly"] .st-outline .hull { fill: var(--bay); fill-opacity: 1; stroke: var(--lip); stroke-opacity: 1; stroke-width: 2; }
+:root[data-ui="lowpoly"] .st-outline .spine { stroke: var(--bay-hi); stroke-opacity: 1; stroke-width: 2; }
+/* Slot nodes: a fitted part is a plate that rises; the selected one has a glass lip; empty is a socket. */
+:root[data-ui="lowpoly"] .ui-slot {
+  --lipc: var(--lip);
+  border: 0; border-radius: 0; background: var(--plate); color: var(--plate-ink);
+  clip-path: var(--cut-s-l6); box-shadow: 0 6px 0 var(--lipc); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-slot .lbl { font: 700 11px var(--sans); letter-spacing: 0.06em; }
+:root[data-ui="lowpoly"] :is(.ui-slot, .ui-tnode, .ui-chip, .ui-opt .what, .ui-tile, .ui-card) > .ui-icon.gl,
+:root[data-ui="lowpoly"] .ui-opt .what > .ui-icon.gl {
+  padding: 4px; background: var(--deep); clip-path: var(--oct); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.6); color: var(--tier, var(--mute));
+}
+:root[data-ui="lowpoly"] .ui-slot .ui-pips i:not(.on) { background: color-mix(in srgb, var(--hull) 60%, #000); }
+:root[data-ui="lowpoly"] .ui-slot:hover { filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .ui-slot:active { translate: 0 6px; box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-slot[aria-expanded="true"] {
+  --lipc: color-mix(in srgb, var(--glass) 70%, var(--sky)); border: 0;
+  background: linear-gradient(155deg, color-mix(in srgb, var(--hull) 70%, #fff) 0 30%, color-mix(in srgb, var(--hull) 92%, var(--glass)) 0 70%, var(--hull) 0);
+}
+:root[data-ui="lowpoly"] .ui-slot.empty { background: var(--bay-lo); box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.55); clip-path: var(--cut-s); translate: 0 6px; color: var(--mute); border: 0; }
+:root[data-ui="lowpoly"] .ui-slot.empty .lbl { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-slot.empty .ui-icon { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-slot.empty[aria-expanded="true"] { box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.55), inset 0 -2px 0 var(--glass); }
+:root[data-ui="lowpoly"] .ui-slot:focus-visible { outline: none; box-shadow: 0 6px 0 var(--lipc), inset 0 0 0 2px currentColor; }
+
+/* Research nodes: bay plates; done on a good lip, building on a glass lip, locked a flush wreck. */
+:root[data-ui="lowpoly"] .ui-tnode {
+  --lipc: var(--bay-lo);
+  border: 0; border-radius: 0; background: var(--plate-bay); color: var(--trim);
+  clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc);
+}
+:root[data-ui="lowpoly"] .ui-tnode .mark { font-weight: 600; color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-tnode.done { --lipc: color-mix(in srgb, var(--good) 50%, var(--sky)); }
+:root[data-ui="lowpoly"] .ui-tnode.active { --lipc: color-mix(in srgb, var(--glass) 70%, var(--sky)); background: linear-gradient(155deg, color-mix(in srgb, var(--glass) 22%, var(--bay-hi)) 0 30%, color-mix(in srgb, var(--glass) 12%, var(--bay-hi)) 0); }
+:root[data-ui="lowpoly"] .ui-tnode.queued { --lipc: color-mix(in srgb, var(--glass) 40%, var(--sky)); }
+:root[data-ui="lowpoly"] .ui-tnode.locked { border: 0; background: var(--wreck); color: var(--wreck-ink); box-shadow: none; clip-path: var(--cut-s); translate: 0 4px; }
+:root[data-ui="lowpoly"] .ui-tnode.locked .ui-icon { opacity: 0.6; }
+:root[data-ui="lowpoly"] .ui-tnode:hover { filter: brightness(1.15); }
+:root[data-ui="lowpoly"] .ui-tnode[aria-expanded="true"] { border: 0; box-shadow: 0 4px 0 var(--lipc), inset 0 0 0 2px var(--glass); }
+:root[data-ui="lowpoly"] .ui-tnode.locked[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--glass); }
+:root[data-ui="lowpoly"] .ui-tnode:focus-visible { outline: none; box-shadow: 0 4px 0 var(--lipc), inset 0 0 0 2px var(--trim); }
+:root[data-ui="lowpoly"] .st-tree-lines path { stroke: var(--bay-hi); stroke-width: 2; }
+:root[data-ui="lowpoly"] .st-tree-lines path.done { stroke: var(--glass); stroke-opacity: 0.7; }
+:root[data-ui="lowpoly"] .st-lane { color: var(--mute); }
+
+/* Stat chips: glass readouts sunk in the bay; the open one lights up. */
+:root[data-ui="lowpoly"] .ui-chip { border: 0; border-radius: 0; background: var(--sky); box-shadow: var(--well); clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .ui-chip .v { font: 600 14px/1.2 var(--mono); color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-chip .l { font: 700 10px var(--sans); letter-spacing: 0.04em; color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-chip > .ui-icon.gl { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-chip[aria-expanded="true"] { border: 0; background: color-mix(in srgb, var(--glass) 14%, var(--sky)); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.5), inset 0 -2px 0 var(--glass); }
+:root[data-ui="lowpoly"] .ui-chip[aria-expanded="true"] .l { color: var(--trim); }
+:root[data-ui="lowpoly"] :is(.ui-chip, .ui-tile, .ui-card, .ui-opt .what, .ui-disclosure):focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--glass); }
+:root[data-ui="lowpoly"] .ui-detail { border: 0; border-radius: 0; background: var(--bay-hi); clip-path: var(--cut-s); box-shadow: inset 3px 0 0 var(--accent, var(--glass)); }
+:root[data-ui="lowpoly"] .ui-detail .head { font-size: 16px; font-weight: 700; color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-detail .head .num { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-detail > span { color: var(--mute); }
+
+/* Item crates: a plate with the item set in it; its rarity is the lip. */
+:root[data-ui="lowpoly"] .ui-tile {
+  border: 0; border-radius: 0; background: var(--plate); clip-path: var(--cut-s-l6); box-shadow: 0 6px 0 var(--tier, var(--lip)); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-tile > img, :root[data-ui="lowpoly"] .ui-tile > .icon { padding: 3px; background: var(--deep); clip-path: var(--oct); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.6); }
+:root[data-ui="lowpoly"] .ui-tile .n { font: 600 10px var(--mono); color: var(--plate-ink); }
+:root[data-ui="lowpoly"] .ui-tile:active { translate: 0 6px; box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-tile[aria-expanded="true"] { border: 0; background: var(--plate); box-shadow: 0 6px 0 var(--tier, var(--lip)), inset 0 0 0 2px var(--glass); }
+
+/* Option rows: bay plates in the sheet's well; the one fitted now lifts. */
+:root[data-ui="lowpoly"] .ui-opt { background: var(--bay-hi); border: 0; border-radius: 0; clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .ui-opt.current { background: color-mix(in srgb, var(--hull2) 50%, var(--sky)); border: 0; clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 color-mix(in srgb, var(--glass) 55%, var(--sky)); margin-bottom: 4px; }
+:root[data-ui="lowpoly"] .ui-opt.locked { opacity: 1; background: var(--bay); }
+:root[data-ui="lowpoly"] .ui-opt.locked .name, :root[data-ui="lowpoly"] .ui-opt.locked .ui-icon { opacity: 0.6; }
+:root[data-ui="lowpoly"] .ui-opt .name { font-size: 16px; font-weight: 600; color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-opt .sub { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-opt .chev { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-opt .lock { border: 0; border-radius: 0; background: var(--wreck); color: var(--wreck-ink); clip-path: var(--cut-s); font: 700 12px/1.2 var(--sans); }
+:root[data-ui="lowpoly"] .ui-opt .more { border-top: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .ui-cmp { border-bottom: 2px solid var(--bay-lo); font-weight: 500; font-size: 11px; }
+:root[data-ui="lowpoly"] .ui-cmp > :first-child { color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-cmp .cur, :root[data-ui="lowpoly"] .ui-cmp .to { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-cmp .next { color: var(--glass); }
+
+/* Cards: a bay plate whose lip carries its colour. */
+:root[data-ui="lowpoly"] .ui-card {
+  border: 0; border-radius: 0; background: var(--bay-facets), var(--bay-hi); clip-path: var(--cut-s-l4);
+  box-shadow: 0 4px 0 var(--accent, var(--lip)); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-card:hover { border: 0; filter: brightness(1.12); }
+:root[data-ui="lowpoly"] .ui-card:active { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-card .title { color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-card .go { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-card.compact { background: var(--bay); box-shadow: none; clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .ui-card.compact .title { color: var(--hud); }
+
+/* Check marks: sockets; done fills with a good gem, current lit with glass. */
+:root[data-ui="lowpoly"] .ui-check { border: 0; border-radius: 0; background: var(--deep); box-shadow: inset 0 2px 0 rgba(0, 0, 0, 0.6); clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); color: #0e1a06; }
+:root[data-ui="lowpoly"] .ui-check.open { border: 0; box-shadow: inset 0 0 0 2px var(--glass); }
+:root[data-ui="lowpoly"] .ui-check.done { border: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--good) 70%, #fff) 0 50%, var(--good) 0); }
+:root[data-ui="lowpoly"] .ui-check.sm { clip-path: none; transform: rotate(45deg); width: 7px; height: 7px; }
+:root[data-ui="lowpoly"] .ui-goal { border-bottom: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .ui-goal .txt { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-goal.open .txt { color: var(--trim); }
+
+:root[data-ui="lowpoly"] .ui-info { border: 0; border-radius: 0; background: var(--bay-hi); clip-path: var(--cut-s); }
+/* A toast: a bay strip with its status as a running light. */
+:root[data-ui="lowpoly"] .ui-callout { display: flex; align-items: center; gap: 12px; border: 0; border-radius: 0; background: var(--bay-hi); clip-path: var(--cut-s); padding: 12px 14px; color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-callout::before {
+  content: ''; flex: none; width: 12px; height: 12px; margin: 0 2px; transform: rotate(45deg);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone, var(--good)) 45%, #fff) 0 50%, var(--tone, var(--good)) 0);
+}
+/* A message: a bay plate on the sender's colour. */
+:root[data-ui="lowpoly"] .ui-quote { border: 0; border-radius: 0; background: var(--bay-facets), var(--bay-hi); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--from, var(--marking)); }
+:root[data-ui="lowpoly"] .ui-quote p { color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-face { border: 0; border-radius: 0; clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .ui-disclosure { border-top: 2px solid var(--bay-lo); color: var(--mute); font: 700 12px var(--sans); }
+
+/* Sheets: a bay that slides up, with a grip rail; the options in a well below its header. */
+:root[data-ui="lowpoly"] .ui-scrim { background: rgba(2, 3, 6, 0.74); }
+:root[data-ui="lowpoly"] .ui-sheet { border: 0; border-radius: 0; background: var(--bay-facets), var(--bay-hi); clip-path: var(--sheet-cut); }
+:root[data-ui="lowpoly"] .ui-sheet .grab { width: 48px; height: 8px; border-radius: 0; margin: 10px auto 4px; background: linear-gradient(180deg, var(--hull) 0 50%, var(--lip) 0); clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 100%, 0 100%); }
+:root[data-ui="lowpoly"] .ui-sheet .head { border-bottom: 0; padding-left: 18px; }
+:root[data-ui="lowpoly"] .ui-sheet .head .t { font-size: 20px; font-weight: 600; color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-sheet.tall .head .t { font-size: 22px; }
+:root[data-ui="lowpoly"] .ui-sheet .head .s { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-sheet .body { margin: 0 10px; padding: 12px 10px 24px; background: var(--bay-lo); }
+:root[data-ui="lowpoly"] .ui-sheet .foot { border-top: 0; background: transparent; padding-bottom: 18px; }
+
+/* The tab bar as keys: the open tab's key is held down, its legend glass; a locked one is a wreck. */
+:root[data-ui="lowpoly"] .ui-nav { gap: 10px; border-top: 0; background: var(--bay-lo); padding-top: 10px; padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px)); }
+:root[data-ui="lowpoly"] .ui-tabs { gap: 6px; }
+:root[data-ui="lowpoly"] .ui-tab {
+  --lipc: var(--lip);
+  background: var(--plate); clip-path: var(--cut-s-l6); box-shadow: 0 6px 0 var(--lipc); color: var(--plate-ink); --tier: var(--trim); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-tab .ui-icon { padding: 4px; background: color-mix(in srgb, var(--hull) 70%, #000); clip-path: var(--oct); }
+:root[data-ui="lowpoly"] .ui-tab .ui-icon.gl, :root[data-ui="lowpoly"] .ui-tab:hover .ui-icon.gl { color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-tab .ui-icon.ph { border: 0; color: var(--trim); box-shadow: none; }
+:root[data-ui="lowpoly"] .ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.08em; color: var(--plate-ink); }
+:root[data-ui="lowpoly"] .ui-tab:hover { filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"] { translate: 0 6px; box-shadow: none; background: var(--key-down); filter: none; }
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"]::before { content: none; }
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"] .ui-icon { background: var(--sky); }
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"] .ui-icon.gl, :root[data-ui="lowpoly"] .ui-tab[aria-selected="true"] .ui-icon.ph,
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"] .lbl { color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-tab:disabled { opacity: 1; translate: 0 6px; box-shadow: none; background: var(--wreck); filter: none; }
+:root[data-ui="lowpoly"] .ui-tab:disabled .ui-icon { background: rgba(0, 0, 0, 0.35); }
+:root[data-ui="lowpoly"] .ui-tab:disabled .lbl, :root[data-ui="lowpoly"] .ui-tab:disabled .ui-icon.gl, :root[data-ui="lowpoly"] .ui-tab:disabled .ui-icon.ph { color: #8a8f96; }
+/* Chakra Petch is wider than the base kit's condensed face: the names close up so all five fit beside
+   Launch, in capitals where there's room; on a phone in small letters, and closer still with larger text. */
+:root[data-ui="lowpoly"] .ui-tab .lbl { font-size: 9.5px; letter-spacing: 0.02em; }
+:root[data-ui="lowpoly"] #st-launch { min-width: 0; padding: 0 16px; letter-spacing: 0.1em; }
+@media (max-width: 480px) {
+  :root[data-ui="lowpoly"] .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 10px; }
+  :root[data-ui="lowpoly"] .ui-tabs { gap: 4px; }
+  :root[data-ui="lowpoly"] #st-launch { padding: 0 12px; }
+  :root[data-ui="lowpoly"] .ui-nav { gap: 8px; }
+  :root[data-ui="lowpoly"]:not([data-textsize="100"]) .ui-tab .lbl { font-size: 9px; }
+  :root[data-ui="lowpoly"]:not([data-textsize="100"]) .ui-tabs { gap: 3px; }
+  :root[data-ui="lowpoly"]:not([data-textsize="100"]) #st-launch { padding: 0 8px; letter-spacing: 0.02em; font-size: 13px; }
+  :root[data-ui="lowpoly"]:not([data-textsize="100"]) .ui-nav { gap: 6px; padding-left: 6px; padding-right: 6px; }
+}
+@media (max-width: 380px) { :root[data-ui="lowpoly"][data-textsize="100"] .ui-tab .lbl { font-size: 9.5px; } }
+:root[data-ui="lowpoly"] .ui-tab:focus-visible { outline: none; box-shadow: 0 6px 0 var(--lipc), inset 0 0 0 2px var(--plate-ink); }
+:root[data-ui="lowpoly"] .ui-tab[aria-selected="true"]:focus-visible { box-shadow: inset 0 0 0 2px var(--glass); }
+
+/* Code and squad programs: code sits in glass; instructions are bay plates with a state stripe. */
+:root[data-ui="lowpoly"] .ui-code { border: 0; border-radius: 0; background: var(--sky); box-shadow: var(--well); clip-path: var(--cut-s); font-weight: 400; }
+:root[data-ui="lowpoly"] .ui-code-line { color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-code-line .ln { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-choice {
+  --lipc: var(--lip);
+  border: 0; border-radius: 0; background: var(--plate); color: var(--plate-ink); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .ui-choice, :root[data-ui="lowpoly"] .ui .ui-choice { font: 600 15px var(--sans); }
+:root[data-ui="lowpoly"] .ui-choice.on { border: 0; translate: 0 4px; box-shadow: none; background: var(--key-down); color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-choice.locked { background: var(--wreck); color: var(--wreck-ink); box-shadow: none; translate: 0 4px; }
+:root[data-ui="lowpoly"] .ui-choice:focus-visible { outline: none; box-shadow: 0 4px 0 var(--lipc), inset 0 0 0 2px currentColor; }
+:root[data-ui="lowpoly"] .ui-instr { --state: var(--line); border: 0; border-radius: 0; background: var(--bay-hi); clip-path: var(--cut-s); box-shadow: inset 3px 0 0 var(--state); color: var(--trim); }
+:root[data-ui="lowpoly"] .ui-instr .n { color: var(--mute); }
+:root[data-ui="lowpoly"] .ui-instr .ic { border: 0; border-radius: 0; background: var(--sky); }
+:root[data-ui="lowpoly"] .ui-instr.active { --state: var(--good); }
+:root[data-ui="lowpoly"] .ui-instr.bad { --state: var(--hostile); }
+:root[data-ui="lowpoly"] .ui-instr.add { background: var(--bay-lo); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.5); color: var(--glass); }
+:root[data-ui="lowpoly"] .ui-instr.else { background: var(--bay); }
+:root[data-ui="lowpoly"] button.ui-instr:hover { filter: brightness(1.12); }
+
+/* ---------- The flight view and the screens (index.html) ---------- */
+
+/* Plain buttons over space: bay plates on a dark lip; a pressed toggle is held down. */
+:root[data-ui="lowpoly"] .btn {
+  border: 0; border-radius: 0; background: var(--plate-bay); color: var(--trim);
+  clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--bay-lo); transition: translate 70ms; font: 700 13px/1 var(--sans); letter-spacing: 0.1em;
+}
+:root[data-ui="lowpoly"] .btn:hover, :root[data-ui="lowpoly"] .btn:focus-visible { color: var(--trim); filter: brightness(1.2); }
+:root[data-ui="lowpoly"] .btn:active:not(:disabled) { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .btn:focus-visible { outline: none; box-shadow: 0 4px 0 var(--bay-lo), inset 0 0 0 2px currentColor; }
+:root[data-ui="lowpoly"] .btn[aria-pressed="true"], :root[data-ui="lowpoly"] #map-view .btn[aria-checked="true"] { translate: 0 4px; box-shadow: none; background: var(--key-down); color: var(--glass); }
+:root[data-ui="lowpoly"] .btn:disabled { opacity: 1; translate: 0 4px; box-shadow: none; background: var(--wreck); color: var(--wreck-ink); filter: none; }
+/* Factions, map and settings: octagon keys in hull plate. */
+:root[data-ui="lowpoly"] .icon-btn { background: var(--plate); color: var(--plate-ink); clip-path: var(--oct-l6); box-shadow: 0 6px 0 var(--lip); }
+:root[data-ui="lowpoly"] .icon-btn:hover, :root[data-ui="lowpoly"] .icon-btn:focus-visible { color: var(--plate-ink); filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .icon-btn:active { translate: 0 6px; }
+:root[data-ui="lowpoly"] .icon-btn[aria-expanded="true"] { translate: 0 6px; box-shadow: none; background: var(--key-down); color: var(--glass); }
+:root[data-ui="lowpoly"] .icon-btn svg { stroke-width: 1.9; }
+
+:root[data-ui="lowpoly"] #map-overlay .top { background: linear-gradient(var(--sky), rgba(5, 6, 10, 0)); }
+:root[data-ui="lowpoly"] #map-title { flex: 0 1 auto; padding: 6px 10px; background: var(--sky); box-shadow: var(--well); font: 500 12px var(--mono); letter-spacing: 0.06em; color: var(--glass); }
+:root[data-ui="lowpoly"] #map-view { gap: 4px; }
+:root[data-ui="lowpoly"] #map-investigate { background: var(--plate-glass); color: var(--sky); box-shadow: 0 4px 0 color-mix(in srgb, var(--glass) 62%, var(--sky)); }
+
+/* Panels over space: bays with a lip in their colour (the map's prompt, combat, a comms message). */
+:root[data-ui="lowpoly"] :is(#map-prompt, .panel, .cm-box) {
+  --lipc: var(--marking);
+  border: 0; border-radius: 0; background: var(--bay-facets), var(--bay-hi); clip-path: var(--cut-l6); box-shadow: 0 6px 0 var(--lipc);
+}
+:root[data-ui="lowpoly"] #map-prompt { color: var(--trim); }
+/* The selection callout: the name on a bay plate, its main action in glass. */
+:root[data-ui="lowpoly"] .co-above { background: var(--bay-hi); border-radius: 0; clip-path: var(--cut-s); padding: 4px 9px; }
+:root[data-ui="lowpoly"] .co-name { font: 600 14px var(--sans); color: var(--trim); }
+:root[data-ui="lowpoly"] .co-meta { font: 500 10px var(--mono); }
+:root[data-ui="lowpoly"] .co-below .btn.primary:not(:disabled) { background: var(--plate-glass); color: var(--sky); box-shadow: 0 4px 0 color-mix(in srgb, var(--glass) 62%, var(--sky)); }
+
+/* The context menu: octagon keys on a lip in the colour of what they're about (hostile red). */
+:root[data-ui="lowpoly"] #context { --cx-lip: color-mix(in srgb, var(--accent, var(--marking)) 70%, var(--sky)); }
+:root[data-ui="lowpoly"] #context:has(.cx-tag.hostile) { --cx-lip: #a3283a; }
+:root[data-ui="lowpoly"] .cx-act {
+  border: 0; border-radius: 0; background: var(--plate); color: var(--plate-ink); clip-path: var(--oct-l4); box-shadow: 0 4px 0 var(--cx-lip); transition: translate 70ms;
+}
+:root[data-ui="lowpoly"] .cx-act svg { stroke-width: 1.9; }
+:root[data-ui="lowpoly"] .cx-act:hover { background: var(--plate); filter: brightness(1.08); }
+:root[data-ui="lowpoly"] .cx-act:active:not(:disabled) { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .cx-act:disabled { background: var(--wreck); color: var(--wreck-ink); box-shadow: none; clip-path: var(--oct); translate: 0 4px; }
+:root[data-ui="lowpoly"] .cx-act.busy:disabled {
+  translate: none; clip-path: var(--oct-l4); box-shadow: 0 4px 0 var(--bay-lo); color: var(--busy);
+  background: radial-gradient(closest-side, var(--deep) calc(100% - 5px), transparent calc(100% - 4px)), conic-gradient(var(--busy) var(--progress, 0%), var(--bay-lo) var(--progress, 0%));
+}
+:root[data-ui="lowpoly"] .cx-act:focus-visible { outline: none; box-shadow: 0 4px 0 var(--cx-lip), inset 0 0 0 2px var(--plate-ink); }
+:root[data-ui="lowpoly"] .cx-lbl { font: 700 10px/1 var(--sans); color: var(--trim); background: var(--bay-hi); border-radius: 0; padding: 3px 6px; clip-path: polygon(4px 0, 100% 0, 100% calc(100% - 4px), calc(100% - 4px) 100%, 0 100%, 0 4px); }
+:root[data-ui="lowpoly"] .cx-act:disabled .cx-lbl { color: var(--wreck-ink); }
+
+/* Combat: its lip hostile in a fight, good when won; shield and hull as segment meters. */
+:root[data-ui="lowpoly"] #combat { --lipc: #a3283a; --shd: var(--glass); }
+:root[data-ui="lowpoly"] #combat.won { --lipc: color-mix(in srgb, var(--good) 50%, var(--sky)); }
+:root[data-ui="lowpoly"] #combat.fled { --lipc: var(--marking); }
+:root[data-ui="lowpoly"] .cb-title { font: 700 15px var(--sans); color: var(--trim); }
+:root[data-ui="lowpoly"] .cb-track { height: 3px; border-radius: 0; background: var(--deep); }
+:root[data-ui="lowpoly"] .cb-ab { --lipc: var(--bay-lo); border: 0; border-radius: 0; background: var(--plate-bay); color: var(--light); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc); }
+:root[data-ui="lowpoly"] .cb-ab:active:not(:disabled) { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .cb-ab:disabled { background: var(--wreck); color: var(--wreck-ink); box-shadow: none; translate: 0 4px; }
+:root[data-ui="lowpoly"] .cb-ab .n { color: var(--trim); }
+:root[data-ui="lowpoly"] .cb-row { border-top: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .cb-row.you .cb-name { color: var(--glass); }
+:root[data-ui="lowpoly"] .cb-bars { gap: 3px; }
+:root[data-ui="lowpoly"] .cb-bar {
+  height: 5px; border-radius: 0; background: var(--deep); transform: skewX(-24deg);
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%);
+}
+:root[data-ui="lowpoly"] .cb-nums { font-size: 10px; color: var(--mute); }
+
+/* The station: its header a raised bay; the credits in a glass readout. */
+:root[data-ui="lowpoly"] #station { background: var(--sky); }
+:root[data-ui="lowpoly"] .st-head { border-bottom: 0; background: var(--bay-facets), var(--bay-hi); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%); }
+:root[data-ui="lowpoly"] .st-head .culture { width: 4px; border-radius: 0; }
+:root[data-ui="lowpoly"] #st-name { font-size: 20px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--trim); }
+:root[data-ui="lowpoly"] #st-sub { color: var(--mute); }
+:root[data-ui="lowpoly"] .st-credits { border: 0; border-radius: 0; background: var(--sky); box-shadow: var(--well); clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .st-credits i { background: linear-gradient(90deg, color-mix(in srgb, var(--glass) 55%, #fff) 0 50%, var(--glass) 0); }
+:root[data-ui="lowpoly"] #st-credits { font: 600 13px var(--mono); color: var(--glass); }
+:root[data-ui="lowpoly"] .st-lead { color: var(--mute); }
+:root[data-ui="lowpoly"] .st-info[aria-expanded="true"] { color: var(--glass); }
+:root[data-ui="lowpoly"] .st-switch { border: 0; border-radius: 0; background: var(--bay); clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .st-switch-btn { color: var(--glass); }
+:root[data-ui="lowpoly"] .st-switch .who { color: var(--trim); }
+:root[data-ui="lowpoly"] .st-switch .dot::after { border-radius: 0; transform: rotate(45deg); background: var(--deep); }
+:root[data-ui="lowpoly"] .st-switch .dot[aria-current="true"]::after { background: linear-gradient(90deg, color-mix(in srgb, var(--glass) 55%, #fff) 0 50%, var(--glass) 0); }
+:root[data-ui="lowpoly"] .st-steps { border: 0; border-radius: 0; background: var(--bay); clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .st-step, :root[data-ui="lowpoly"] .st-test { border-top: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .st-item .n { background: var(--sky); border-radius: 0; color: var(--glass); font-weight: 500; }
+:root[data-ui="lowpoly"] .st-gauge { height: 4px; border-radius: 0; background: var(--deep); }
+:root[data-ui="lowpoly"] .st-gauge .mark { border-radius: 0; transform: rotate(45deg); background: linear-gradient(90deg, #fff 0 50%, var(--hud) 0); }
+:root[data-ui="lowpoly"] .st-gauge .mark.cheap { background: linear-gradient(90deg, color-mix(in srgb, var(--good) 55%, #fff) 0 50%, var(--good) 0); }
+:root[data-ui="lowpoly"] .st-gauge .mark.dear { background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 55%, #fff) 0 50%, var(--warn) 0); }
+:root[data-ui="lowpoly"] .st-components th, :root[data-ui="lowpoly"] .st-components td { border-top: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .st-bench-cur { border: 0; border-radius: 0; background: color-mix(in srgb, var(--glass) 12%, var(--bay-hi)); box-shadow: inset 0 -2px 0 var(--glass); clip-path: var(--cut-s); color: var(--trim); }
+:root[data-ui="lowpoly"] .st-bench-cur.idle { border: 0; background: var(--bay-lo); box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.55); color: var(--mute); }
+:root[data-ui="lowpoly"] .st-bench-q::before { border-top: 2px solid var(--bay-hi); }
+:root[data-ui="lowpoly"] .st-bench-slot { border: 0; border-radius: 0; background: var(--plate-bay); clip-path: var(--cut-s); box-shadow: inset 0 -2px 0 var(--glass); }
+:root[data-ui="lowpoly"] .st-bench-slot.empty { background: var(--bay-lo); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.55); }
+:root[data-ui="lowpoly"] .st-clause { border-left: 3px solid var(--bay-hi); }
+
+/* Production: nodes as bay plates on the board. */
+:root[data-ui="lowpoly"] .pr-board { border-radius: 0; background-color: var(--bay-lo); background-image: radial-gradient(var(--bay-hi) 1px, transparent 1px); clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] :is(.pr-node, .pr-stage, .pr-empty, .pr-detail, .pr-prod, .pr-pnode, .pr-lin .row) { border-radius: 0; }
+:root[data-ui="lowpoly"] :is(.pr-node, .pr-stage, .pr-detail, .pr-prod) { background-color: var(--bay-hi); }
+:root[data-ui="lowpoly"] .pr-stage .bar { border-radius: 0; background: var(--deep); }
+:root[data-ui="lowpoly"] .pr-pnode .prio .ar { border-radius: 0; background: var(--plate-bay); }
+
+/* Settings and factions: a raised bay over the dimmed flight view. */
+:root[data-ui="lowpoly"] #settings, :root[data-ui="lowpoly"] #factions { background: rgba(2, 3, 6, 0.72); }
+:root[data-ui="lowpoly"] .set-panel { border: 0; border-radius: 0; background: var(--bay-facets), var(--bay-hi); clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px); padding: 10px 18px 18px; }
+:root[data-ui="lowpoly"] #settings-title, :root[data-ui="lowpoly"] #factions-title { font: 700 22px var(--sans); letter-spacing: 0.04em; color: var(--trim); }
+:root[data-ui="lowpoly"] .set-close { margin-right: -6px; background: var(--bay); clip-path: var(--oct-l4); box-shadow: 0 4px 0 var(--bay-lo); color: var(--trim); font-size: 22px; }
+:root[data-ui="lowpoly"] .set-close:hover, :root[data-ui="lowpoly"] .set-close:focus-visible { color: var(--glass); }
+:root[data-ui="lowpoly"] .set-close:active { translate: 0 4px; box-shadow: none; }
+:root[data-ui="lowpoly"] .set-group { border-top: 2px solid var(--bay-lo); }
+:root[data-ui="lowpoly"] .set-label { font: 700 12px var(--sans); letter-spacing: 0.16em; color: var(--mute); }
+:root[data-ui="lowpoly"] .set-label kbd { border: 0; border-radius: 0; background: var(--sky); box-shadow: var(--well); color: var(--glass); }
+:root[data-ui="lowpoly"] .seg { gap: 6px; padding-bottom: 4px; }
+:root[data-ui="lowpoly"] .seg .btn { background: var(--plate); color: var(--plate-ink); box-shadow: 0 4px 0 var(--lip); }
+:root[data-ui="lowpoly"] .seg .btn:hover, :root[data-ui="lowpoly"] .seg .btn:focus-visible { color: var(--plate-ink); filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .seg .btn[aria-checked="true"]:hover, :root[data-ui="lowpoly"] .seg .btn[aria-checked="true"]:focus-visible { color: var(--glass); filter: none; }
+:root[data-ui="lowpoly"] .seg .btn[aria-checked="true"] { translate: 0 4px; box-shadow: none; background: var(--key-down); color: var(--glass); }
+:root[data-ui="lowpoly"] .seg .btn:focus-visible { outline: none; box-shadow: 0 4px 0 var(--lip), inset 0 0 0 2px currentColor; }
+:root[data-ui="lowpoly"] .seg .btn[aria-checked="true"]:focus-visible { box-shadow: inset 0 0 0 2px var(--glass); }
+:root[data-ui="lowpoly"] .set-hint { color: var(--mute); }
+:root[data-ui="lowpoly"] .set-fold { border-top: 2px solid var(--bay-lo); font: 700 12px var(--sans); color: var(--mute); }
+:root[data-ui="lowpoly"] .set-fold[aria-expanded="true"] { color: var(--trim); }
+:root[data-ui="lowpoly"] .set-fold:hover, :root[data-ui="lowpoly"] .set-fold:focus-visible { color: var(--glass); }
+:root[data-ui="lowpoly"] .fac-list, :root[data-ui="lowpoly"] .fac-item { border-color: var(--bay-lo); border-width: 2px; }
+:root[data-ui="lowpoly"] .fac-row { color: var(--trim); }
+:root[data-ui="lowpoly"] .fac-row .swatch { border-radius: 0; width: 10px; height: 10px; transform: rotate(45deg); }
+:root[data-ui="lowpoly"] .fac-meter { height: 6px; border-radius: 0; background: var(--deep); }
+:root[data-ui="lowpoly"] .fac-meter .fill { border-radius: 0; }
+:root[data-ui="lowpoly"] .fac-chip {
+  border: 0; border-radius: 0; background: var(--plate-bay); color: var(--trim);
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 3px), calc(100% - 6px) calc(100% + 3px), 0 calc(100% + 3px), 0 6px); box-shadow: 0 3px 0 var(--fc);
+}
+:root[data-ui="lowpoly"] .fac-chip:hover, :root[data-ui="lowpoly"] .fac-chip:focus-visible { background: var(--plate-bay); filter: brightness(1.2); }
+
+/* Comms: the message a bay on the sender's colour; answers are hull keys. */
+:root[data-ui="lowpoly"] .cm-box { --lipc: var(--from); }
+:root[data-ui="lowpoly"] #comms.hint .cm-box { --lipc: color-mix(in srgb, var(--glass) 62%, var(--sky)); }
+:root[data-ui="lowpoly"] .cm-face, :root[data-ui="lowpoly"] .cm-choice-face { border: 0; border-radius: 0; clip-path: var(--cut-s); }
+:root[data-ui="lowpoly"] .cm-text { color: var(--trim); }
+:root[data-ui="lowpoly"] .cm-skip, :root[data-ui="lowpoly"] .cm-more { color: var(--mute); }
+:root[data-ui="lowpoly"] .cm-choices { gap: 8px; padding-bottom: 6px; }
+:root[data-ui="lowpoly"] .cm-choice { background: var(--plate); color: var(--plate-ink); clip-path: var(--cut-s-l6); box-shadow: 0 6px 0 var(--lip); }
+:root[data-ui="lowpoly"] .cm-choice:hover, :root[data-ui="lowpoly"] .cm-choice:focus-visible { background: var(--plate); color: var(--plate-ink); filter: brightness(1.06); }
+:root[data-ui="lowpoly"] .cm-choice:focus-visible { box-shadow: 0 6px 0 var(--lip), inset 0 0 0 2px currentColor; }
+:root[data-ui="lowpoly"] .cm-choice:active { translate: 0 6px; box-shadow: none; }
+
+/* Wide screens: the detail pane beside the list is the same bay, not outlined. */
+@media (min-width: 960px) {
+  :root[data-ui="lowpoly"] #station .ui-sheet, :root[data-ui="lowpoly"] #station .ui-sheet.tall { border: 0; border-radius: 0; clip-path: var(--cut); }
+}

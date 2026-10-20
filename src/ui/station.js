@@ -8,9 +8,11 @@
 // sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
 // nodes (inputs, the stage, what it makes), the shared storage as tiles and the production pipeline,
 // the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
-// StationMenu.open({ station: { name, subtitle, color }, market, hold, ship,
+// StationMenu.open({ station: { name, subtitle, color, culture, ink }, market, hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (game/options.js ART_STYLES; 'line' if not given).
+// station.culture, station.ink: the lineage the station is built in (art/culture.js) and its line
+//   colour: the screen is drawn in that culture's materials (Low-poly) or ink (Line).
 // market: { goods (Economy.market's, at the stockpiles now), good(kind), buy(kind), sell(kind), regard }:
 //   buying and selling one unit at today's price, which moves it (game/docking.js marketAt);
 //   regard: { owner, tier, shift } how the owner regards the player and what it does to prices.
@@ -121,6 +123,8 @@ const StationMenu = (() => {
     el('st-sub').textContent = ctx.station.subtitle;
     el('st-credits').textContent = ctx.hold.credits.toLocaleString('en-US');
     root.style.setProperty('--culture', ctx.station.color);
+    root.setAttribute('data-culture', ctx.station.culture || '');
+    root.style.setProperty('--culture-ink', ctx.station.ink || '');
   }
 
   // A tab's first line: its count or note (what the tab's name above it used to sit beside; the
@@ -355,9 +359,8 @@ const StationMenu = (() => {
     }
     const art = h('div', { class: 'st-outline', 'aria-hidden': 'true' });
     art.innerHTML = '<svg viewBox="0 0 358 330">'
-      + `<g stroke="#26304a" stroke-dasharray="3 3" fill="none">${lines.join('')}</g><g fill="#3a4566">${dots.join('')}</g>`
-      + `<polygon points="${OUTLINE}" fill="rgba(125,249,255,0.04)" stroke="#7df9ff" stroke-opacity="0.55" stroke-width="1.25" stroke-linejoin="round"/>`
-      + '<line x1="179" y1="120" x2="179" y2="206" stroke="#7df9ff" stroke-opacity="0.2"/></svg>';
+      + `<g class="leaders">${lines.join('')}</g><g class="anchors">${dots.join('')}</g>`
+      + `<polygon class="hull" points="${OUTLINE}"/><line class="spine" x1="179" y1="120" x2="179" y2="206"/></svg>`;
     return h('section', { class: 'ui-schematic', 'aria-label': 'Loadout' }, art, slots.map((s) => {
       const [x, y] = pos[s.id] || [0, 0];
       const label = s.type === 'weapon' ? s.label : SHORT[s.type] || s.label;

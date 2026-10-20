@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ui="line">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
@@ -14,11 +14,15 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Space Game">
-<!-- The two fonts, served with the game (assets/fonts, declared in kit.css). -->
-<link rel="preload" href="assets/fonts/barlow-semi-condensed-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="assets/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<!-- The fonts, served with the game (assets/fonts, declared in the kit stylesheets): the Line style's
+     B612 and B612 Mono first, as the default style's. -->
+<link rel="preload" href="assets/fonts/b612-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/b612-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <!-- The UI kit: colour tokens, type and the components every panel is built from (src/ui/kit.js). -->
 <link href="src/ui/kit.css" rel="stylesheet">
+<!-- Each art style's UI kit, over the base one: html[data-ui] follows the art style (game/options.js). -->
+<link href="src/ui/kit-line.css" rel="stylesheet">
+<link href="src/ui/kit-lowpoly.css" rel="stylesheet">
 <style>
   /* Screen layouts on top of the UI kit (src/ui/kit.css), which holds the tokens: --bg, --s1, --line,
      --cyan, --sans, --mono, ... */
@@ -326,8 +330,12 @@
   .st-switch .dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
   .st-switch .dot[aria-current="true"]::after { background: var(--cyan); }
 
-  /* The ship outline behind the slot buttons. */
+  /* The ship outline behind the slot buttons, with leader lines from each slot to its place on it. */
   .st-outline, .st-outline svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .st-outline .leaders { stroke: var(--line); stroke-dasharray: 3 3; fill: none; }
+  .st-outline .anchors { fill: var(--line-strong); }
+  .st-outline .hull { fill: var(--cyan-tint); fill-opacity: 0.5; stroke: var(--cyan); stroke-opacity: 0.55; stroke-width: 1.25; stroke-linejoin: round; }
+  .st-outline .spine { stroke: var(--cyan); stroke-opacity: 0.2; }
 
   /* Trade: the hold's fill, then a row per good: icon (with how many you hold), name, where the
      price sits, Buy and Sell. */
