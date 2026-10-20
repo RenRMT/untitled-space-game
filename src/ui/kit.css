@@ -3,7 +3,9 @@
    components are in kit.js. core/theme.js keeps the canvas in step with the colour tokens.
    Words are Barlow Semi Condensed, numbers IBM Plex Mono, both served from assets/fonts (OFL, latin
    subset) so the game needs no outside requests; the fallbacks keep everything readable without
-   them. Touch targets are at least 44 px. */
+   them. Touch targets are at least 44 px.
+   Each art style restyles these components over this base (kit-line.css, kit-lowpoly.css, while
+   html[data-ui] names that style), with its own fonts; a new component needs its look in both. */
 @font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-400-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 500; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-500-normal.woff2') format('woff2'); }
 @font-face { font-family: 'Barlow Semi Condensed'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../assets/fonts/barlow-semi-condensed-latin-600-normal.woff2') format('woff2'); }

@@ -100,7 +100,7 @@ export function drawEntities(list, t) {
 }
 
 // The ship's design is drawn to fit its hull's size (the Courier's art is a quarter wider than its
-// collision radius, and every hull keeps that proportion), a tenth larger like every ship
+// collision radius, and every hull keeps that proportion), drawn larger like every ship
 // (flight/entities.js SHIP_SCALE).
 export function drawShip(t) {
   if (fight.wrecked) return; // blown up, waiting for the tow

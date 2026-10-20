@@ -18,6 +18,7 @@ const { UI } = await import('../src/ui/ui.js');
 const { Messages } = await import('../src/ui/messages.js');
 const { Store } = await import('../src/core/store.js');
 const { Theme } = await import('../src/core/theme.js');
+const { Kit } = await import('../src/ui/kit.js');
 
 // game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
 // function, for `with`.
@@ -1660,6 +1661,26 @@ test('settings open and close', () => {
   browser.key('Escape');
   browser.frames(2);
   assert.ok(game('cargo.removed.has(__item.key)'), 'picked up once flight resumes');
+});
+
+test('the menus follow the art style: its UI kit, its number font, a station in its culture\'s look', () => {
+  const root = browser.document.documentElement;
+  const deltas = () => textOf(Kit.deltas([{ code: 'DPS', diff: '8', better: 1 }, { code: 'RNG', diff: '50', better: -1 }]));
+  game('artStyle.set("lowpoly")');
+  assert.strictEqual(root.getAttribute('data-ui'), 'lowpoly');
+  assert.match(Theme.font(12), /Martian Mono/, 'canvas numbers in the Low-poly kit\'s font');
+  assert.match(deltas(), /▲8.*▼50/, 'filled arrows');
+  game('artStyle.set("line")');
+  assert.strictEqual(root.getAttribute('data-ui'), 'line');
+  assert.match(Theme.font(12), /B612 Mono/, 'canvas numbers in the Line kit\'s font');
+  assert.match(deltas(), /△8.*▽50/, 'open arrows');
+  // Docked, the station screen takes the look of the culture it's built in.
+  const st = browser.document.getElementById('station');
+  st.setAttribute('data-culture', '');
+  game('placeBeside(__startStation()); dock(__startStation())');
+  assert.ok(game('!!docked'), 'docked');
+  assert.strictEqual(st.getAttribute('data-culture'), game('__startStation().art.culture.lineage'));
+  game('launch()');
 });
 
 test('selling drives a station\'s price down, and it recovers on the clock, saved', () => {

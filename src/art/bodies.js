@@ -426,12 +426,17 @@ const ArtBodies = (() => {
     return { canvas: tileRaster(F, G, RES_WU, (lv) => fill[lv]), paths, colors: LEVELS.map((_, li) => U.mix(conf().bg, T.line, [0.3, 0.5, 0.75, 1][li])) };
   }
 
-  // Low-poly: a jittered world lattice; density is height. Each cell belongs to the tile holding
+  // Low-poly: the thin outer bands are soft translucent gas (a raster, like flat), so the cloud
+  // thins out into space instead of ending in a solid sheet; only the dense core (the top two
+  // bands) is faceted, on a jittered world lattice where density is height. Each cell belongs to the tile holding
   // its origin. Facets are opaque, pre-mixed with the background by their band opacity, their
   // shading in steps so that facets of one colour share a path (a few dozen fills per tile).
   function tileLow(neb, G, T, ti, tj) {
     const L = G.s / 5, S = G.S, x0 = ti * TILE * G.g, y0 = tj * TILE * G.g, W = TILE * G.g;
     const tab = nebTable(T), A = ALPHA[T.dark ? 'dark' : 'normal'], bg = conf().bg, verts = new Map(), groups = new Map();
+    const F = tileField(neb, G, ti, tj), GA = [0.16, 0.32, 0.4, 0.4];
+    const gas = tab.map((r, lv) => r.map((h) => [...U.hexToRgb(h), Math.round(GA[lv] * (T.dark ? 1.6 : 1) * 255)]));
+    const cv = tileRaster(F, G, RES_WU, (lv, q) => gas[lv][q]);
     const vert = (i, j) => {
       const key = i * 1048576 + j;
       let v = verts.get(key);
@@ -449,20 +454,20 @@ const ArtBodies = (() => {
       const tris = hash3(i, j, 3, S + 11) < 0.5 ? [[v00, v10, v11], [v00, v11, v01]] : [[v00, v10, v01], [v10, v11, v01]];
       for (const [a, b, q] of tris) {
         const lv = band((a[3] + b[3] + q[3]) / 3);
-        if (lv < 0) continue;
+        if (lv < 2) continue;
         let n = norm(cross(sub(b, a), sub(q, a)));
         if (n[2] < 0) n = n.map((x) => -x);
         const sm = Art.V.smoothN;
         if (sm) n = norm([n[0] * (1 - sm), n[1] * (1 - sm), lerp(n[2], 1, sm)]);
         const m = (a[4] + b[4] + q[4]) / 3, jit = sm ? 1 : 0.95 + 0.1 * hash3(i, j, lv + 5, S);
-        const lit = Math.round(((0.35 + 0.85 * Math.max(0, dot(n, LIGHT))) * jit) / 0.04) * 0.04;
-        const col = U.shade(U.mix(bg, tab[lv][Math.min(3, Math.floor(m * 4))], A[lv]), lit);
+        const lit = Math.round(((0.62 + 0.5 * Math.max(0, dot(n, LIGHT))) * jit) / 0.04) * 0.04;
+        const col = U.shade(U.mix(bg, tab[lv][Math.min(3, Math.floor(m * 4))], A[lv] * 0.8), lit);
         let p = groups.get(col);
         if (!p) groups.set(col, (p = new Path2D()));
         p.moveTo(a[0], a[1]); p.lineTo(b[0], b[1]); p.lineTo(q[0], q[1]); p.closePath();
       }
     }
-    return { facets: [...groups], px: 20000 };
+    return { canvas: cv, facets: [...groups], px: cv.width * cv.height + 20000 };
   }
 
   // The tiles in view are drawn raster by raster, then their vector parts all at once: the line
@@ -664,7 +669,7 @@ const ArtBodies = (() => {
   }
 
   function drawNebula(ctx, neb, style, o = {}) {
-    return Art.withV(Art.pickV(style, 'natural'), () => drawNebula0(ctx, neb, style, o));
+    return Art.withV(Art.pickV(style, 'gas'), () => drawNebula0(ctx, neb, style, o));
   }
   function drawNebula0(ctx, neb, style, o) {
     const texel = o.texel || conf().texel;

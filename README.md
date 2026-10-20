@@ -32,7 +32,7 @@ URL parameters:
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`) |
+| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script and the missions' data |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
@@ -40,7 +40,7 @@ URL parameters:
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, regions and their politics, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
-| `assets/` | the two fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |
+| `assets/` | the fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |
 
 Modules under `src/game/` import each other freely. None of them does anything as it loads beyond
 declaring its names: each part's wiring (event listeners, settings, actions, panel hooks) is in its
@@ -60,8 +60,12 @@ Each file starts with a comment saying what it does and, for modules other parts
   in `src/game/options.js`.
 - **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,
   meters, rows that expand, bottom sheets, the tab bar, folding sections) and its tokens (`src/ui/kit.css`:
-  colours, the two fonts, radii, the 44 px touch target). Words are Barlow Semi Condensed, numbers
-  IBM Plex Mono. Icons are line icons by their short code (`src/ui/glyphs.js`: a 24 px grid, 1.6 px
+  colours, the two fonts, radii, the 44 px touch target). The menus follow the art style: each has
+  its own kit over the base one (`src/ui/kit-line.css`, `src/ui/kit-lowpoly.css`, on `html[data-ui]`),
+  which redraws the same components; a new component needs its look in both. Line: hairlines in the
+  culture's ink, hatched shadows, B612 and B612 Mono. Low-poly: plates with lips, bays and glass
+  readouts in the culture's materials, Chakra Petch and Martian Mono. A docked station's screen takes
+  its culture's look. Icons are line icons by their short code (`src/ui/glyphs.js`: a 24 px grid, 1.6 px
   strokes in the text colour, like the map and settings buttons); a code without one shows as a dashed
   placeholder until it gets one.
 - **A notice:** `notify(text, seconds, { tone, once })` (`src/game/state.js`) adds a line to the event log

@@ -1,0 +1,478 @@
+/* The Line style's UI kit (UI kit v2 · Line), over the base kit (kit.css) while the Line art style is
+   chosen (html[data-ui="line"], game/options.js). Menus are drawn the way the ships are: one hairline
+   weight, every part filled with sky, shaded by hatching below and right of it, away from the
+   upper-left light.
+   - One line colour per component (--ink): the culture's by default (the player's own UI the
+     original cyan; a docked station's screen its culture's, ui/station.js), a status colour when the
+     component reports status (combat, a hostile's context menu, warnings).
+   - Pressing a control slides it down into its hatch. Only the primary action gets the 75% wash.
+   - Unavailable controls get the wreck treatment: desaturated, pulled 40% toward the sky, dashed.
+   - Lettering in B612, numbers in B612 Mono; titles and labels in capitals, as on a drawing.
+   - Tier is a tally (one stroke per Mk, the fifth crossing the other four); an item's line colour
+     is its rarity. Stat deltas are open triangles (△ better, ▽ worse; ui/kit.js).
+   The hatched shadows are a ::after behind the part and its sky fill a ::before over that, so a
+   part with one is isolated and draws no background of its own. */
+@font-face { font-family: 'B612'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../assets/fonts/b612-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'B612'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../assets/fonts/b612-latin-700-normal.woff2') format('woff2'); }
+@font-face { font-family: 'B612 Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../assets/fonts/b612-mono-latin-400-normal.woff2') format('woff2'); }
+@font-face { font-family: 'B612 Mono'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../assets/fonts/b612-mono-latin-700-normal.woff2') format('woff2'); }
+
+/* Tokens. The ones made from --ink are worked out again wherever a component takes its own ink. */
+:root[data-ui="line"] {
+  --ink: #7df9ff; --sky: #05060a; --chalk: #e9eef2;
+  --sans: 'B612', 'Arial', system-ui, sans-serif;
+  --mono: 'B612 Mono', ui-monospace, Menlo, Consolas, monospace;
+  --r-sm: 2px; --r-md: 2px; --r-lg: 2px; --r-sheet: 2px;
+  --bg: var(--sky); --s1: var(--sky); --s2: var(--sky); --nav: var(--sky); --panel: rgba(5, 6, 10, 0.94);
+  --bright: var(--chalk); --hud: #c6ccd3;
+}
+:root[data-ui="line"], :root[data-ui="line"] :is(#station, #context, #combat, #comms, #map-prompt, .callout) {
+  --cyan: var(--ink); --cyan-hi: color-mix(in oklch, var(--ink) 65%, #fff); --cyan-tint: color-mix(in oklch, var(--ink) 9%, transparent);
+  --dim: color-mix(in oklch, var(--ink) 62%, var(--sky));
+  --line-soft: color-mix(in oklch, var(--ink) 28%, var(--sky)); --line: color-mix(in oklch, var(--ink) 45%, var(--sky)); --line-strong: color-mix(in oklch, var(--ink) 62%, var(--sky));
+  --wreck: color-mix(in oklch, color-mix(in oklch, var(--ink) 25%, #8d939b) 60%, var(--sky));
+  --hatch: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 6px);
+  --cross: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px), repeating-linear-gradient(45deg, var(--ink) 0 1px, transparent 1px 5px);
+  --hatch-faint: repeating-linear-gradient(135deg, color-mix(in oklch, var(--ink) 28%, var(--sky)) 0 1px, var(--sky) 1px 5px);
+}
+:root[data-ui="line"] #station { --ink: var(--culture-ink, #7df9ff); }
+:root[data-ui="line"][data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
+
+:root[data-ui="line"] .ui { color: var(--hud); }
+:root[data-ui="line"] .num, :root[data-ui="line"] .ui-num { font-weight: 400; }
+:root[data-ui="line"] .ui-label { font: 700 11px/1.3 var(--mono); letter-spacing: 0.14em; color: var(--ink); }
+:root[data-ui="line"] .ui-title { font: 700 22px/1.15 var(--sans); letter-spacing: 0.06em; }
+:root[data-ui="line"] .ui-head > .ui-label:first-child { color: var(--ink); font-size: 12px; }
+:root[data-ui="line"] .ui-head:not(:has(.ui-meter))::after { content: ''; flex: 1; order: 1; height: 1px; background: var(--ink); opacity: 0.5; }
+:root[data-ui="line"] .ui-head .aside { order: 2; margin-left: 0; font-size: 11px; color: var(--dim); }
+:root[data-ui="line"] .ui-note { color: var(--hud); }
+:root[data-ui="line"] .ui-empty { border: 1px dashed var(--dim); color: var(--hud); }
+
+/* Buttons. Action: outlined in ink over a hatched shadow. Primary: the 75% wash. Ghost: a fainter
+   line, no shadow. Warn, good: status ink. Busy: the hatch fills it as it runs. */
+:root[data-ui="line"] .ui-btn, :root[data-ui="line"] .btn {
+  isolation: isolate; overflow: visible; background: transparent; border-radius: 2px; transition: transform 70ms;
+}
+:root[data-ui="line"] .ui-btn { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .btn:not(.icon-btn) { position: relative; }
+:root[data-ui="line"] .ui-btn::before, :root[data-ui="line"] .btn::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; width: auto; background: var(--sky);
+}
+:root[data-ui="line"] .ui-btn::after {
+  content: ''; position: absolute; inset: 4px -5px -5px 4px; z-index: -2; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 4px); opacity: 0.55;
+}
+:root[data-ui="line"] .ui-btn:hover { background: transparent; }
+:root[data-ui="line"] .ui-btn:hover::before { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--ink) 28%, var(--sky)) 0 1px, var(--sky) 1px 5px); }
+:root[data-ui="line"] .ui-btn:active:not(:disabled) { transform: translate(4px, 4px); }
+:root[data-ui="line"] .ui-btn:active:not(:disabled)::after { inset: -1px; }
+:root[data-ui="line"] .ui-btn .price { margin-top: 4px; padding-top: 3px; border-top: 1px solid color-mix(in srgb, var(--ink) 70%, transparent); font-weight: 400; color: var(--chalk); }
+:root[data-ui="line"] .ui-btn.primary, :root[data-ui="line"] .ui-btn.good { color: var(--sky); border-color: var(--ink); background: transparent; }
+:root[data-ui="line"] .ui-btn.primary::before, :root[data-ui="line"] .ui-btn.good::before { background: color-mix(in srgb, var(--ink) 75%, var(--sky)); }
+:root[data-ui="line"] .ui-btn.primary:hover::before, :root[data-ui="line"] .ui-btn.good:hover::before { background: var(--ink); }
+:root[data-ui="line"] .ui-btn.primary::after, :root[data-ui="line"] .ui-btn.good::after { opacity: 0.8; }
+:root[data-ui="line"] .ui-btn.primary .price, :root[data-ui="line"] .ui-btn.good .price { color: var(--sky); border-top-color: color-mix(in srgb, var(--sky) 60%, transparent); }
+:root[data-ui="line"] .ui-btn.good { --ink: var(--good); }
+:root[data-ui="line"] .ui-btn.warn { --ink: var(--warn); }
+:root[data-ui="line"] .ui-btn.warn:hover { background: transparent; }
+:root[data-ui="line"] .ui-btn.ghost { border-color: color-mix(in oklch, var(--ink) 62%, var(--sky)); color: var(--hud); }
+:root[data-ui="line"] .ui-btn.ghost::after { content: none; }
+:root[data-ui="line"] .ui-btn.ghost:hover { color: var(--ink); border-color: var(--ink); }
+:root[data-ui="line"] .ui-btn:disabled, :root[data-ui="line"] .ui-btn:disabled:hover {
+  --ink: color-mix(in oklch, color-mix(in oklch, #7df9ff 25%, #8d939b) 60%, var(--sky));
+  border: 1px dashed var(--ink); color: var(--ink); transform: none;
+}
+:root[data-ui="line"] .ui-btn:disabled::before { background: var(--sky); }
+:root[data-ui="line"] .ui-btn:disabled::after { content: none; }
+:root[data-ui="line"] .ui-btn:disabled .price { color: var(--ink); border-top-style: dashed; }
+:root[data-ui="line"] .ui-btn.busy, :root[data-ui="line"] .ui-btn.busy:disabled { --ink: var(--busy); border: 1px solid var(--ink); color: var(--chalk); background: transparent; }
+:root[data-ui="line"] .ui-btn.busy::before, :root[data-ui="line"] .ui-btn.busy:disabled::before {
+  width: auto; opacity: 1;
+  background: linear-gradient(var(--ink), var(--ink)) var(--progress, 0%) 0 / 1px 100% no-repeat,
+    linear-gradient(color-mix(in srgb, var(--sky) 40%, transparent), color-mix(in srgb, var(--sky) 40%, transparent)) 0 0 / var(--progress, 0%) 100% no-repeat,
+    repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px) 0 0 / var(--progress, 0%) 100% no-repeat, var(--sky);
+}
+:root[data-ui="line"] .ui-btn.busy > span { padding: 1px 4px; background: var(--sky); }
+:root[data-ui="line"] .ui-btn:focus-visible, :root[data-ui="line"] .btn:focus-visible { outline: 1px solid var(--ink); outline-offset: 4px; }
+
+/* Icon buttons (× on a sheet): a balloon, the drawing's callout circle. */
+:root[data-ui="line"] .ui-iconbtn {
+  width: 44px; height: 44px; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--sky);
+  color: var(--ink); font: 400 24px/1 var(--sans);
+}
+:root[data-ui="line"] .ui-iconbtn:hover, :root[data-ui="line"] .ui-iconbtn:focus-visible { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .ui-link { color: var(--ink); font: 700 12px var(--mono); letter-spacing: 0.12em; }
+:root[data-ui="line"] .ui-link:hover { color: var(--chalk); }
+
+/* Credits: the diamond, drawn. */
+:root[data-ui="line"] .ui-cr > i { background: none; border: 1px solid currentColor; box-sizing: border-box; }
+
+/* Icon slot: the crossed box, the drafting mark for "art goes here", under its code. */
+:root[data-ui="line"] .ui-icon.ph {
+  border: 1px solid color-mix(in oklch, var(--tier, var(--ink)) 62%, var(--sky)); border-radius: 0; color: var(--tier, var(--ink));
+  background:
+    linear-gradient(to top right, transparent calc(50% - 0.5px), color-mix(in oklch, var(--tier, var(--ink)) 30%, var(--sky)) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(to bottom right, transparent calc(50% - 0.5px), color-mix(in oklch, var(--tier, var(--ink)) 30%, var(--sky)) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+  text-shadow: 0 0 2px var(--sky), 0 0 2px var(--sky);
+}
+:root[data-ui="line"] .ui-icon .dot { border-color: var(--sky); }
+
+/* Tier as a tally: a stroke per Mk, the fifth crossing the other four. */
+:root[data-ui="line"] .ui-pips { position: relative; gap: 3px; padding: 0 1px; align-items: center; }
+:root[data-ui="line"] .ui-pips i { width: 1px; height: 10px; border-radius: 0; background: color-mix(in oklch, var(--tier, var(--ink)) 28%, var(--sky)); }
+:root[data-ui="line"] .ui-pips i.on { background: var(--tier); }
+:root[data-ui="line"] .ui-pips i:nth-child(5) { position: absolute; left: -3px; right: -3px; top: 50%; width: auto; height: 1px; transform: rotate(-24deg); background: transparent; }
+:root[data-ui="line"] .ui-pips i:nth-child(5).on { background: var(--tier); }
+:root[data-ui="line"] .ui-mk { font-weight: 700; }
+:root[data-ui="line"] .ui-tag { font: 700 10px/1.2 var(--mono); letter-spacing: 0.12em; }
+
+/* Gauges: a hatched bar on a base line, over tick marks every tenth. */
+:root[data-ui="line"] .ui-meter {
+  height: 12px; border-radius: 0; overflow: visible;
+  background: linear-gradient(var(--ink), var(--ink)) 0 7px / 100% 1px no-repeat,
+    repeating-linear-gradient(90deg, color-mix(in oklch, var(--ink) 62%, var(--sky)) 0 1px, transparent 1px 10%) 0 8px / 100% 4px no-repeat;
+}
+:root[data-ui="line"] .ui-meter > span {
+  height: 7px; box-sizing: border-box; border-radius: 0; border: 1px solid var(--meter, var(--ink)); border-bottom: 0;
+  background: repeating-linear-gradient(135deg, var(--meter, var(--ink)) 0 1px, transparent 1px 4px);
+}
+:root[data-ui="line"] .ui-meter.thin { height: 6px; background: linear-gradient(var(--ink), var(--ink)) 0 5px / 100% 1px no-repeat; }
+:root[data-ui="line"] .ui-meter.thin > span { height: 5px; }
+:root[data-ui="line"] .ui-segs { gap: 4px; }
+:root[data-ui="line"] .ui-segs i { height: 6px; border-radius: 0; box-sizing: border-box; background: none; border: 1px dashed color-mix(in oklch, var(--ink) 62%, var(--sky)); }
+:root[data-ui="line"] .ui-segs i.done { border: 1px solid var(--good); background: repeating-linear-gradient(135deg, var(--good) 0 1px, transparent 1px 4px); }
+:root[data-ui="line"] .ui-segs i.open { border: 1px solid var(--ink); background: none; }
+:root[data-ui="line"] .ui-deltas { font-weight: 400; }
+
+/* The ship schematic: the hull as a line drawing, leaders from each slot to its hardpoint. */
+:root[data-ui="line"] .st-outline .leaders { stroke: var(--dim); stroke-dasharray: none; }
+:root[data-ui="line"] .st-outline .anchors { fill: var(--ink); }
+:root[data-ui="line"] .st-outline .hull { fill: none; stroke: var(--ink); stroke-opacity: 1; stroke-width: 1; }
+:root[data-ui="line"] .st-outline .spine { stroke: var(--ink); stroke-opacity: 0.5; stroke-dasharray: 4 3; }
+/* Slot nodes: fitted in the item's rarity ink, selected with a double line, empty a construction line. */
+:root[data-ui="line"] .ui-slot { --ink: var(--tier, var(--cyan)); background: var(--sky); border: 1px solid var(--ink); border-radius: 0; color: var(--chalk); }
+:root[data-ui="line"] .ui-slot .lbl { font: 700 10px var(--mono); letter-spacing: 0.08em; color: var(--ink); }
+:root[data-ui="line"] .ui-slot .ui-icon { border: 1px solid color-mix(in oklch, var(--ink) 62%, var(--sky)); box-sizing: border-box; }
+:root[data-ui="line"] .ui-slot .ui-icon.ph { border-style: solid; }
+:root[data-ui="line"] .ui-slot.empty { --ink: var(--dim); border: 1px dashed var(--dim); background: var(--sky); }
+:root[data-ui="line"] .ui-slot.empty .ui-icon { color: var(--cyan); border-style: dashed; }
+:root[data-ui="line"] .ui-slot:hover { border-color: var(--ink); background: var(--hatch-faint); }
+:root[data-ui="line"] .ui-slot[aria-expanded="true"] { border: 1px solid var(--cyan); background: var(--sky); outline: 1px solid var(--cyan); outline-offset: 3px; }
+:root[data-ui="line"] .ui-slot[aria-expanded="true"] .ui-icon { background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--ink) 35%, var(--sky)) 0 1px, transparent 1px 6px); }
+:root[data-ui="line"] .ui-slot:focus-visible { outline: 1px solid var(--cyan); outline-offset: 3px; }
+
+/* Research nodes: done in good, building in ink with the hatch, queued dashed, locked a wreck. */
+:root[data-ui="line"] .ui-tnode { background: var(--sky); border-color: var(--line-strong); border-radius: 0; }
+:root[data-ui="line"] .ui-tnode .lbl { font-weight: 400; }
+:root[data-ui="line"] .ui-tnode.done { border-color: var(--good); }
+:root[data-ui="line"] .ui-tnode.active { border-color: var(--cyan); background: var(--hatch-faint); }
+:root[data-ui="line"] .ui-tnode.queued { border: 1px dashed var(--cyan); }
+:root[data-ui="line"] .ui-tnode.locked { border: 1px dashed var(--wreck); background: var(--sky); color: var(--wreck); }
+:root[data-ui="line"] .ui-tnode.locked .ui-icon { opacity: 1; color: var(--wreck); }
+:root[data-ui="line"] .ui-tnode:hover { border-color: var(--cyan); }
+:root[data-ui="line"] .ui-tnode[aria-expanded="true"] { border: 1px solid var(--cyan); background: var(--sky); outline: 1px solid var(--cyan); outline-offset: 3px; }
+:root[data-ui="line"] .st-tree-lines path { stroke: var(--line-strong); }
+:root[data-ui="line"] .st-tree-lines path.done { stroke: var(--cyan); stroke-opacity: 1; }
+
+/* Stat chips: the label over its value over a dimension line; the open one hatched behind. */
+:root[data-ui="line"] .ui-chip {
+  height: 60px; border: 1px solid var(--line); border-radius: 0;
+  background: linear-gradient(var(--ink), var(--ink)) 8px calc(100% - 8px) / 1px 7px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) calc(100% - 8px) calc(100% - 8px) / 1px 7px no-repeat,
+    linear-gradient(var(--ink), var(--ink)) 8px calc(100% - 11px) / calc(100% - 16px) 1px no-repeat, var(--sky);
+}
+:root[data-ui="line"] .ui-chip > span:last-child { display: flex; flex-direction: column-reverse; gap: 2px; margin-bottom: 8px; }
+:root[data-ui="line"] .ui-chip .v { font: 400 15px/1.1 var(--mono); color: var(--chalk); }
+:root[data-ui="line"] .ui-chip .l { font: 700 10px var(--mono); letter-spacing: 0.1em; color: var(--ink); }
+:root[data-ui="line"] .ui-chip .ui-icon { margin-bottom: 8px; }
+/* The open chip or tile: a double line, as a selected slot. */
+:root[data-ui="line"] .ui-chip[aria-expanded="true"] { border-color: var(--ink); outline: 1px solid var(--ink); outline-offset: 3px; }
+:root[data-ui="line"] .ui-tile[aria-expanded="true"] { background: var(--sky); outline: 1px solid var(--tier, var(--ink)); outline-offset: 3px; }
+:root[data-ui="line"] .ui-chip:focus-visible, :root[data-ui="line"] .ui-tile:focus-visible, :root[data-ui="line"] .ui-card:focus-visible,
+:root[data-ui="line"] .ui-opt .what:focus-visible, :root[data-ui="line"] .ui-disclosure:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+/* A note: what a chip or tile means, as a drawing's NOTE. */
+:root[data-ui="line"] .ui-detail { border: 1px solid var(--accent, var(--ink)); border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .ui-detail .head::before { content: 'NOTE'; font: 700 11px var(--mono); color: var(--accent, var(--ink)); }
+:root[data-ui="line"] .ui-detail .head { justify-content: flex-start; gap: 10px; }
+:root[data-ui="line"] .ui-detail .head > :last-child { margin-left: auto; }
+:root[data-ui="line"] .ui-detail .head .num { color: var(--chalk); }
+
+/* Item tiles: the whole tile in the item's rarity ink. */
+:root[data-ui="line"] .ui-tile { border: 1px solid var(--tier, var(--line)); border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .ui-tile .n { font-weight: 400; }
+
+/* Option rows as a parts list: ruled rows, the one fitted now hatched faintly. */
+:root[data-ui="line"] .ui-opt { background: var(--sky); border: 1px solid var(--line); border-radius: 0; }
+:root[data-ui="line"] .ui-opt.current { border-color: var(--ink); background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--ink) 12%, var(--sky)) 0 1px, var(--sky) 1px 6px); }
+:root[data-ui="line"] .ui-opt.locked { opacity: 1; border-style: dashed; border-color: var(--wreck); }
+:root[data-ui="line"] .ui-opt.locked .name { color: var(--wreck); }
+:root[data-ui="line"] .ui-opt .name { font-size: 15px; font-weight: 700; }
+:root[data-ui="line"] .ui-opt .sub { color: var(--hud); }
+:root[data-ui="line"] .ui-opt .chev { color: var(--ink); }
+:root[data-ui="line"] .ui-opt .lock { border: 1px dashed var(--wreck); border-radius: 2px; color: var(--wreck); font: 700 11px/1.2 var(--mono); }
+:root[data-ui="line"] .ui-opt .more { border-top: 1px solid var(--line-soft); }
+:root[data-ui="line"] .ui-cmp { border-bottom-color: var(--line-soft); }
+:root[data-ui="line"] .ui-cmp > :first-child { color: var(--hud); }
+:root[data-ui="line"] .ui-cmp .to { color: var(--ink); }
+:root[data-ui="line"] .ui-cmp .next { color: var(--chalk); }
+
+/* Cards: the whole card in its colour, no coloured edge. */
+:root[data-ui="line"] .ui-card { background: var(--sky); border: 1px solid var(--accent, var(--line)); border-radius: 0; }
+:root[data-ui="line"] .ui-card:hover { border-color: var(--accent, var(--ink)); border-left-color: var(--accent, var(--ink)); background: var(--hatch-faint); }
+:root[data-ui="line"] .ui-card .go { color: var(--accent, var(--ink)); }
+:root[data-ui="line"] .ui-card.compact { border: 1px solid var(--line-soft); }
+
+/* Check marks: done ticked in good, current in ink, later a construction line. Nothing filled. */
+:root[data-ui="line"] .ui-check { border: 1px dashed var(--dim); border-radius: 0; }
+:root[data-ui="line"] .ui-check.open { border: 1px solid var(--ink); }
+:root[data-ui="line"] .ui-check.done { border: 1px solid var(--good); background: none; color: var(--good); }
+:root[data-ui="line"] .ui-check.sm.done { background: repeating-linear-gradient(135deg, var(--good) 0 1px, transparent 1px 3px); }
+:root[data-ui="line"] .ui-goal { border-bottom-color: var(--line-soft); }
+:root[data-ui="line"] .ui-goal .txt { color: var(--hud); }
+
+:root[data-ui="line"] .ui-info { background: var(--sky); border: 1px solid var(--line); border-radius: 0; }
+/* A callout is a note on the drawing: a leader with a dot, then the boxed NOTE. */
+:root[data-ui="line"] .ui-callout {
+  position: relative; margin-left: 27px; display: flex; gap: 10px; align-items: baseline;
+  border: 1px solid var(--tone, var(--good)); border-radius: 0; background: var(--sky);
+}
+:root[data-ui="line"] .ui-callout::before { content: 'NOTE'; flex: none; font: 700 11px var(--mono); color: var(--tone, var(--good)); }
+:root[data-ui="line"] .ui-callout::after {
+  content: ''; position: absolute; left: -28px; top: 50%; width: 27px; height: 5px; margin-top: -3px;
+  background: radial-gradient(circle at 2.5px 2.5px, var(--tone, var(--good)) 2.5px, transparent 3px) 0 0 / 5px 5px no-repeat,
+    linear-gradient(var(--tone, var(--good)), var(--tone, var(--good))) 5px 2px / 22px 1px no-repeat;
+}
+
+/* A message: the whole box in the sender's colour. */
+:root[data-ui="line"] .ui-quote { background: var(--sky); border: 1px solid var(--from, var(--ink)); border-radius: 0; }
+:root[data-ui="line"] .ui-quote .ui-label { color: var(--from, var(--ink)); }
+:root[data-ui="line"] .ui-face { border-color: var(--line); border-radius: 0; }
+:root[data-ui="line"] .ui-disclosure { border-top-color: var(--line); color: var(--ink); font: 700 11px var(--mono); }
+
+/* Sheets: a drawing sheet over a cross-hatched scrim, with a cross-hatched shadow. */
+:root[data-ui="line"] .ui-scrim {
+  background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(45deg, color-mix(in oklch, var(--ink) 14%, transparent) 0 1px, transparent 1px 7px), rgba(2, 3, 6, 0.78);
+}
+:root[data-ui="line"] .ui-sheet { isolation: isolate; background: transparent; border: 1px solid var(--ink); border-bottom: 0; border-radius: 0; }
+:root[data-ui="line"] .ui-sheet::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--sky); }
+:root[data-ui="line"] .ui-sheet::after {
+  content: ''; position: absolute; inset: 8px -9px -9px 8px; z-index: -2; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px), repeating-linear-gradient(45deg, var(--ink) 0 1px, transparent 1px 5px); opacity: 0.35;
+}
+:root[data-ui="line"] .ui-sheet .grab { width: 36px; height: 1px; border-radius: 0; background: var(--dim); margin: 10px auto 4px; }
+:root[data-ui="line"] .ui-sheet .head { border-bottom-color: var(--line); }
+:root[data-ui="line"] .ui-sheet .head .t { font-size: 18px; font-weight: 700; }
+:root[data-ui="line"] .ui-sheet.tall .head .t { font-size: 20px; }
+:root[data-ui="line"] .ui-sheet .head .s { color: var(--hud); }
+:root[data-ui="line"] .ui-sheet .head .ui-icon.ph { border-color: var(--line-strong); }
+:root[data-ui="line"] .ui-sheet .foot { border-top: 1px solid var(--ink); background: var(--sky); }
+
+/* The tab bar as a sheet index: the open sheet opens into the page above it; locked ones dashed. */
+:root[data-ui="line"] .ui-nav { align-items: flex-start; padding-top: 0; border-top: 1px solid var(--ink); background: var(--sky); }
+:root[data-ui="line"] .ui-tabs { margin-top: -1px; }
+:root[data-ui="line"] .ui-tab { height: 56px; border: 1px solid transparent; border-top: 0; color: var(--dim); --tier: var(--dim); }
+:root[data-ui="line"] .ui-tab .lbl { font: 700 10px/1 var(--sans); letter-spacing: 0.08em; color: var(--dim); }
+:root[data-ui="line"] .ui-tab .ui-icon.gl, :root[data-ui="line"] .ui-tab .ui-icon.ph { color: var(--dim); border-color: var(--dim); }
+:root[data-ui="line"] .ui-tab:hover .ui-icon.gl, :root[data-ui="line"] .ui-tab:hover .lbl { color: var(--ink); }
+:root[data-ui="line"] .ui-tab[aria-selected="true"] { border-color: var(--ink); border-top: 1px solid var(--sky); background: var(--sky); }
+:root[data-ui="line"] .ui-tab[aria-selected="true"]::before { content: none; }
+:root[data-ui="line"] .ui-tab[aria-selected="true"] .lbl { color: var(--chalk); }
+:root[data-ui="line"] .ui-tab[aria-selected="true"] .ui-icon.gl, :root[data-ui="line"] .ui-tab[aria-selected="true"] .ui-icon.ph { color: var(--ink); border-color: var(--ink); }
+:root[data-ui="line"] .ui-tab:disabled { opacity: 1; border: 1px dashed var(--wreck); border-top: 0; }
+:root[data-ui="line"] .ui-tab:disabled .lbl, :root[data-ui="line"] .ui-tab:disabled .ui-icon { color: var(--wreck); border-color: var(--wreck); }
+:root[data-ui="line"] .ui-tab:focus-visible { outline: 1px solid var(--ink); outline-offset: -4px; border-radius: 0; }
+:root[data-ui="line"] .ui-nav > .ui-btn { margin-top: 8px; }
+/* B612 is wider than the base kit's condensed face: the names close up so all five fit beside Launch,
+   in capitals where there's room; on a phone in small letters, and closer still with larger text. */
+:root[data-ui="line"] .ui-tab .lbl { font-size: 9px; letter-spacing: 0.02em; }
+:root[data-ui="line"] #st-launch { min-width: 0; padding: 0 16px; letter-spacing: 0.12em; }
+@media (max-width: 480px) {
+  :root[data-ui="line"] .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 10px; }
+  :root[data-ui="line"] #st-launch { padding: 0 12px; }
+  :root[data-ui="line"] .ui-nav { gap: 8px; }
+  :root[data-ui="line"]:not([data-textsize="100"]) .ui-tab .lbl { font-size: 9px; }
+  :root[data-ui="line"]:not([data-textsize="100"]) #st-launch { padding: 0 8px; letter-spacing: 0.02em; font-size: 13px; }
+  :root[data-ui="line"]:not([data-textsize="100"]) .ui-nav { gap: 6px; padding-left: 6px; padding-right: 6px; }
+}
+
+/* Code and squad programs: ruled boxes; the line just run marked in good. */
+:root[data-ui="line"] .ui-code { background: var(--sky); border: 1px solid var(--line); border-radius: 0; font-weight: 400; }
+:root[data-ui="line"] .ui-code-line .ln { color: var(--dim); }
+:root[data-ui="line"] .ui-code-line.active { background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--good) 14%, var(--sky)) 0 1px, var(--sky) 1px 6px); }
+:root[data-ui="line"] .ui-choice { border: 1px solid var(--line-strong); border-radius: 2px; color: var(--hud); background: var(--sky); }
+:root[data-ui="line"] .ui-choice.on { border-color: var(--ink); color: var(--chalk); background: var(--hatch-faint); }
+:root[data-ui="line"] .ui-choice.locked { border: 1px dashed var(--wreck); color: var(--wreck); }
+:root[data-ui="line"] .ui-choice:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+:root[data-ui="line"] .ui-instr { background: var(--sky); border: 1px solid var(--line); border-radius: 0; }
+:root[data-ui="line"] .ui-instr .n { color: var(--dim); }
+:root[data-ui="line"] .ui-instr .ic { border-radius: 0; background: var(--sky); border-color: var(--line-soft); }
+:root[data-ui="line"] .ui-instr.active { border-color: var(--good); }
+:root[data-ui="line"] .ui-instr.bad { border-color: var(--hostile); }
+:root[data-ui="line"] .ui-instr.add, :root[data-ui="line"] .ui-instr.else { border-style: dashed; border-color: var(--dim); background: var(--sky); }
+
+/* ---------- The flight view and the screens (index.html) ---------- */
+
+/* Plain buttons over space: outlined in ink on sky; a pressed toggle hatched. */
+:root[data-ui="line"] .btn { border-color: color-mix(in oklch, var(--ink) 62%, var(--sky)); color: var(--hud); }
+:root[data-ui="line"] .btn:hover, :root[data-ui="line"] .btn:focus-visible { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .btn:hover::before { background: var(--hatch-faint); }
+:root[data-ui="line"] .btn[aria-pressed="true"] { border-color: var(--ink); color: var(--chalk); background: transparent; }
+:root[data-ui="line"] .btn[aria-pressed="true"]::before { background: var(--hatch-faint); }
+:root[data-ui="line"] .btn:disabled { opacity: 1; border: 1px dashed var(--wreck); color: var(--wreck); }
+:root[data-ui="line"] .btn:disabled::before { background: var(--sky); }
+/* Factions, map and settings: balloons. */
+:root[data-ui="line"] .icon-btn { border-radius: 50%; border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .icon-btn::before { border-radius: 50%; }
+:root[data-ui="line"] .icon-btn[aria-expanded="true"] { color: var(--chalk); }
+:root[data-ui="line"] .icon-btn[aria-expanded="true"]::before { background: var(--hatch-faint); }
+:root[data-ui="line"] .icon-btn svg { stroke-width: 1.2; }
+
+:root[data-ui="line"] #map-overlay .top { background: linear-gradient(var(--sky), rgba(5, 6, 10, 0)); }
+:root[data-ui="line"] #map-title { font: 700 13px var(--mono); letter-spacing: 0.16em; }
+:root[data-ui="line"] #map-view .btn:first-child, :root[data-ui="line"] #map-view .btn:last-child { border-radius: 0; }
+:root[data-ui="line"] #map-view .btn[aria-checked="true"] { border-color: var(--ink); color: var(--chalk); }
+:root[data-ui="line"] #map-view .btn[aria-checked="true"]::before { background: var(--hatch-faint); }
+:root[data-ui="line"] #map-investigate { border-color: var(--ink); color: var(--sky); }
+:root[data-ui="line"] #map-investigate::before { background: color-mix(in srgb, var(--ink) 75%, var(--sky)); }
+
+/* Hatched panels: the map's prompt, the combat panel, a comms message, settings, factions. */
+:root[data-ui="line"] :is(#map-prompt, .panel, .cm-box, .set-panel) { isolation: isolate; background: transparent; border: 1px solid var(--ink); border-radius: 0; }
+:root[data-ui="line"] :is(#map-prompt, .panel, .cm-box, .set-panel)::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--sky); }
+:root[data-ui="line"] :is(#map-prompt, .panel, .cm-box, .set-panel)::after {
+  content: ''; position: absolute; inset: 6px -7px -7px 6px; z-index: -2; pointer-events: none;
+  background: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px); opacity: 0.45;
+}
+:root[data-ui="line"] .cm-box { position: relative; }
+
+/* The selection callout: the thing's name boxed, its main action washed. */
+:root[data-ui="line"] .co-above { background: var(--sky); border: 1px solid var(--ink); border-radius: 0; padding: 4px 8px; }
+:root[data-ui="line"] .co-name { font: 700 14px var(--sans); }
+:root[data-ui="line"] .co-meta { font: 400 11px var(--mono); }
+:root[data-ui="line"] .co-below .btn.primary:not(:disabled) { border-color: var(--ink); color: var(--sky); }
+:root[data-ui="line"] .co-below .btn.primary:not(:disabled)::before { background: color-mix(in srgb, var(--ink) 75%, var(--sky)); }
+
+/* The context menu takes the colour of what it is about: its culture's, or hostile. */
+:root[data-ui="line"] #context { --ink: var(--accent, #7df9ff); }
+:root[data-ui="line"] #context:has(.cx-tag.hostile) { --ink: var(--hostile); }
+:root[data-ui="line"] .cx-act { border-color: var(--ink); background: var(--sky); color: var(--ink); }
+:root[data-ui="line"] .cx-act svg { stroke-width: 1.2; }
+:root[data-ui="line"] .cx-act:hover { background: var(--hatch-faint); }
+:root[data-ui="line"] .cx-act:disabled { border: 1px dashed var(--wreck); color: var(--wreck); background: var(--sky); }
+:root[data-ui="line"] .cx-act.busy:disabled { border-color: transparent; color: var(--busy); }
+:root[data-ui="line"] .cx-lbl { font: 700 10px/1 var(--mono); letter-spacing: 0.08em; color: var(--ink); background: var(--sky); border: 1px solid var(--line); border-radius: 0; }
+:root[data-ui="line"] .cx-act:disabled .cx-lbl { color: var(--wreck); border-style: dashed; }
+:root[data-ui="line"] .cx-act:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+
+/* Combat: the panel in its status ink (hostile in a fight, good when won); gauges hatched. */
+:root[data-ui="line"] #combat { --ink: var(--hostile); border-left-width: 1px; }
+:root[data-ui="line"] #combat.won { --ink: var(--good); }
+:root[data-ui="line"] #combat.fled { --ink: #7df9ff; }
+:root[data-ui="line"] #combat::after { background: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px), repeating-linear-gradient(45deg, var(--ink) 0 1px, transparent 1px 5px); opacity: 0.4; }
+:root[data-ui="line"] .cb-title { font: 700 14px var(--sans); letter-spacing: 0.12em; }
+:root[data-ui="line"] .cb-btn { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .cb-btn:disabled { border: 1px dashed var(--wreck); color: var(--wreck); }
+:root[data-ui="line"] .cb-track { height: 1px; border-radius: 0; background: var(--line-soft); }
+:root[data-ui="line"] .cb-timer.escape { background: #7df9ff; }
+:root[data-ui="line"] .cb-ab { border-radius: 2px; }
+:root[data-ui="line"] .cb-ab:disabled { border: 1px dashed var(--wreck); color: var(--wreck); }
+:root[data-ui="line"] .cb-rows .cb-row { border-top-color: var(--line-soft); }
+:root[data-ui="line"] .cb-row.you .cb-name { color: #7df9ff; }
+:root[data-ui="line"] .cb-bars { gap: 3px; }
+:root[data-ui="line"] .cb-bar { height: 4px; border-radius: 0; background: linear-gradient(var(--line), var(--line)) 0 100% / 100% 1px no-repeat; }
+:root[data-ui="line"] .cb-bar > span { box-sizing: border-box; border: 1px solid currentColor; border-bottom: 0; }
+:root[data-ui="line"] .cb-bar.shd > span { color: var(--shd); background: repeating-linear-gradient(135deg, var(--shd) 0 1px, transparent 1px 3px); }
+:root[data-ui="line"] .cb-bar.hul > span { color: var(--hul); background: repeating-linear-gradient(135deg, var(--hul) 0 1px, transparent 1px 3px); }
+:root[data-ui="line"] .cb-row:not(.you) .cb-bar.hul > span { color: var(--hostile); background: repeating-linear-gradient(135deg, var(--hostile) 0 1px, transparent 1px 3px); }
+:root[data-ui="line"] #combat { --shd: #7df9ff; }
+:root[data-ui="line"] .cb-nums { font-weight: 400; }
+
+/* The station: a drawing sheet on squared paper, in the station culture's ink. */
+:root[data-ui="line"] #station {
+  background-color: var(--sky);
+  background-image: linear-gradient(color-mix(in oklch, var(--ink) 7%, var(--sky)) 1px, transparent 1px), linear-gradient(90deg, color-mix(in oklch, var(--ink) 7%, var(--sky)) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+:root[data-ui="line"] .st-head { border-bottom: 1px solid var(--ink); background: var(--sky); }
+:root[data-ui="line"] .st-head .culture { width: 1px; border-radius: 0; background: var(--ink); }
+:root[data-ui="line"] #st-name { font-size: 18px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+:root[data-ui="line"] #st-sub { font: 400 11px var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+:root[data-ui="line"] .st-credits { border: 1px solid var(--ink); border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .st-credits i { background: none; border: 1px solid var(--ink); box-sizing: border-box; }
+:root[data-ui="line"] #st-credits { font-weight: 400; color: var(--chalk); }
+:root[data-ui="line"] .st-lead { font-family: var(--mono); }
+:root[data-ui="line"] .st-switch { border-color: var(--line); border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .st-switch-btn { color: var(--ink); }
+:root[data-ui="line"] .st-switch .who { font-weight: 700; font-size: 13px; }
+:root[data-ui="line"] .st-switch .dot::after { border-radius: 0; width: 5px; height: 5px; transform: rotate(45deg); background: none; border: 1px solid var(--dim); }
+:root[data-ui="line"] .st-switch .dot[aria-current="true"]::after { background: var(--ink); border-color: var(--ink); }
+:root[data-ui="line"] .st-steps, :root[data-ui="line"] .st-step, :root[data-ui="line"] .st-test { border-color: var(--line-soft); border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .st-item .n { background: var(--sky); border: 1px solid var(--line); border-radius: 0; }
+:root[data-ui="line"] .st-gauge { height: 1px; border-radius: 0; background: var(--line-strong); }
+:root[data-ui="line"] .st-gauge::before, :root[data-ui="line"] .st-gauge::after { content: ''; position: absolute; top: -4px; width: 1px; height: 9px; background: var(--line-strong); }
+:root[data-ui="line"] .st-gauge::before { left: 0; } :root[data-ui="line"] .st-gauge::after { right: 0; }
+:root[data-ui="line"] .st-gauge .mark { background: var(--sky); border: 1px solid var(--hud); box-sizing: border-box; }
+:root[data-ui="line"] .st-gauge .mark.cheap { border-color: var(--good); background: var(--good); }
+:root[data-ui="line"] .st-gauge .mark.dear { border-color: var(--warn); background: var(--warn); }
+:root[data-ui="line"] .st-components th { font-family: var(--mono); }
+:root[data-ui="line"] .st-bench-cur { background: var(--hatch-faint); border-radius: 0; }
+:root[data-ui="line"] .st-bench-cur.idle { background: var(--sky); border-color: var(--dim); }
+:root[data-ui="line"] .st-bench-slot { border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .st-lane { font-family: var(--mono); color: var(--ink); }
+:root[data-ui="line"] .st-clause { border-left: 1px solid var(--line); }
+
+/* Production: ruled nodes on the board. */
+:root[data-ui="line"] .pr-board { border-radius: 0; background-image: radial-gradient(color-mix(in oklch, var(--ink) 22%, var(--sky)) 1px, transparent 1px); }
+:root[data-ui="line"] :is(.pr-node, .pr-stage, .pr-empty, .pr-detail, .pr-prod, .pr-pnode, .pr-lin .row) { border-radius: 0; background-color: var(--sky); }
+:root[data-ui="line"] .pr-stage .bar, :root[data-ui="line"] .pr-stage .bar > span { border-radius: 0; }
+:root[data-ui="line"] .pr-prod[aria-pressed="true"] { background: var(--hatch-faint); }
+:root[data-ui="line"] .pr-pnode { border-left-width: 1px; border-color: var(--tone, var(--line)); }
+:root[data-ui="line"] .pr-pnode .prio .ar { border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .pr-cols, :root[data-ui="line"] .pr-stage .lbl { font-family: var(--mono); }
+
+/* Settings and factions: a hatched sheet; its body scrolls, so the shadow isn't clipped. */
+:root[data-ui="line"] .set-panel { position: relative; display: flex; flex-direction: column; overflow: visible; }
+:root[data-ui="line"] :is(.set-body, .fac-body) { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+:root[data-ui="line"] .set-head { border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 4px; }
+:root[data-ui="line"] #settings-title, :root[data-ui="line"] #factions-title { font: 700 20px var(--sans); letter-spacing: 0.06em; }
+:root[data-ui="line"] #settings, :root[data-ui="line"] #factions {
+  background: repeating-linear-gradient(135deg, color-mix(in oklch, var(--ink) 12%, transparent) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(45deg, color-mix(in oklch, var(--ink) 12%, transparent) 0 1px, transparent 1px 7px), rgba(2, 3, 6, 0.72);
+}
+:root[data-ui="line"] .set-close { width: 40px; height: 40px; margin-right: -4px; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--ink); font-size: 22px; }
+:root[data-ui="line"] .set-close:hover, :root[data-ui="line"] .set-close:focus-visible { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .set-group { border-top-color: var(--line-soft); }
+:root[data-ui="line"] .set-label { font: 700 11px var(--mono); letter-spacing: 0.14em; color: var(--ink); }
+:root[data-ui="line"] .set-label kbd { border-radius: 0; border-color: var(--line); color: var(--dim); }
+:root[data-ui="line"] .seg .btn[aria-checked="true"] { border-color: var(--ink); color: var(--chalk); background: transparent; }
+:root[data-ui="line"] .seg .btn[aria-checked="true"]::before { background: var(--hatch-faint); }
+:root[data-ui="line"] .seg .btn:focus-visible { outline: 1px solid var(--ink); outline-offset: 3px; }
+:root[data-ui="line"] .set-fold { border-top-color: var(--line-soft); font: 700 11px var(--mono); color: var(--dim); }
+:root[data-ui="line"] .set-fold[aria-expanded="true"] { color: var(--ink); }
+:root[data-ui="line"] .set-fold:hover, :root[data-ui="line"] .set-fold:focus-visible { color: var(--chalk); }
+:root[data-ui="line"] .fac-list, :root[data-ui="line"] .fac-item { border-color: var(--line-soft); }
+:root[data-ui="line"] .fac-row .swatch { border-radius: 0; }
+:root[data-ui="line"] .fac-row .tier { font: 700 10px var(--mono); }
+:root[data-ui="line"] .fac-meter { height: 1px; border-radius: 0; background: var(--line-strong); }
+:root[data-ui="line"] .fac-meter .fill { top: -3px; bottom: auto; height: 6px; border-radius: 0; opacity: 0.85; }
+:root[data-ui="line"] .fac-chip { border-radius: 0; background: var(--sky); }
+:root[data-ui="line"] .fac-chip:hover, :root[data-ui="line"] .fac-chip:focus-visible { background: var(--hatch-faint); }
+
+/* Comms: the message in the sender's ink, answers outlined in it. */
+:root[data-ui="line"] #comms { --ink: var(--from); }
+:root[data-ui="line"] #comms.hint { --ink: #7df9ff; }
+:root[data-ui="line"] .cm-box { border-left-width: 1px; }
+:root[data-ui="line"] .cm-face, :root[data-ui="line"] .cm-choice-face { border-color: var(--line); border-radius: 0; }
+:root[data-ui="line"] .cm-from { font: 700 11px var(--mono); color: var(--ink); }
+:root[data-ui="line"] .cm-skip, :root[data-ui="line"] .cm-more { font: 700 10px var(--mono); }
+:root[data-ui="line"] .cm-choice { border-color: var(--ink); color: var(--ink); }
+:root[data-ui="line"] .cm-choice:hover { background: transparent; }
+:root[data-ui="line"] #resume {
+  background: repeating-linear-gradient(135deg, rgba(125, 249, 255, 0.1) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(45deg, rgba(125, 249, 255, 0.1) 0 1px, transparent 1px 7px), rgba(2, 3, 6, 0.78);
+}
+
+/* Wide screens: the detail pane beside the list keeps its ink border. */
+@media (min-width: 960px) {
+  :root[data-ui="line"] #station .ui-sheet, :root[data-ui="line"] #station .ui-sheet.tall { border: 1px solid var(--ink); border-radius: 0; }
+}

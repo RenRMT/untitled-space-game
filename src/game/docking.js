@@ -102,7 +102,10 @@ export function dock(station) {
   industry.settle();
   setMode('docked', true);
   StationMenu.open({
-    station: { name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color },
+    station: {
+      name: station.name, subtitle: Entities.stationSubtitle(station), color: station.color,
+      culture: station.art.culture.lineage, ink: station.art.culture.pal.line, // the screen's look (ui/station.js)
+    },
     market: marketAt(station),
     hold,
     ship: SHIP,

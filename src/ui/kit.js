@@ -15,7 +15,7 @@
 //   Kit.segments(states)                   one segment per step: 'done' | 'open' | ''
 //   Kit.compare(cur, next, metrics)        -> rows [{ code, label, cur, next, diff, better: 1 | -1 | 0 }]
 //     metrics: [{ code, label, get(item), fmt(v), fmtDiff(|d|), dir (1: higher is better, -1: lower), none }]
-//   Kit.deltas(rows), Kit.compareTable(rows)  'DPS ▲8  RNG ▲50' / the current → new table
+//   Kit.deltas(rows), Kit.compareTable(rows)  'DPS ▲8  RNG ▲50' (open △▽ in the Line style) / the current → new table
 //   Kit.slotNode({ x, y, label, code, item, open, onclick })   a slot button on the ship schematic
 //   Kit.techNode({ x, y, w, h, label, code, state, tier, mark, progress, open, aria, onclick })   a package
 //     on a research tree; state: 'done' | 'active' | 'queued' | 'available' | 'locked'; mark: a corner
@@ -125,7 +125,12 @@ const Kit = (() => {
       return { code: m.code, label: m.label, cur: cur ? m.fmt(a) : '—', next: m.fmt(b), diff: d ? m.fmtDiff(Math.abs(d)) : '', better: Math.sign(d) * (m.dir || 1) };
     });
   }
-  const arrow = (r) => (r.better > 0 ? ['up', `▲${r.diff}`] : r.better < 0 ? ['down', `▼${r.diff}`] : ['', '=']);
+  // The Line style draws its arrows open (kit-line.css), Low-poly filled; either way up is better.
+  const openArrows = () => typeof document !== 'undefined' && document.documentElement.getAttribute('data-ui') === 'line';
+  const arrow = (r) => {
+    const [up, down] = openArrows() ? ['△', '▽'] : ['▲', '▼'];
+    return r.better > 0 ? ['up', `${up}${r.diff}`] : r.better < 0 ? ['down', `${down}${r.diff}`] : ['', '='];
+  };
   const deltas = (rows) => h('span', { class: 'ui-deltas' }, rows.map((r) => {
     const [cls, txt] = arrow(r);
     return h('span', { class: 'ui-delta' }, `${r.code} `, h('span', { class: cls }, txt));

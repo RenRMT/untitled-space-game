@@ -90,9 +90,10 @@ const Entities = (() => {
   const GAS_LABEL = { emission: 'Ionised hydrogen', reflection: 'Cold gas', ion: 'Charged gas', ember: 'Warm gas', dust: 'Dusty gas' };
   const asteroidSize = (r) => (r < 16 ? 'Small' : r < 32 ? 'Medium' : 'Large');
   const asset = (ctx, e, style, x, y, o) => Art.drawAsset(ctx, e.art, style, { x, y, ...o });
-  // Ships are drawn a tenth larger than their size (collisions, combat ranges), to read better
-  // among the stations and asteroids; tapping one finds it out to where it's drawn.
-  const SHIP_SCALE = 1.1;
+  // Ships (fighters, freighters, androids, the squad and the player's) are drawn larger than their
+  // size (collisions, combat ranges), to read better among the stations and asteroids; tapping one
+  // finds it out to where it's drawn.
+  const SHIP_SCALE = 1.375;
   function shipAsset(ctx, e, style, x, y, o) {
     ctx.save();
     ctx.translate(x, y);
@@ -195,7 +196,7 @@ const Entities = (() => {
     ship: {
       order: 4, selectable: true, hit: SHIP_SCALE, follow: 600,
       draw: (ctx, e, style, x, y, { t }) => shipAsset(ctx, e, style, x, y, { angle: e.a, t, thrust: e.thrust || 0 }),
-      label: (e) => (e.android ? [isHostile(e) ? color().hostile : e.color, e.radius * SHIP_SCALE + 20] : named(e)),
+      label: (e) => [e.android ? (isHostile(e) ? color().hostile : e.color) : named(e)[0], e.radius * SHIP_SCALE + 20],
       mark: (e) => ({ color: isHostile(e) ? color().hostile : e.android ? e.color : color().neutral, r: 1.2 }),
       card(e) {
         const hostile = isHostile(e);

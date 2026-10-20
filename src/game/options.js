@@ -35,9 +35,20 @@ export function setting(key, options, fallback, onChange) {
 
 // The game's art styles: Line and Low-poly. art/render.js keeps Pixel and Flat (and the variants)
 // for its own iteration, but they aren't offered here; a saved choice of either falls back to Line.
+// The menus follow the art style: each has its own UI kit (ui/kit-line.css, ui/kit-lowpoly.css).
 export const ART_STYLES = ['line', 'lowpoly'];
 export const STYLE_LIST = Art.STYLES.filter((s) => ART_STYLES.includes(s.id));
-export const artStyle = setting('style', ART_STYLES, 'line');
+export const artStyle = setting('style', ART_STYLES, 'line', () => applyUiStyle());
+
+// The menus' style, on <html data-ui>, and the canvas's number font with it (core/theme.js). The
+// fonts are asked for at once, so canvas text doesn't wait for a menu to use them.
+export function applyUiStyle() {
+  const id = artStyle.value;
+  document.documentElement.setAttribute('data-ui', id);
+  Theme.setStyle(id);
+  if (document.fonts && document.fonts.load) for (const w of [400, 700]) document.fonts.load(`${w} 12px ${Theme.mono}`).catch(() => {});
+  invalidate();
+}
 
 // Cruise: the ship holds the set speed after you let go (tap to stop).
 // Direct: the ship only moves while you drag, with no drift, and stops when you let go.
@@ -86,7 +97,7 @@ export function applyAccess() {
   root.setAttribute('data-textsize', textSize.value);
   root.setAttribute('data-motion', motion.value);
   Art.clearCache(); // sprites drawn in the old colours
-  invalidate();
+  applyUiStyle();
 }
 export const reducedMotion = () => motion.value === 'reduce';
 
