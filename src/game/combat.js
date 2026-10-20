@@ -61,9 +61,13 @@ export const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the pan
 
 // Where a combatant is: the player ship, a wingman, or an enemy's pose.
 export function fighterPos(id) {
-  if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius };
+  if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius, player: true };
   return fight.ships.get(id) || wings.get(id) || fight.lastShips.get(id) || null;
 }
+// How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
+// drawn larger than their size (flight/entities.js SHIP_SCALE), the player's a quarter larger again
+// (game/draw-world.js drawShip).
+const shownRadius = (p) => p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1);
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 export const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
 
@@ -515,7 +519,7 @@ export function drawFight() {
       ctx.globalAlpha = 0.5 + 0.35 * lock;
       ctx.lineWidth = 2 / view.zoom;
       if (lock < 1) ctx.setLineDash([5 / view.zoom, 4 / view.zoom]);
-      brackets(rx(f.x), ry(f.y), f.radius, { open: 1 - lock });
+      brackets(rx(f.x), ry(f.y), shownRadius(f), { open: 1 - lock });
       ctx.setLineDash([]);
     }
   }
@@ -531,7 +535,7 @@ export function drawFight() {
       const d = Math.hypot(to.x - from.x, to.y - from.y);
       const len = f.hits > 0 ? d - to.radius * 0.4 : d + 120;
       const off = f.hits > 0 ? 0 : 0.06;
-      const x0 = rx(from.x) + Math.cos(ang) * from.radius, y0 = ry(from.y) + Math.sin(ang) * from.radius;
+      const x0 = rx(from.x) + Math.cos(ang) * shownRadius(from), y0 = ry(from.y) + Math.sin(ang) * shownRadius(from);
       const x1 = rx(from.x) + Math.cos(ang + off) * len, y1 = ry(from.y) + Math.sin(ang + off) * len;
       ctx.strokeStyle = f.color;
       ctx.globalAlpha = k * (f.hits > 0 ? 0.3 : 0.12);
@@ -547,7 +551,7 @@ export function drawFight() {
       ctx.globalAlpha = k * 0.8;
       ctx.lineWidth = 2 / view.zoom;
       ctx.beginPath();
-      ctx.arc(rx(at.x), ry(at.y), at.radius + 10 + (1 - k) * 8, 0, TAU);
+      ctx.arc(rx(at.x), ry(at.y), shownRadius(at) + 10 + (1 - k) * 8, 0, TAU);
       ctx.stroke();
     } else if (f.type === 'flash') {
       ctx.fillStyle = COLORS.flash;
@@ -572,7 +576,7 @@ export function drawFightOverlay() {
       if (c.hull <= 0) continue;
       const p = fighterPos(c.id);
       if (!p) continue;
-      const [x, y] = worldToScreen(p.x, p.y - p.radius);
+      const [x, y] = worldToScreen(p.x, p.y - shownRadius(p));
       const w = 34, top = y - 18;
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = 'rgba(38, 48, 74, 0.9)';
@@ -604,7 +608,7 @@ export function drawFightOverlay() {
     if (f.type !== 'code') continue;
     const at = fxPos(f.at);
     if (!at) continue;
-    const [x, y] = worldToScreen(at.x, at.y - at.radius);
+    const [x, y] = worldToScreen(at.x, at.y - shownRadius(at));
     const w = ctx.measureText(f.text).width + 10, top = y - 42;
     ctx.globalAlpha = Math.min(1, (f.t / f.max) * 3);
     ctx.fillStyle = 'rgba(11, 14, 23, 0.85)';
