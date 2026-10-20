@@ -70,8 +70,10 @@ const ArtCrew = (() => {
     if (kind === 'shard') { hw -= 1.6; hh += 1.4; taper -= 0.08; n = 2; tw = 32 + r() * 3; }
     if (kind === 'block') { hw += 1.4; n += 0.4; taper = Math.min(0.95, taper + 0.1); tw = v2 ? 46 + r() * 4 : 42 + r() * 4; }
     if (kind === 'drifter') tw = 36 + r() * 6;
-    const hy = -12, eyeY = hy + hh * 0.06, eyeX = hw * 0.42, noseY = hy + hh * 0.34, mouthY = hy + hh * 0.6, mw = hw * (0.26 + r() * 0.08);
+    const hy = kind === 'wedge' ? -12 : -7, eyeY = hy + hh * 0.06, eyeX = hw * 0.42, noseY = hy + hh * 0.34, mouthY = hy + hh * 0.6, mw = hw * (0.26 + r() * 0.08);
     const nw = hw * 0.46, hairY = hy - hh * (0.48 + r() * 0.14);
+    // The top edge of the body (the suit part below) at x: where shoulder gear sits.
+    const shY = (x) => 50 - 26 * Math.cbrt(Math.max(0, 1 - Math.abs(x / tw) ** 3));
 
     const hairStyles = v2 ? {
       wedge: ['crop', 'part', 'buzz', 'bun', 'tail', 'big', 'part'],
@@ -105,10 +107,11 @@ const ArtCrew = (() => {
     P('suit', { cx: 0, cy: 50, rx: tw, ry: 26, n: 3, prof: 4, depth: 14, oy: 42 });
     if (kind === 'wedge') {
       for (const s of [-1, 1]) M(stroke('suit2', [[s * nw * 1.5, 30], [s * tw * 0.55, 58]], 3));
-      const ix = side * tw * 0.45;
-      M(stroke('accent', [[ix - 3.5, 42], [ix, 38.5], [ix + 3.5, 42]], 1.6));
-      M(stroke('accent', [[ix - 3.5, 45.5], [ix, 42], [ix + 3.5, 45.5]], 1.6));
-      if (v2) for (const s of [-1, 1]) P('trim', { cx: s * (tw - 9), cy: 32.5, rx: 10, ry: 3.2, n: 3, depth: 2.5 });
+      const ix = side * tw * 0.55, iy = shY(ix) + 8.5;
+      M(stroke('accent', [[ix - 3.5, iy], [ix, iy - 3.5], [ix + 3.5, iy]], 1.6));
+      M(stroke('accent', [[ix - 3.5, iy + 3.5], [ix, iy], [ix + 3.5, iy + 3.5]], 1.6));
+      // Epaulettes: a strap following the shoulder line.
+      if (v2) for (const s of [-1, 1]) P('trim', { cx: s * (tw - 11), cy: shY(tw - 11) + 2, rx: 10, ry: 8, n: 3, depth: 2.5, keep: (x, y) => y > shY(x) - 0.4 && y < shY(x) + 3.4 });
     }
     if (kind === 'block') {
       for (const s of [-1, 1]) P('trim', v2 ? { cx: s * (tw - 10), cy: 33, rx: 15, ry: 10, n: 3.2, depth: 7 } : { cx: s * (tw - 8), cy: 35, rx: 12, ry: 8, n: 3, depth: 6 });
@@ -122,11 +125,11 @@ const ArtCrew = (() => {
     if (kind === 'drifter') {
       // One borrowed shoulder piece: a Block pad, a Wedge harness or a Shard sash.
       const piece = role === 'salvager' ? 'pad' : pick(['pad', 'harness', 'sash']);
-      if (piece === 'pad') { P('pad', { cx: side * (tw - 8), cy: 35, rx: 11, ry: 7.5, n: 2.8, depth: 5 }); for (const k of [0, 1, 2]) M(ell('dark', side * (tw - 14 + k * 5), 34, 0.7, 0.7, { line: 'fill' })); }
+      if (piece === 'pad') { P('pad', { cx: side * (tw - 10), cy: shY(tw - 10) + 3.5, rx: 11, ry: 7.5, n: 2.8, depth: 5, keep: (x, y) => y > shY(x) - 1.2 }); for (const k of [0, 1, 2]) { const sx = tw - 15 + k * 5; M(ell('dark', side * sx, shY(sx) + 2.4, 0.7, 0.7, { line: 'fill' })); } }
       if (piece === 'harness') M(stroke('suit2', [[side * nw * 1.5, 30], [side * tw * 0.55, 58]], 3));
       if (piece === 'sash') M(stroke('patch', [[-side * tw * 0.7, 34], [side * tw * 0.45, 60]], 2.4));
       // A patch sewn on, and the role's kit.
-      const px = -side * tw * (0.35 + r() * 0.15), py = 42 + r() * 6;
+      const px = -side * tw * (0.52 + r() * 0.1), py = shY(px) + 4 + r() * 2;
       P('patch', { cx: px, cy: py, rx: 3.6, ry: 3, n: 4, depth: 1 });
       M(stroke('dark', [[px - 3, py - 2.4], [px + 3, py + 2.4]], 0.5));
       if (role === 'salvager') { M(stroke('dark', [[-side * tw * 0.6, 32], [side * tw * 0.35, 60]], 2.4)); M(ell('metal', side * tw * 0.05, 47, 2, 1.6)); }
@@ -136,7 +139,9 @@ const ArtCrew = (() => {
 
     // Collar
     if (kind === 'shard') for (const s of [-1, 1]) P(v2 ? 'trim' : 'suit2', v2 ? { cx: s * (nw + 6.5), cy: 15, rx: 5.5, ry: 19, n: 1.25, taper: 0.55, depth: 4 } : { cx: s * (nw + 5), cy: 21, rx: 5, ry: 13, n: 1.3, depth: 4 });
-    P('skin2', { cx: 0, cy: hy + hh + 4, rx: nw, ry: 12, n: 2.4, prof: 3, depth: 5, keep: (x, y) => y < 33 });
+    // Neck: Wedge's tall collar covers its base; the others' run down into the collar so they meet it at full width.
+    P('skin2', kind === 'wedge' ? { cx: 0, cy: hy + hh + 4, rx: nw, ry: 12, n: 2.4, prof: 3, depth: 5, keep: (x, y) => y < 33 }
+      : { cx: 0, cy: 25, rx: nw, ry: 25 - (hy + hh * 0.5), n: 2.4, prof: 3, depth: 5, keep: (x, y) => y < 33 });
     if (kind === 'wedge') P('trim', v2 ? { cx: 0, cy: 27, rx: nw * 1.6, ry: 9, n: 3, depth: 5, keep: (x, y) => y > 19 } : { cx: 0, cy: 29, rx: nw * 1.55, ry: 6, n: 3, depth: 4, keep: (x, y) => y > 25 });
     if (kind === 'block') P('suit2', { cx: 0, cy: 29, rx: nw * 1.9, ry: 7, n: 2.6, depth: 5, keep: (x, y) => y > 24 });
     if (kind === 'shard') P('trim', { cx: 0, cy: 28, rx: nw * 1.3, ry: 5, n: 2.4, depth: 3, keep: (x, y) => y > 25 });

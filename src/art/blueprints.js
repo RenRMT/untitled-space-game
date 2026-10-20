@@ -116,10 +116,12 @@ const ArtBlueprints = (() => {
     const light = cls === 'light', heavy = cls === 'heavy';
     const hc = donor(culture, r);
     const L = (fighter ? (light ? 25 : heavy ? 46 : 34) : 92) * culture.length * (0.92 + r() * 0.16);
-    const W = (fighter ? (light ? 0.115 : heavy ? 0.2 : 0.15) : 0.21) * L * hc.width;
+    const W = (fighter ? (light ? 0.115 : heavy ? 0.2 : 0.15) : 0.34) * L * hc.width;
     const fspan = light ? 0.3 : heavy ? 0.36 : 0.42, fsw = light ? 1.7 : heavy ? 0.7 : 1;
-    const hull = hullOutline({ ...hc, asym: culture.asym }, L, W, r);
-    const hullH = W * 0.55;
+    let hull = hullOutline({ ...hc, asym: culture.asym }, L, W, r);
+    // Freighters: blunt bow and squared stern so the hull reads as a hauler, not a dart.
+    if (!fighter) hull = U.clipPoly(U.clipPoly(hull, -1, 0, -L * 0.36) || hull, 1, 0, -L * 0.46) || hull;
+    const hullH = W * (fighter ? 0.55 : 0.7);
     const panelLines = [];
     for (let i = 0; i < (fighter ? 2 : 4); i++) {
       const x = lerp(-L * 0.4, L * 0.25, (i + 0.5 + (r() - 0.5) * 0.4) / (fighter ? 2 : 4));
@@ -132,7 +134,7 @@ const ArtBlueprints = (() => {
     const wc = donor(culture, r);
     const g = {
       L, W, rootX0: -L * 0.32, rootX1: L * (fighter ? 0.1 : -0.02), rootY: W * 0.55,
-      span: (fighter ? L * fspan : L * 0.2) * wc.span, sweep: wc.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wc.sweep,
+      span: (fighter ? L * fspan : L * 0.09) * wc.span, sweep: wc.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wc.sweep,
     };
     const wingKind = wc.wings;
     const wings = [];
@@ -149,7 +151,7 @@ const ArtBlueprints = (() => {
     for (const s of (wingKind === 'halo' ? [] : [1, -1])) {
       // Drifters (kitbash) often fit the second wing from another culture's hull.
       const wcs = kb && s < 0 && r() < 0.7 ? donor(culture, r) : wc;
-      const gg = wcs === wc ? g : { ...g, span: (fighter ? L * fspan : L * 0.2) * wcs.span, sweep: wcs.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wcs.sweep };
+      const gg = wcs === wc ? g : { ...g, span: (fighter ? L * fspan : L * 0.09) * wcs.span, sweep: wcs.sweep * L * 0.4 * (fighter ? fsw : 1), sweepRaw: wcs.sweep };
       const wk = wcs.wings, wm = wcs === wc ? 'wing' : U.mix(wcs.pal.hull, '#8a8070', 0.35);
       const k = s < 0 && culture.asym > 0.1 ? 1 - culture.asym * 0.45 * r() : 1;
       if (wk === 'fronds') {
@@ -233,11 +235,12 @@ const ArtBlueprints = (() => {
         else if (round) plate = U.chaikin(plate, round);
         b.poly(plate, 'hull2', { lvl: 1.3, h: hullH * 0.72, bevel: th * 0.3 });
       }
-      // A dorsal turret with twin barrels, a second gun pair inboard, missile racks under the wings.
+      // A dorsal turret with twin barrels (its glass dome left out of Low-poly), a second gun
+      // pair inboard, missile racks under the wings.
       const tx = -L * 0.08, tr = W * 0.5;
       b.circle(tx, 0, tr, 'hull2', { lvl: 3, h: hullH * 1.15, dome: true });
       for (const s of [1, -1]) b.strut(tx, s * tr * 0.35, tx + L * 0.24, s * tr * 0.35, Math.max(0.9, W * 0.1), 'trim', { lvl: 3.1, h: hullH * 1.2 });
-      b.circle(tx, 0, tr * 0.45, 'glass', { lvl: 3.2, h: hullH * 1.25, dome: true });
+      b.circle(tx, 0, tr * 0.45, 'glass', { lvl: 3.2, h: hullH * 1.25, dome: true, low: false });
       if (wingKind !== 'halo') for (const s of [1, -1]) {
         const y = s * W * 0.62;
         b.strut(L * 0.05, y, L * 0.42, y, 1.6, 'hull2', { lvl: 2.2, h: hullH * 0.8 });
@@ -253,8 +256,8 @@ const ArtBlueprints = (() => {
     // Engines at the stern.
     const tail = U.spanAt(hull, -L / 2 + L * 0.04) || [-W * 0.6, W * 0.6];
     const n = fighter ? (light ? 1 : heavy ? clamp(culture.engines + 1, 2, 3) : clamp(culture.engines, 1, 2)) : clamp(culture.engines + 1, 2, 4);
-    const ew = Math.min(W * 0.55, ((tail[1] - tail[0]) * 0.85) / n);
-    const nl = L * 0.07;
+    const ew = Math.min(W * (fighter ? 0.55 : 0.45), ((tail[1] - tail[0]) * 0.85) / n);
+    const nl = L * (fighter ? 0.07 : 0.09);
     for (let i = 0; i < n; i++) {
       const y = n === 1 ? 0 : lerp(tail[0] * 0.6, tail[1] * 0.6, i / (n - 1));
       if (kb) {
@@ -273,7 +276,7 @@ const ArtBlueprints = (() => {
 
     // Cockpit or bridge.
     const cc = donor(culture, r);
-    const cx = fighter ? L * 0.18 : L * 0.3;
+    const cx = fighter ? L * 0.18 : L * 0.2;
     let glass;
     switch (cc.hull) {
       case 'bio': // a cluster of eyes
@@ -375,51 +378,52 @@ const ArtBlueprints = (() => {
   }
 
   function freighterCargo(b, c, r, L, W, hull, hullH) {
+    // Cargo hangs well outside the hull on both flanks so freighters are broad and boxy at any size.
+    const y0 = W * 1.05;
     switch (c.hull) {
-      case 'bio': // egg sacs along both flanks
-        for (const s of [1, -1]) {
-          let x = -L * 0.4;
-          for (let i = 0; i < 5; i++) {
-            const rr = W * (0.42 - i * 0.04) * (0.85 + r() * 0.3);
-            b.circle(x + rr, s * W * 0.78, rr, i % 2 ? 'trim' : 'wing', { lvl: 1.5 + i * 0.01, h: hullH * 0.7, dome: true });
-            x += rr * 1.6;
+      case 'bio': // clustered egg sacs, two rows deep
+        for (const s of [1, -1]) for (let row = 0; row < 2; row++) {
+          let x = -L * 0.38 + row * W * 0.3;
+          for (let i = 0; i < 4 - row; i++) {
+            const rr = W * (0.45 - row * 0.08) * (0.85 + r() * 0.3);
+            b.circle(x + rr, s * (y0 + row * W * 0.55), rr, (i + row) % 2 ? 'trim' : 'wing', { lvl: 1.5 - row * 0.1 + i * 0.01, h: hullH * (0.85 - row * 0.15), dome: true });
+            x += rr * 1.7;
           }
         }
         break;
-      case 'synth': { // identical cubes held clear of the hull
-        const n = 5, cs = (L * 0.5) / n;
-        for (let i = 0; i < n; i++) {
-          for (const s of [1, -1]) {
-            const x = -L * 0.34 + (i + 0.5) * cs;
-            b.poly(U.rect(x, s * W * 1.1, cs * 0.82, cs * 0.82), 'hull2', { lvl: 1.4, h: hullH * 0.6, bevel: cs * 0.1 });
-            b.poly(U.rect(x, s * W * 1.1, cs * 0.25, cs * 0.25), 'glass', { lvl: 1.5, h: hullH * 0.62 });
-          }
+      case 'synth': { // a rack of identical cubes, two deep
+        const n = 5, cs = (L * 0.62) / n;
+        for (let i = 0; i < n; i++) for (const s of [1, -1]) for (let row = 0; row < 2; row++) {
+          const x = -L * 0.38 + (i + 0.5) * cs, y = s * (y0 + cs * 0.1 + row * cs);
+          b.poly(U.rect(x, y, cs * 0.86, cs * 0.86), 'hull2', { lvl: 1.4 - row * 0.1, h: hullH * (0.8 - row * 0.15), bevel: cs * 0.1 });
+          b.poly(U.rect(x, y, cs * 0.25, cs * 0.25), 'glass', { lvl: 1.5 - row * 0.1, h: hullH * (0.82 - row * 0.15) });
         }
+        b.strut(-L * 0.4, 0, -L * 0.4 + L * 0.66, 0, W * 0.3, 'hull2', { lvl: 2.5, h: hullH * 1.05 });
         break;
       }
-      case 'block': {
-        const cols = 4 + Math.floor(r() * 3), cw = (L * 0.62) / cols;
+      case 'block': { // stacked shipping containers clamped along the flanks and spine
+        const cols = 4 + Math.floor(r() * 2), cw = (L * 0.7) / cols;
         const mats = ['accent', 'hull2', 'trim', 'wing', '#8a5a3a', '#4f6a7a'];
-        for (let i = 0; i < cols; i++) {
-          for (const s of [1, -1]) {
-            if (r() < 0.12) continue;
-            const x = -L * 0.36 + (i + 0.5) * cw;
-            b.poly(U.rect(x, s * W * 0.5, cw * 0.9, W * 0.95), mats[Math.floor(r() * mats.length)], { lvl: 3, h: hullH * 0.5, lines: [[x, s * W * 0.1, x, s * W * 0.9]] });
-          }
+        for (let i = 0; i < cols; i++) for (const s of [1, -1]) {
+          const x = -L * 0.4 + (i + 0.5) * cw;
+          b.poly(U.rect(x, s * (y0 + W * 0.3), cw * 0.92, W * 0.75), mats[Math.floor(r() * mats.length)], { lvl: 1.5, h: hullH * 0.85, lines: [[x - cw * 0.2, s * (y0 - W * 0.05), x - cw * 0.2, s * (y0 + W * 0.65)], [x + cw * 0.2, s * (y0 - W * 0.05), x + cw * 0.2, s * (y0 + W * 0.65)]] });
+          if (r() > 0.2) b.poly(U.rect(x, s * W * 0.45, cw * 0.9, W * 0.8), mats[Math.floor(r() * mats.length)], { lvl: 3, h: hullH * 0.6, lines: [[x, s * W * 0.1, x, s * W * 0.8]] });
         }
         break;
       }
-      case 'shard':
-        for (const s of [1, -1]) {
-          for (let i = 0; i < 3; i++) {
-            const x = -L * 0.25 + i * L * 0.15, y = s * W * 1.05;
-            b.poly([[x + L * 0.08, y], [x, y + s * W * 0.45], [x - L * 0.08, y], [x, y - s * W * 0.35]], 'trim', { lvl: 1.2, h: hullH * 0.5, bevel: W * 0.35, roof: true });
-          }
+      case 'shard': // large crystal ore clusters on each flank
+        for (const s of [1, -1]) for (let i = 0; i < 4; i++) {
+          const x = -L * 0.32 + i * L * 0.17, y = s * (y0 + W * 0.2), k = 0.9 + r() * 0.3;
+          b.poly([[x + L * 0.1 * k, y], [x + L * 0.02, y + s * W * 0.7 * k], [x - L * 0.09 * k, y + s * W * 0.2], [x - L * 0.02, y - s * W * 0.45]], i % 2 ? 'trim' : 'wing', { lvl: 1.2, h: hullH * 0.7, bevel: W * 0.4, roof: true });
         }
         break;
-      default: { // wedge: a gridded cargo bay along the spine
-        const bay = U.rect(-L * 0.1, 0, L * 0.45, W * 1.1);
-        b.poly(bay, 'hull2', { lvl: 3, h: hullH * 0.25, grid: [4, 2] });
+      default: { // wedge: a gridded bay along the spine plus cylindrical tanks on outriggers
+        b.poly(U.rect(-L * 0.08, 0, L * 0.5, W * 1.3), 'hull2', { lvl: 3, h: hullH * 0.3, grid: [5, 2] });
+        for (const s of [1, -1]) {
+          const ty = s * (y0 + W * 0.35);
+          b.strut(-L * 0.1, s * W * 0.7, -L * 0.1, ty, W * 0.3, 'hull2', { lvl: 0.8, h: hullH * 0.4 });
+          b.poly(U.chaikin(U.rect(-L * 0.1, ty, L * 0.6, W * 0.75), 2), 'trim', { lvl: 1.2, h: hullH * 0.85, bevel: W * 0.35, roof: true, lines: [[-L * 0.2, ty - W * 0.37, -L * 0.2, ty + W * 0.37], [L * 0.05, ty - W * 0.37, L * 0.05, ty + W * 0.37]] });
+        }
       }
     }
   }
