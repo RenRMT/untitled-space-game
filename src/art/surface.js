@@ -16,6 +16,7 @@
 // Cliffs, storm fronts and tall props rise above FLY and block.
 //
 //   const w = ArtSurface.generate(planetType, seed, { w, h, cover, tall, site })
+//   ArtSurface.generateSteps(planetType, seed, o)  // the same as a generator: a row at each next()
 //   ArtSurface.render(w, style, { dpr }) -> { canvas, w, h, pad }   // whole surface; cache it
 //   ArtSurface.renderRegion(w, style, { i0, j0, i1, j1, dpr }) -> layer  // tiles [i0, i1) × [j0, j1)
 //   ArtSurface.farImage(w, style) -> layer                          // the whole surface, low detail
@@ -306,6 +307,14 @@ const ArtSurface = (() => {
   // planetType: a planet type (Art.PLANET_TYPES) or a surface type. cover: share of corners that are
   // high ground; tall: chance an open tile gets a tall prop.
   function generate(planetType, seed, o = {}) {
+    const g = generateSteps(planetType, seed, o);
+    let r;
+    while (!(r = g.next()).done);
+    return r.value;
+  }
+  // The same as a generator, a row of the work at each next(); the last returns the surface. So a
+  // big one can be made across frames.
+  function* generateSteps(planetType, seed, o = {}) {
     const type = SURFACE_OF[planetType] || planetType, bi = B[type];
     const w = o.w || 28, h = o.h || 28, cover = o.cover ?? 0.22, tallP = o.tall ?? 0.035;
     seed = seed + TYPES.indexOf(type) * 1013; // each surface type lays out differently for the same seed
@@ -317,13 +326,15 @@ const ArtSurface = (() => {
         G[i][j] = sstep(0.38, 0.62, fbm(i * 0.13 + 50, j * 0.13 + 20, seed + 5));
         G2[i][j] = sstep(0.55, 0.72, fbm(i * 0.17 + 90, j * 0.17 + 40, seed + 8));
       }
+      yield;
     }
     vals.sort((a, b) => a - b);
+    yield;
     const th = vals[Math.min(vals.length - 1, Math.floor((1 - cover) * vals.length))], cx = w >> 1, cy = h >> 1;
     for (let i = 0; i <= w; i++) for (let j = 0; j <= h; j++) C[i][j] = C[i][j] >= th && !(Math.abs(i - cx) <= 2 && Math.abs(j - cy) <= 2) ? 1 : 0;
     const W = { type, seed, w, h, C, G, G2, props: {}, start: [cx * T, cy * T] };
-    if (o.site) rim(W, o.site);
-    for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    if (o.site) yield* rim(W, o.site);
+    for (let j = 0; j < h; j++, yield) for (let i = 0; i < w; i++) {
       if (C[i][j] || C[i + 1][j] || C[i][j + 1] || C[i + 1][j + 1]) continue;
       let near = false;
       for (let a = i - 1; a <= i + 2; a++) for (let b = j - 1; b <= j + 2; b++) if (C[a] && C[a][b]) near = true;
@@ -350,14 +361,14 @@ const ArtSurface = (() => {
   // The rim round the landing site, a band of corners from a little inside its edge to a few tiles
   // out (the band meanders a few tiles either way, and its edges wander): high ground (storm fronts on gas giants) with gaps about a fifth of the
   // way round, or on worlds with a sea, open water.
-  function rim(W, [i0, j0, i1, j1]) {
+  function* rim(W, [i0, j0, i1, j1]) {
     const { C, G, G2, seed } = W, bi = B[W.type], rc = 0.4 * Math.min(i1 - i0, j1 - j0);
     const cx = (i0 + i1) / 2, cy = (j0 + j1) / 2;
     W.site = { rect: [i0, j0, i1, j1], cx, cy, hx: (i1 - i0) / 2 - rc, hy: (j1 - j0) / 2 - rc, rc, leave: 9 * T };
     const gapN = (i, j) => { const a = Math.atan2(j - cy, i - cx); return fbm(Math.cos(a) * 2.6 + 40, Math.sin(a) * 2.6 + 40, seed + 63); };
     const ring = Array.from({ length: 360 }, (_, k) => gapN(cx + Math.cos((k / 180) * Math.PI), cy + Math.sin((k / 180) * Math.PI))).sort((a, b) => a - b);
     const gapAt = ring[Math.floor(ring.length * 0.8)];
-    for (let i = 0; i <= W.w; i++) for (let j = 0; j <= W.h; j++) {
+    for (let i = 0; i <= W.w; i++, yield) for (let j = 0; j <= W.h; j++) {
       const e = siteDist(W, i * T, j * T) / T + 12 * (fbm(i * 0.05 + 31, j * 0.05 + 17, seed + 64) - 0.5), inner = -2 + 2.2 * fbm(i * 0.23 + 11, j * 0.23 + 5, seed + 61), outer = inner + 2 + 2.5 * fbm(i * 0.31 + 3, j * 0.31 + 9, seed + 62);
       if (e <= inner || e >= outer) continue;
       if (bi.sea) { G[i][j] = 0; G2[i][j] = 0; C[i][j] = 0; } else C[i][j] = gapN(i, j) > gapAt ? 0 : 1;
@@ -908,7 +919,7 @@ const ArtSurface = (() => {
     return b.layer;
   }
   // The same, built a row at a time: step(budgetMs) works for about that long and returns true once
-  // it's done, when .layer holds it. So it can be built across frames.
+  // it's done, when .layer holds it; .progress says how far it's got (0..1). So it can be built across frames.
   function farBuilder(W, style, o = {}) {
     const bi = B[W.type], ct = cam(W).ct, L = LIGHT(), Wu = W.w * T, Hu = W.h * T, upp = o.upp || Math.max(6, Math.max(Wu, Hu) / 1600);
     const nx = Math.ceil(Wu / upp) + 1, ny = Math.ceil((Hu * ct) / upp) + 1, sea = bi.sea, line = style === 'line', q = line ? 2 : 1;
@@ -968,7 +979,7 @@ const ArtSurface = (() => {
       return jobs;
     };
     let stage = 0, row = 0, jobs = null;
-    const out = { layer: null };
+    const out = { layer: null, progress: 0 };
     out.step = (budgetMs) => {
       const t0 = performance.now();
       while (!out.layer && performance.now() - t0 < budgetMs) {
@@ -982,6 +993,7 @@ const ArtSurface = (() => {
           if (!jobs.length) out.layer = { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp };
         }
       }
+      out.progress = out.layer ? 1 : stage === 0 ? (0.5 * row) / ny : line ? 0.5 + 0.5 * (1 - (jobs ? jobs.length : 6) / 6) : 0.5 + (0.5 * row) / ny;
       return !!out.layer;
     };
     return out;
@@ -1013,7 +1025,7 @@ const ArtSurface = (() => {
     return false;
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, sample, build, draw, drawLive, render, renderRegion, farImage, farBuilder, overlay, blocked, siteDist, project, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, farImage, farBuilder, overlay, blocked, siteDist, project, heightAt, shadowShift };
 })();
 
 export { ArtSurface };

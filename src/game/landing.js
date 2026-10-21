@@ -4,7 +4,7 @@
 //
 // Landing goes through these phases; taking off goes through them backwards (climb, unfade, ascend):
 //   descend   in space: the camera closes in on the planet until it's a third of the screen across
-//             and the ship dives into it; the surface is built meanwhile (held here until it's ready)
+//             and the ship dives into it; the surface's far image is built meanwhile
 //   fade      the planet's own art fades into its surface drawn as a globe of the same size, the
 //             landing site at the top (art/surface-globe.js)
 //   approach  the globe: the view zooms in and the ground flattens out (the only curvature there
@@ -12,10 +12,14 @@
 //   surface   flat ground: fly round the landing site; the minimap shows the planet, the site and
 //             where you are on it
 // From the descent until the ship is back in space, flight, the map and the context menu are off.
+// Each phase runs on the clock, but no further than what it needs of the surface has been built (the
+// far image in the descent, the chunks round the landing spot in the approach): short of that it
+// slows to a crawl, building faster meanwhile, so a slow device sees a slower landing, never a stall.
 //
 //   LANDABLE, landable(e)       the planet and moon types that have a surface, and whether e does
 //   land(e), takeOff()
-//   landing                     { on, phase, t, u, e, craft }: u runs 0 (orbit) .. 1 (down)
+//   landing                     { on, phase, k, u, e, craft }: k, how far through the phase (0..1);
+//                               u runs 0 (orbit) .. 1 (down)
 //   tickLanding(dt)             a step: from update() while the view is space (it then steers the
 //                               ship and returns true), from the frame loop on the surface
 //   landingCamera()             in space: the camera and zoom closing in on the planet, or pulling back
@@ -40,7 +44,7 @@ import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { artStyle, moveMode } from './options.js';
 import { placeShip } from './outfitting.js';
-import { select } from './selection.js';
+import { select, selected } from './selection.js';
 import { drawStarfield } from './starfield.js';
 import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, setMode, ship, view } from './state.js';
 import { warp } from './warp.js';
@@ -61,26 +65,47 @@ const ORBIT_Z = 900; // the ship's altitude then
 const DISC = 0.36; // the planet's radius on screen when the globe takes over, a share of the screen's smaller side
 // The air's colour, for the haze and the glow at the limb; moons have none.
 const AIR = { terran: '#7fb2ea', blue: '#7fa8ea', desert: '#e0b080', ice: '#cfe6f5', lava: '#c0603a', gas: '#e8c890' };
-// On the surface the ship flies slower, and is drawn smaller, than in space: the ground is close.
-const SURFACE_SPEED = 0.4, SURFACE_SCALE = 0.85;
+// On the surface the ship flies slower than in space, and is drawn half as large again (as are its
+// shadow and the room it needs between the rocks).
+const SURFACE_SPEED = 0.4, SURFACE_SCALE = 1.5;
 
 export const landing = {
-  on: false, phase: null, t: 0, u: 0, e: null, from: null, out: null,
+  on: false, phase: null, k: 0, u: 0, e: null, from: null, out: null,
   craft: { x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }, // the ship on the surface (surface units)
 };
 export const onSurface = () => landing.on && !SPACE_PHASES.includes(landing.phase);
 
-// Each surface is generated the first time it's needed and kept: { W, far: { style: builder },
-// tiles: { style: chunks } }, by the body's name.
+// Each surface is made a little at a time, the first time it's needed, and kept, by the body's
+// name: { gen (generating it), steps, W (once made), far: { style: builder }, tiles: { style: chunks } }.
 const surfaces = new Map();
-function surface() {
-  const e = landing.e, style = artStyle.value;
+const GEN_STEPS = 3 * (SIZE + 1) + 1; // about how many next()s generating one takes (ArtSurface.generateSteps)
+function entry(e) {
   let s = surfaces.get(e.key);
   if (!s) {
     const type = e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : e.body.type;
-    s = { W: ArtSurface.generate(type, e.body.seed, { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] }), far: {}, tiles: {} };
+    s = { gen: ArtSurface.generateSteps(type, e.body.seed, { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] }), steps: 0, W: null, far: {}, tiles: {} };
     surfaces.set(e.key, s);
   }
+  return s;
+}
+// Works on e's surface for about budgetMs: the ground, then the far image in the art style now.
+// Returns how far it's got (0..1); 1 once it's ready to land on.
+function prepare(e, budgetMs) {
+  const s = entry(e), t0 = performance.now();
+  while (!s.W && performance.now() - t0 < budgetMs) {
+    const r = s.gen.next();
+    s.steps++;
+    if (r.done) s.W = r.value;
+  }
+  if (!s.W) return 0.3 * Math.min(1, s.steps / GEN_STEPS);
+  const far = (s.far[artStyle.value] ||= ArtSurface.farBuilder(s.W, artStyle.value, { upp: 10 }));
+  const left = budgetMs - (performance.now() - t0);
+  if (left > 0) far.step(left);
+  return 0.3 + 0.7 * far.progress;
+}
+// The surface being landed on (ready by the end of the descent).
+function surface() {
+  const style = artStyle.value, s = entry(landing.e);
   s.far[style] ||= ArtSurface.farBuilder(s.W, style, { upp: 10 });
   s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, { size: 8, dpr: clamp(view.dpr * view.base, 1, 1.5), keep: 28 });
   return { W: s.W, far: s.far[style], tiles: s.tiles[style] };
@@ -95,7 +120,7 @@ export function land(e) {
   autopilot.key = null;
   drag.active = false;
   ship.targetSpeed = 0;
-  Object.assign(landing, { on: true, phase: 'descend', t: 0, u: 0, e, from: { x: ship.x, y: ship.y, cx: cam.x, cy: cam.y, zoom: view.zoom } });
+  Object.assign(landing, { on: true, phase: 'descend', k: 0, u: 0, e, ready: 0.6, clock: undefined, from: { x: ship.x, y: ship.y, cx: cam.x, cy: cam.y, zoom: view.zoom } });
   setMode('landing', true);
   notify(`Landing on ${e.name}`, 2.5);
 }
@@ -104,39 +129,66 @@ export function takeOff() {
   if (landing.phase !== 'surface' && landing.phase !== 'approach') return;
   const L = landing;
   // Mid-approach, turn back from where it's got to.
-  L.t = L.phase === 'approach' ? (1 - L.u) * TIME.climb : 0;
+  L.k = L.phase === 'approach' ? 1 - L.u : 0;
   L.phase = 'climb';
   setMode('landed', false);
   notify(`Taking off from ${L.e.name}`, 2.5);
 }
 
-const next = (phase) => { landing.phase = phase; landing.t = 0; };
+const next = (phase) => { landing.phase = phase; landing.k = 0; landing.ready = undefined; };
+
+// While a planet or moon with a surface is selected (its menu offering Land), its surface is made
+// a little each frame, so most of it is ready by the time the ship lands.
+function prefetch() {
+  const e = selected && selected.e;
+  if (e && (e.kind === 'planet' || e.kind === 'moon') && landable(e)) prepare(e, 3);
+}
 
 export function tickLanding(dt) {
-  if (!landing.on) return false;
-  const L = landing, s = surface(), e = L.e;
-  L.t += dt;
-  const k = Math.min(1, L.t / TIME[L.phase] || 0);
+  if (!landing.on) { prefetch(); return false; }
+  const L = landing, e = L.e;
+  // Phases keep to their length in real time on a slow device (a choppier landing, not a longer
+  // one), though the frame loop steps the game by at most 50 ms.
+  const now = performance.now(), real = (now - (L.clock ?? now)) / 1000;
+  dt = Math.max(dt, Math.min(0.25, real));
+  L.clock = now;
+  // How far the phase may get with what's built so far (1: all of it), and the build's time this
+  // frame: more once the phase has caught up with it, as much as the rest of the frame takes (up
+  // to 60 ms) on a slow device.
+  let gate = 1;
+  const held = (g) => L.k > g - 0.1, more = clamp(real * 1000, 14, 60);
+  if (L.phase === 'descend') {
+    // Making the surface holds back the last 40% of the dive.
+    const p = prepare(e, held(L.ready) ? more : 8);
+    L.ready = 0.6 + 0.4 * p;
+    if (p >= 1) warmTiles(surface(), 4); else gate = L.ready;
+  } else if (L.phase === 'approach') {
+    // The chunks round the landing spot hold back the approach from a third of the way down,
+    // where the detail starts to fade in.
+    const c = warmTiles(surface(), held(L.ready) ? more : 6);
+    L.ready = 0.35 + 0.65 * (c.total ? c.loaded / c.total : 1);
+    if (c.missing) gate = L.ready;
+  }
+  const rate = gate >= 1 ? 1 : clamp((gate - L.k) / 0.1, 0, 1);
+  L.k = Math.min(1, L.k + (dt / TIME[L.phase]) * rate);
+  const k = L.k;
   switch (L.phase) {
     case 'descend': {
-      // Into the planet, the ship shrinking as it goes; the surface built a little each frame.
-      const ready = s.far.step(8);
+      // Into the planet, the ship shrinking as it goes.
       const m = smoothstep(0.2, 1, k);
       ship.x = lerp(L.from.x, e.x, m);
       ship.y = lerp(L.from.y, e.y, m);
       ship.angle = ship.targetAngle = Math.atan2(e.y - L.from.y, e.x - L.from.x);
       ship.vx = ship.vy = 0;
       ship.thrust = 1 - k;
-      if (ready) warmTiles(s, 6);
-      if (k >= 1 && ready) {
-        const [x, y] = s.W.start;
+      if (k >= 1) {
+        const [x, y] = surface().W.start;
         Object.assign(L.craft, { x, y, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 });
         next('fade');
       }
       return true;
     }
     case 'fade':
-      warmTiles(s, 6);
       if (k >= 1) next('approach');
       return true;
     case 'approach':
@@ -144,11 +196,11 @@ export function tickLanding(dt) {
       if (k >= 1) { next('surface'); L.u = 1; setMode('landed', true); Feedback.emit('docked'); }
       return false;
     case 'surface':
-      fly(s.W, dt);
+      fly(surface().W, dt);
       return false;
     case 'climb':
       L.u = 1 - k;
-      fly(s.W, dt, true);
+      fly(surface().W, dt, true);
       if (k >= 1) { L.u = 0; next('unfade'); }
       return false;
     case 'unfade':
@@ -183,9 +235,10 @@ function finish() {
   Feedback.emit('launched');
 }
 
-// The surface's chunks round the landing spot, built ahead of the approach.
+// The surface's chunks round the landing spot, built ahead of the approach: { loaded, missing, total }.
 function warmTiles(s, budgetMs) {
-  detail(s.tiles, viewAt(1).v, budgetMs);
+  const got = detail(s.tiles, viewAt(1).v, budgetMs);
+  return { loaded: got.length, missing: got.missing, total: got.length + got.missing };
 }
 
 // Flying on the surface: the drag sets heading and speed as in space (game/input.js), slower; cliffs,
@@ -211,7 +264,7 @@ const planetZoom = (e) => (DISC * Math.min(view.w, view.h)) / e.body.r;
 // pulling back to the ship beside it (ascend).
 export function landingCamera() {
   if (!landing.on || onSurface()) return;
-  const L = landing, e = L.e, k = Math.min(1, L.t / TIME[L.phase]);
+  const L = landing, e = L.e, k = L.k;
   const m = L.phase === 'descend' ? smoothstep(0, 1, k) : L.phase === 'ascend' ? 1 - smoothstep(0, 1, k) : 1;
   const a = L.phase === 'ascend' ? { cx: L.out.x, cy: L.out.y, zoom: L.out.zoom } : L.from;
   cam.x = lerp(a.cx, e.x, m);
@@ -221,7 +274,7 @@ export function landingCamera() {
 
 export function landingShipScale() {
   if (!landing.on) return 1;
-  const k = Math.min(1, landing.t / TIME[landing.phase]);
+  const k = landing.k;
   if (landing.phase === 'descend') return 1 - smoothstep(0.5, 1, k);
   if (landing.phase === 'ascend') return smoothstep(0, 0.4, k);
   return 0;
@@ -257,9 +310,13 @@ function detail(tiles, v, budgetMs) {
 function drawGround(u, alpha) {
   const s = surface(), style = artStyle.value, line = style === 'line', e = landing.e;
   const { v, zoom, flat } = viewAt(u), bg = COLORS.bg, air = e.kind === 'planet' && !line ? AIR[e.body.type] : null, px = 1 / zoom;
-  const layers = [s.far.layer];
+  // After a change of art style, that style's far image is built: a little each frame on the flat
+  // ground (the chunks cover the screen meanwhile), at once on the globe, which can't do without it.
+  if (!s.far.layer) s.far.step(flat ? 6 : Infinity);
+  const layers = s.far.layer ? [s.far.layer] : [];
   const dA = smoothstep(0.35, 0.75, u);
-  if (dA > 0) for (const L of detail(s.tiles, v, landing.phase === 'surface' ? 8 : 5)) { L.alpha = dA; layers.push(L); }
+  // Chunks are built here only on the surface; on the way down tickLanding builds them, one a frame.
+  if (dA > 0) for (const L of detail(s.tiles, v, landing.phase === 'surface' ? 8 : 0)) { L.alpha = dA; layers.push(L); }
   ctx.save();
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = alpha;
@@ -287,8 +344,7 @@ function drawGround(u, alpha) {
 // In space: the globe fading in over the planet (fade) or out of it (unfade).
 export function drawLandingOverlay() {
   if (!landing.on || (landing.phase !== 'fade' && landing.phase !== 'unfade')) return;
-  const k = Math.min(1, landing.t / TIME[landing.phase]);
-  drawGround(0, landing.phase === 'fade' ? k : 1 - k);
+  drawGround(0, landing.phase === 'fade' ? landing.k : 1 - landing.k);
 }
 
 // The surface's frame: stars, the ground, the ship and its shadow, the minimap and the HUD.

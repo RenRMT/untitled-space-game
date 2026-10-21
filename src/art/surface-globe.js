@@ -26,6 +26,7 @@
 //   SurfaceGlobe.horizonDist(v)                             // how far ahead the horizon is
 //   const tiles = SurfaceGlobe.tiles(W, style, { size, dpr })  // detailed chunks, built as needed
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
+//                                                           // (layers.missing: how many still aren't built)
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
 
 import { Art } from './render.js';
@@ -239,6 +240,7 @@ const SurfaceGlobe = (() => {
         }
         if (c) { c.used = frame; if (fade) c.fade = fade; out.push(c); }
       }
+      out.missing = want.length - out.length;
       if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
       return out;
     }
