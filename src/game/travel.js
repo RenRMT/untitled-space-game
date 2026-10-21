@@ -6,6 +6,7 @@ import { Scene } from '../flight/scene.js';
 import { SystemMap } from '../ui/map.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { cargo } from './cargo.js';
+import { landing } from './landing.js';
 import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
 import { NEAR, cam, fight, intro, notify, ship, wings } from './state.js';
@@ -96,6 +97,7 @@ export function nearbyEntities(t) {
 export function init() {
   SystemMap.hooks = {
     travel(dest) {
+      if (landing.on) { notify('Take off first', 2.5, { once: true, tone: 'warn' }); return; } // map travel is from space
       world.travel.start({ x: ship.x, y: ship.y }, dest);
       SystemMap.redraw();
     },

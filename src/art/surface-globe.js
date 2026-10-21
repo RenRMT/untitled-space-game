@@ -28,6 +28,7 @@
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
 //                                                           // (layers.missing: how many still aren't built)
 //   tiles.warm(rect, budgetMs)                              // works on the missing over rect, nearest first
+//   tiles.stats() -> { cached, keep, busy, built, ms, steps } // for a performance readout (built, ms, steps: totals so far)
 // Chunks are built a step at a time (ArtSurface.renderRegionSteps), one under way at once, for the
 // budget given each call: a frame never has to build a whole one (budgetMs Infinity: all, now).
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
@@ -237,6 +238,7 @@ const SurfaceGlobe = (() => {
     const region = (ci, cj) => ({ i0: ci * size, j0: cj * size, i1: Math.min(W.w, (ci + 1) * size), j1: Math.min(W.h, (cj + 1) * size), dpr });
     // The chunk being built a step at a time ({ k, gen }), at most one: no frame builds a whole one.
     let job = null;
+    const counts = { built: 0, ms: 0, steps: 0 }; // for the performance overlay: chunks finished, time spent and steps taken, so far
     // Works on the chunk under way (or else starts the first of `want` that's missing) for about
     // budgetMs, a step of a few milliseconds at a time; a finished one is kept.
     function pump(want, budgetMs) {
@@ -244,12 +246,14 @@ const SurfaceGlobe = (() => {
       while (performance.now() - t0 < budgetMs) {
         if (!job) {
           const next = want.find(([ci, cj]) => !map.has(key(ci, cj)));
-          if (!next) return;
+          if (!next) break;
           job = { k: key(next[0], next[1]), gen: ArtSurface.renderRegionSteps(W, style, region(next[0], next[1])) };
         }
         const r = job.gen.next();
-        if (r.done) { r.value.used = frame; map.set(job.k, r.value); job = null; }
+        counts.steps++;
+        if (r.done) { r.value.used = frame; map.set(job.k, r.value); job = null; counts.built++; }
       }
+      counts.ms += performance.now() - t0;
     }
     function evict() {
       if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
@@ -258,7 +262,9 @@ const SurfaceGlobe = (() => {
       frame++;
       const want = wanted(rect), out = [];
       if (budgetMs === Infinity) { // all of them, now
-        for (const [ci, cj] of want) if (!map.has(key(ci, cj))) map.set(key(ci, cj), ArtSurface.renderRegion(W, style, region(ci, cj)));
+        const t0 = performance.now();
+        for (const [ci, cj] of want) if (!map.has(key(ci, cj))) { map.set(key(ci, cj), ArtSurface.renderRegion(W, style, region(ci, cj))); counts.built++; }
+        counts.ms += performance.now() - t0;
       } else if (budgetMs > 0) pump(want, budgetMs);
       for (const [ci, cj] of want) {
         const c = map.get(key(ci, cj));
@@ -276,7 +282,8 @@ const SurfaceGlobe = (() => {
       for (const [ci, cj] of want) { const c = map.get(key(ci, cj)); if (c) c.used = frame; }
       evict();
     }
-    return { layers, warm, size: () => map.size, clear: () => map.clear() };
+    const stats = () => ({ cached: map.size, keep, busy: !!job, ...counts });
+    return { layers, warm, stats, size: () => map.size, clear: () => map.clear() };
   }
 
   return { view, draw, drawFlat, toScreen, limb, extent, horizonDist, tiles };

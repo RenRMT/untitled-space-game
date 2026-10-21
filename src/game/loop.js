@@ -23,7 +23,7 @@ import { drawStarfield, starCount } from './starfield.js';
 import { cam, ctx, fight, flash, here, intro, ship, view } from './state.js';
 import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
-import { drawLanding, drawLandingOverlay, landing, onSurface, tickLanding } from './landing.js';
+import { drawLanding, drawLandingOverlay, landing, onSurface, surfacePerf, tickLanding } from './landing.js';
 import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
 import { world } from './world.js';
 
@@ -106,7 +106,11 @@ export function recordFrame(workMs, gapMs) {
   perfStats.gap[perfStats.i] = gapMs;
   perfStats.i = (perfStats.i + 1) % PERF_FRAMES;
 }
-export function drawPerf() {
+// surface: lines about the surface (game/landing.js) instead of space's entities and asteroids.
+// Below the lines, a graph of the last PERF_FRAMES frames: the time between frames (the bar) and
+// the time the frame's work took (its brighter base), with lines at 60 and 30 fps: a stutter is a
+// tall bar.
+export function drawPerf(surface = null) {
   const now = performance.now();
   const s = Art.stats(), b = ArtBodies.stats();
 
@@ -121,22 +125,38 @@ export function drawPerf() {
     perfStats.prev = s;
     perfStats.prevT = now;
   }
-  let sum = 0, worst = 0, gaps = 0;
-  for (let i = 0; i < PERF_FRAMES; i++) { sum += perfStats.work[i]; worst = Math.max(worst, perfStats.work[i]); gaps += perfStats.gap[i]; }
+  let sum = 0, worst = 0, gaps = 0, worstGap = 0;
+  for (let i = 0; i < PERF_FRAMES; i++) { sum += perfStats.work[i]; worst = Math.max(worst, perfStats.work[i]); gaps += perfStats.gap[i]; worstGap = Math.max(worstGap, perfStats.gap[i]); }
   const fps = gaps > 0 ? (1000 * PERF_FRAMES) / gaps : 0;
   const lines = [
-    `frame ${(sum / PERF_FRAMES).toFixed(1)} ms avg · ${worst.toFixed(1)} worst · ${Math.round(fps)} fps`,
-    `entities ${perfStats.posed} posed · ${perfStats.drawn} drawn · ${starCount} stars`,
+    `frame ${(sum / PERF_FRAMES).toFixed(1)} ms avg · ${worst.toFixed(1)} worst · ${Math.round(fps)} fps · longest gap ${worstGap.toFixed(0)} ms`,
+    ...(surface || [
+      `entities ${perfStats.posed} posed · ${perfStats.drawn} drawn · ${starCount} stars`,
+      `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
+      `moons and nebulae ${b.sprites} cached · ${Math.round((b.pixels * 4) / 1e6)} MB · ${b.builds} built`,
+    ]),
     `sprites ${s.sprites} cached · ${Math.round((s.spritePixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.builds)} built/s · ${Math.round(perfStats.rates.deferred)} waited/s`,
-    `asteroids ${s.asteroids} cached · ${Math.round((s.asteroidPixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.asteroidBuilds)} built/s`,
-    `moons and nebulae ${b.sprites} cached · ${Math.round((b.pixels * 4) / 1e6)} MB · ${b.builds} built`,
   ];
+  const x0 = 8, y0 = 92, w = 380, gh = 44, ty = y0 + lines.length * 15 + 12;
   ctx.save();
   ctx.font = Theme.font(11);
   ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
-  ctx.fillRect(8, 92, 360, lines.length * 15 + 8);
+  ctx.fillRect(x0, y0, w, lines.length * 15 + gh + 20);
   ctx.fillStyle = COLORS.cyan;
-  lines.forEach((l, i) => ctx.fillText(l, 14, 108 + i * 15));
+  lines.forEach((l, i) => ctx.fillText(l, x0 + 6, y0 + 16 + i * 15));
+  // The graph, oldest frame on the left; 50 ms fills its height.
+  const bw = (w - 12) / PERF_FRAMES, hy = (ms) => ty + gh - Math.min(gh, (ms / 50) * gh);
+  for (let n = 0; n < PERF_FRAMES; n++) {
+    const i = (perfStats.i + n) % PERF_FRAMES, g = perfStats.gap[i], wk = perfStats.work[i], x = x0 + 6 + n * bw;
+    ctx.fillStyle = g > 34 ? COLORS.hostile : g > 18 ? COLORS.amber : COLORS.cyan;
+    ctx.globalAlpha = 0.45;
+    ctx.fillRect(x, hy(g), bw - 1, ty + gh - hy(g));
+    ctx.globalAlpha = 0.95;
+    ctx.fillRect(x, hy(wk), bw - 1, ty + gh - hy(wk));
+  }
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = COLORS.hud;
+  for (const ms of [16.7, 33.3]) ctx.fillRect(x0 + 6, Math.round(hy(ms)), w - 12, 1);
   ctx.restore();
 }
 
@@ -170,9 +190,12 @@ export function frame(now) {
   Messages.tick(dt);
   tickTravel(dt);
   if (onSurface()) { // on a planet's surface (game/landing.js) space is left as it was
-    if (!(Settings.isOpen || FactionsMenu.isOpen)) tickLanding(dt);
-    drawLanding(simTime);
-    recordFrame(performance.now() - t0, gap);
+    if (!SystemMap.isOpen) { // the map covers it, and pauses it
+      if (!(Settings.isOpen || FactionsMenu.isOpen)) tickLanding(dt);
+      drawLanding(simTime);
+      recordFrame(performance.now() - t0, gap);
+      if (SystemMap.perf) drawPerf(surfacePerf());
+    }
   } else if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
     const paused = Settings.isOpen || FactionsMenu.isOpen || resume.on; // the menus pause it too, but keep it drawn
     if (!paused) {
