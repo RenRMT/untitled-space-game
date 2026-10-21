@@ -128,8 +128,9 @@ const Entities = (() => {
     // glow); the flight view adds what can be done there (game/landing.js).
     planet: {
       order: 1, selectable: true, hit: 0.5,
-      // Lit from the star (e.lightAngle, flight/scene.js).
-      draw: (ctx, e, style, x, y) => Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: e.lightAngle ?? -2.2 }),
+      // Lit from the star (e.lightAngle, flight/scene.js). e.ppu, while set, holds its sprite at one
+      // resolution (a landing zooms right in: game/landing.js).
+      draw: (ctx, e, style, x, y) => Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: e.lightAngle ?? -2.2, ppu: e.ppu }),
 
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 3 }),
@@ -137,7 +138,7 @@ const Entities = (() => {
     },
     moon: {
       order: 1, selectable: true, hit: 0.8,
-      draw: (ctx, e, style, x, y) => ArtBodies.drawMoon(ctx, e.body, style, { x, y }),
+      draw: (ctx, e, style, x, y) => ArtBodies.drawMoon(ctx, e.body, style, { x, y, ppu: e.ppu }),
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 2 }),
       card: (e) => ({ title: e.name, sub: `Moon · ${(ArtBodies.MOONS[e.body.type] || { label: 'rock' }).label.toLowerCase()}`, color: color().planet }),
