@@ -101,11 +101,13 @@ function prepare(e, budgetMs) {
   if (left > 0) far.step(left);
   return 0.3 + 0.7 * far.progress;
 }
+// The detailed chunks: 4×4 tiles (small, so building one doesn't hold up a frame long).
+const tileOpts = () => ({ size: 4, dpr: clamp(view.dpr * surfaceZoom(), 1, Display.touch() ? 1.5 : 2), keep: 96 });
 // The surface being landed on (ready by the cross-fade).
 function surface() {
   const style = artStyle.value, s = entry(landing.e);
   s.far[style] ||= ArtSurface.farBuilder(s.W, style, { upp: 10 });
-  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, { size: 8, dpr: clamp(view.dpr * surfaceZoom(), 1, Display.touch() ? 1.5 : 2), keep: 24 });
+  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, tileOpts());
   return { W: s.W, far: s.far[style], tiles: s.tiles[style] };
 }
 
@@ -170,9 +172,13 @@ export function takeOff() {
 
 // While a planet or moon with a surface is selected (its menu offering Land), its surface is made
 // a little each frame, so most of it is ready by the time the ship lands.
+// Once that's done, the chunks round the landing spot too, one at most a frame.
 function prefetch() {
   const e = selected && selected.e;
-  if (e && (e.kind === 'planet' || e.kind === 'moon') && landable(e)) prepare(e, 3);
+  if (!e || !(e.kind === 'planet' || e.kind === 'moon') || !landable(e) || prepare(e, 3) < 1) return;
+  const s = entry(e), style = artStyle.value, [fx, fy] = s.W.start;
+  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, tileOpts());
+  s.tiles[style].layers({ x0: fx - 700, x1: fx + 700, y0: fy - 700, y1: fy + 450, cx: fx, cy: fy }, 3);
 }
 
 export function tickLanding(dt) {
@@ -192,7 +198,9 @@ export function tickLanding(dt) {
     const p = prepare(e, close(L.gate ?? 1) ? more : 8);
     if (p < 1) gate = tAt(lerp(P.a, P.x - FADE, 0.5 + 0.5 * p)); // the surface itself, before it fades in
     else {
-      // The chunks round the landing spot, before the last stretch of the zoom.
+      // The chunks round the landing spot, before the last stretch of the zoom (the ship set down
+      // there first, so they're the ones looked for).
+      if (fadeAt(L.t) <= 0) setDown();
       const c = warmTiles(surface(), close(L.gate ?? 1) ? more : 6);
       if (c.missing) gate = tAt(lerp(P.x, P.b, 0.7 + 0.3 * (c.loaded / c.total)));
     }
@@ -201,7 +209,7 @@ export function tickLanding(dt) {
     const t0 = L.t;
     L.t = Math.min(1, L.t + (dt / P.time) * rate);
     // The ship is set down on the surface's landing spot as the surface comes into view.
-    if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) { const [x, y] = surface().W.start; Object.assign(L.craft, { x, y, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }); }
+    if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) setDown();
     if (L.t >= 1) { L.phase = 'surface'; setMode('landed', true); Feedback.emit('docked'); }
   } else {
     L.t = Math.max(0, L.t - dt / P.time);
@@ -220,6 +228,9 @@ export function tickLanding(dt) {
   }
   return false;
 }
+
+// The ship at rest on the surface's landing spot.
+function setDown() { const [x, y] = surface().W.start; Object.assign(landing.craft, { x, y, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }); }
 
 // The planet's sprite is drawn at one resolution for the whole zoom (its sharpest, as it fills the
 // screen), so it's made once rather than again at every step of the zoom.
@@ -288,10 +299,27 @@ function viewAt(t) {
 
 // Detailed chunks over the ground the view shows, no wider or further than the landed view needs
 // however far out the view is zoomed: the low-detail image does the rest.
-function detail(tiles, v, budgetMs) {
+function detailRect(v) {
   const ex = SurfaceGlobe.extent(v);
-  const rect = { x0: Math.max(ex.x0, v.fx - 900), x1: Math.min(ex.x1, v.fx + 900), y0: Math.max(ex.y0, v.fy - 1100), y1: Math.min(ex.y1, v.fy + 600), cx: v.fx, cy: v.fy };
-  return tiles.layers(rect, budgetMs);
+  return { x0: Math.max(ex.x0, v.fx - 900), x1: Math.min(ex.x1, v.fx + 900), y0: Math.max(ex.y0, v.fy - 1100), y1: Math.min(ex.y1, v.fy + 600), cx: v.fx, cy: v.fy };
+}
+const detail = (tiles, v, budgetMs) => tiles.layers(detailRect(v), budgetMs);
+
+// Flying on the surface, the chunks the ship is heading for (the view a moment ahead, and a ring
+// round it) are built ahead of need, so they're rarely missing as they come into view: one at a
+// time, in a quiet moment (requestIdleCallback with most of a frame free; without it, at the end
+// of a frame that took little), every other frame at most, so the work is spread out.
+const LEAD = 1.2, RING = 300; // seconds ahead, world units round the view
+let idle = null, skip = false;
+function aheadRect() {
+  const C = landing.craft, r = detailRect(viewAt(1).v), dx = C.vx * LEAD, dy = C.vy * LEAD;
+  return { x0: r.x0 + dx - RING, x1: r.x1 + dx + RING, y0: r.y0 + dy - RING, y1: r.y1 + dy + RING, cx: C.x + dx, cy: C.y + dy };
+}
+function buildAhead(frameStart) {
+  if (landing.phase !== 'surface' || idle || (skip = !skip)) return;
+  const tiles = surface().tiles, one = (room) => { let n = 0; tiles.warm(aheadRect(), () => n++ < 1 && room()); };
+  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') one(() => dl.timeRemaining() > 1); });
+  else one(() => performance.now() - frameStart < 4);
 }
 
 // The ground at t, drawn at alpha over whatever is there: the low-detail image, then the chunks
@@ -323,7 +351,7 @@ export function drawLandingOverlay() {
 
 // The surface's frame: the ground, the ship and its shadow, the minimap and the HUD.
 export function drawLanding(time) {
-  const L = landing, s = surface(), C = L.craft, style = artStyle.value;
+  const t0 = performance.now(), L = landing, s = surface(), C = L.craft, style = artStyle.value;
   Art.beginFrame(); // the sprite caches' build budget for this frame, as in space
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = COLORS.bg;
@@ -351,6 +379,7 @@ export function drawLanding(time) {
   ctx.restore();
   drawSurfaceMinimap();
   drawSurfaceHud();
+  buildAhead(t0);
 }
 
 // The minimap on the surface: the planet (or moon) as it's drawn in space, the landing site as a

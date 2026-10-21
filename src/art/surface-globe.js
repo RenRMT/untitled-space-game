@@ -27,6 +27,7 @@
 //   const tiles = SurfaceGlobe.tiles(W, style, { size, dpr })  // detailed chunks, built as needed
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
 //                                                           // (layers.missing: how many still aren't built)
+//   tiles.warm(rect, more)                                  // builds the missing over rect, nearest first, while more()
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
 
 import { Art } from './render.js';
@@ -222,29 +223,46 @@ const SurfaceGlobe = (() => {
     const map = new Map();
     let frame = 0;
     const key = (ci, cj) => ci * 4096 + cj;
-    function layers(rect, budgetMs = 6, fade) {
-      frame++;
+    // The chunks over rect, nearest (rect.cx, rect.cy) first: [ci, cj] each.
+    function wanted(rect) {
       const ci0 = Math.max(0, Math.floor(rect.x0 / T / size)), ci1 = Math.min(Math.ceil(W.w / size) - 1, Math.floor(rect.x1 / T / size));
       // Chunks are bands in projected y; rect's ground rows, less a margin for tall things below.
       const cj0 = Math.max(0, Math.floor(rect.y0 / T / size)), cj1 = Math.min(Math.ceil(W.h / size) - 1, Math.floor((rect.y1 + 80 / ct) / T / size));
       const want = [];
       for (let cj = cj0; cj <= cj1; cj++) for (let ci = ci0; ci <= ci1; ci++) want.push([ci, cj, Math.hypot((ci + 0.5) * size * T - rect.cx, (cj + 0.5) * size * T - rect.cy)]);
-      want.sort((p, q) => p[2] - q[2]);
-      const t0 = performance.now(), out = [];
+      return want.sort((p, q) => p[2] - q[2]);
+    }
+    function build(ci, cj) {
+      const c = ArtSurface.renderRegion(W, style, { i0: ci * size, j0: cj * size, i1: Math.min(W.w, (ci + 1) * size), j1: Math.min(W.h, (cj + 1) * size), dpr });
+      map.set(key(ci, cj), c);
+      return c;
+    }
+    function evict() {
+      if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
+    }
+    function layers(rect, budgetMs = 6, fade) {
+      frame++;
+      const want = wanted(rect), t0 = performance.now(), out = [];
       for (const [ci, cj] of want) {
         let c = map.get(key(ci, cj));
-        if (!c && (performance.now() - t0 < budgetMs || budgetMs === Infinity)) {
-          c = ArtSurface.renderRegion(W, style, { i0: ci * size, j0: cj * size, i1: Math.min(W.w, (ci + 1) * size), j1: Math.min(W.h, (cj + 1) * size), dpr });
-          if (fade) c.fade = fade;
-          map.set(key(ci, cj), c);
-        }
+        if (!c && (performance.now() - t0 < budgetMs || budgetMs === Infinity)) c = build(ci, cj);
         if (c) { c.used = frame; if (fade) c.fade = fade; out.push(c); }
       }
       out.missing = want.length - out.length;
-      if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
+      evict();
       return out;
     }
-    return { layers, size: () => map.size, clear: () => map.clear() };
+    // Builds the missing chunks over rect, nearest first, while more() says there's time for one
+    // more; they're kept as if just used.
+    function warm(rect, more) {
+      for (const [ci, cj] of wanted(rect)) {
+        let c = map.get(key(ci, cj));
+        if (!c) { if (!more()) break; c = build(ci, cj); }
+        c.used = frame;
+      }
+      evict();
+    }
+    return { layers, warm, size: () => map.size, clear: () => map.clear() };
   }
 
   return { view, draw, drawFlat, toScreen, limb, extent, horizonDist, tiles };

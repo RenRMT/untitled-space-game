@@ -476,7 +476,11 @@ const ArtSurface = (() => {
       }
       g.tris.push({ pts: [pp(a), pp(b), pp(c)], col, k, wash });
     };
-    for (let gy = Y0; gy < GY; gy++) for (let gx = X0; gx < GX; gx++) {
+    // A region drawn for its inner tiles (renderRegion) skips the ground cells in its margin, which
+    // the clip would hide: all but the cell next to the inner tiles, and all the margin below (its
+    // ground can rise into view).
+    const inn = rg.inner, cx0 = inn ? inn.i0 * N - 1 : X0, cx1 = inn ? inn.i1 * N + 1 : GX, cy0 = inn ? inn.j0 * N - 1 : Y0;
+    for (let gy = Math.max(Y0, cy0); gy < GY; gy++) for (let gx = Math.max(X0, cx0); gx < Math.min(GX, cx1); gx++) {
       const a = V[gy - Y0][gx - X0], b = V[gy - Y0][gx - X0 + 1], c = V[gy - Y0 + 1][gx - X0 + 1], d = V[gy - Y0 + 1][gx - X0];
       if (hash(gx, gy, s + 23) < 0.5) { addTri(a, b, c); addTri(a, c, d); } else { addTri(a, b, d); addTri(b, c, d); }
     }
@@ -903,7 +907,7 @@ const ArtSurface = (() => {
   // show as a seam where it meets the next.
   function renderRegion(W, style, o) {
     const ct = cam(W).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
-    const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1) };
+    const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1), inner: o };
     const cv = document.createElement('canvas'); cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
     const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, -x0 * dpr, -y0 * dpr);
     ctx.beginPath(); ctx.rect(x0, y0, cv.width / dpr, cv.height / dpr); ctx.clip();
