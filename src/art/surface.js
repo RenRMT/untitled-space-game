@@ -238,6 +238,49 @@ const ArtSurface = (() => {
     for (const v of b.hole) { v.c = hex(v.floor); if (v.water) v.w = hex(v.water); }
     for (const v of b.tall) if (v.col) { v.c = [hex(v.col), hex(v.col2)]; v.ct = hex(v.top); }
   }
+  // Line style colour: the ground under the lines is washed with its zone's colour, faintly where
+  // the ship can fly and more strongly on what blocks it (high ground, storm fronts, tall props),
+  // whose rims are drawn heavier. Small props, which the ship flies over, keep their own colours.
+  // Opaque mixes into the background, kept per background colour.
+  const WASH = { ground: 0.15, sea: 0.22, block: 0.34 };
+  function lineTones(bi) {
+    const bg = BG();
+    if (bi.tn && bi.tn.bg === bg) return bi.tn;
+    const B0 = hex(bg), mk = (c, a) => mixc(B0, c, a), tn = { bg, B0 };
+    for (const k of ['a', 'b', 'c']) tn[k] = mk(bi[k].c, WASH.ground);
+    if (bi.sea) { tn.sand = mk(bi.sea.c.sand, WASH.ground); tn.shallow = mk(bi.sea.c.shallow, WASH.sea); tn.deep = mk(bi.sea.c.deep, WASH.sea); }
+    if (bi.high.c) tn.high = mk(mixc(bi.high.c.top, bi.LN, 0.35), WASH.block);
+    if (bi.storm) tn.high = mk(mixc(bi.storm.c.col, bi.LN, 0.6), WASH.block * 1.2);
+    bi.hole.forEach((v, n) => { tn['hole' + n] = mk(v.c, WASH.ground * 1.6); if (v.w) tn['pool' + n] = mk(v.w, WASH.sea); });
+    return (bi.tn = tn);
+  }
+  // The Line style's ground tone at a point (raw: rawHeight there): its ground kinds' tones blended
+  // by weight (cloud bands on gas giants), then the storm fronts, the sea, shore and holes over them.
+  function toneAt(W, x, y, raw) {
+    const bi = B[W.type], tn = lineTones(bi), wt = weights(W, x, y), sea = bi.sea;
+    let col = bi.fluid ? mixc(tn.B0, cloudCol(W, x, y, false), WASH.ground * 1.2) : [0, 1, 2].map((i) => tn.a[i] * wt[0] + tn.b[i] * wt[1] + tn.c[i] * wt[2]);
+    if (bi.storm) col = mixc(col, tn.high, sstep(0.3, 0.6, storm(W, x, y).s));
+    if (sea) {
+      col = mixc(col, tn.sand, sstep(sea.level + 2.2, sea.level + 0.6, raw));
+      col = mixc(col, mixc(tn.shallow, tn.deep, clamp((sea.level - raw) / 6, 0, 1)), sstep(sea.level + 0.3, sea.level - 0.6, raw));
+    }
+    const pr = propAt(W, x, y);
+    if (pr && pr.type === 'hole' && !bi.fluid) {
+      const v = bi.hole[pr.v], d = Math.hypot(x - pr.x, y - pr.y) / v.r;
+      if (v.w && d < 1 && raw <= pr.wl + 0.05) col = tn['pool' + pr.v];
+      else col = mixc(col, tn['hole' + pr.v], sstep(1, 0.5, d));
+    }
+    return col;
+  }
+  // A canvas at least w × h to stage an image in, shared.
+  let SCRATCH = null;
+  const scratch = (w, h) => {
+    const c = SCRATCH || (SCRATCH = document.createElement('canvas'));
+    if (c.width < w || c.height < h) { c.width = Math.max(c.width, w); c.height = Math.max(c.height, h); }
+    return c;
+  };
+  // A prop colour bright enough to draw lines in on the dark background.
+  const propLine = (bi, c) => mixc(c, bi.LN, 0.45).map((v) => v * 1.25);
   const TYPES = Object.keys(B);
   const PROPS = 0.6; // the share of each biome's small-prop chances (p) that get one: fewer to build and draw
   const SURFACE_OF = { desert: 'desert', terran: 'terran', blue: 'terran', ice: 'ice', lava: 'lava', gas: 'gas' };
@@ -507,6 +550,16 @@ const ArtSurface = (() => {
     // Contour lines and lee slopes only for a region drawn in the Line style (rg.lines, set by
     // renderRegion); the coast and waves for any with a sea. Neither: no contour grid at all.
     const lines = rg.lines !== false, contoured = lines || !!sea;
+    // Line style: the ground's tone (toneAt) at each height-grid point, drawn smoothed under the lines.
+    if (style === 'line') {
+      const nx = GX - X0 + 1, ny = GY - Y0 + 1, D = new Uint8ClampedArray(nx * ny * 4);
+      for (let r = 0; r < ny; r++) for (let c = 0; c < nx; c++) {
+        const v = V[r][c], col = toneAt(W, v[0], v[1], v[3]), k = (r * nx + c) * 4;
+        D[k] = col[0]; D[k + 1] = col[1]; D[k + 2] = col[2]; D[k + 3] = 255;
+      }
+      g.tone = { D, nx, ny, x0: X0 * gs, y0: Y0 * gs, gs };
+      yield 'tones';
+    }
     const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 7.2, Z = [], R = []; // LV: the contour interval (only the major lines: the minor ones cost more than they showed)
     if (contoured) for (let b = B0; b <= MY; b++, yield 'contour heights') { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
     const cross0 = (zz, q, lev) => {
@@ -543,13 +596,14 @@ const ArtSurface = (() => {
       if (dot(n, L) < 0.5) g.lee.push(q.map((p, k) => pp([p[0], p[1], zz[k]])));
     }
     // o: cliff wall options { deco: 'strata' | 'cols' | 'crev', u: wall width }.
-    const addFace = (q, col, hint, o) => {
+    const addFace = (q, col, hint, o, block = true) => {
       let n = nrm(cross(sub(q[1], q[0]), sub(q[3], q[0])));
       if (dot(n, hint) < 0) n = n.map((v) => -v);
       if (dot(n, VIEW) <= 0.001) return;
-      g.raised.push({ kind: 'face', pts: q.map(pp), col, wall: !!o, deco: o && o.deco, u: o ? o.u : 0, k: kOf(n, 0.6), dd: dot(n, L), d: depth(q) });
+      g.raised.push({ kind: 'face', pts: q.map(pp), col, wall: !!o, deco: o && o.deco, u: o ? o.u : 0, k: kOf(n, 0.6), dd: dot(n, L), d: depth(q), block });
     };
-    const addTop = (ring, cut, col, apexZ, emit) => {
+    // block: false for what the ship flies over (small props).
+    const addTop = (ring, cut, col, apexZ, emit, block = true) => {
       const cx = ring.reduce((t, p) => t + p[0], 0) / ring.length, cy = ring.reduce((t, p) => t + p[1], 0) / ring.length;
       const cen = [cx, cy, apexZ ?? ring.reduce((t, p) => t + p[2], 0) / ring.length];
       const tris = ring.map((p, m) => {
@@ -557,19 +611,19 @@ const ArtSurface = (() => {
         let n = nrm(cross(sub(t[1], t[0]), sub(t[2], t[0]))); if (n[2] < 0) n = n.map((v) => -v);
         return { pts: t.map(pp), k: emit ? 1.05 : kOf(n, 0.2) };
       });
-      g.raised.push({ kind: 'top', ring: ring.map(pp), cut, tris, col, emit, d: depth(ring) });
+      g.raised.push({ kind: 'top', ring: ring.map(pp), cut, tris, col, emit, block, d: depth(ring) });
     };
     // A column of stacked rings (rings: [z, r, base?]; base: a fixed ground height, else per vertex).
-    const addColumn = (cx, cy, rings, sides, cols, topCol, salt, apexZ, emit, lean) => {
+    const addColumn = (cx, cy, rings, sides, cols, topCol, salt, apexZ, emit, lean, block = true) => {
       const ang = [], rj = [], zt = rings[rings.length - 1][0] || 1;
       for (let k = 0; k < sides; k++) { ang.push((k / sides) * TAU + (hash(k, salt, s + 61) - 0.5) * (6 / sides)); rj.push(0.82 + 0.36 * hash(k, salt, s + 62)); }
       const Rg = rings.map(([z, r, base]) => ang.map((a, k) => { const lx = lean ? lean[0] * z / zt : 0, ly = lean ? lean[1] * z / zt : 0, x = cx + lx + Math.cos(a) * r * rj[k], y = cy + ly + Math.sin(a) * r * rj[k]; return [x, y, (base === undefined ? heightAt(W, x, y) : base) + z]; }));
       for (let m = 0; m < Rg.length - 1; m++) for (let k = 0; k < sides; k++) {
         const A = Rg[m], Bq = Rg[m + 1], k2 = (k + 1) % sides, q = [A[k], A[k2], Bq[k2], Bq[k]];
         const mx = (A[k][0] + A[k2][0]) / 2 - cx, my = (A[k][1] + A[k2][1]) / 2 - cy, dr = rings[m][1] - rings[m + 1][1];
-        addFace(q, cols[m % cols.length], [mx, my, dr > 0.5 ? 8 : dr < -0.5 ? -8 : 0]);
+        addFace(q, cols[m % cols.length], [mx, my, dr > 0.5 ? 8 : dr < -0.5 ? -8 : 0], undefined, block);
       }
-      addTop(Rg[Rg.length - 1], Rg[0].map(() => true), topCol, apexZ, emit);
+      addTop(Rg[Rg.length - 1], Rg[0].map(() => true), topCol, apexZ, emit, block);
       return Rg;
     };
     // Cliff walls follow high.prof ([f, out, deco?] from foot to rim). Each wall point is pushed
@@ -666,10 +720,10 @@ const ArtSurface = (() => {
           let Rg, hgt;
           if (sm.trees) {
             hgt = r * 2.4 + 3;
-            Rg = addColumn(bx, by, [[0, r, base], [0.4, r * 0.9, base]], sm.sides, [v.c], v.c, salt, base + hgt);
+            Rg = addColumn(bx, by, [[0, r, base], [0.4, r * 0.9, base]], sm.sides, [v.c], v.c, salt, base + hgt, false, undefined, false);
           } else {
             hgt = r * lerp(sm.hMul[0], sm.hMul[1], h(94));
-            Rg = addColumn(bx, by, [[0, r, base], [hgt, r * sm.taper, base]], sm.sides, [v.c], v.ct || v.c, salt, base + hgt + r * sm.apex, v.emit);
+            Rg = addColumn(bx, by, [[0, r, base], [hgt, r * sm.taper, base]], sm.sides, [v.c], v.ct || v.c, salt, base + hgt + r * sm.apex, v.emit, undefined, false);
           }
           addShadow(Rg[0].map((p) => [p[0], p[1]]), hgt);
           yield 'props';
@@ -834,17 +888,20 @@ const ArtSurface = (() => {
   const BANDS = [[0, 0.22, 0], [0.22, 0.3, 1], [0.3, 0.62, 0], [0.62, 0.7, 1], [0.7, 1, 0]];
 
   function drawRaised(ctx, o, bi, style, lw) {
-    const ln = (a) => rgb(bi.LN, 1, a);
+    // Line style: what blocks the ship in the biome's line colour over a strong wash, with a heavy
+    // rim; small props in their own colour.
+    const lc = o.block ? bi.LN : propLine(bi, o.col), ln = (a) => rgb(lc, 1, a);
+    const wash = () => rgb(mixc(lineTones(bi).B0, o.block ? mixc(o.col, bi.LN, 0.35) : o.col, o.block ? WASH.block : 0.3));
     if (o.kind === 'top') {
       if (style !== 'line') {
         ctx.lineWidth = lw * 0.6;
         for (const t of o.tris) { tracePoly(ctx, t.pts); ctx.fillStyle = ctx.strokeStyle = rgb(o.col, t.k); ctx.fill(); ctx.stroke(); }
       } else {
-        tracePoly(ctx, o.ring); ctx.fillStyle = ctx.strokeStyle = BG(); ctx.lineWidth = lw * 0.8; ctx.fill(); ctx.stroke();
+        tracePoly(ctx, o.ring); ctx.fillStyle = ctx.strokeStyle = wash(); ctx.lineWidth = lw * 0.8; ctx.fill(); ctx.stroke();
         if (o.emit) { ctx.fillStyle = ln(0.75); ctx.fill(); }
         ctx.beginPath();
         o.ring.forEach((p, m) => { if (!o.cut[m]) return; const q = o.ring[(m + 1) % o.ring.length]; ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
-        ctx.strokeStyle = ln(1); ctx.lineWidth = lw; ctx.stroke();
+        ctx.strokeStyle = ln(1); ctx.lineWidth = lw * (o.block ? 1.6 : 1); ctx.stroke();
       }
       return;
     }
@@ -863,7 +920,7 @@ const ArtSurface = (() => {
       for (const [u, f] of crev) fill([hi(u - 0.05), hi(u + 0.05), mid(u, f)], o.col, o.k * 0.62);
       return;
     }
-    tracePoly(ctx, q); ctx.fillStyle = BG(); ctx.fill();
+    tracePoly(ctx, q); ctx.fillStyle = wash(); ctx.fill();
     // Faces turned from the light hatched; the darkest cross-hatched too.
     if (bi.hatch && o.dd < 0.2) { hatchPolys(ctx, [q], ANY, 4.2, 1, ln(0.6), lw * 0.8); if (o.dd < -0.6) hatchPolys(ctx, [q], ANY, 5, -1, ln(0.5), lw * 0.8); }
     if (o.deco) {
@@ -894,7 +951,16 @@ const ArtSurface = (() => {
     const hb = rg && rg.inner ? [rg.inner.i0 * T - 4, rg.inner.j0 * T * ct - 4, rg.inner.i1 * T + 4, rg.inner.j1 * T * ct + 4] : bb;
     ctx.fillStyle = BG(); ctx.fillRect(bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]);
     const lines = (arr, col, w) => { ctx.beginPath(); for (const l of arr) l.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke(); };
-    const specks = (col) => { for (const sp of g.specks) { ctx.beginPath(); ctx.arc(sp.p[0], sp.p[1], sp.r, 0, TAU); if (col) { ctx.strokeStyle = col; ctx.lineWidth = lw * 0.7; ctx.stroke(); } else { ctx.fillStyle = rgb(sp.col, 1, 0.85); ctx.fill(); } } };
+    // line: grit as rings in its own colour (Line style), else as dots.
+    const specks = (line) => { for (const sp of g.specks) { ctx.beginPath(); ctx.arc(sp.p[0], sp.p[1], sp.r, 0, TAU); if (line) { ctx.strokeStyle = rgb(propLine(bi, sp.col), 1, 0.7); ctx.lineWidth = lw * 0.7; ctx.stroke(); } else { ctx.fillStyle = rgb(sp.col, 1, 0.85); ctx.fill(); } } };
+    // Line style: the ground's tones, a pixel per height-grid point, stretched smoothly over it.
+    const groundTones = () => {
+      const tg = g.tone, sc = scratch(tg.nx, tg.ny), sx = sc.getContext('2d'), im = sx.createImageData(tg.nx, tg.ny);
+      im.data.set(tg.D); sx.putImageData(im, 0, 0);
+      ctx.save(); ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(sc, 0, 0, tg.nx, tg.ny, tg.x0 - tg.gs / 2, (tg.y0 - tg.gs / 2) * ct, tg.nx * tg.gs, tg.ny * tg.gs * ct);
+      ctx.restore();
+    };
     const puffs = () => {
       for (const p of g.puffs) {
         const [x, y] = project(W, p.x, p.y, p.h, style);
@@ -915,7 +981,7 @@ const ArtSurface = (() => {
     };
     if (bi.fluid) {
       if (style !== 'line') { ctx.imageSmoothingEnabled = true; ctx.lineWidth = lw * 0.6; ctx.lineJoin = 'round'; for (const t of g.tris) { const p = polyPath(t.pts); ctx.fillStyle = ctx.strokeStyle = rgb(t.col, t.k); ctx.fill(p); ctx.stroke(p); } }
-      else lines(g.major, ln(0.42), lw * 0.8);
+      else { groundTones(); lines(g.major, ln(0.42), lw * 0.8); }
       if (o.extra) o.extra(ctx);
       puffs();
       return;
@@ -929,21 +995,23 @@ const ArtSurface = (() => {
       yield 'draw ground';
       if (bi.b.cc) lines(g.cracks, bi.b.emit ? rgb(bi.b.cc) : rgb(bi.b.cc, 1, 0.8), lw * (bi.b.emit ? 1.6 : 0.9));
       yield 'draw cracks';
-      specks(null);
+      specks(false);
       yield 'draw specks';
       if (bi.sea) { lines(g.coast, rgb(bi.sea.c.foam, 1, 0.7), lw * 1.3); lines(g.waves, rgb(bi.sea.c.foam, 1, 0.35), lw * 0.9); }
       yield 'draw coast';
       ctx.fillStyle = 'rgba(20,8,4,0.36)'; ctx.fill(g.shadow, 'nonzero');
     } else {
+      groundTones();
+      yield 'draw tones';
       for (const t of g.tris) if (t.wash) { ctx.fillStyle = ln(t.wash); tracePoly(ctx, t.pts); ctx.fill(); }
       lines(g.major, ln(0.7), lw * 0.8);
-      if (bi.sea) { lines(g.coast, ln(1), lw); lines(g.waves, ln(0.45), lw * 0.8); }
+      if (bi.sea) { lines(g.coast, ln(1), lw); lines(g.waves, rgb(propLine(bi, bi.sea.c.shallow), 1, 0.6), lw * 0.8); }
       yield 'draw lines';
       // The chunk's hatching in horizontal bands, a step each, so no one step hatches all of it.
       const band = (k) => [hb[0], lerp(hb[1], hb[3], k / 3), hb[2], lerp(hb[1], hb[3], (k + 1) / 3)];
       if (bi.hatch) for (let k = 0; k < 3; k++, yield 'draw lee hatching') hatchPolys(ctx, g.lee, band(k), 4.4, 1, ln(0.45), lw * 0.7);
-      if (bi.b.cc) lines(g.cracks, ln(0.7), lw * 0.8);
-      specks(ln(0.6));
+      if (bi.b.cc) lines(g.cracks, rgb(propLine(bi, bi.b.cc), 1, 0.8), lw * 0.8);
+      specks(true);
       yield 'draw cracks';
       if (bi.hatch) for (let k = 0; k < 3; k++, yield 'draw shadow hatching') hatchPolys(ctx, g.shade, band(k), 4, -1, ln(0.55), lw * 0.8);
     }
@@ -1034,7 +1102,7 @@ const ArtSurface = (() => {
     const F = new Float32Array(nx * ny), Hi = new Float32Array(nx * ny), Raw = new Float32Array(nx * ny);
     const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
     cv.width = nx * q; cv.height = ny * q;
-    const im = line ? null : ctx.createImageData(nx, ny);
+    const im = ctx.createImageData(nx, ny);
     // The heights, high ground and sea, a row at a time.
     const fieldRow = (py) => {
       for (let px = 0; px < nx; px++) {
@@ -1068,6 +1136,14 @@ const ArtSurface = (() => {
         D[k * 4] = Math.min(255, col[0]); D[k * 4 + 1] = Math.min(255, col[1]); D[k * 4 + 2] = Math.min(255, col[2]); D[k * 4 + 3] = 255;
       }
     };
+    // Line: a row of the ground's tones (lineTones()), drawn under the contours.
+    const toneRow = (py) => {
+      const D = im.data, tn = lineTones(bi);
+      for (let px = 0; px < nx; px++) {
+        const k = py * nx + px, col = mixc(toneAt(W, Math.min(Wu, px * upp), Math.min(Hu, (py * upp) / ct), Raw[k]), tn.high || tn.a, bi.storm ? 0 : sstep(0.35, 0.65, Hi[k]));
+        D[k * 4] = col[0]; D[k * 4 + 1] = col[1]; D[k * 4 + 2] = col[2]; D[k * 4 + 3] = 255;
+      }
+    };
     // Line: contours by marching squares, at twice the field's resolution, one level a step.
     const iso = (fld, lev, col, w) => {
       ctx.beginPath();
@@ -1079,7 +1155,7 @@ const ArtSurface = (() => {
       ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke();
     };
     const lines = () => {
-      const jobs = [() => { ctx.fillStyle = BG(); ctx.fillRect(0, 0, cv.width, cv.height); }];
+      const jobs = [() => { const t = document.createElement('canvas'); t.width = nx; t.height = ny; t.getContext('2d').putImageData(im, 0, 0); ctx.imageSmoothingEnabled = true; ctx.drawImage(t, 0, 0, cv.width, cv.height); }];
       for (let lev = -6.4; lev < 12; lev += 6.4) if (!sea || lev > sea.level) jobs.push(() => iso(F, lev + 0.01, rgb(bi.LN, 1, 0.35), 1));
       if (sea) jobs.push(() => iso(Raw, sea.level, rgb(bi.LN, 1, 0.9), 1.2));
       if (!bi.storm) jobs.push(() => iso(Hi, 0.5, rgb(bi.LN, 1, 0.9), 1.2));
@@ -1095,13 +1171,14 @@ const ArtSurface = (() => {
         else if (!line) {
           colourRow(row++);
           if (row === ny) { ctx.putImageData(im, 0, 0); out.layer = { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp }; }
-        } else {
+        } else if (stage === 1) { toneRow(row++); if (row === ny) stage = 2; }
+        else {
           jobs = jobs || lines();
           jobs.shift()();
           if (!jobs.length) out.layer = { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp };
         }
       }
-      out.progress = out.layer ? 1 : stage === 0 ? (0.5 * row) / ny : line ? 0.5 + 0.5 * (1 - (jobs ? jobs.length : 6) / 6) : 0.5 + (0.5 * row) / ny;
+      out.progress = out.layer ? 1 : stage === 0 ? (0.5 * row) / ny : line && stage === 2 ? 0.75 + 0.25 * (1 - (jobs ? jobs.length : 6) / 6) : 0.5 + ((line ? 0.25 : 0.5) * row) / ny;
       return !!out.layer;
     };
     return out;
