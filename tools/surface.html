@@ -13,6 +13,7 @@
     button[aria-pressed="true"] { background: #2b3550; border-color: #7f9bd6; }
     label { display: flex; gap: 6px; align-items: center; padding: 0 6px; }
     input[type=range] { width: 120px; }
+    #note { position: fixed; left: 0; right: 0; top: 30%; text-align: center; font-weight: 600; font-size: 15px; pointer-events: none; text-shadow: 0 1px 3px #000; }
     #hud { position: fixed; left: 16px; bottom: 14px; opacity: 0.75; pointer-events: none; }
     #help { position: fixed; right: 16px; bottom: 14px; opacity: 0.55; pointer-events: none; text-align: right; }
     @media (max-width: 600px) { #help { display: none; } }
@@ -25,10 +26,13 @@
     <div class="grp"><button id="planet">Terran planet</button><button id="moon">Grey moon</button></div>
     <div class="grp"><button id="lowpoly">Low-poly</button><button id="line">Line</button></div>
     <button id="curved">Curved</button>
-    <label>R <input id="radius" type="range" min="300" max="3000" step="50"> <span id="rval"></span></label>
+    <label>R <input id="radius" type="range" min="300" max="2000" step="50"> <span id="rval"></span></label>
+    <label>Flat <input id="bend" type="range" min="0" max="1200" step="50"> <span id="bval"></span></label>
+    <button id="fly">Take off</button>
   </div>
+  <div id="note"></div>
   <div id="hud"></div>
-  <div id="help">WASD / arrows, or hold where to fly<br>The dashed line is the landing site's edge</div>
+  <div id="help">WASD / arrows, or hold where to fly · T take off · L land<br>Fly out past the rim to climb to orbit</div>
   <script type="module" src="./surface.js"></script>
 </body>
 </html>
