@@ -4,7 +4,7 @@
 // the art (sprite-cache.js).
 //
 // Moon: { type, r, seed }. Tidally locked, so each seed has one static face.
-//   ArtBodies.drawMoon(ctx, moon, style, { x, y, texel, force })
+//   ArtBodies.drawMoon(ctx, moon, style, { x, y, texel, force, ppu })
 // Nebula: { type, seed, x, y, w, h, scale?, blobs? }: a cloud filling the world-space rect
 //   (x, y, w, h) with soft, noisy edges. `scale` is the feature size in world units (default 160).
 //   blobs: [{ x, y, r }] in world units, optional: the cloud then fills those circles (still
@@ -267,7 +267,7 @@ const ArtBodies = (() => {
     return Art.withV(Art.pickV(style, 'natural'), () => drawMoon0(ctx, m, style, o));
   }
   function drawMoon0(ctx, m, style, o) {
-    const { x = 0, y = 0 } = o, mt = ctx.getTransform(), ppu = quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel;
+    const { x = 0, y = 0 } = o, mt = ctx.getTransform(), ppu = o.ppu || quant(Math.hypot(mt.a, mt.b)), texel = o.texel || conf().texel; // o.ppu: as drawPlanet
     const key = `moon|${idOf(m)}|${style}|${ppu}|${style === 'pixel' ? texel : 0}`;
     const spr = cache.get(key, () => {
       if (style === 'pixel') return moonPixel(m, texel);

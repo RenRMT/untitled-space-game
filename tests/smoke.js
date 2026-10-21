@@ -1826,7 +1826,7 @@ test('landing on a planet and its moon: down to the surface, flying round it, an
     game(`globalThis.__body = __find((e) => e.name === '${name}'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
     assert.ok(game(`describe(__body).actions.some((a) => a.id === 'land' && a.enabled)`), `${name}: Land on its menu`);
     clickCard('land');
-    assert.strictEqual(game('landing.phase'), 'descend', `${name}: the descent begins`);
+    assert.strictEqual(game('landing.phase'), 'landing', `${name}: the landing begins`);
     assert.ok(game('modes.has("landing") && MAP_BLOCKERS.includes("landing")'), 'no map while landing');
     assert.ok(until('landing.phase === "surface"'), `${name}: down on the surface`);
     assert.ok(game('modes.has("landed")'), 'Take off shows');

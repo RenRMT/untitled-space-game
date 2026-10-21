@@ -1183,7 +1183,7 @@ const Art = (() => {
   function drawPlanet0(ctx, pl, style, o) {
     const { x = 0, y = 0, lightAngle = Math.atan2(LIGHT[1], LIGHT[0]) } = o;
     const m = ctx.getTransform();
-    const ppu = quant(Math.hypot(m.a, m.b));
+    const ppu = o.ppu || quant(Math.hypot(m.a, m.b)); // o.ppu: one sprite resolution, however it's scaled
     const texel = o.texel || config.texel;
     const ext = pl.ring ? ringAxes(pl)[0] * 1.08 : pl.r * 1.05;
     const spr = bodySprite(sprites, 'planet', pl, style, Math.round(lightAngle * 8), { ext, cap: config.maxSprite * 2, ppu, texel, o: { lightAngle }, force: o.force });
