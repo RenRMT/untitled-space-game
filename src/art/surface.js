@@ -99,7 +99,8 @@ const ArtSurface = (() => {
   // (height offset), cracks / speck (line colours of crack lines / grit), emit (glows).
   // sea: everything below level is water, shaded shallow → deep. storm: C marks storm fronts.
   // small / hole / tall: prop variants; on: 'land' (default) or 'water'. cSmall: the small variant
-  // that crowds ground kind c. hatch: false for gas (Line style never hatches gas).
+  // that crowds ground kind c. hatch: false for gas (Line style never hatches gas). tint: how far
+  // the Line style pulls the colours toward the line colour, to match the Line planet (inLine).
   const B = {
     desert: {
       label: 'Desert', line: '#ffc08a', hatch: true,
@@ -123,7 +124,7 @@ const ArtSurface = (() => {
       p: { near: 0.4, far: 0.06 },
     },
     terran: {
-      label: 'Terran', line: '#8ad0ff', hatch: true,
+      label: 'Terran', line: '#8ad0ff', hatch: true, tint: 0.6,
       a: { name: 'Meadow', sub: 'Rolling grass, long low swells', col: '#5f9a48', amp: 4, wave: 150, rough: 3, base: 1.5 },
       b: { name: 'Ocean', sub: 'Below sea level; shallows lighter', col: '#2f6fa8', amp: 1.5, wave: 70, rough: 1.5, base: -7 },
       c: { name: 'Woodland', sub: 'Darker floor; copses crowd here', col: '#3d6e34', amp: 2, wave: 90, rough: 3.5, base: 2 },
@@ -243,12 +244,14 @@ const ArtSurface = (() => {
   // whose rims are drawn heavier. Small props, which the ship flies over, keep their own colours.
   // Opaque mixes into the background, kept per background colour.
   const WASH = { ground: 0.15, sea: 0.22, block: 0.34 };
+  const inLine = (bi, c) => (bi.tint ? mixc(c, bi.LN, bi.tint) : c);
   function lineTones(bi) {
     const bg = BG();
     if (bi.tn && bi.tn.bg === bg) return bi.tn;
-    const B0 = hex(bg), mk = (c, a) => mixc(B0, c, a), tn = { bg, B0 };
+    const B0 = hex(bg), mk = (c, a) => mixc(B0, inLine(bi, c), a), tn = { bg, B0 };
     for (const k of ['a', 'b', 'c']) tn[k] = mk(bi[k].c, WASH.ground);
-    if (bi.sea) { tn.sand = mk(bi.sea.c.sand, WASH.ground); tn.shallow = mk(bi.sea.c.shallow, WASH.sea); tn.deep = mk(bi.sea.c.deep, WASH.sea); }
+    // The sea is left untinted: it's already in the Line planet's blues, and stays apart from the land.
+    if (bi.sea) { tn.sand = mk(bi.sea.c.sand, WASH.ground); tn.shallow = mixc(B0, bi.sea.c.shallow, WASH.sea); tn.deep = mixc(B0, bi.sea.c.deep, WASH.sea); }
     if (bi.high.c) tn.high = mk(mixc(bi.high.c.top, bi.LN, 0.35), WASH.block);
     if (bi.storm) tn.high = mk(mixc(bi.storm.c.col, bi.LN, 0.6), WASH.block * 1.2);
     bi.hole.forEach((v, n) => { tn['hole' + n] = mk(v.c, WASH.ground * 1.6); if (v.w) tn['pool' + n] = mk(v.w, WASH.sea); });
@@ -280,7 +283,7 @@ const ArtSurface = (() => {
     return c;
   };
   // A prop colour bright enough to draw lines in on the dark background.
-  const propLine = (bi, c) => mixc(c, bi.LN, 0.45).map((v) => v * 1.25);
+  const propLine = (bi, c) => mixc(inLine(bi, c), bi.LN, 0.45).map((v) => v * 1.25);
   const TYPES = Object.keys(B);
   const PROPS = 0.6; // the share of each biome's small-prop chances (p) that get one: fewer to build and draw
   const SURFACE_OF = { desert: 'desert', terran: 'terran', blue: 'terran', ice: 'ice', lava: 'lava', gas: 'gas' };
@@ -891,7 +894,7 @@ const ArtSurface = (() => {
     // Line style: what blocks the ship in the biome's line colour over a strong wash, with a heavy
     // rim; small props in their own colour.
     const lc = o.block ? bi.LN : propLine(bi, o.col), ln = (a) => rgb(lc, 1, a);
-    const wash = () => rgb(mixc(lineTones(bi).B0, o.block ? mixc(o.col, bi.LN, 0.35) : o.col, o.block ? WASH.block : 0.3));
+    const wash = () => rgb(mixc(lineTones(bi).B0, inLine(bi, o.block ? mixc(o.col, bi.LN, 0.35) : o.col), o.block ? WASH.block : 0.3));
     if (o.kind === 'top') {
       if (style !== 'line') {
         ctx.lineWidth = lw * 0.6;
