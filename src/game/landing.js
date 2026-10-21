@@ -101,11 +101,13 @@ function prepare(e, budgetMs) {
   if (left > 0) far.step(left);
   return 0.3 + 0.7 * far.progress;
 }
+// The detailed chunks: 4×4 tiles (small, so building one doesn't hold up a frame long).
+const tileOpts = () => ({ size: 4, dpr: clamp(view.dpr * surfaceZoom(), 1, Display.touch() ? 1.5 : 2), keep: 96 });
 // The surface being landed on (ready by the cross-fade).
 function surface() {
   const style = artStyle.value, s = entry(landing.e);
   s.far[style] ||= ArtSurface.farBuilder(s.W, style, { upp: 10 });
-  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, { size: 8, dpr: clamp(view.dpr * surfaceZoom(), 1, Display.touch() ? 1.5 : 2), keep: 24 });
+  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, tileOpts());
   return { W: s.W, far: s.far[style], tiles: s.tiles[style] };
 }
 
@@ -170,9 +172,13 @@ export function takeOff() {
 
 // While a planet or moon with a surface is selected (its menu offering Land), its surface is made
 // a little each frame, so most of it is ready by the time the ship lands.
+// Once that's done, the chunks round the landing spot too, one at most a frame.
 function prefetch() {
   const e = selected && selected.e;
-  if (e && (e.kind === 'planet' || e.kind === 'moon') && landable(e)) prepare(e, 3);
+  if (!e || !(e.kind === 'planet' || e.kind === 'moon') || !landable(e) || prepare(e, 3) < 1) return;
+  const s = entry(e), style = artStyle.value, [fx, fy] = s.W.start;
+  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, tileOpts());
+  s.tiles[style].layers({ x0: fx - 700, x1: fx + 700, y0: fy - 700, y1: fy + 450, cx: fx, cy: fy }, 3);
 }
 
 export function tickLanding(dt) {
@@ -192,7 +198,9 @@ export function tickLanding(dt) {
     const p = prepare(e, close(L.gate ?? 1) ? more : 8);
     if (p < 1) gate = tAt(lerp(P.a, P.x - FADE, 0.5 + 0.5 * p)); // the surface itself, before it fades in
     else {
-      // The chunks round the landing spot, before the last stretch of the zoom.
+      // The chunks round the landing spot, before the last stretch of the zoom (the ship set down
+      // there first, so they're the ones looked for).
+      if (fadeAt(L.t) <= 0) setDown();
       const c = warmTiles(surface(), close(L.gate ?? 1) ? more : 6);
       if (c.missing) gate = tAt(lerp(P.x, P.b, 0.7 + 0.3 * (c.loaded / c.total)));
     }
@@ -201,7 +209,7 @@ export function tickLanding(dt) {
     const t0 = L.t;
     L.t = Math.min(1, L.t + (dt / P.time) * rate);
     // The ship is set down on the surface's landing spot as the surface comes into view.
-    if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) { const [x, y] = surface().W.start; Object.assign(L.craft, { x, y, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }); }
+    if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) setDown();
     if (L.t >= 1) { L.phase = 'surface'; setMode('landed', true); Feedback.emit('docked'); }
   } else {
     L.t = Math.max(0, L.t - dt / P.time);
@@ -220,6 +228,9 @@ export function tickLanding(dt) {
   }
   return false;
 }
+
+// The ship at rest on the surface's landing spot.
+function setDown() { const [x, y] = surface().W.start; Object.assign(landing.craft, { x, y, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }); }
 
 // The planet's sprite is drawn at one resolution for the whole zoom (its sharpest, as it fills the
 // screen), so it's made once rather than again at every step of the zoom.
