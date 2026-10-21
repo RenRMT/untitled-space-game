@@ -498,7 +498,7 @@ const ArtSurface = (() => {
     // Contour lines and lee slopes only for a region drawn in the Line style (rg.lines, set by
     // renderRegion); the coast and waves for any with a sea. Neither: no contour grid at all.
     const lines = rg.lines !== false, contoured = lines || !!sea;
-    const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 1.6, Z = [], R = [];
+    const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 2.4, Z = [], R = [];
     if (contoured) for (let b = B0; b <= MY; b++, yield 'contour heights') { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
     const cross0 = (zz, q, lev) => {
       const pts = [];
@@ -515,7 +515,7 @@ const ArtSurface = (() => {
       const lo = Math.min(...zz), hi = Math.max(...zz);
       if (lines) for (let li = Math.ceil(lo / LV); li * LV <= hi; li++) {
         if (sea && li * LV <= sea.level + 0.01) continue;
-        const pts = cross0(zz, q, li * LV + 0.001), arr = ((li % 4) + 4) % 4 === 0 ? g.major : g.minor;
+        const pts = cross0(zz, q, li * LV + 0.001), arr = ((li % 3) + 3) % 3 === 0 ? g.major : g.minor;
         if (pts.length >= 2) arr.push([pts[0], pts[1]]);
         if (pts.length === 4) arr.push([pts[2], pts[3]]);
       }
@@ -811,7 +811,9 @@ const ArtSurface = (() => {
     }
     const path = polyPath(q);
     ctx.fillStyle = BG(); ctx.fill(path);
-    if (bi.hatch && o.dd < 0.2) { const bb = bbox(q); hatchPath(ctx, path, bb, 3.2, 1, ln(0.55), lw * 0.8); if (o.dd < -0.35) hatchPath(ctx, path, bb, 3.8, -1, ln(0.45), lw * 0.8); }
+    // Faces turned from the light hatched; the darkest cross-hatched too. Spaced for how many lines
+    // a chunk can afford to stroke (each a clip and a fan of lines).
+    if (bi.hatch && o.dd < 0.2) { const bb = bbox(q); hatchPath(ctx, path, bb, 4.2, 1, ln(0.6), lw * 0.8); if (o.dd < -0.6) hatchPath(ctx, path, bb, 5, -1, ln(0.5), lw * 0.8); }
     if (o.deco) {
       ctx.beginPath();
       if (o.deco === 'strata') for (const f of [0.26, 0.66]) { const a = at(f), b = bt(f); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
@@ -836,6 +838,8 @@ const ArtSurface = (() => {
   function* drawSteps(ctx, W, style, o = {}) {
     const g = yield* buildSteps(W, o.region), bi = B[W.type], lw = o.lw || 1, ln = (a) => rgb(bi.LN, 1, a), rg = o.region, ct = cam(W).ct;
     const bb = rg ? [rg.i0 * T - 10, rg.j0 * T * ct - PAD - 10, rg.i1 * T + 10, rg.j1 * T * ct + 10] : [-10, -PAD - 10, W.w * T + 10, W.h * T * ct + 10];
+    // Whole-region hatching (lee slopes, shadows) only over the tiles a chunk shows: its margin is clipped off.
+    const hb = rg && rg.inner ? [rg.inner.i0 * T - 4, rg.inner.j0 * T * ct - 4, rg.inner.i1 * T + 4, rg.inner.j1 * T * ct + 4] : bb;
     ctx.fillStyle = BG(); ctx.fillRect(bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]);
     const lines = (arr, col, w) => { ctx.beginPath(); for (const l of arr) l.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke(); };
     const specks = (col) => { for (const sp of g.specks) { ctx.beginPath(); ctx.arc(sp.p[0], sp.p[1], sp.r, 0, TAU); if (col) { ctx.strokeStyle = col; ctx.lineWidth = lw * 0.7; ctx.stroke(); } else { ctx.fillStyle = rgb(sp.col, 1, 0.85); ctx.fill(); } } };
@@ -883,11 +887,11 @@ const ArtSurface = (() => {
       lines(g.minor, ln(0.28), lw * 0.8); lines(g.major, ln(0.7), lw * 0.8);
       if (bi.sea) { lines(g.coast, ln(1), lw); lines(g.waves, ln(0.45), lw * 0.8); }
       yield 'draw lines';
-      if (bi.hatch) hatchPath(ctx, g.lee, bb, 3.4, 1, ln(0.4), lw * 0.7);
+      if (bi.hatch) hatchPath(ctx, g.lee, hb, 4.4, 1, ln(0.45), lw * 0.7);
       if (bi.b.cc) lines(g.cracks, ln(0.7), lw * 0.8);
       specks(ln(0.6));
       yield 'draw lee hatching';
-      if (bi.hatch) hatchPath(ctx, g.shadow, bb, 3, -1, ln(0.5), lw * 0.8);
+      if (bi.hatch) hatchPath(ctx, g.shadow, hb, 4, -1, ln(0.55), lw * 0.8);
     }
     if (o.extra) o.extra(ctx);
     yield 'draw ground details';
