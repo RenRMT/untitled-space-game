@@ -435,13 +435,13 @@ const Missions = (() => {
     return {
       id: 'salvage', nebula: index, pockets: pockets.map((q) => q.key), safe, x: Math.round(best.x), y: Math.round(best.y), tier: SALVAGE.tier,
       hostile: { key: `${pre}hostile`, seed: hostileSeed(base, first), orbit: SALVAGE.orbit, speed: SALVAGE.speed, a0: r() * TAU },
-      module: { key: `${pre}module`, kind: 'ai-cores', seed: nextSeed(r), x: Math.round(best.x), y: Math.round(best.y) },
+      module: { key: `${pre}module`, kind: 'electronics', seed: nextSeed(r), x: Math.round(best.x), y: Math.round(best.y) },
     };
   }
 
   // ---------- Where "Gated community" happens ----------
   //
-  // The first system's jump gate: the squad member works from a spot beside it, on its side
+  // The first system's jump gate (not its wormhole): the squad member works from a spot beside it, on its side
   // toward the star; the pirates come in from two points further out, on either side, and circle
   // there until the fight (game/missions.js starts it as they arrive).
   //   Missions.gateSite(galaxy) -> { gate (id), x, y (the gate), work: { x, y }, tier,
@@ -450,7 +450,7 @@ const Missions = (() => {
 
   function gateSite(galaxy) {
     const W = galaxy.stations[galaxy.waystation];
-    const g = W && galaxy.gates.find((x) => x.system === W.system);
+    const g = W && galaxy.gates.find((x) => x.system === W.system && !x.wormhole);
     if (!g) return null;
     const sys = galaxy.systems[g.system], base = seedToInt(galaxy.seed), r = mulberry32(hashInt(base, 11, 0x6a7e));
     const out = Math.atan2(g.y - sys.origin.y, g.x - sys.origin.x); // from the star through the gate

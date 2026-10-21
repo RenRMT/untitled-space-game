@@ -5,11 +5,10 @@
 // - categories it produces are cheap, categories it consumes fetch a premium,
 // - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
 // - system stations get a seeded mix; capitals and major stations stock every category,
-// - within a category on sale, common types are always stocked and rarer ones less often (more
-//   often where the category is produced); exotics are never sold, only found,
+// - within a category on sale, the commonest type is always stocked (unless it's a part) and rarer
+//   ones less often (more often where the category is produced); exotics are never sold, only found,
 // - goods further along the production chain (rules/goods.js stage) are stocked less often, except
-//   where they're made, and the rarest parts (AI cores, plasma conduit, nanite suspension) never:
-//   they have to be made.
+//   where they're made, and the rarest parts never: they have to be made.
 // Salvaged components aren't traded at all: they're used for research (rules/research.js), hull
 // refits among it.
 // Equipment isn't sold: it's assembled from parts (rules/recipes.js), by blueprint (rules/research.js).
@@ -58,7 +57,7 @@ const Economy = (() => {
     stockProduced: [null, 1, 1, 0.7, 0.4, 0],
     // ... times this, by production stage, where the category isn't produced; parts this rare or
     // rarer are never stocked.
-    stockStage: { raw: 1, refined: 1, advanced: 0.6, part: 0.5 },
+    stockStage: { raw: 1, refined: 1, part: 0.5 },
     madeOnly: 4,
     startingCredits: 500,
     target: [null, 120, 60, 30, 16, 8], // comfortable stock, by rarity
@@ -106,17 +105,20 @@ const Economy = (() => {
     const jitter = () => 1 + (r() * 2 - 1) * config.jitter;
     const forSale = new Set(P.produces);
     for (const id of CATEGORIES) if (P.sellsAll || r() < 0.5) forSale.add(id);
-    for (const id of CATEGORIES) if (forSale.size < config.minForSale) forSale.add(id);
+    // At least minForSale categories sure to be stocked (a part isn't).
+    const sure = () => [...forSale].filter((id) => G.ofCategory(id)[0].stage !== 'part').length;
+    for (const id of CATEGORIES) if (sure() < config.minForSale) forSale.add(id);
     const goods = [];
     for (const category of CATEGORIES) {
       const produced = P.produces.includes(category), consumed = P.consumes.includes(category);
       const base = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
         const factor = base * jitter();
-        // The commonest type of a category on sale is always stocked; the rest by rarity and stage.
+        // The commonest type of a category on sale is always stocked, unless it's a part (made
+        // goods are worth making); the rest by rarity and stage.
         const chance = produced ? config.stockProduced[t.rarity] : config.stock[t.rarity] * (config.stockStage[t.stage] ?? 1);
         const madeOnly = t.stage === 'part' && t.rarity >= config.madeOnly;
-        const stocked = forSale.has(category) && !madeOnly && (r() < chance || t === G.ofCategory(category)[0]);
+        const stocked = forSale.has(category) && !madeOnly && (r() < chance || (t === G.ofCategory(category)[0] && t.stage !== 'part'));
         goods.push({ kind: t.id, category, rarity: t.rarity, produced, consumed, stocked, factor });
       }
     }

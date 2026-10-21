@@ -17,7 +17,6 @@ import { ArtUtil } from '../art/util.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
-import { Security } from '../world/security.js';
 
 const Scene = (() => {
   const { TAU } = ArtUtil;
@@ -75,12 +74,12 @@ const Scene = (() => {
       });
     });
 
-    // ---------- Jump gates ----------
-    // gate: the generated gate (world/galaxy.js), with the id of the one it links to.
+    // ---------- Jump gates and wormholes ----------
+    // gate: the generated gate or wormhole (world/galaxy.js), with the id of the one it links to.
     const gates = galaxy.gates.map((g) => {
-      const art = ArtBlueprints.create('gate', cultures.of(g.culture), g.seed);
+      const art = ArtBlueprints.create(g.wormhole ? 'wormhole' : 'gate', cultures.of(g.culture), g.seed);
       return add({
-        kind: 'gate', art, name: g.name, color: galaxy.cultureColor(g.culture), angle: Math.atan2(g.y - galaxy.stars[g.system].y, g.x - galaxy.stars[g.system].x),
+        kind: 'gate', art, name: g.name, color: g.color || galaxy.cultureColor(g.culture), angle: Math.atan2(g.y - galaxy.stars[g.system].y, g.x - galaxy.stars[g.system].x),
         spin: mulberry32(g.seed)() * TAU, radius: art.radius, key: g.key, gate: g, x: g.x, y: g.y,
       });
     });
@@ -98,13 +97,12 @@ const Scene = (() => {
     // ---------- Wrecks and what floats around them ----------
     let itemCount = 0;
     const LOOT_KINDS = Goods.categories('salvage'), TRADE_KINDS = Goods.categories('trade');
-    // An item of one of these categories, from the wreck's own random stream. Trade goods: rarer
-    // ones less likely (rules/goods.js); components: a tier by the security there (world/security.js), better
-    // in dangerous space.
-    function item(r, categories, x, y, lootTier) {
+    // An item of one of these categories, from the wreck's own random stream (rarer trade goods
+    // less likely: rules/goods.js).
+    function item(r, categories, x, y) {
       const category = categories[Math.floor(r() * categories.length)], seed = nextSeed(r);
       const rng = mulberry32(seed ^ 0x6e7);
-      const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category, Security.componentTier(rng, lootTier)) : Goods.pick(rng, category);
+      const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category) : Goods.pick(rng, category);
       const angle = r() * TAU, tumble = (r() - 0.5) * 0.3;
       return add(Entities.item({ key: `i${itemCount++}`, kind, seed, angle, tumble, x, y }));
     }
@@ -113,10 +111,9 @@ const Scene = (() => {
       const e = add({ kind: 'wreck', art, name: w.name, angle: w.angle, tumble: w.tumble, radius: art.radius, key: w.key, contact: w.contact, x: w.x, y: w.y });
       const r = mulberry32(hashInt(base, i, 0x17e5));
       const kinds = w.cargo === 'trade' || art.label.includes('freighter') || (w.type === 'wreck-station' && r() < 0.5) ? TRADE_KINDS : LOOT_KINDS;
-      const tier = Security.lootTier(galaxy.securityAt(w.x, w.y));
       for (let k = 0; k < w.spoils; k++) {
         const a = r() * TAU, d = e.radius * 0.8 + 60 + r() * 220;
-        item(r, kinds, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, tier);
+        item(r, kinds, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d);
       }
     });
 

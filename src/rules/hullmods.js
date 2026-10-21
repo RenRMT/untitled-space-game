@@ -12,23 +12,22 @@ import { Goods } from './goods.js';
 import { Loadout } from './loadout.js';
 
 const HullMods = (() => {
-  const comp = (tier) => Goods.component('hull', tier);
+  const comp = Goods.component('hull');
   const LINES = [
     {
       id: 'cargo-racks', name: 'Cargo racks', upgrade: { cargo: 0.2 }, note: '+20% cargo hold',
-      steps: [{ credits: 2500, hull: [[1, 5]] }, { credits: 6000, hull: [[2, 5], [1, 2]] }, { credits: 12000, hull: [[3, 5], [2, 2]] }],
+      steps: [{ credits: 2500, hull: 5 }, { credits: 6000, hull: 12 }, { credits: 12000, hull: 19 }],
     },
     {
       id: 'armour', name: 'Armour plating', upgrade: { hull: 0.15 }, note: '+15% hull',
-      steps: [{ credits: 3000, hull: [[1, 5]] }, { credits: 7000, hull: [[2, 5], [1, 2]] }, { credits: 14000, hull: [[3, 5], [2, 2]] }],
+      steps: [{ credits: 3000, hull: 5 }, { credits: 7000, hull: 12 }, { credits: 14000, hull: 19 }],
     },
   ];
 
   const NODES = {};
   for (const L of LINES) {
     L.steps.forEach((step, i) => {
-      const cost = {};
-      for (const [tier, n] of step.hull) cost[comp(tier)] = n;
+      const cost = { [comp]: step.hull };
       const id = `${L.id}-${i + 1}`;
       NODES[id] = {
         id, line: L.id, tier: i + 1, name: `${L.name} ${Loadout.MK[i + 1]}`, requires: i ? [`${L.id}-${i}`] : [],
@@ -38,7 +37,7 @@ const HullMods = (() => {
   }
   NODES['hardpoint-retrofit'] = {
     id: 'hardpoint-retrofit', line: 'hardpoint-retrofit', tier: 3, name: 'Hardpoint retrofit', requires: ['armour-2'],
-    credits: 20000, cost: { [Goods.component('weapon', 3)]: 3, [comp(3)]: 3 }, upgrade: { weapons: 1 },
+    credits: 20000, cost: { [Goods.component('weapon')]: 9, [comp]: 9 }, upgrade: { weapons: 1 },
     note: 'One more weapon slot on every hull (four at most)',
   };
   const LIST = Object.values(NODES);

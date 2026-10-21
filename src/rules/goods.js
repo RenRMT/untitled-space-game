@@ -1,21 +1,21 @@
 // The item catalogue: every kind of trade good and salvaged component, with its rarity, base price
-// and colour. Items are grouped into categories:
-// - trade goods (metals, minerals, gases, synthetics, manufactured goods, liquids, conduits): raw
-//   materials mined and collected, and what industry makes of them (rules/recipes.js), from iron to
-//   AI cores,
-// - salvaged components (hull, weapon, computer, drive): generic, in five tiers from simple to
-//   exotic ("Simple computer components"), used up by research (rules/research.js). They're never
-//   traded, so their price is only a guide to what they're worth.
+// and colour. Items are grouped into categories, one type each (the game is pared back to its core
+// loop; notes/industry.md has the fuller chain this came from):
+// - trade goods (metal, mineral, gas, synthetic, manufactured, liquid, conduit): raw materials
+//   mined and collected, and what industry makes of them (rules/recipes.js),
+// - salvaged components (hull, weapon, computer, drive): generic, one type per category, used up by
+//   research (rules/research.js) and the best gear. They're never traded, so their price is only a
+//   guide to what they're worth.
 // Each type has a rarity from 1 (common) to 5 (exotic). Rarer types are found less often, sold at
-// fewer stations (exotics never) and are worth more. Each type within a category has its own
-// colour, used for its art (art/items.js) and on the station screen.
+// fewer stations (exotics never) and are worth more. Each type has its own colour, used for its art
+// (art/items.js) and on the station screen.
 //
 // Each trade good also has a stage in the production chain (notes/industry.md): raw (mined or
-// collected), refined, advanced (refined further) or part (fabricated); components are salvage.
+// collected), refined or part (fabricated); components are salvage.
 //
-//   Goods.type(id)              -> { id, name, category, rarity, price, stage, color: [h, s, l], shape?, tier? }
+//   Goods.type(id)              -> { id, name, category, rarity, price, stage, color: [h, s, l], shape? }
 //   Goods.STAGES                -> the stages in chain order, salvage beside raw
-//   Goods.component(cat, tier)  -> the component type id of a category at a tier (1–5)
+//   Goods.component(cat)        -> the component type id of a salvage category
 //   Goods.ofCategory(cat)       -> types of a category, commonest first
 //   Goods.categories(group)     -> category ids of 'trade' or 'salvage'
 //   Goods.pick(rng, cat, where?) -> a type id of that category, rarer ones less likely; where: a stage, or
@@ -50,86 +50,35 @@ const Goods = (() => {
     drive: { group: 'salvage', label: 'Drive components' },
   };
 
-  // Trade goods: [id, name, rarity, price, [hue, saturation, lightness]] per category, commonest
-  // first. (Components are added below.) A made good is worth more than what it's made of
-  // (rules/recipes.js), so prices rise along the chain.
+  // Trade goods: [id, name, rarity, price, [hue, saturation, lightness]] per category. (Components
+  // are added below.) A made good is worth more than what it's made of (rules/recipes.js), so
+  // prices rise along the chain.
   const TABLE = {
-    metal: [
-      ['iron', 'Iron', 1, 35, [212, 0.12, 0.42]],
-      ['copper-ore', 'Copper ore', 1, 30, [22, 0.6, 0.5]],
-      ['titanium', 'Titanium', 2, 110, [255, 0.25, 0.6]],
-      ['platinum', 'Platinum', 4, 600, [175, 0.45, 0.72]],
-    ],
-    mineral: [
-      ['silicates', 'Silicates', 1, 25, [45, 0.3, 0.7]],
-      ['carbon', 'Carbon', 1, 20, [0, 0, 0.22]],
-      ['corundum', 'Corundum', 3, 220, [222, 0.75, 0.52]],
-      ['diamond', 'Diamond', 4, 550, [195, 0.7, 0.86]],
-    ],
-    gas: [
-      ['water-ice', 'Water ice', 1, 20, [190, 0.5, 0.88]],
-      ['deuterium', 'Deuterium', 3, 170, [28, 0.85, 0.55]],
-      ['helium-3', 'Helium-3', 4, 420, [55, 0.95, 0.6]],
-    ],
-    synthetic: [
-      ['carbon-fibre', 'Carbon fibre', 2, 140, [220, 0.12, 0.3]],
-      ['aerogel', 'Aerogel', 3, 300, [195, 0.75, 0.84]],
-      ['graphene', 'Graphene', 3, 330, [160, 0.25, 0.42]],
-      ['hull-plating', 'Hull plating', 3, 390, [30, 0.2, 0.58]],
-      ['focusing-lens', 'Focusing lens', 3, 450, [280, 0.7, 0.72]],
-      ['metamaterial', 'Metamaterial', 4, 1200, [140, 0.75, 0.5]],
-    ],
-    crates: [
-      ['electronics', 'Electronics', 2, 170, [160, 0.6, 0.42]],
-      ['actuator', 'Actuators', 2, 340, [0, 0, 0.62]],
-      ['power-cell', 'Power cells', 3, 370, [100, 0.75, 0.5]],
-      ['sensor-array', 'Sensor arrays', 3, 390, [320, 0.6, 0.6]],
-      ['thruster-nozzle', 'Thruster nozzles', 3, 460, [8, 0.75, 0.48]],
-      ['capacitor', 'Capacitors', 3, 560, [255, 0.6, 0.62]],
-      ['robotics', 'Robotics', 3, 640, [45, 0.9, 0.55]],
-      ['ai-cores', 'AI cores', 4, 2900, [190, 0.85, 0.55]],
-    ],
-    barrels: [
-      ['hydrazine', 'Hydrazine', 2, 70, [32, 0.85, 0.52]],
-      ['nanite-suspension', 'Nanite suspension', 4, 1200, [200, 0.1, 0.78]],
-    ],
-    tubes: [
-      ['steel-pipe', 'Steel pipe', 1, 100, [210, 0.1, 0.55]],
-      ['copper-cable', 'Copper cable', 2, 110, [18, 0.65, 0.45]],
-      ['optical-fibre', 'Optical fibre', 2, 135, [185, 0.85, 0.62]],
-      ['superconductor', 'Superconductor cable', 3, 480, [230, 0.75, 0.62]],
-      ['cooling-loop', 'Cooling loops', 3, 1100, [100, 0.6, 0.45]],
-      ['plasma-conduit', 'Plasma conduit', 4, 1550, [330, 0.8, 0.6]],
-    ],
+    metal: [['iron', 'Iron', 1, 35, [212, 0.12, 0.42]]],
+    mineral: [['silicates', 'Silicates', 1, 30, [45, 0.3, 0.7]]],
+    gas: [['deuterium', 'Deuterium', 1, 50, [28, 0.85, 0.55]]],
+    synthetic: [['carbon-fibre', 'Carbon fibre', 2, 110, [220, 0.12, 0.3]]],
+    crates: [['electronics', 'Electronics', 2, 225, [160, 0.6, 0.42]]],
+    barrels: [['hydrazine', 'Hydrazine', 2, 130, [32, 0.85, 0.52]]],
+    tubes: [['steel-pipe', 'Steel pipe', 1, 90, [210, 0.1, 0.55]]],
   };
 
-  // Components are generic and tiered ("Simple computer components" ... "Exotic computer
-  // components"): one type per tier, the tier being its rarity. They're research materials, so
-  // each has a `tier`, and Goods.component(category, tier) finds one. Every
-  // category uses the same colour per tier (the rarity colours), so a tier reads the same
-  // everywhere. shapes: the art variant (art/items.js) per tier, from plainer to more intricate.
-  const TIERS = [null, 'Simple', 'Standard', 'Advanced', 'Complex', 'Exotic'];
-  const TIER_COLORS = [null, [224, 0.24, 0.73], [139, 0.52, 0.63], [211, 0.9, 0.66], [276, 0.85, 0.72], [19, 0.95, 0.66]];
+  // Components: one generic type per salvage category ("Computer components"). shape: the art
+  // variant (art/items.js).
   const COMPONENTS = {
-    hull: { noun: 'hull', prices: [80, 160, 340, 700, 1600], shapes: [0, 1, 2, 0, 2] },
-    weapon: { noun: 'weapon', prices: [140, 280, 560, 1100, 2400], shapes: [0, 1, 2, 0, 2] },
-    computer: { noun: 'computer', prices: [120, 240, 500, 1000, 2200], shapes: [0, 2, 1, 0, 1] },
-    drive: { noun: 'drive', prices: [130, 260, 540, 1100, 2400], shapes: [0, 0, 1, 1, 2] },
+    hull: { noun: 'Hull', price: 160, color: [224, 0.24, 0.73], shape: 0 },
+    weapon: { noun: 'Weapon', price: 280, color: [19, 0.95, 0.66], shape: 1 },
+    computer: { noun: 'Computer', price: 240, color: [211, 0.9, 0.66], shape: 2 },
+    drive: { noun: 'Drive', price: 260, color: [139, 0.52, 0.63], shape: 1 },
   };
-  for (const [category, c] of Object.entries(COMPONENTS)) {
-    TABLE[category] = [1, 2, 3, 4, 5].map((tier) => [
-      `${category}-${TIERS[tier].toLowerCase()}`, `${TIERS[tier]} ${c.noun} components`, tier, c.prices[tier - 1], TIER_COLORS[tier], c.shapes[tier - 1],
-    ]);
-  }
+  for (const [category, c] of Object.entries(COMPONENTS)) TABLE[category] = [[`${category}-components`, `${c.noun} components`, 2, c.price, c.color, c.shape]];
 
   // Production stages, in chain order (rules/recipes.js makes each from earlier ones).
-  const STAGES = ['raw', 'salvage', 'refined', 'advanced', 'part'];
+  const STAGES = ['raw', 'salvage', 'refined', 'part'];
   const STAGE_OF = {
-    raw: ['iron', 'copper-ore', 'titanium', 'platinum', 'silicates', 'carbon', 'corundum', 'diamond', 'water-ice', 'deuterium', 'helium-3'],
-    refined: ['steel-pipe', 'copper-cable', 'carbon-fibre', 'hydrazine'],
-    advanced: ['graphene', 'aerogel', 'superconductor', 'optical-fibre', 'metamaterial'],
-    part: ['electronics', 'actuator', 'power-cell', 'sensor-array', 'thruster-nozzle', 'capacitor', 'robotics', 'ai-cores',
-      'hull-plating', 'focusing-lens', 'cooling-loop', 'plasma-conduit', 'nanite-suspension'],
+    raw: ['iron', 'silicates', 'deuterium'],
+    refined: ['steel-pipe', 'carbon-fibre', 'hydrazine'],
+    part: ['electronics'],
   };
   const stageOf = (id, category) => (CATEGORIES[category].group === 'salvage' ? 'salvage'
     : Object.keys(STAGE_OF).find((st) => STAGE_OF[st].includes(id)));
@@ -138,7 +87,7 @@ const Goods = (() => {
   const BY_CATEGORY = {};
   for (const [category, rows] of Object.entries(TABLE)) {
     BY_CATEGORY[category] = rows.map(([id, name, rarity, price, color, shape]) => {
-      const t = { id, name, category, rarity, price, stage: stageOf(id, category), color, ...(shape !== undefined ? { shape, tier: rarity } : {}) };
+      const t = { id, name, category, rarity, price, stage: stageOf(id, category), color, ...(shape !== undefined ? { shape } : {}) };
       TYPES[id] = t;
       return t;
     });
@@ -148,9 +97,8 @@ const Goods = (() => {
   const ofCategory = (cat) => BY_CATEGORY[cat] || [];
   const categories = (group) => Object.keys(CATEGORIES).filter((c) => CATEGORIES[c].group === group);
   const isSalvage = (id) => !!TYPES[id] && CATEGORIES[TYPES[id].category].group === 'salvage';
-  // The component of a category at a tier (1 simple ... 5 exotic), e.g. ('computer', 4) ->
-  // 'computer-complex', or null.
-  const component = (category, tier) => (COMPONENTS[category] && TIERS[tier] ? `${category}-${TIERS[tier].toLowerCase()}` : null);
+  // The component of a salvage category, e.g. 'computer' -> 'computer-components', or null.
+  const component = (category) => (COMPONENTS[category] ? `${category}-components` : null);
 
   // A type of a category (and of a stage, if given): first its rarity, weighted by how common each
   // level is, then one of the types at that level. Uses two numbers from rng.
@@ -173,15 +121,28 @@ const Goods = (() => {
     'Beam emitter': 'weapon', 'Logic board': 'computer', 'Processing core': 'computer', 'Memory rack': 'computer',
     'Thruster nozzle': 'drive', 'Reactor core': 'drive', 'Warp coil': 'drive',
   };
-  // The current type for a stored kind (or label): a type id stays; an old category becomes its
-  // commonest type. Types and categories no longer in the catalogue resolve to null (dropped).
+  // Types from before the catalogue was pared back, by category.
+  const FORMER = {};
+  const OLD = {
+    metal: ['copper-ore', 'titanium', 'platinum'], mineral: ['carbon', 'corundum', 'diamond'], gas: ['water-ice', 'helium-3'],
+    synthetic: ['aerogel', 'graphene', 'hull-plating', 'focusing-lens', 'metamaterial'],
+    crates: ['actuator', 'power-cell', 'sensor-array', 'thruster-nozzle', 'capacitor', 'robotics', 'ai-cores'],
+    barrels: ['nanite-suspension'], tubes: ['copper-cable', 'optical-fibre', 'superconductor', 'cooling-loop', 'plasma-conduit'],
+  };
+  for (const [category, ids] of Object.entries(OLD)) for (const id of ids) FORMER[id] = category;
+  for (const category of Object.keys(COMPONENTS)) for (const tier of ['simple', 'standard', 'advanced', 'complex', 'exotic']) FORMER[`${category}-${tier}`] = category;
+  // The current type for a stored kind (or label): a type id stays; an old category, or a type
+  // from before the catalogue was pared back to one per category (iron for platinum, computer
+  // components for 'computer-exotic'), becomes its category's type. Unknown kinds resolve to null
+  // (dropped).
   function resolve(kind, label) {
     if (kind && TYPES[kind]) return kind;
+    if (kind && FORMER[kind]) return ofCategory(FORMER[kind])[0].id;
     const cat = kind && CATEGORIES[kind] ? kind : LEGACY_LABELS[label];
     return cat && ofCategory(cat).length ? ofCategory(cat)[0].id : null;
   }
 
-  return { RARITY, CATEGORIES, TIERS, STAGES, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
+  return { RARITY, CATEGORIES, STAGES, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
 })();
 
 export { Goods };

@@ -33,7 +33,7 @@ export const DOCK = { range: 320, maxSpeed: 150 }; // range: world units beyond 
 export let docked = null; // { station } while docked; flight is paused and the station menu is open
 
 // Whether the player may dock at a station: not where its owner counts them Hostile
-// (rules/reputation.js; the Registry's waystations turn no one away).
+// (rules/reputation.js; the androids' waystations turn no one away).
 export function canDock(station) {
   const owner = ownerOf(station);
   if (Reputation.refuses(cargo.rep, owner)) return { ok: false, reason: `Refused · ${Factions.get(owner).name.replace(/^The /, '')} hostile` };
@@ -145,15 +145,14 @@ export function launch() {
 
 export const GATE = { range: 260, maxSpeed: 220 }; // range: world units beyond the gate's radius
 
-// Through the gate: out of the linked gate on its side toward that system's star, at rest, after
+// Through the gate (or wormhole): out of the linked one on its side toward its star, at rest, after
 // the jump's sequence (game/warp.js).
 export function jump(gate) {
   if (docked || inFight() || warp.on || !actions.state('jump', gate).ok) return;
   const there = world.scene.gates[gate.gate.link];
-  const system = world.galaxy.systems[there.gate.system];
   select(null);
   startWarp(gate, there, () => {
-    notify(`Jumped to the ${system.name} system`, 3);
+    notify(`Through to the ${there.gate.name}`, 3);
     SystemMap.setPlayer(ship.x, ship.y);
   });
 }
@@ -163,6 +162,6 @@ export function init() {
   actions.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: () => DOCK.range, maxSpeed: () => DOCK.maxSpeed, allowed: canDock, hold: true, run: dock });
   actions.add({
     id: 'jump', kind: 'gate', verb: 'Jump', key: 'j', range: () => GATE.range, maxSpeed: () => GATE.maxSpeed, run: jump,
-    allowed: () => (gatesOnline() ? { ok: true, reason: '' } : { ok: false, reason: 'Gate offline' }),
+    allowed: (e) => (e.gate.wormhole || gatesOnline() ? { ok: true, reason: '' } : { ok: false, reason: 'Gate offline' }),
   });
 }

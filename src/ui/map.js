@@ -4,7 +4,7 @@
 //   moons, belts and fields, nebulae, every station and gate, and the contacts the player knows
 //   of (SystemMap.knowledge, see rules/knowledge.js): identified ones by type, pinged ones as signals.
 // - Galaxy: the star of every system charted (entered at least once), by name (who holds it
-//   shows on its callout: world/regions.js), and the gate links between them; a link to a system not yet charted leads
+//   shows on its callout: world/galaxy.js), and the gate links between them; a link to a system not yet charted leads
 //   to a '?'. The system the ship is in is ringed; in deep space, the ship shows where it is.
 // ?dev shows every system and contact, plus the testing buttons (Jump, Contacts).
 // A mission's objective (SystemMap.objective, set by the flight view) shows as an amber ring; it
@@ -350,7 +350,7 @@ const SystemMap = (() => {
         ctx.beginPath(); ctx.arc(sx, sy, r + 4, 0, Math.PI * 2); ctx.stroke();
       }
     }
-    for (const g of system.gates) gateIcon(...toScreen(g.x, g.y), galaxy.cultureColor(g.culture));
+    for (const g of system.gates) gateIcon(...toScreen(g.x, g.y), g.color || galaxy.cultureColor(g.culture));
 
     // Contacts: identified ones by type, pings as '?'.
     ctx.textAlign = 'center';
@@ -396,7 +396,7 @@ const SystemMap = (() => {
     if (scale >= 0.009 * (48000 / system.radius)) {
       for (const p of system.planets) { const [px, py] = toScreen(p.x, p.y); label(p.name, px, py + dot(p.r, 3.5) + 13, '#8a95b3', p); }
     }
-    for (const g of system.gates) { const [gx, gy] = toScreen(g.x, g.y); label(gateName(g), gx, gy - 10, hexToRgba(galaxy.cultureColor(g.culture), 0.95), g); }
+    for (const g of system.gates) { const [gx, gy] = toScreen(g.x, g.y); label(gateName(g), gx, gy - 10, hexToRgba(g.color || galaxy.cultureColor(g.culture), 0.95), g); }
     if (scale >= 0.012 * (48000 / system.radius)) {
       for (const s of system.stations) { const [sx, sy] = toScreen(s.x, s.y); label(s.name, sx, sy - 9, '#c3cae0', s); }
       for (const n of system.nebulae) { const [nx, ny] = toScreen(n.x, n.y); label(n.name, nx, ny, hexToRgba(n.color, 0.9)); }

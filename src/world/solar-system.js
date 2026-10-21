@@ -5,7 +5,8 @@
 // - planets on orbits that widen outward: hot rocky worlds inside, temperate ones in the middle,
 //   gas and ice giants outside; some with rings, giants with moons,
 // - asteroid belts (a main belt between the inner and outer planets, often an outer one near the
-//   edge) and a few free-floating asteroid fields, every rock placed here with a stable key,
+//   edge; either can be left out) and a few free-floating asteroid fields, every rock placed here
+//   with a stable key,
 // - nebulae in the outer system: clouds made of overlapping blobs. Inside one, security is a
 //   level lower (except right by a station) and sensors reach half as far (game/outfitting.js),
 // - stations orbiting planets (a capital and a major station, both with shipyards, and minor
@@ -18,10 +19,11 @@
 // - pirates in packs by security, and ambushes lying in wait in nebulae and lawless space,
 // - hidden shipwrecks (derelicts) away from the stations, found with the ship's sensors,
 // - gas pockets in the nebulae: dense knots of gas to collect, like mining an asteroid,
-// - jump gates (overrides.gates: [{ angle, to }]) out toward the systems they lead to (world/galaxy.js).
+// - jump gates (overrides.gates: [{ angle, to, culture?, wormhole? }]) out toward where they lead
+//   (world/galaxy.js); a wormhole is the natural kind, placed and used the same way.
 // Derelicts and ambushes are the system's contacts: what sensors ping and map travel runs into.
-// Every part can be left out by its params (the galaxy's first system, the tutorial, is a star,
-// one planet, a belt, a nebula, the waystation and a gate).
+// Every part can be left out by its params, and `kinds` can ask for one of each planet and moon
+// type instead of picking them (the galaxy's one system does both).
 // Positions are world units: from the star, or from overrides.origin when given (where the star
 // sits in a galaxy of several systems; the query functions take those positions). Every tuning value lives in SolarSystem.params; pass
 // `overrides.params` to generate() to change any of them (nested objects merge, arrays and
@@ -37,7 +39,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 4;
+  const VERSION = 5;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -49,10 +51,14 @@ const SolarSystem = (() => {
     // orbit; nothing beyond `edge` of the radius. One orbit is the main belt's.
     planets: { count: [5, 7], first: [5200, 6400], gap: [3800, 5600], growth: 1.1, edge: 0.86 },
     moons: { gas: [1, 3], blue: [0, 2], terran: [0, 1], desert: [0, 1] }, // [min, max] by planet type
-    // Belts: the main one takes the first orbit past `at` of the radius; an outer one (chance
-    // `outer`) runs inside the edge. Rocks come in clumps every `clump` units along the belt, a
-    // share `fill` of the clumps there.
-    belts: { at: 0.3, width: [1800, 2600], outer: 0.55, clump: 2600, rocks: [6, 13], fill: { main: 0.85, outer: 0.4 } },
+    // kinds: { planets, moons }: lists of types to make one each of, in order, instead of picking
+    // them (planets by zone, moons by weight); null picks. With planets, there are as many orbits
+    // as types (plus the main belt's); with moons, each new moon takes the next type in the list.
+    kinds: { planets: null, moons: null },
+    // Belts: the main one (if `main`) takes the first orbit past `at` of the radius; an outer one
+    // (chance `outer`) runs inside the edge. Rocks come in clumps every `clump` units along the
+    // belt, a share `fill` of the clumps there.
+    belts: { main: true, at: 0.3, width: [1800, 2600], outer: 0.55, clump: 2600, rocks: [6, 13], fill: { main: 0.85, outer: 0.4 } },
     fields: { count: [2, 4], rocks: [18, 32], spread: [1100, 1600] },
     nebulae: { count: [1, 3], r: [4500, 7500] },
     // capital, major, yard: whether the system has its capital, its major hub and a salvage yard.
@@ -73,16 +79,19 @@ const SolarSystem = (() => {
   };
 
   // The cultures stations are built in (art/culture.js lineages), each with its colour on the map
-  // and in space: the three settled (human) ones, the capital's first, and the androids, who run
-  // only the waystation. Gates and wrecks are the settled cultures' (SETTLED).
+  // and in space: the three settled (human) ones, the capital's first, the androids, who run only
+  // the waystation, and the Drifters, whose stations are kitbashed like the pirates' ships. Gates
+  // and wrecks are the settled cultures' (SETTLED).
   const CULTURES = [
     { id: 0, lineage: 'wedge', name: 'Wedge', color: '#5fa8ff' },
     { id: 1, lineage: 'block', name: 'Block', color: '#e0a030' },
     { id: 2, lineage: 'shard', name: 'Shard', color: '#3fbf6a' },
     { id: 3, lineage: 'android', name: 'Android', color: '#4fd8ff' },
+    { id: 4, lineage: 'kitbash', name: 'Drifter', color: '#d8824a' },
   ];
   const SETTLED = 3;
   const ANDROID = 3;
+  const DRIFTER = 4;
   // Contacts, one row per type: its label on things in space, its name in notices and with an
   // article in the map's prompt, its colour on the map, and whether it attacks. Derelicts are
   // hidden wrecks with salvage; ambushes are a pirate pack lying in wait.
@@ -111,6 +120,7 @@ const SolarSystem = (() => {
   // Nominal station sizes for keeping things clear of them (the art decides the real size).
   const STATION_SIZE = { major: 260, minor: 140 };
   const GATE_SIZE = 320;
+  const WORMHOLE_COLOR = '#b6a8ff'; // a wormhole's on the map and in space (a gate's is its culture's)
   const WAYSTATION_CLEAR = 6000; // no pirate packs this close to the waystation
   const SYLLABLES = ['ka', 'ri', 'to', 'ven', 'sol', 'mar', 'dra', 'li', 'on', 'tha', 'ce', 'rus',
     'vo', 'ix', 'al', 'nor', 'pe', 'zan', 'el', 'qua', 'bel', 'cor', 'dun', 'ae', 'syr', 'tal'];
@@ -158,20 +168,25 @@ const SolarSystem = (() => {
     // ---------- Orbits, planets and moons ----------
     const rp = stream(0x91a7);
     const orbits = [];
-    const nOrbits = count(rp, P.planets.count) + 1; // one is the main belt's
+    const planetKinds = P.kinds.planets, moonKinds = P.kinds.moons;
+    const nOrbits = (planetKinds ? planetKinds.length : count(rp, P.planets.count)) + (P.belts.main ? 1 : 0); // one is the main belt's
     for (let d = between(rp, P.planets.first), i = 0; orbits.length < nOrbits && d <= R * P.planets.edge; i++) {
       orbits.push(d);
       d += between(rp, P.planets.gap) * P.planets.growth ** i;
     }
-    let beltOrbit = orbits.findIndex((d, i) => i > 0 && d >= R * P.belts.at);
-    if (beltOrbit < 0) beltOrbit = orbits.length - 1;
+    let beltOrbit = -1;
+    if (P.belts.main) {
+      beltOrbit = orbits.findIndex((d, i) => i > 0 && d >= R * P.belts.at);
+      if (beltOrbit < 0) beltOrbit = orbits.length - 1;
+    }
 
     const planets = [];
     const moons = [];
     orbits.forEach((orbit, i) => {
       if (i === beltOrbit) return;
       const zone = PLANET_ZONES.find((z) => orbit / R <= z.upTo);
-      const type = weightedPick(zone.types, rp());
+      const pick = weightedPick(zone.types, rp());
+      const type = planetKinds ? planetKinds[planets.length] : pick;
       const r = Math.round(between(rp, PLANET_SIZE[type]));
       const ring = rp() < (RING_CHANCE[type] || 0.1);
       const angle = rp() * TAU;
@@ -187,7 +202,7 @@ const SolarSystem = (() => {
         const d = p.body + 300 + k * 280 + mr;
         const a = rp() * TAU;
         const m = {
-          id: moons.length, parent: p.id, name: `${p.name} ${'abcd'[k]}`, type: weightedPick(MOON_TYPES, rp()), r: mr,
+          id: moons.length, parent: p.id, name: `${p.name} ${'abcd'[k]}`, type: moonKinds ? moonKinds[moons.length % moonKinds.length] : weightedPick(MOON_TYPES, rp()), r: mr,
           ringTilt: 0, seed: nextSeed(rp) % 9973, orbit: d, x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
         };
         moons.push(m);
@@ -199,10 +214,11 @@ const SolarSystem = (() => {
 
     // ---------- Belts ----------
     const rb = stream(0xbe17);
-    const belts = [{ id: 0, kind: 'main', name: `${name} Belt`, r: orbits[beltOrbit], width: between(rb, P.belts.width) }];
+    const belts = [];
+    if (beltOrbit >= 0) belts.push({ id: 0, kind: 'main', name: `${name} Belt`, r: orbits[beltOrbit], width: between(rb, P.belts.width) });
     if (rb() < P.belts.outer) {
       const width = between(rb, P.belts.width);
-      belts.push({ id: 1, kind: 'outer', name: 'Outer Belt', r: R - width / 2 - 1800, width });
+      belts.push({ id: belts.length, kind: 'outer', name: 'Outer Belt', r: R - width / 2 - 1800, width });
     }
     const beltAt = (x, y, pad = 0) => belts.find((b) => Math.abs(Math.hypot(x, y) - b.r) < b.width / 2 + pad) || null;
 
@@ -293,7 +309,11 @@ const SolarSystem = (() => {
         if (clear(c, 2500) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1200)) at = c;
       }
       at = at || polar(g.angle, R * 0.8);
-      return { id: i, key: `g${i}`, name: `${name} Gate`, to: g.to, ...at, seed: nextSeed(rg), culture: Math.floor(rg() * SETTLED), reach: GATE_SIZE };
+      const culture = Math.floor(rg() * SETTLED);
+      return {
+        id: i, key: `g${i}`, name: `${name} ${g.wormhole ? 'Wormhole' : 'Gate'}`, to: g.to, ...at, seed: nextSeed(rg), culture: g.culture ?? culture,
+        reach: GATE_SIZE, ...(g.wormhole ? { wormhole: true, color: WORMHOLE_COLOR } : {}),
+      };
     });
 
     // ---------- Asteroid fields ----------
@@ -303,11 +323,12 @@ const SolarSystem = (() => {
       const spread = between(rf, P.fields.spread);
       const at = polar(rf() * TAU, between(rf, [R * 0.3, R * 0.9 - spread]));
       if (!clear(at, spread + 1500) || beltAt(at.x, at.y, spread + 800) || fields.some((f) => dist(f, at) < f.spread + spread + 4000)) continue;
+      if (nebulae.some((neb) => dist(neb, at) < neb.r + spread)) continue; // out in the open, where a camp can sit
       fields.push({ id: fields.length, name: `${makeName()} Field`, ...at, spread, rocks: count(rf, P.fields.rocks) });
     }
 
     // ---------- Bases: mining camps in a belt or field, a salvage yard among wrecks ----------
-    const campSites = [belts[0], ...(belts[1] ? [belts[1]] : []), ...fields];
+    const campSites = [...belts, ...fields];
     for (let i = 0, n = count(rs, P.stations.miningCamps); i < n && i < campSites.length; i++) {
       const site = campSites[i];
       let at = null;
@@ -455,7 +476,7 @@ const SolarSystem = (() => {
     const derelictSpot = () => {
       const how = rd();
       if (how < 0.35 && nebulae.length) return inside(nebulae[Math.floor(rd() * nebulae.length)]);
-      if (how < 0.6) { const b = belts[Math.floor(rd() * belts.length)]; return polar(rd() * TAU, b.r + (rd() - 0.5) * b.width); }
+      if (how < 0.6 && belts.length) { const b = belts[Math.floor(rd() * belts.length)]; return polar(rd() * TAU, b.r + (rd() - 0.5) * b.width); }
       return polar(rd() * TAU, between(rd, [R * 0.2, R * 0.95]));
     };
     for (let n = count(rd, P.derelicts.count), tries = 0; n > 0 && tries < 400; tries++) {
@@ -564,7 +585,7 @@ const SolarSystem = (() => {
   // settings or another generator version is another system.
   const saveKey = (s) => `${s.seed}:${s.radius}:${s.planets.length}:${s.stations.length}:${s.asteroids.length}:v${VERSION}`;
 
-  return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES, CULTURES, SETTLED, ANDROID };
+  return { generate, params: DEFAULTS, VERSION, saveKey, CONTACT_TYPES, CULTURES, SETTLED, ANDROID, DRIFTER };
 })();
 
 export { SolarSystem };

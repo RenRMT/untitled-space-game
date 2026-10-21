@@ -4,6 +4,13 @@ A browser space game: fly a ship through a procedurally generated galaxy, trade 
 fight pirates for salvaged components, buy better gear and take it into more dangerous space.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
+The game is pared back to its core mechanics for now: the galaxy is one showcase system (one of
+each planet, moon and station type, a nebula, an asteroid field, a Wedge jump gate and a wormhole
+that lead to each other), one trade good per category and one component per salvage type, six
+factions (one per culture, all neutral but the hostile aliens), no generated jobs, and the
+introduction switched off. `notes/archived-systems.md` says what was taken out and how to bring it
+back.
+
 ## Running it
 
 The game is ES modules, so it has to be served over http; opening `index.html` as a file won't work.
@@ -19,6 +26,7 @@ URL parameters:
 | --- | --- |
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
+| `?intro` | play the introduction on a new game (it's switched off: `INTRO_ENABLED` in `src/game/intro.js`) |
 | `?skipintro` | skip the introduction and the opening missions |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: the jump gates online, every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
@@ -33,12 +41,12 @@ URL parameters:
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
-| `src/story/` | the introduction's script and the missions' data |
+| `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`) and the sprite caches |
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
-| `src/world/` | the factions, galaxy and solar system generation, regions and their politics, security levels |
+| `src/world/` | the factions, galaxy and solar system generation, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
 | `assets/` | the fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |
 
@@ -85,7 +93,7 @@ Each file starts with a comment saying what it does and, for modules other parts
 npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node
 npm run lint   # ESLint (eslint.config.js)
 npm run perf   # tests/perf.js: frame cost in Chromium as a phone would run it (needs Playwright)
-npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: systems, factions, routes, situations
+npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: its system's planets, stations, gates and factions
 ```
 
 The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in a stand-in
@@ -93,7 +101,7 @@ browser (`tests/browser-stub.js`) and checks it through `G`, the game's state an
 which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
 
 Design notes live in `notes/`: `archived-systems.md` lists systems taken out of the game and how to
-bring each back; `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
+bring each back (the latest: the pare-back to one system and the core mechanics); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
 overview (the factions, their standings and the story beats); `galaxy.md` is how the factions are

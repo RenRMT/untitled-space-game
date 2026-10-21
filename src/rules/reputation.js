@@ -1,24 +1,22 @@
 // How each faction regards the player: one number per faction, from -100 (hostile) to +100
-// (devoted), 0 for every faction at the start. Jobs move it (game/jobs.js): the faction a job is
-// done for gains, the one it works against loses. Every change ripples (notes/factions.md, Ripple
-// rule): when the player's regard with faction A changes by d, every other faction B's changes by
-// d × (how B regards A, world/factions.js standing) / RIPPLE. So helping the Bay Union pleases Free
-// Claim and angers Blackline, and helping the Registry, whom everyone holds at 0, moves no one
-// else. A faction that doesn't know A exists doesn't react.
-// Only factions humans know of are listed (the Remainder and the Thren stay off the list until
-// the story brings them in).
+// (devoted), starting where world/factions.js says (`start`: neutral, 0, for all but the aliens).
+// Jobs move it (game/jobs.js): the faction a job is done for gains, the one it works against
+// loses. Every change ripples (notes/factions.md, Ripple rule): when the player's regard with
+// faction A changes by d, every other faction B's changes by d × (how B regards A, world/factions.js
+// standing) / RIPPLE. A faction that doesn't know A exists doesn't react.
+// Only factions humans know of are listed.
 //
 // What regard does, by the tier of the faction that owns a station (or flies the ship):
 // - prices: a faction that likes you trades a little cheaper, one that doesn't charges more
 //   (PRICE: a share added to the station's spread, both ways),
-// - docking: a faction that counts you Hostile refuses it, except the Registry, whose
-//   waystations turn no one away,
-// - pirates: once they count you Friendly, their packs leave you be (no attack on sight, no
-//   ambush on a trip); you can still attack them,
-// - and the other way: every pirate you destroy costs a point with the pirates (KILL), which
-//   ripples like any other change, so a bounty hunter pleases the Compact.
+// - docking: a faction that counts you Hostile refuses it, except the androids, whose
+//   waystations turn no one away (Factions.WAYSTATION),
+// - pirates: once the Drifters (Factions.PIRATES) count you Friendly, their packs leave you be
+//   (no attack on sight, no ambush on a trip); you can still attack them,
+// - and the other way: every pirate you destroy costs a point with the Drifters (KILL), which
+//   ripples like any other change.
 //
-//   Reputation.empty() -> rep                  { [faction id]: regard }; missing is 0
+//   Reputation.empty() -> rep                  { [faction id]: regard }; missing is the faction's start
 //   Reputation.regard(rep, id) -> -100..100
 //   Reputation.change(rep, id, d) -> { [id]: delta }   what moved, the ripple included
 //   Reputation.tier(regard) -> { id, label, min }    Hostile, Unfriendly, Neutral, Friendly, Devoted
@@ -34,7 +32,7 @@
 //   Reputation.passage(rep) -> bool            whether pirate packs leave the player be
 //   Reputation.effects(rep, id, stations) -> [text]   what the faction's regard means now, in words;
 //                                              stations: whether it owns any (else no word on prices or docking)
-//   Reputation.KILL                            regard lost with the pirates per pirate destroyed
+//   Reputation.KILL                            regard lost with the Drifters per pirate destroyed
 // ES module (`Reputation`); also runs in Node (the tests).
 
 import { clamp } from '../core/math.js';
@@ -47,7 +45,7 @@ const Reputation = (() => {
   const JOB = { station: 4, system: 6, faction: 10 };
   const KILL = 1;
   const PRICE = { devoted: -0.04, friendly: -0.02, neutral: 0, unfriendly: 0.06, hostile: 0.12 };
-  const OPEN_DOORS = ['registry']; // never refuse docking
+  const OPEN_DOORS = [Factions.WAYSTATION]; // never refuse docking
   // Tiers by regard, highest first: the first whose `min` the regard reaches.
   const TIERS = [
     { id: 'devoted', label: 'Devoted', min: 60 },
@@ -57,8 +55,9 @@ const Reputation = (() => {
     { id: 'hostile', label: 'Hostile', min: -Infinity },
   ];
 
+  const startOf = (id) => (Factions.get(id) ? Factions.get(id).start : 0);
   const empty = () => ({});
-  const regard = (rep, id) => rep[id] || 0;
+  const regard = (rep, id) => (id in rep ? rep[id] : startOf(id));
   const tier = (v) => TIERS.find((t) => v >= t.min);
   const visible = () => Factions.LIST.filter((f) => f.known);
   const round = (v) => Math.round(v * 10) / 10;
@@ -69,7 +68,7 @@ const Reputation = (() => {
     const move = (to, n) => {
       const before = regard(rep, to), after = round(clamp(before + n, -MAX, MAX));
       if (after === before) return;
-      if (after === 0) delete rep[to]; else rep[to] = after;
+      if (after === startOf(to)) delete rep[to]; else rep[to] = after;
       moved[to] = round(after - before);
     };
     move(id, d);
@@ -100,21 +99,21 @@ const Reputation = (() => {
   const tierOf = (rep, id) => tier(regard(rep, id)).id;
   const priceShift = (rep, id) => (Factions.get(id) ? PRICE[tierOf(rep, id)] : 0);
   const refuses = (rep, id) => !!Factions.get(id) && !OPEN_DOORS.includes(id) && tierOf(rep, id) === 'hostile';
-  const passage = (rep) => regard(rep, 'pirates') >= TIERS.find((t) => t.id === 'friendly').min;
+  const passage = (rep) => regard(rep, Factions.PIRATES) >= TIERS.find((t) => t.id === 'friendly').min;
 
   function effects(rep, id, stations = true) {
     const out = [];
     const shift = priceShift(rep, id);
     if (stations && refuses(rep, id)) out.push('Their stations refuse you docking.');
     else if (stations && shift) out.push(`Their stations give you ${Math.round(Math.abs(shift) * 100)}% ${shift < 0 ? 'better' : 'worse'} prices, buying and selling.`);
-    if (id === 'pirates') out.push(passage(rep) ? 'Their packs leave you be.' : 'Their packs attack you on sight.');
+    if (id === Factions.PIRATES) out.push(passage(rep) ? 'Their packs leave you be.' : 'Their packs attack you on sight.');
     return out;
   }
 
   function read(d) {
     const out = {};
     if (d && typeof d === 'object') {
-      for (const [id, v] of Object.entries(d)) if (Factions.get(id) && Number.isFinite(v) && v) out[id] = round(clamp(v, -MAX, MAX));
+      for (const [id, v] of Object.entries(d)) if (Factions.get(id) && Number.isFinite(v) && v !== startOf(id)) out[id] = round(clamp(v, -MAX, MAX));
     }
     return out;
   }

@@ -357,7 +357,12 @@ export function readCargo(d) {
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
   if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
-  if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
+  if (d.components && typeof d.components === 'object') {
+    for (const [stored, n] of Object.entries(d.components)) {
+      const kind = Goods.resolve(stored); // tiered components from before there was one per kind
+      if (kind && Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
+    }
+  }
   if (Array.isArray(d.items)) cargo.items = d.items.map(upgradeItem).filter((it) => it && !Goods.isSalvage(it.kind));
   if (Array.isArray(d.removed)) cargo.removed = new Set(d.removed);
   if (Number.isFinite(d.credits)) cargo.credits = d.credits;

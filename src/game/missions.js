@@ -547,11 +547,11 @@ export function objective() {
 }
 
 // Jump gates offline (gatesOnline): they keep their destination to themselves, and the map
-// doesn't show the systems beyond them.
+// doesn't show the systems beyond them. Wormholes are never offline.
 export function showGates() {
   for (const g of world.scene.gates) {
-    g.offline = !gatesOnline();
+    g.offline = !g.gate.wormhole && !gatesOnline();
     g.name = g.offline ? 'Jump gate' : g.gate.name;
   }
-  SystemMap.access = { system: (s) => gatesOnline() || world.knowledge.visited(s.index), gate: () => gatesOnline() };
+  SystemMap.access = { system: (s) => gatesOnline() || world.knowledge.visited(s.index), gate: (g) => !!g.wormhole || gatesOnline() };
 }

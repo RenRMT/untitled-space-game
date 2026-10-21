@@ -114,16 +114,17 @@ const ArtCulture = (() => {
   }
 
   // The cultures of a generated galaxy: those its stations are built in (galaxy.cultures: lineage,
-  // colour), the androids among them being xeno(seed)'s, and the pirates, who kitbash from the
-  // three human ones.
+  // colour), the androids among them being xeno(seed)'s, and the pirates (the Drifters), who
+  // kitbash from the three human ones and build the Drifters' stations too.
   //   of(cultureId) -> the culture with that id (world/solar-system.js CULTURES), pirates -> the pirates' culture
   function forGalaxy(galaxy) {
     const base = seedToInt(galaxy.seed);
-    const settled = galaxy.cultures.map((c) => (c.lineage === 'android'
-      ? Object.assign(xeno(galaxy.seed).android, { cultureId: c.id })
-      : create(c.lineage, hashInt(base, c.id, 0xa47), c.color, { cultureId: c.id, name: c.name, color: c.color, kind: 'settled' })));
+    const human = new Map(galaxy.cultures.filter((c) => HUMAN.includes(c.lineage))
+      .map((c) => [c.id, create(c.lineage, hashInt(base, c.id, 0xa47), c.color, { cultureId: c.id, name: c.name, color: c.color, kind: 'settled' })]));
     // Kept under `pirates` for the game's code; shown as the Drifters.
-    const pirates = kitbash(settled.filter((c) => c.kind === 'settled'), hashInt(base, 99, 0xa47), '#d8824a', { name: 'Drifters', color: '#d8824a', kind: 'pirates' });
+    const pirates = kitbash([...human.values()], hashInt(base, 99, 0xa47), '#d8824a', { name: 'Drifters', color: '#d8824a', kind: 'pirates' });
+    const settled = galaxy.cultures.map((c) => (c.lineage === 'android' ? Object.assign(xeno(galaxy.seed).android, { cultureId: c.id })
+      : c.lineage === 'kitbash' ? Object.assign(pirates, { cultureId: c.id }) : human.get(c.id)));
     return { cultures: settled, pirates, of: (id) => settled[id] || settled[0] };
   }
 

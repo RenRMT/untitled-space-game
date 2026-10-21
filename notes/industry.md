@@ -1,5 +1,7 @@
 # Industry, research and upgrades
 
+> **Pared back (October 2026):** one trade good per category and one component per salvage type, without tiers, for now; see `notes/archived-systems.md`. The chain below names the goods as they were.
+
 The plan for giving every trade good a purpose beyond selling. Goods become inputs to an
 automatable production chain (raw → refined → parts → items). Research, in the same lab as the
 logic packages, drives weapon, system and hull progression. This note is the design reference; the

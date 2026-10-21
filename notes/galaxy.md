@@ -1,5 +1,7 @@
 # The galaxy and its factions
 
+> **Pared back (October 2026):** the galaxy is one showcase system for now, without regions or local situations; see `notes/archived-systems.md`. What follows describes the galaxy as it was.
+
 How the sixteen factions of `notes/factions.md` are placed in a generated galaxy. The code is
 `src/world/factions.js` (the factions and the standing matrix), `src/world/regions.js` (regions,
 routes, station owners and local situations) and `src/world/galaxy.js` (the map). To see what a

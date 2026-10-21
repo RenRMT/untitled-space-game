@@ -19,6 +19,7 @@ import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
+import { Factions } from '../world/factions.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rx, ry, visible } from './draw-world.js';
@@ -250,7 +251,7 @@ export function explode(x, y, r) {
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  if (!cargo.removed.has(key) && world.scene.get(key)?.pack !== undefined) Reputation.change(cargo.rep, 'pirates', -Reputation.KILL);
+  if (!cargo.removed.has(key) && world.scene.get(key)?.pack !== undefined) Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
   if (!p) { saveCargo(); return; }

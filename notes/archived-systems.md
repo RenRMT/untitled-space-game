@@ -302,3 +302,43 @@ sector minimap), `loadout.js` (scanner ranges in sectors), tests in both suites.
 system (seeded from the galaxy seed and the system), with travel between systems on a galaxy map
 and the system map for the one you're in. The old density field and system placement in
 `galaxy.js` could pick where systems go; `Sectors` would not return.
+
+## Pared back to the core mechanics (October 2026)
+
+**What changed.** Everything below was cut or switched off at once, to work on the core gameplay
+mechanics on a small, fixed stage. The last commit with all of it in place is `2164e6d` (the
+`claude/practical-cannon-i7s0m2` branch before the pare-back); `git show` the pare-back commit to
+see exactly what was taken out.
+
+- **The galaxy** is one system (`src/world/galaxy.js`): a showcase with one of each planet type
+  (lava, desert, terran, ice, gas, blue) and moon type (grey, ice, rust, dark, sulfur), no belts,
+  one asteroid field and one nebula, one of each station (capital, major hub, minor station,
+  mining camp, salvage yard, waystation), a Wedge-built jump gate and a wormhole that lead to each
+  other. Gone: the hex-lattice map grown from the capital, the regions (capital, core, combine,
+  see, spoke, claims, veil, reach, gateway, tutorial) with their params, link rules and gate counts,
+  the tutorial and gateway systems, extra waystations, and `src/world/regions.js` (the regions,
+  the local situations with their mission hooks, and `settle()`). The solar-system generator
+  keeps everything it had and gained `kinds` (one of each planet and moon type), `belts.main`,
+  gates with a set culture, wormholes, and a kitbashed Drifter station culture. To bring the
+  galaxy back: restore `regions.js` and `Galaxy.generate`'s `grow()`, the tutorial/gateway params
+  and the gate naming by destination system from `2164e6d`.
+- **The factions** are six, one per culture: Wedge, Block, Shard, Drifters (the pirate packs are
+  theirs), Aliens and Androids (who run the waystations). All are neutral to each other and to
+  the player, except the aliens: hostile to everyone, and the player starts Hostile with them
+  (`start` in `src/world/factions.js`). Gone: the sixteen factions of `notes/factions.md`, their
+  write-ups (law, territory, drive, concern) and the standing matrix. Stations are owned by the
+  faction of the culture they're built in.
+- **Trade goods and components** are one per category: iron, silicates, deuterium, carbon fibre,
+  electronics, hydrazine, steel pipe, and hull, weapon, computer and drive components, without
+  tiers. Gone: the other 26 trade goods (titanium to AI cores) with the advanced stage, and the
+  five tiers of components. Recipes, research costs, hull refits and gear use the survivors, the
+  counts scaled up to make up for the value the tiers carried (a tier-t component counted t times;
+  a good by the square root of its old price over its new one). Pirates drop components in lots,
+  bigger the better armed they are (`Security.componentCount`). Old saves resolve every removed
+  type to its category's survivor (`Goods.resolve`).
+- **Generated jobs**: the job texts (`src/story/job-texts.js` STATION, SITUATION, FACTION) are
+  empty, so the board posts nothing; the machinery that places, pays and runs jobs is unchanged,
+  and the tests drive it with jobs of their own. The three handwritten opening missions stay.
+- **The introduction** is switched off (`INTRO_ENABLED` in `src/game/intro.js`): a new game starts
+  beside the waystation with the opening missions on offer. `?intro` plays it anyway.
+

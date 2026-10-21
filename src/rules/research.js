@@ -60,7 +60,7 @@ const Research = (() => {
   const QUEUE_MAX = 3;
   const config = { speed: 1 };
   const M = 60, H = 3600;
-  const c = (category, tier) => Goods.component(category, tier);
+  const c = (category) => Goods.component(category);
 
   const GROUPS = [
     { id: 'logic', label: 'Logic' },
@@ -90,71 +90,71 @@ const Research = (() => {
   const PACKAGES = {
     'core.bool': {
       name: 'core.bool', ver: '1.0', cat: 'core', requires: [], time: 5 * M,
-      cost: { credits: 300, [c('computer', 1)]: 2, electronics: 1 }, note: 'and, not: more than one condition on a line',
+      cost: { credits: 300, [c('computer')]: 2, electronics: 1 }, note: 'and, not: more than one condition on a line',
       example: L({ when: [{ prop: 'isLeaderTarget', not: true }] }),
     },
     'core.bool.or': {
       name: 'core.bool', ver: '1.1', cat: 'core', requires: ['core.bool'], time: 15 * M,
-      cost: { credits: 500, [c('computer', 1)]: 3, 'copper-cable': 2 }, note: 'or: either condition will do',
+      cost: { credits: 500, [c('computer')]: 3, 'steel-pipe': 2 }, note: 'or: either condition will do',
     },
     'mem.ext.1': {
       name: 'mem.ext', ver: '1.0', cat: 'core', requires: [], time: 30 * M, lines: 1,
-      cost: { credits: 800, [c('computer', 2)]: 2, electronics: 2 }, note: 'memory for a fourth program line',
+      cost: { credits: 800, [c('computer')]: 4, electronics: 2 }, note: 'memory for a fourth program line',
     },
     'mem.ext.2': {
       name: 'mem.ext', ver: '2.0', cat: 'core', requires: ['mem.ext.1'], time: 3 * H, lines: 2,
-      cost: { credits: 3000, [c('computer', 3)]: 3, robotics: 2 }, note: 'memory for six program lines',
+      cost: { credits: 3000, [c('computer')]: 9, electronics: 4 }, note: 'memory for six program lines',
     },
     'mem.ext.3': {
       name: 'mem.ext', ver: '3.0', cat: 'core', requires: ['mem.ext.2'], time: 8 * H, lines: 2,
-      cost: { credits: 8000, [c('computer', 4)]: 2, [c('computer', 5)]: 1, 'ai-cores': 2 }, note: 'memory for eight program lines',
+      cost: { credits: 8000, [c('computer')]: 13, electronics: 6 }, note: 'memory for eight program lines',
     },
     'combat.select': {
       name: 'combat.select', ver: '1.0', cat: 'combat', requires: [], time: 20 * M,
-      cost: { credits: 400, [c('weapon', 1)]: 2, [c('computer', 1)]: 2 }, note: 'pick the nearest, weakest or strongest enemy',
+      cost: { credits: 400, [c('weapon')]: 2, [c('computer')]: 2 }, note: 'pick the nearest, weakest or strongest enemy',
       example: L({ pick: 'weakest' }),
     },
     'combat.range': {
       name: 'combat.range', ver: '1.0', cat: 'combat', requires: ['combat.select'], time: 45 * M,
-      cost: { credits: 900, [c('weapon', 2)]: 2, 'optical-fibre': 2 }, note: 'how far things are, and fighting from as far as the guns reach',
+      cost: { credits: 900, [c('weapon')]: 4, 'steel-pipe': 2 }, note: 'how far things are, and fighting from as far as the guns reach',
       example: L({ act: 'keepRange', when: [{ prop: 'distance', rel: '<', value: 600 }] }),
     },
     'combat.threat': {
       name: 'combat.threat', ver: '1.0', cat: 'combat', requires: ['combat.select'], time: H,
-      cost: { credits: 1200, [c('computer', 2)]: 3, superconductor: 1 }, note: 'whom an enemy is shooting at',
+      cost: { credits: 1200, [c('computer')]: 6, 'steel-pipe': 2 }, note: 'whom an enemy is shooting at',
       example: L({ when: [{ prop: 'targeting', value: 'leader' }] }),
     },
     'combat.focus': {
       name: 'combat.focus', ver: '1.0', cat: 'combat', requires: ['combat.threat'], time: H,
-      cost: { credits: 1000, [c('computer', 2)]: 2, 'optical-fibre': 2 }, note: 'what kind of ship an enemy is',
+      cost: { credits: 1000, [c('computer')]: 4, 'steel-pipe': 2 }, note: 'what kind of ship an enemy is',
       example: L({ when: [{ prop: 'class', rel: '==', value: 'freighter' }] }),
     },
     'tactics.count': {
       name: 'tactics.count', ver: '1.0', cat: 'tactics', requires: ['core.bool'], time: 45 * M,
-      cost: { credits: 900, [c('computer', 2)]: 2, electronics: 2 }, note: 'how many enemies and squad members are still flying',
+      cost: { credits: 900, [c('computer')]: 4, electronics: 2 }, note: 'how many enemies and squad members are still flying',
       example: L({ subject: 'self', act: 'follow', when: [{ of: 'fight', prop: 'enemies', rel: '>=', value: 4 }] }),
     },
     'tactics.use': {
       name: 'tactics.use', ver: '1.0', cat: 'tactics', requires: ['tactics.count'], time: 1.5 * H,
-      cost: { credits: 2000, [c('computer', 3)]: 3, electronics: 2 }, note: 'use(): spend a charge of an ability (repair, shield, EMP, jammer) when it will help',
+      cost: { credits: 2000, [c('computer')]: 9, electronics: 2 }, note: 'use(): spend a charge of an ability (repair, shield, EMP, jammer) when it will help',
     },
     'maint.sense': {
       name: 'maint.sense', ver: '1.0', cat: 'maint', requires: [], time: 10 * M,
-      cost: { credits: 300, [c('hull', 1)]: 2, [c('computer', 1)]: 1 }, note: 'hull and shield left, in %',
+      cost: { credits: 300, [c('hull')]: 2, [c('computer')]: 1 }, note: 'hull and shield left, in %',
       example: L({ pick: 'any', when: [{ prop: 'hull', rel: '<', value: 30 }] }),
     },
     'squad.link': {
       name: 'squad.link', ver: '1.0', cat: 'maint', requires: [], time: 20 * M,
-      cost: { credits: 500, [c('computer', 1)]: 2, 'copper-cable': 2 }, note: 'the other squad members, as a subject',
+      cost: { credits: 500, [c('computer')]: 2, 'steel-pipe': 2 }, note: 'the other squad members, as a subject',
     },
     'maint.retreat': {
       name: 'maint.retreat', ver: '1.0', cat: 'maint', requires: ['maint.sense'], time: 45 * M,
-      cost: { credits: 500, [c('drive', 1)]: 2, hydrazine: 2 }, note: 'retreat(): fall back beside the leader and hold fire',
+      cost: { credits: 500, [c('drive')]: 2, hydrazine: 2 }, note: 'retreat(): fall back beside the leader and hold fire',
       example: L({ subject: 'self', act: 'retreat', when: [{ prop: 'hull', rel: '<', value: 30 }] }),
     },
     'maint.guard': {
       name: 'maint.guard', ver: '1.0', cat: 'maint', requires: ['squad.link'], time: H,
-      cost: { credits: 1500, [c('hull', 2)]: 2, [c('drive', 2)]: 1, graphene: 1 }, note: 'guard(): stay close to a ship and fire on whoever shoots at it',
+      cost: { credits: 1500, [c('hull')]: 4, [c('drive')]: 2, 'carbon-fibre': 2 }, note: 'guard(): stay close to a ship and fire on whoever shoots at it',
       example: L({ subject: 'leader', act: 'guard' }),
     },
   };
@@ -169,18 +169,17 @@ const Research = (() => {
     };
   }
   // Blueprints, Mk II to V of each line: each needs the Mk before it, takes components of the
-  // gear's kind of salvage at its tier (Mk V an exotic one, so the best gear needs dangerous space)
-  // and, from Mk III, parts made by industry.
+  // gear's kind of salvage, more for each Mk (BP_SALVAGE_COUNT), and, from Mk III, electronics.
   const BP_TIME = [0, 0, 15 * M, H, 4 * H, 12 * H];
   const BP_CREDITS = [0, 0, 500, 1500, 4000, 10000];
-  const BP_PART = { weapon: 'capacitor', shield: 'power-cell', computer: 'electronics', engine: 'thruster-nozzle', scanner: 'electronics' };
+  const BP_SALVAGE_COUNT = [0, 0, 4, 6, 8, 13];
+  const BP_PART = 'electronics';
   const BP_SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer' };
   for (const [line, spec] of GEAR_LINES) {
     for (let t = Math.max(2, spec.from || 1); t <= 5; t++) {
       const gear = `${line}-${t}`, id = `bp.${gear}`, prev = `bp.${line}-${t - 1}`, cat = BP_SALVAGE[spec.slot];
-      const cost = { credits: BP_CREDITS[t], [c(cat, Math.min(t, 4))]: 2 };
-      if (t === 5) cost[c(cat, 5)] = 1;
-      if (t >= 3) cost[BP_PART[spec.slot]] = t - 2;
+      const cost = { credits: BP_CREDITS[t], [c(cat)]: BP_SALVAGE_COUNT[t] };
+      if (t >= 3) cost[BP_PART] = t - 2;
       PACKAGES[id] = {
         id, kind: 'blueprint', name: Loadout.EQUIPMENT[gear].name, cat: `bp.${line}`, line, tier: t, col: t - Math.max(2, spec.from || 1), gear,
         requires: Loadout.EQUIPMENT[`${line}-${t - 1}`] && t > 2 ? [prev] : [], time: BP_TIME[t], cost,
@@ -206,7 +205,7 @@ const Research = (() => {
       PACKAGES[id] = {
         id, kind: 'refine', name: `${spec.name} tuning ${Loadout.MK[n].replace('Mk ', '')}`, cat: `bp.${line}`, line, step: n, col: n,
         requires: [...(n > 1 ? [`ref.${line}.${n - 1}`] : []), `bp.${line}-${bpTier}`], time: REF_TIME[n],
-        cost: { credits: REF_CREDITS[n], [c(cat, n + 1)]: 2, [BP_PART[spec.slot]]: n },
+        cost: { credits: REF_CREDITS[n], [c(cat)]: 2 * (n + 1), [BP_PART]: n },
         refine: { line, stats }, note: `+4% ${words} for every ${spec.name.toLowerCase()}`,
       };
     }
@@ -217,22 +216,21 @@ const Research = (() => {
     const id = `mods.${slot}`, list = Mods.LIST.filter((m) => m.slot === slot);
     PACKAGES[id] = {
       id, kind: 'mods', name: `${MOD_SHORT[slot]} mods`, short: MOD_SHORT[slot], cat: slot === 'weapon' ? 'mods.weapons' : 'mods.systems', requires: [], time: H,
-      cost: { credits: 1200, [c(BP_SALVAGE[slot], 2)]: 2, [BP_PART[slot]]: 1 }, mods: list.map((m) => m.id),
+      cost: { credits: 1200, [c(BP_SALVAGE[slot])]: 4, [BP_PART]: 1 }, mods: list.map((m) => m.id),
       note: `${list.map((m) => m.name).join(', ')}: mods for ${slot === 'weapon' ? 'weapons' : `${slot}s`}, fitted to gear from Mk II up`,
     };
   }
   // Industry: [id, name, short (on its node), cat, requires, time, credits, { cost }, { bonus }, note].
   const INDUSTRY = [
-    ['ind.speed.1', 'Order speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer', 2)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
-    ['ind.speed.2', 'Order speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { actuator: 2, [c('computer', 3)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
-    ['ind.speed.3', 'Order speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { robotics: 2, [c('computer', 4)]: 2 }, { speed: 0.15 }, '+15% speed on every order'],
-    ['ind.storage.1', 'Storage racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull', 1)]: 3 }, { storage: 100 }, '+100 room in storage'],
-    ['ind.storage.2', 'Storage racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 3 }, { storage: 100 }, '+100 room in storage'],
-    ['ind.bays.1', 'Order slots I', 'Slots +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'hull-plating': 2, [c('hull', 2)]: 2 }, { bays: 1 }, 'one more order at every station'],
-    ['ind.bays.2', 'Order slots II', 'Slots +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'hull-plating': 4, [c('hull', 3)]: 2 }, { bays: 1 }, 'one more order at every station'],
-    ['ind.alt.power-cell', 'Ice cells', 'Ice cells', 'ind.recipes', [], H, 1200, { 'power-cell': 1, [c('drive', 2)]: 2 }, {}, 'power cells straight from water ice, without hydrazine'],
-    ['ind.alt.graphene', 'Carbon graphene', 'Graphene', 'ind.recipes', ['ind.alt.power-cell'], 2 * H, 2500, { graphene: 2, [c('hull', 2)]: 2 }, {}, 'graphene from carbon and ice, without corundum'],
-    ['ind.lab.1', 'Lab queue', 'Queue +1', 'ind.lab', [], 4 * H, 5000, { robotics: 1, [c('computer', 3)]: 3 }, { queue: 1 }, 'one more package can wait in the lab queue'],
+    ['ind.speed.1', 'Order speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer')]: 4 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.speed.2', 'Order speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { electronics: 2, [c('computer')]: 6 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.speed.3', 'Order speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { electronics: 4, [c('computer')]: 8 }, { speed: 0.15 }, '+15% speed on every order'],
+    ['ind.storage.1', 'Storage racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull')]: 3 }, { storage: 100 }, '+100 room in storage'],
+    ['ind.storage.2', 'Storage racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'carbon-fibre': 4, [c('hull')]: 6 }, { storage: 100 }, '+100 room in storage'],
+    ['ind.bays.1', 'Order slots I', 'Slots +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'carbon-fibre': 4, [c('hull')]: 4 }, { bays: 1 }, 'one more order at every station'],
+    ['ind.bays.2', 'Order slots II', 'Slots +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'carbon-fibre': 8, [c('hull')]: 6 }, { bays: 1 }, 'one more order at every station'],
+    ['ind.alt.electronics', 'Silicate electronics', 'Silicate', 'ind.recipes', [], H, 1200, { electronics: 1, [c('computer')]: 4 }, {}, 'electronics from silicates and steel pipe, without carbon fibre'],
+    ['ind.lab.1', 'Lab queue', 'Queue +1', 'ind.lab', [], 4 * H, 5000, { electronics: 2, [c('computer')]: 9 }, { queue: 1 }, 'one more package can wait in the lab queue'],
   ];
   for (const [id, name, short, cat, requires, time, credits, cost, industry, note] of INDUSTRY) {
     PACKAGES[id] = { id, kind: 'industry', name, short, cat, requires, time, cost: { credits, ...cost }, industry, note };

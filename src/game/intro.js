@@ -21,6 +21,8 @@ import { world } from './world.js';
 // movement mode (the combat mode comes with the first mission's launch). Mid-way the pod is the player's to fly, until it's in reach of the station's
 // tractor beam, which brings it in to dock as the station finishes talking. Then the player has
 // the usual ship again. ?skipintro (or the Skip button) goes straight to the docked station.
+// The introduction is switched off for now (INTRO_ENABLED): a new game starts beside the
+// waystation instead. ?intro plays it anyway.
 // It opens on the pod drifting in toward the station (a tap skips that), before anyone speaks.
 // While it runs there is no map, no settings, no HUD, no selecting things, no squad and no pirates.
 
@@ -41,8 +43,11 @@ export const APPROACH_HINT = {
   direct: 'Drag anywhere to steer: the further you drag, the faster you go. Let go and the pod stops.',
 };
 
+// Whether new games open on the introduction; off while the core gameplay is reworked.
+export const INTRO_ENABLED = false;
+
 export function introDue() {
-  return !cargo.story.has('intro') && world.galaxy.waystation >= 0 && !Params.has('skipintro');
+  return (INTRO_ENABLED || Params.has('intro')) && !cargo.story.has('intro') && world.galaxy.waystation >= 0 && !Params.has('skipintro');
 }
 
 // A portrait (art/portraits.js) in an art style (the current one by default), filling a square:
