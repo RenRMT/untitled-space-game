@@ -448,11 +448,12 @@ const ArtSurface = (() => {
     const pp = (v) => [v[0], v[1] * ct - v[2] * st];
     const depth = (pts) => { let d = 0; for (const p of pts) d += p[1] * st + p[2] * ct; return d / pts.length; };
     const kOf = (n, sf) => { const m = sf ? nrm([n[0] * (1 - sf), n[1] * (1 - sf), n[2] * (1 - sf) + sf]) : n; return 0.24 + 0.95 * Math.max(0, dot(m, L)); };
-    const g = { tris: [], major: [], coast: [], waves: [], lee: new Path2D(), cracks: [], specks: [], shadow: new Path2D(), raised: [], block: {}, talls: [], bolts: [], fronts: [], puffs: [], vortices: [] };
+    const g = { tris: [], major: [], coast: [], waves: [], lee: [], cracks: [], specks: [], shadow: new Path2D(), shade: [], raised: [], block: {}, talls: [], bolts: [], fronts: [], puffs: [], vortices: [] };
     const addShadow = (pts2, z) => {
       const [sx, sy] = shadowShift(z);
-      hull(pts2.concat(pts2.map((p) => [p[0] + sx, p[1] + sy]))).forEach((p, k) => { const q = pp([p[0], p[1], heightAt(W, p[0], p[1])]); k ? g.shadow.lineTo(q[0], q[1]) : g.shadow.moveTo(q[0], q[1]); });
-      g.shadow.closePath();
+      const sh = hull(pts2.concat(pts2.map((p) => [p[0] + sx, p[1] + sy]))).map((p) => pp([p[0], p[1], heightAt(W, p[0], p[1])]));
+      sh.forEach((q, k) => (k ? g.shadow.lineTo(q[0], q[1]) : g.shadow.moveTo(q[0], q[1])));
+      g.shadow.closePath(); g.shade.push(sh);
     };
     const N = 4, gs = T / N, X0 = rg.i0 * N, Y0 = rg.j0 * N, GX = rg.i1 * N, GY = rg.j1 * N, V = [];
     for (let gy = Y0; gy <= GY; gy++, yield 'heights') {
@@ -531,7 +532,7 @@ const ArtSurface = (() => {
       }
       if (!lines) continue;
       const n = nrm([-((zz[1] - zz[0]) + (zz[2] - zz[3])) / (2 * ms), -((zz[3] - zz[0]) + (zz[2] - zz[1])) / (2 * ms), 1]);
-      if (dot(n, L) < 0.5) { q.forEach((p, k) => { const r = pp([p[0], p[1], zz[k]]); k ? g.lee.lineTo(r[0], r[1]) : g.lee.moveTo(r[0], r[1]); }); g.lee.closePath(); }
+      if (dot(n, L) < 0.5) g.lee.push(q.map((p, k) => pp([p[0], p[1], zz[k]])));
     }
     // o: cliff wall options { deco: 'strata' | 'cols' | 'crev', u: wall width }.
     const addFace = (q, col, hint, o) => {
@@ -601,6 +602,7 @@ const ArtSurface = (() => {
           }
         });
         addShadow(pc.pts, bi.high.h);
+        yield 'cliff walls';
       }
       const pr = W.props[key];
       const wt = weights(W, mx, my), wet = sea && rawHeight(W, mx, my) < sea.level;
@@ -637,6 +639,7 @@ const ArtSurface = (() => {
         const Rg = addColumn(pr.x, pr.y, pf.rings, pf.sides, v.c, v.ct, i * 31 + j, undefined, false, lean);
         addShadow(Rg[0].map((p) => [p[0], p[1]]), 0);
         addShadow(Rg[Rg.length - 1].map((p) => [p[0], p[1]]), top);
+        yield 'props';
       } else if (pr.type === 'hole' && bi.fluid) {
         g.vortices.push({ x: pr.x, y: pr.y, r: bi.hole[pr.v].r, ph: hash(i, j, s + 85) });
       } else if (pr.type === 'small' && bi.fluid) {
@@ -660,6 +663,7 @@ const ArtSurface = (() => {
             Rg = addColumn(bx, by, [[0, r, base], [hgt, r * sm.taper, base]], sm.sides, [v.c], v.ct || v.c, salt, base + hgt + r * sm.apex, v.emit);
           }
           addShadow(Rg[0].map((p) => [p[0], p[1]]), hgt);
+          yield 'props';
         }
       }
     }
@@ -769,13 +773,54 @@ const ArtSurface = (() => {
   // thousands of triangles and faces a chunk draws.
   const tracePoly = (ctx, pts) => { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let k = 1; k < pts.length; k++) ctx.lineTo(pts[k][0], pts[k][1]); ctx.closePath(); };
   const polyPath = (pts) => { const p = new Path2D(); pts.forEach((q, k) => (k ? p.lineTo(q[0], q[1]) : p.moveTo(q[0], q[1]))); p.closePath(); return p; };
-  const bbox = (pts) => { let a = 1e9, b = 1e9, c = -1e9, d = -1e9; for (const p of pts) { a = Math.min(a, p[0]); b = Math.min(b, p[1]); c = Math.max(c, p[0]); d = Math.max(d, p[1]); } return [a - 2, b - 2, c + 2, d + 2]; };
-  function hatchPath(ctx, path, bb, sp, dir, col, lw) {
-    const [x0, y0, x1, y1] = bb;
-    ctx.save(); ctx.clip(path); ctx.beginPath();
-    if (dir > 0) for (let c = x0 - y1; c < x1 - y0; c += sp) { ctx.moveTo(c + y0, y0); ctx.lineTo(c + y1, y1); }
-    else for (let c = x0 + y0; c < x1 + y1; c += sp) { ctx.moveTo(c - y0, y0); ctx.lineTo(c - y1, y1); }
-    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke(); ctx.restore();
+  // Diagonal hatching over the union of convex polygons, kept inside box [x0, y0, x1, y1]. Each
+  // line's spans are worked out from the polygon edges rather than clipped (a clip per face or per
+  // chunk is what made Line style slow to draw). Lines sit on a grid fixed in chunk space, so the
+  // spans of neighbouring polygons and of neighbouring boxes meet.
+  const ANY = [-Infinity, -Infinity, Infinity, Infinity];
+  function hatchPolys(ctx, polys, box, sp, dir, col, lw) {
+    const [x0, y0, x1, y1] = box, u = dir > 0 ? (p) => p[0] - p[1] : (p) => p[0] + p[1];
+    const items = [];
+    for (const P of polys) {
+      let lo = Infinity, hi = -Infinity, top = Infinity, bot = -Infinity;
+      for (const p of P) { const v = u(p); lo = Math.min(lo, v); hi = Math.max(hi, v); top = Math.min(top, p[1]); bot = Math.max(bot, p[1]); }
+      if (bot > y0 && top < y1) items.push([lo, hi, P]);
+    }
+    if (!items.length) return;
+    items.sort((a, b) => a[0] - b[0]);
+    const uHi = items.reduce((m, it) => Math.max(m, it[1]), -Infinity), act = [], spans = [];
+    let next = 0;
+    ctx.beginPath();
+    for (let k = Math.ceil(items[0][0] / sp); k * sp <= uHi; k++) {
+      const c = k * sp;
+      while (next < items.length && items[next][0] <= c) act.push(items[next++]);
+      spans.length = 0;
+      for (let n = act.length - 1; n >= 0; n--) {
+        const it = act[n];
+        if (it[1] < c) { act[n] = act[act.length - 1]; act.pop(); continue; }
+        const P = it[2];
+        let a = Infinity, b = -Infinity;
+        for (let m = 0; m < P.length; m++) {
+          const p = P[m], q = P[(m + 1) % P.length], up = u(p) - c, uq = u(q) - c;
+          if (up <= 0 === uq <= 0) continue;
+          const y = p[1] + ((q[1] - p[1]) * up) / (up - uq);
+          a = Math.min(a, y); b = Math.max(b, y);
+        }
+        if (b > a) spans.push([a, b]);
+      }
+      // x = c + y (dir > 0) or c - y: the box's x range as a y range on this line.
+      const ya = Math.max(y0, dir > 0 ? x0 - c : c - x1), yb = Math.min(y1, dir > 0 ? x1 - c : c - x0);
+      if (yb <= ya || !spans.length) continue;
+      spans.sort((p, q) => p[0] - q[0]);
+      const seg = (a, b) => { a = Math.max(a, ya); b = Math.min(b, yb); if (b > a) { ctx.moveTo(dir > 0 ? c + a : c - a, a); ctx.lineTo(dir > 0 ? c + b : c - b, b); } };
+      let [a, b] = spans[0];
+      for (let m = 1; m < spans.length; m++) {
+        if (spans[m][0] <= b) b = Math.max(b, spans[m][1]);
+        else { seg(a, b); [a, b] = spans[m]; }
+      }
+      seg(a, b);
+    }
+    ctx.strokeStyle = col; ctx.lineWidth = lw; ctx.stroke();
   }
   const BANDS = [[0, 0.22, 0], [0.22, 0.3, 1], [0.3, 0.62, 0], [0.62, 0.7, 1], [0.7, 1, 0]];
 
@@ -786,8 +831,8 @@ const ArtSurface = (() => {
         ctx.lineWidth = lw * 0.6;
         for (const t of o.tris) { tracePoly(ctx, t.pts); ctx.fillStyle = ctx.strokeStyle = rgb(o.col, t.k); ctx.fill(); ctx.stroke(); }
       } else {
-        const rp = polyPath(o.ring); ctx.fillStyle = ctx.strokeStyle = BG(); ctx.lineWidth = lw * 0.8; ctx.fill(rp); ctx.stroke(rp);
-        if (o.emit) { ctx.fillStyle = ln(0.75); ctx.fill(rp); }
+        tracePoly(ctx, o.ring); ctx.fillStyle = ctx.strokeStyle = BG(); ctx.lineWidth = lw * 0.8; ctx.fill(); ctx.stroke();
+        if (o.emit) { ctx.fillStyle = ln(0.75); ctx.fill(); }
         ctx.beginPath();
         o.ring.forEach((p, m) => { if (!o.cut[m]) return; const q = o.ring[(m + 1) % o.ring.length]; ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); });
         ctx.strokeStyle = ln(1); ctx.lineWidth = lw; ctx.stroke();
@@ -809,11 +854,9 @@ const ArtSurface = (() => {
       for (const [u, f] of crev) fill([hi(u - 0.05), hi(u + 0.05), mid(u, f)], o.col, o.k * 0.62);
       return;
     }
-    const path = polyPath(q);
-    ctx.fillStyle = BG(); ctx.fill(path);
-    // Faces turned from the light hatched; the darkest cross-hatched too. Spaced for how many lines
-    // a chunk can afford to stroke (each a clip and a fan of lines).
-    if (bi.hatch && o.dd < 0.2) { const bb = bbox(q); hatchPath(ctx, path, bb, 4.2, 1, ln(0.6), lw * 0.8); if (o.dd < -0.6) hatchPath(ctx, path, bb, 5, -1, ln(0.5), lw * 0.8); }
+    tracePoly(ctx, q); ctx.fillStyle = BG(); ctx.fill();
+    // Faces turned from the light hatched; the darkest cross-hatched too.
+    if (bi.hatch && o.dd < 0.2) { hatchPolys(ctx, [q], ANY, 4.2, 1, ln(0.6), lw * 0.8); if (o.dd < -0.6) hatchPolys(ctx, [q], ANY, 5, -1, ln(0.5), lw * 0.8); }
     if (o.deco) {
       ctx.beginPath();
       if (o.deco === 'strata') for (const f of [0.26, 0.66]) { const a = at(f), b = bt(f); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
@@ -887,16 +930,18 @@ const ArtSurface = (() => {
       lines(g.major, ln(0.7), lw * 0.8);
       if (bi.sea) { lines(g.coast, ln(1), lw); lines(g.waves, ln(0.45), lw * 0.8); }
       yield 'draw lines';
-      if (bi.hatch) hatchPath(ctx, g.lee, hb, 4.4, 1, ln(0.45), lw * 0.7);
+      // The chunk's hatching in horizontal bands, a step each, so no one step hatches all of it.
+      const band = (k) => [hb[0], lerp(hb[1], hb[3], k / 3), hb[2], lerp(hb[1], hb[3], (k + 1) / 3)];
+      if (bi.hatch) for (let k = 0; k < 3; k++, yield 'draw lee hatching') hatchPolys(ctx, g.lee, band(k), 4.4, 1, ln(0.45), lw * 0.7);
       if (bi.b.cc) lines(g.cracks, ln(0.7), lw * 0.8);
       specks(ln(0.6));
-      yield 'draw lee hatching';
-      if (bi.hatch) hatchPath(ctx, g.shadow, hb, 4, -1, ln(0.55), lw * 0.8);
+      yield 'draw cracks';
+      if (bi.hatch) for (let k = 0; k < 3; k++, yield 'draw shadow hatching') hatchPolys(ctx, g.shade, band(k), 4, -1, ln(0.55), lw * 0.8);
     }
     if (o.extra) o.extra(ctx);
     yield 'draw ground details';
     for (let n = 0; n < g.raised.length; n++) {
-      if (n % 40 === 39) yield 'draw raised';
+      if (n % 15 === 14) yield 'draw raised';
       drawRaised(ctx, g.raised[n], bi, style, lw);
     }
   }
