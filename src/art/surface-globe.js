@@ -28,7 +28,8 @@
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
 //                                                           // (layers.missing: how many still aren't built)
 //   tiles.warm(rect, budgetMs)                              // works on the missing over rect, nearest first
-//   tiles.stats() -> { cached, keep, busy, built, ms, steps } // for a performance readout (built, ms, steps: totals so far)
+//   tiles.stats() -> { cached, keep, busy, built, ms, steps, slowest } // for a performance readout (built, ms,
+//                                                           // steps: totals so far; slowest: { label, ms } of the last 2 s)
 // Chunks are built a step at a time (ArtSurface.renderRegionSteps), one under way at once, for the
 // budget given each call: a frame never has to build a whole one (budgetMs Infinity: all, now).
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
@@ -239,6 +240,8 @@ const SurfaceGlobe = (() => {
     // The chunk being built a step at a time ({ k, gen }), at most one: no frame builds a whole one.
     let job = null;
     const counts = { built: 0, ms: 0, steps: 0 }; // for the performance overlay: chunks finished, time spent and steps taken, so far
+    // ... and the slowest step of the last 2 s: what it was (its yield's name) and how long it took.
+    let slow = { label: '', ms: 0, at: 0 };
     // Works on the chunk under way (or else starts the first of `want` that's missing) for about
     // budgetMs, a step of a few milliseconds at a time; a finished one is kept.
     function pump(want, budgetMs) {
@@ -249,8 +252,9 @@ const SurfaceGlobe = (() => {
           if (!next) break;
           job = { k: key(next[0], next[1]), gen: ArtSurface.renderRegionSteps(W, style, { ...region(next[0], next[1]), canvas: pool.pop() }) };
         }
-        const r = job.gen.next();
+        const s0 = performance.now(), r = job.gen.next(), d = performance.now() - s0;
         counts.steps++;
+        if (d > slow.ms || s0 - slow.at > 2000) slow = { label: r.done ? 'finish' : r.value || '?', ms: d, at: s0 };
         if (r.done) { r.value.used = frame; map.set(job.k, r.value); job = null; counts.built++; }
       }
       counts.ms += performance.now() - t0;
@@ -289,7 +293,7 @@ const SurfaceGlobe = (() => {
       for (const [ci, cj] of want) { const c = map.get(key(ci, cj)); if (c) c.used = frame; }
       evict();
     }
-    const stats = () => ({ cached: map.size, keep, busy: !!job, ...counts });
+    const stats = () => ({ cached: map.size, keep, busy: !!job, ...counts, slowest: slow });
     return { layers, warm, stats, size: () => map.size, clear: () => map.clear() };
   }
 

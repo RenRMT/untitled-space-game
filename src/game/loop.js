@@ -137,7 +137,7 @@ export function drawPerf(surface = null) {
     ]),
     `sprites ${s.sprites} cached · ${Math.round((s.spritePixels * 4) / 1e6)} MB · ${Math.round(perfStats.rates.builds)} built/s · ${Math.round(perfStats.rates.deferred)} waited/s`,
   ];
-  const x0 = 8, y0 = 92, w = 380, gh = 44, ty = y0 + lines.length * 15 + 12;
+  const x0 = 8, y0 = 92, w = Math.min(450, view.w - 16), gh = 44, ty = y0 + lines.length * 15 + 12;
   ctx.save();
   ctx.font = Theme.font(11);
   ctx.fillStyle = 'rgba(12, 15, 24, 0.85)';
