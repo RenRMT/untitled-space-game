@@ -10,7 +10,7 @@ import assert from 'node:assert';
 import { install } from './browser-stub.js';
 
 // The stand-in browser first: the game's modules use the DOM as they load.
-const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro' }); // ?intro: play it though it's off
+const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro&missions' }); // ?intro, ?missions: play them though they're off
 const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
@@ -101,6 +101,7 @@ function until(cond, maxFrames, each = '') {
 
 test('a new game opens on the introduction (with ?intro): the pod is talked in, flown to the waystation and docked', () => {
   assert.strictEqual(game('INTRO_ENABLED'), false, 'switched off unless asked for');
+  assert.strictEqual(game('MISSIONS_ENABLED'), false, 'switched off unless asked for');
   browser.frames(3);
   const comms = browser.document.getElementById('comms');
   const text = () => textOf(comms);

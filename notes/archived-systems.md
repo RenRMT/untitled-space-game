@@ -340,5 +340,10 @@ see exactly what was taken out.
   empty, so the board posts nothing; the machinery that places, pays and runs jobs is unchanged,
   and the tests drive it with jobs of their own. The three handwritten opening missions stay.
 - **The introduction** is switched off (`INTRO_ENABLED` in `src/game/intro.js`): a new game starts
-  beside the waystation with the opening missions on offer. `?intro` plays it anyway.
+  beside the waystation with the opening missions on offer (with those off too, beside the start
+  station). `?intro` plays it anyway.
+- **The opening missions** are switched off (`MISSIONS_ENABLED` in `src/game/cargo.js`): none is
+  offered (an old save's are counted done, without their rewards), a new game starts beside the
+  start station with every station service open, and the jump gates are online from the start.
+  `?missions` plays them anyway, with the gates offline until the third is handed in.
 

@@ -53,13 +53,18 @@ export const cargo = {
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
-// online (nothing does that yet: until then the first system is all there is).
+// online by the third opening mission (until then the first system is all there is).
 export const STORY = ['intro', 'gates'];
 // ?dev (for testing): the jump gates online, every station service open and production orders
 // taken everywhere, even in a fresh game, without touching the save (see stationLocks, the jobs
 // board and game/industry.js). Combat god mode is the same switch (game/combat.js).
 export const devUnlock = Params.has('dev');
-export const gatesOnline = () => devUnlock || cargo.story.has('gates');
+// Whether the game plays the opening missions; off while the core gameplay is reworked: none are
+// offered, the game starts beside the start station and the jump gates are online from the start
+// (they're what the third mission brings online). ?missions plays them anyway.
+export const MISSIONS_ENABLED = false;
+export const missionsOn = MISSIONS_ENABLED || Params.has('missions');
+export const gatesOnline = () => devUnlock || !missionsOn || cargo.story.has('gates');
 // The opening missions (story/missions.js), which follow the introduction and pay off the player's
 // debt: "Payment in kind", then "The remaining balance". Until the second is handed in, station
 // screens offer only Missions (and Squad, once the first has brought a squad member): see The

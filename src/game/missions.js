@@ -16,7 +16,7 @@ import { Squad } from '../rules/squad.js';
 import { Missions } from '../story/missions.js';
 import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
-import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, devUnlock, gatesOnline, opening, saveCargo, validLoadout } from './cargo.js';
+import { CHAIN, GATE_JOB, OPENING, SALVAGE, applyShip, cargo, devUnlock, gatesOnline, missionsOn, opening, saveCargo, validLoadout } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
@@ -73,8 +73,9 @@ const pirate = (p, x, y, tier, culture = world.cultures.pirates) => Entities.fig
   key: p.key, art: ArtBlueprints.create(Entities.fighterClass(tier, p.seed), culture, p.seed), x, y, orbit: p.orbit, speed: p.speed, a0: p.a0, tier,
 });
 
+// With the opening missions off (missionsOn) there is no site, so none is offered (game/world.js).
 export function buildMission() {
-  const site = Missions.site(world.galaxy);
+  const site = missionsOn ? Missions.site(world.galaxy) : null;
   Object.assign(mission, {
     site, rocks: [], pirates: [], android: null, cargo: null, face: null, vars: {}, hailT: 0, told: new Set(), salvage: null, hostile: null, module: null, callT: 0,
     gate: null, waves: [], work: 0, said: new Set(), waveT: 0,
