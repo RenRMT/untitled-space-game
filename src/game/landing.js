@@ -299,10 +299,27 @@ function viewAt(t) {
 
 // Detailed chunks over the ground the view shows, no wider or further than the landed view needs
 // however far out the view is zoomed: the low-detail image does the rest.
-function detail(tiles, v, budgetMs) {
+function detailRect(v) {
   const ex = SurfaceGlobe.extent(v);
-  const rect = { x0: Math.max(ex.x0, v.fx - 900), x1: Math.min(ex.x1, v.fx + 900), y0: Math.max(ex.y0, v.fy - 1100), y1: Math.min(ex.y1, v.fy + 600), cx: v.fx, cy: v.fy };
-  return tiles.layers(rect, budgetMs);
+  return { x0: Math.max(ex.x0, v.fx - 900), x1: Math.min(ex.x1, v.fx + 900), y0: Math.max(ex.y0, v.fy - 1100), y1: Math.min(ex.y1, v.fy + 600), cx: v.fx, cy: v.fy };
+}
+const detail = (tiles, v, budgetMs) => tiles.layers(detailRect(v), budgetMs);
+
+// Flying on the surface, the chunks the ship is heading for (the view a moment ahead, and a ring
+// round it) are built ahead of need, so they're rarely missing as they come into view: one at a
+// time, in a quiet moment (requestIdleCallback with most of a frame free; without it, at the end
+// of a frame that took little), every other frame at most, so the work is spread out.
+const LEAD = 1.2, RING = 300; // seconds ahead, world units round the view
+let idle = null, skip = false;
+function aheadRect() {
+  const C = landing.craft, r = detailRect(viewAt(1).v), dx = C.vx * LEAD, dy = C.vy * LEAD;
+  return { x0: r.x0 + dx - RING, x1: r.x1 + dx + RING, y0: r.y0 + dy - RING, y1: r.y1 + dy + RING, cx: C.x + dx, cy: C.y + dy };
+}
+function buildAhead(frameStart) {
+  if (landing.phase !== 'surface' || idle || (skip = !skip)) return;
+  const tiles = surface().tiles, one = (room) => { let n = 0; tiles.warm(aheadRect(), () => n++ < 1 && room()); };
+  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') one(() => dl.timeRemaining() > 1); });
+  else one(() => performance.now() - frameStart < 4);
 }
 
 // The ground at t, drawn at alpha over whatever is there: the low-detail image, then the chunks
@@ -334,7 +351,7 @@ export function drawLandingOverlay() {
 
 // The surface's frame: the ground, the ship and its shadow, the minimap and the HUD.
 export function drawLanding(time) {
-  const L = landing, s = surface(), C = L.craft, style = artStyle.value;
+  const t0 = performance.now(), L = landing, s = surface(), C = L.craft, style = artStyle.value;
   Art.beginFrame(); // the sprite caches' build budget for this frame, as in space
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = COLORS.bg;
@@ -362,6 +379,7 @@ export function drawLanding(time) {
   ctx.restore();
   drawSurfaceMinimap();
   drawSurfaceHud();
+  buildAhead(t0);
 }
 
 // The minimap on the surface: the planet (or moon) as it's drawn in space, the landing site as a
