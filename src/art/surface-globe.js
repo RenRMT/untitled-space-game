@@ -18,6 +18,7 @@
 //
 //   const v = SurfaceGlobe.view({ R, flat, fx, fy, W, H, ox, oy })  // focus (fx, fy) at view (ox, oy); W×H view units
 //   SurfaceGlobe.draw(ctx, layers, v, { dpr, fog, fogDist, under })
+//   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr, under })  // the same unbent (v's R is ignored): far cheaper
 //     layers: ArtSurface layers, drawn in order; a layer's fade: [d0, d1] fades it out from d0 to d1 ahead
 //   SurfaceGlobe.toScreen(v, x, y, z) -> [X, Y] | null    // a point on the ground (null: hidden)
 //   SurfaceGlobe.limb(v) -> [[X, Y], …] | null              // the globe's outline (null: no horizon)
@@ -25,6 +26,7 @@
 //   SurfaceGlobe.horizonDist(v)                             // how far ahead the horizon is
 //   const tiles = SurfaceGlobe.tiles(W, style, { size, dpr })  // detailed chunks, built as needed
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
+//                                                           // (layers.missing: how many still aren't built)
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
 
 import { Art } from './render.js';
@@ -199,6 +201,20 @@ const SurfaceGlobe = (() => {
     ctx.restore();
   }
 
+  // Flat: each layer drawn straight where it lies, the focus at (ox, oy). Edges land on whole device
+  // pixels (dpr: device px per view unit), so neighbouring chunks meet without a seam.
+  function drawFlat(ctx, layers, v, o = {}) {
+    const k = o.dpr || 1, snap = (u) => Math.round(u * k) / k;
+    ctx.fillStyle = o.under || Art.config.bg; ctx.fillRect(0, 0, v.W, v.H);
+    for (const L of layers) {
+      const x0 = snap(v.ox + L.x0 - v.fx), y0 = snap(v.oy + L.y0 - v.fy * v.ct);
+      const x1 = snap(v.ox + L.x0 - v.fx + L.canvas.width / L.sx), y1 = snap(v.oy + L.y0 - v.fy * v.ct + L.canvas.height / L.sy);
+      ctx.globalAlpha = L.alpha ?? 1;
+      ctx.drawImage(L.canvas, x0, y0, x1 - x0, y1 - y0);
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Detailed chunks of a surface, size × size tiles, built when first asked for and dropped when
   // they haven't been used for a while (keep: how many stay).
   function tiles(W, style, o = {}) {
@@ -224,13 +240,14 @@ const SurfaceGlobe = (() => {
         }
         if (c) { c.used = frame; if (fade) c.fade = fade; out.push(c); }
       }
+      out.missing = want.length - out.length;
       if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
       return out;
     }
     return { layers, size: () => map.size, clear: () => map.clear() };
   }
 
-  return { view, draw, toScreen, limb, extent, horizonDist, tiles };
+  return { view, draw, drawFlat, toScreen, limb, extent, horizonDist, tiles };
 })();
 
 export { SurfaceGlobe };

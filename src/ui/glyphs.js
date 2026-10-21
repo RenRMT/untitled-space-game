@@ -80,6 +80,8 @@ const Glyphs = (() => {
     mine: '<path d="M4 20.5l9.5-9.5"/><path d="M8.5 5.5c4.2-2.6 9-1.6 11 3.5-3.8-1.6-7.4-1-9.5 1.2z"/>',
     collect: `<path d="${CLOUD}"/><path d="M12 10.5v5M9.8 13.5l2.2 2.2 2.2-2.2"/>`,
     jump: '<circle cx="15.5" cy="12" r="6"/><circle cx="15.5" cy="12" r="2.5"/><path d="M2 12h9.5M8.5 9l3 3-3 3"/>',
+    land: '<path d="M3 20.5h18"/><path d="M5.5 20.5a6.5 6.5 0 0 1 13 0"/><path d="M12 2.5v9M9 8.5l3 3 3-3"/>',
+    'take-off': '<path d="M3 20.5h18"/><path d="M5.5 20.5a6.5 6.5 0 0 1 13 0"/><path d="M12 11.5v-9M9 5.5l3-3 3 3"/>',
     attack: CROSSHAIR,
     approach: '<path d="M5 19L17.5 6.5M9 6h9v9"/>',
     'cancel-approach': '<path d="M7 7h10v10H7z"/>',

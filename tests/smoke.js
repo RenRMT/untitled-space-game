@@ -1817,6 +1817,33 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   assert.strictEqual(JSON.parse(saved()).credits, credits + 1, 'leaving the page writes the pending save');
 });
 
+test('landing on a planet and its moon: down to the surface, flying round it, and back to space', () => {
+  game(`fight.grace = 1e9; artStyle.set('line')`);
+  // Only the planets and moons with a surface (landing.js LANDABLE) offer Land.
+  assert.ok(!game(`describe(__find((e) => e.kind === 'planet' && !landable(e))).actions.some((a) => a.id === 'land')`), 'no Land without a surface');
+  const until = (cond) => { for (let i = 0; i < 1500 && !game(cond); i++) browser.frames(1); return game(cond); };
+  for (const name of ['Zantal III', 'Zantal III a']) {
+    game(`globalThis.__body = __find((e) => e.name === '${name}'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
+    assert.ok(game(`describe(__body).actions.some((a) => a.id === 'land' && a.enabled)`), `${name}: Land on its menu`);
+    clickCard('land');
+    assert.strictEqual(game('landing.phase'), 'descend', `${name}: the descent begins`);
+    assert.ok(game('modes.has("landing") && MAP_BLOCKERS.includes("landing")'), 'no map while landing');
+    assert.ok(until('landing.phase === "surface"'), `${name}: down on the surface`);
+    assert.ok(game('modes.has("landed")'), 'Take off shows');
+    // Flying: a drag's heading and speed (here set directly) move the ship over the ground.
+    const x0 = game('landing.craft.x');
+    game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
+    browser.frames(30);
+    game('ship.targetSpeed = 0');
+    assert.ok(game('landing.craft.x') > x0 + 20, `${name}: the ship flies on the surface`);
+    // Off the planet with Take off; off the moon by flying out past the landing site's rim.
+    if (name === 'Zantal III') game('takeOff()'); else game('landing.craft.x += 2500');
+    assert.ok(until('!landing.on'), `${name}: back in space`);
+    assert.ok(!game('modes.has("landing") || modes.has("landed")'), 'the modes are cleared');
+    assert.ok(game('Math.hypot(ship.x - __body.x, ship.y - __body.y) < __body.body.r * 2.1 + 400'), `${name}: the ship is beside it`);
+  }
+});
+
 test('nothing was drawn at a non-finite position', () => {
   assert.deepStrictEqual(browser.badDraws, []);
 });

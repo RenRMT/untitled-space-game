@@ -89,6 +89,7 @@ const Entities = (() => {
   // What a pocket's nebula type says about its gas (art/bodies.js NEBULAE).
   const GAS_LABEL = { emission: 'Ionised hydrogen', reflection: 'Cold gas', ion: 'Charged gas', ember: 'Warm gas', dust: 'Dusty gas' };
   const asteroidSize = (r) => (r < 16 ? 'Small' : r < 32 ? 'Medium' : 'Large');
+  const PLANET_LABEL = { terran: 'Terran planet', desert: 'Desert planet', ice: 'Ice world', lava: 'Lava world', gas: 'Gas giant', blue: 'Ice giant' };
   const asset = (ctx, e, style, x, y, o) => Art.drawAsset(ctx, e.art, style, { x, y, ...o });
   // Ships (fighters, freighters, androids, the squad and the player's) are drawn larger than their
   // size (collisions, combat ranges), to read better among the stations and asteroids; tapping one
@@ -123,19 +124,23 @@ const Entities = (() => {
       label: (e) => [color().star, e.body.r * 1.5],
       mark: () => ({ color: color().star, r: 4 }),
     },
+    // Planets and moons: selected by their globe (their radius reaches past it, to their rings and
+    // glow); the flight view adds what can be done there (game/landing.js).
     planet: {
-      order: 1,
+      order: 1, selectable: true, hit: 0.5,
       // Lit from the star (e.lightAngle, flight/scene.js).
       draw: (ctx, e, style, x, y) => Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: e.lightAngle ?? -2.2 }),
 
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 3 }),
+      card: (e) => ({ title: e.name, sub: PLANET_LABEL[e.body.type] || 'Planet', color: color().planet }),
     },
     moon: {
-      order: 1,
+      order: 1, selectable: true, hit: 0.8,
       draw: (ctx, e, style, x, y) => ArtBodies.drawMoon(ctx, e.body, style, { x, y }),
       label: (e) => [color().planet, e.body.r * 1.3],
       mark: () => ({ color: color().planet, r: 2 }),
+      card: (e) => ({ title: e.name, sub: `Moon · ${(ArtBodies.MOONS[e.body.type] || { label: 'rock' }).label.toLowerCase()}`, color: color().planet }),
     },
     asteroid: {
       order: 1.5, selectable: true, hit: 1,

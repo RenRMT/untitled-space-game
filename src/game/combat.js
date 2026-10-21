@@ -22,6 +22,7 @@ import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
+import { landing } from './landing.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
@@ -128,7 +129,7 @@ export function threat(target) {
 }
 
 export function engage(target, ambushed = false) {
-  if (inFight() || docked || !isHostile(target) || fight.dying.has(target.key)) return;
+  if (inFight() || docked || landing.on || !isHostile(target) || fight.dying.has(target.key)) return;
   if (!ambushed && !actions.state('attack', target).ok) return;
   const group = packOf(target);
   const names = group.map((e, i) => shipName(e, i, group.length));
