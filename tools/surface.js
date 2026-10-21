@@ -43,11 +43,11 @@ function body() {
 
 // The view for a point u of the landing (0: orbit, 1: on the surface), the screen Wc × Hc.
 function viewAt(u, Wc, Hc) {
-  const e = u * u * (3 - 2 * u), st = Math.sin(Art.config.tilt);
+  const e = u * u * (3 - 2 * u), tilt = ArtSurface.tiltOf(S.style), st = Math.sin(tilt);
   const Ro = S.curved ? Math.max(4 * S.R, ORBIT_R) : 1e9, z0 = S.curved ? Math.min(1, (0.36 * Math.min(Wc, Hc)) / Ro) : 0.3;
   const zoom = Math.exp(lerp(Math.log(z0), 0, e)), R = S.curved ? 1 / lerp(1 / Ro, 1 / S.R, e) : 1e9; // curvature, not radius, blends evenly
   const oyCss = lerp(S.curved ? Hc / 2 - Ro * st * z0 : Hc / 2, Hc * 0.68, e); // from orbit: the globe's middle in the screen's
-  const v = SurfaceGlobe.view({ R: Math.round(R), flat: S.curved ? Math.round(lerp(0, S.bend, e)) : 0, fx: S.x, fy: S.y, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: oyCss / zoom });
+  const v = SurfaceGlobe.view({ R: Math.round(R), flat: S.curved ? Math.round(lerp(0, S.bend, e)) : 0, fx: S.x, fy: S.y, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: oyCss / zoom, tilt });
   return { v, zoom, e, z: lerp(ORBIT_Z, ArtSurface.FLY, e) };
 }
 // Detailed chunks over the ground the view shows, out to `ahead` (they fade out beyond 2/3 of it)
@@ -126,7 +126,7 @@ function render() {
   }
 
   // The ship over the focus, at altitude z; its shadow on the ground.
-  const st = Math.sin(Art.config.tilt), p = [v.ox, v.oy - z * st];
+  const p = [v.ox, v.oy - z * v.st];
   S.shipAt = [p[0] * zoom, p[1] * zoom];
   if (S.phase !== 'orbit') {
     const [shx, shy] = ArtSurface.shadowShift(z), gx = S.x + shx, gy = S.y + shy;

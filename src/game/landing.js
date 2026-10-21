@@ -297,7 +297,7 @@ export function landingShipScale() {
 // (the screen's) as it fades in, coming to rest a little below the middle (to see more ahead).
 function viewAt(t) {
   const L = landing, zoom = Math.exp(lz(t) - L.path.shift), k = smoothstep(0, 1, groundK(t)), W = view.w, H = view.h;
-  const v = SurfaceGlobe.view({ R: 1e9, fx: L.craft.x, fy: L.craft.y, W: W / zoom, H: H / zoom, ox: W / 2 / zoom, oy: lerp(H / 2, H * 0.6, k) / zoom });
+  const v = SurfaceGlobe.view({ R: 1e9, fx: L.craft.x, fy: L.craft.y, W: W / zoom, H: H / zoom, ox: W / 2 / zoom, oy: lerp(H / 2, H * 0.6, k) / zoom, tilt: ArtSurface.tiltOf(artStyle.value) });
   return { v, zoom, k };
 }
 
@@ -370,7 +370,8 @@ export function drawLanding(time) {
   const { v, zoom, k: g } = drawGround(L.phase === 'surface' ? 1 : L.t, 1);
   // The ship over the point it's above, coming down from ALTITUDE over the last stretch of the zoom
   // (fading in as it does); its shadow on the ground below and to the side, darker as it nears.
-  const q = smoothstep(0.55, 1, g), z = lerp(ALTITUDE, ArtSurface.FLY, q), st = Math.sin(Art.config.tilt);
+  // (Straight down, as in Line, the height shows only in how far off the shadow falls.)
+  const q = smoothstep(0.55, 1, g), z = lerp(ALTITUDE, ArtSurface.FLY, q), st = v.st;
   const [shx, shy] = ArtSurface.shadowShift(z), gx = C.x + shx, gy = C.y + shy;
   const sh = SurfaceGlobe.toScreen(v, gx, gy, ArtSurface.heightAt(s.W, gx, gy)), k = (SHIP.radius * 1.25 * Entities.SHIP_SCALE * SURFACE_SCALE) / ship.art.radius;
   ctx.save();
