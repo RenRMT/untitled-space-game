@@ -463,7 +463,8 @@ function drawSurfaceHud() {
 
 // For the performance overlay: the chunks (how many are kept, built a second, the time spent on
 // them in the last frame and how many steps that took, how many in view are missing) and the far
-// image. A stutter as a chunk is built shows as ms this frame jumping.
+// image; the slowest single step of building a chunk lately, and what it was (its name in
+// art/surface.js). A stutter as a chunk is built shows as ms this frame jumping.
 const perf = { missing: 0, last: null, rate: 0, at: 0, built0: 0 };
 export function surfacePerf() {
   const s = surface(), c = s.tiles.stats(), now = performance.now(), last = perf.last || c;
@@ -472,6 +473,7 @@ export function surfacePerf() {
   return [
     `surface chunks ${c.cached}/${c.keep} kept · ${perf.rate.toFixed(1)} built/s · ${perf.missing} missing in view${c.busy ? ' · one under way' : ''}`,
     `chunk work ${(c.ms - last.ms).toFixed(1)} ms in ${c.steps - last.steps} steps last frame · far image ${s.far.layer ? 'ready' : `${Math.round(s.far.progress * 100)}%`}`,
+    `slowest chunk step (2 s) ${c.slowest.ms.toFixed(1)} ms: ${c.slowest.label || '-'}`,
   ];
 }
 

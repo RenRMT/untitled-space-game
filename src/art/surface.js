@@ -448,7 +448,7 @@ const ArtSurface = (() => {
     const pp = (v) => [v[0], v[1] * ct - v[2] * st];
     const depth = (pts) => { let d = 0; for (const p of pts) d += p[1] * st + p[2] * ct; return d / pts.length; };
     const kOf = (n, sf) => { const m = sf ? nrm([n[0] * (1 - sf), n[1] * (1 - sf), n[2] * (1 - sf) + sf]) : n; return 0.24 + 0.95 * Math.max(0, dot(m, L)); };
-    const g = { tris: [], minor: [], major: [], coast: [], waves: [], lee: new Path2D(), cracks: [], specks: [], shadow: new Path2D(), raised: [], block: {}, talls: [], bolts: [], fronts: [], puffs: [], vortices: [] };
+    const g = { tris: [], major: [], coast: [], waves: [], lee: new Path2D(), cracks: [], specks: [], shadow: new Path2D(), raised: [], block: {}, talls: [], bolts: [], fronts: [], puffs: [], vortices: [] };
     const addShadow = (pts2, z) => {
       const [sx, sy] = shadowShift(z);
       hull(pts2.concat(pts2.map((p) => [p[0] + sx, p[1] + sy]))).forEach((p, k) => { const q = pp([p[0], p[1], heightAt(W, p[0], p[1])]); k ? g.shadow.lineTo(q[0], q[1]) : g.shadow.moveTo(q[0], q[1]); });
@@ -498,7 +498,7 @@ const ArtSurface = (() => {
     // Contour lines and lee slopes only for a region drawn in the Line style (rg.lines, set by
     // renderRegion); the coast and waves for any with a sea. Neither: no contour grid at all.
     const lines = rg.lines !== false, contoured = lines || !!sea;
-    const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 2.4, Z = [], R = [];
+    const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 7.2, Z = [], R = []; // LV: the contour interval (only the major lines: the minor ones cost more than they showed)
     if (contoured) for (let b = B0; b <= MY; b++, yield 'contour heights') { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
     const cross0 = (zz, q, lev) => {
       const pts = [];
@@ -515,9 +515,9 @@ const ArtSurface = (() => {
       const lo = Math.min(...zz), hi = Math.max(...zz);
       if (lines) for (let li = Math.ceil(lo / LV); li * LV <= hi; li++) {
         if (sea && li * LV <= sea.level + 0.01) continue;
-        const pts = cross0(zz, q, li * LV + 0.001), arr = ((li % 3) + 3) % 3 === 0 ? g.major : g.minor;
-        if (pts.length >= 2) arr.push([pts[0], pts[1]]);
-        if (pts.length === 4) arr.push([pts[2], pts[3]]);
+        const pts = cross0(zz, q, li * LV + 0.001);
+        if (pts.length >= 2) g.major.push([pts[0], pts[1]]);
+        if (pts.length === 4) g.major.push([pts[2], pts[3]]);
       }
       if (sea) {
         const pts = cross0(zz, q, sea.level + 0.001);
@@ -863,7 +863,7 @@ const ArtSurface = (() => {
     };
     if (bi.fluid) {
       if (style !== 'line') { ctx.imageSmoothingEnabled = true; ctx.lineWidth = lw * 0.6; ctx.lineJoin = 'round'; for (const t of g.tris) { const p = polyPath(t.pts); ctx.fillStyle = ctx.strokeStyle = rgb(t.col, t.k); ctx.fill(p); ctx.stroke(p); } }
-      else { lines(g.minor, ln(0.16), lw * 0.7); lines(g.major, ln(0.42), lw * 0.8); }
+      else lines(g.major, ln(0.42), lw * 0.8);
       if (o.extra) o.extra(ctx);
       puffs();
       return;
@@ -884,7 +884,7 @@ const ArtSurface = (() => {
       ctx.fillStyle = 'rgba(20,8,4,0.36)'; ctx.fill(g.shadow, 'nonzero');
     } else {
       for (const t of g.tris) if (t.wash) { ctx.fillStyle = ln(t.wash); tracePoly(ctx, t.pts); ctx.fill(); }
-      lines(g.minor, ln(0.28), lw * 0.8); lines(g.major, ln(0.7), lw * 0.8);
+      lines(g.major, ln(0.7), lw * 0.8);
       if (bi.sea) { lines(g.coast, ln(1), lw); lines(g.waves, ln(0.45), lw * 0.8); }
       yield 'draw lines';
       if (bi.hatch) hatchPath(ctx, g.lee, hb, 4.4, 1, ln(0.45), lw * 0.7);
