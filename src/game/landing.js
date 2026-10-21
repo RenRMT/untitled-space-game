@@ -50,8 +50,9 @@ import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles
 import { warp } from './warp.js';
 import { world } from './world.js';
 
-// The planet and moon types with a surface to land on (art/surface.js types): one of each for now.
-export const LANDABLE = { planet: ['terran'], moon: ['grey'] };
+// The planet and moon types with a surface to land on: every planet type (art/surface.js SURFACE_OF:
+// its surface type), and one moon type for now.
+export const LANDABLE = { planet: Object.keys(ArtSurface.SURFACE_OF), moon: ['grey'] };
 export const landable = (e) => (LANDABLE[e.kind] || []).includes(e.body.type);
 
 // The surface: a landing site SITE tiles across in the middle, with FRINGE tiles of ground round it
@@ -82,7 +83,7 @@ const GEN_STEPS = 3 * (SIZE + 1) + 1; // about how many next()s generating one t
 function entry(e) {
   let s = surfaces.get(e.key);
   if (!s) {
-    const type = e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : e.body.type;
+    const type = e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
     s = { gen: ArtSurface.generateSteps(type, e.body.seed, { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] }), steps: 0, W: null, far: {}, tiles: {} };
     surfaces.set(e.key, s);
   }
