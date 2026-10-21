@@ -1201,6 +1201,7 @@ const Art = (() => {
   };
 
   function starLine(ctx, st, t) {
+    if (V.star === 'wash') return starWash(ctx, st, t);
     if (V.star === 'hair') return starHair(ctx, st, t);
     const { r } = st, P = STAR_CLASSES[st.cls || 'G'];
     const glow = ctx.createRadialGradient(0, 0, r * 0.6, 0, 0, r * 3.2);
@@ -1260,6 +1261,43 @@ const Art = (() => {
       }
     }
     return (G[lv] = { rays, arcs, cells });
+  }
+  // Wash sun (Sun Options 8e): halation rings, tight at the limb and widening outward until they
+  // break into drifting dashes; a flat pale wash over the disc, shaded with three fine hatch layers
+  // (diagonal from 30% out, cross diagonal from 55%, horizontal from 80%). Spacing has a pixel
+  // floor, and the last layer drops below 14 px radius.
+  const SUN_HATCH = [[0.30, 30, 1, 3, 0.5], [0.55, 30, -1, 3, 0.5], [0.80, 26, 0, 4, 0.5]];
+  function hatchRing(ctx, r, r0, sp, ang, col, a, w) {
+    ctx.save(); ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.arc(0, 0, r0, 0, TAU, true); ctx.clip('evenodd');
+    const c = Math.cos(ang), s = Math.sin(ang);
+    ctx.strokeStyle = U.rgba(col, a); ctx.lineWidth = w; ctx.beginPath();
+    for (let d = -r; d <= r; d += sp) { ctx.moveTo(-s * d - c * r, c * d - s * r); ctx.lineTo(-s * d + c * r, c * d + s * r); }
+    ctx.stroke(); ctx.restore();
+  }
+  function starWash(ctx, st, t) {
+    const { r } = st, P = STAR_CLASSES[st.cls || 'G'], rnd = mulberry(((st.seed || 41) * 13 + 5) >>> 0);
+    const m = ctx.getTransform(), k = Math.hypot(m.a, m.b) || 1, px = 0.9 / k, rpx = (r * k) / (dprOf() || 1);
+    ctx.save();
+    ctx.lineCap = 'butt';
+    const R = r * 2.04;
+    let rr = r * 1.1, gap = Math.max(px * 1.6, r * 0.035), i = 0;
+    while (rr < R * 0.98) {
+      const u = (rr - r) / (R - r);
+      ctx.strokeStyle = U.rgba(u < 0.2 ? P[1] : u < 0.5 ? P[2] : P[3], Math.max(0.12, 0.9 - 0.85 * u));
+      ctx.lineWidth = px * (0.85 - 0.35 * u);
+      if (u > 0.45) { ctx.setLineDash([r * (0.12 + rnd() * 0.25), r * 0.05 * (1 + u * 4)]); ctx.lineDashOffset = rnd() * 50 + t * 3 * (i % 2 ? 1 : -1); } else ctx.setLineDash([]);
+      ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.stroke();
+      rr += gap; gap *= 1.2; i++;
+    }
+    ctx.setLineDash([]);
+    ctx.fillStyle = config.bg; ctx.beginPath(); ctx.arc(0, 0, r * 1.02, 0, TAU); ctx.fill();
+    ctx.fillStyle = U.rgba(P[0], 0.9); ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    SUN_HATCH.forEach(([f, div, dir, ci, w], j) => {
+      if (j === SUN_HATCH.length - 1 && rpx < 14) return;
+      hatchRing(ctx, r, r * f, Math.max(r / div, px * 1.7), dir * Math.PI / 4, P[ci], 0.75, px * w);
+    });
+    ctx.strokeStyle = P[3]; ctx.lineWidth = px * 1.2; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke();
+    ctx.restore();
   }
   function starHair(ctx, st, t) {
     const { r } = st, P = STAR_CLASSES[st.cls || 'G'];
@@ -1763,7 +1801,7 @@ const Art = (() => {
   // Kinds: ship, station (stations, gates, station wrecks), item, natural (planets, moons,
   // asteroids), gas (nebulae, wormholes: never hatched), portrait, star.
   const BASE_BY_TYPE = {
-    line: { ship: { ...HAIR, pfill: 'hatch' }, station: { lw: HAIR.lw, pfill: 'hatch' }, item: { ...HAIR, pfill: 'hatch' }, natural: { ...HAIR, pfill: 'hatch' }, gas: { ...HAIR, pfill: 'gas' }, portrait: { ...HAIR, pfill: 'hatch' }, star: { star: 'hair' } },
+    line: { ship: { ...HAIR, pfill: 'hatch' }, station: { lw: HAIR.lw, pfill: 'hatch' }, item: { ...HAIR, pfill: 'hatch' }, natural: { ...HAIR, pfill: 'hatch' }, gas: { ...HAIR, pfill: 'gas' }, portrait: { ...HAIR, pfill: 'hatch' }, star: { star: 'wash' } },
     lowpoly: { ship: INK, station: INK, item: {}, natural: { smoothN: 0.9 }, gas: { smoothN: 0.9 }, portrait: { cel: 'tone' }, star: { star: 'facet' } },
   };
   for (const [id, byType] of Object.entries(BASE_BY_TYPE)) {
