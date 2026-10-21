@@ -231,12 +231,13 @@ export function drawDragIndicator() {
 export const RADAR = 6000;
 // Where the minimap is on screen (px), for the HUD text beside it.
 export const minimap = { x: 0, y: 0, size: 0 };
+// Its square, top right (also the surface's minimap, game/landing.js).
+export function minimapBox() {
+  const size = Math.round(clamp(view.w * 0.28, 90, 150)), pad = 12;
+  return Object.assign(minimap, { x: view.w - size - pad - view.inset.r, y: pad + view.inset.t, size });
+}
 export function drawMinimap(list) {
-  const size = Math.round(clamp(view.w * 0.28, 90, 150));
-  const pad = 12;
-  const x0 = view.w - size - pad - view.inset.r;
-  const y0 = pad + view.inset.t;
-  Object.assign(minimap, { x: x0, y: y0, size });
+  const { x: x0, y: y0, size } = minimapBox();
   const s = size / (RADAR * 2);
   const ox = ship.x - RADAR, oy = ship.y - RADAR;
   const security = Security.LEVELS[here.region.security];
@@ -335,6 +336,29 @@ function wrap(text, width) {
 // hints until the first touch, and under them the event log (ui/messages.js): plain text, the
 // last few notices, each fading as its time runs out; bottom left, the speed bar with its throttle mark, the hold once
 // anything is in it, and the hull while it is damaged (in a fight the combat panel shows it).
+// The event log from (left, y): one line per notice, no backing (a shadow keeps it readable), newest
+// at the bottom. Beside the minimap a line has `room` px; below it, the screen's width; a longer one
+// ends in '…'. Returns where the next line would go.
+const TONE = () => ({ info: COLORS.hud, good: COLORS.good, warn: COLORS.amber, hostile: COLORS.hostile });
+export function drawEventLog(left, y, room) {
+  const logged = Messages.log, I = view.inset, pad = 12, lh = Math.round(19 * Theme.scale), tone = TONE();
+  if (!logged.length) return y;
+  ctx.save();
+  ctx.font = Theme.font(13);
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 4;
+  for (const l of logged) {
+    const below = !minimap.size || y - lh > minimap.y + minimap.size;
+    ctx.globalAlpha = 0.9 * clamp(Messages.LOG_TIME - l.age, 0, 1); // fades over its last second
+    ctx.fillStyle = tone[l.tone] || COLORS.hud;
+    ctx.fillText(fit(l.n > 1 ? `${l.text} ×${l.n}` : l.text, below ? view.w - pad - I.r - left : room), left, y);
+    y += lh;
+  }
+  ctx.restore();
+  return y;
+}
+
 // Text sits on a dark backing so it reads over nebulae and stars, and wraps short of the minimap.
 export function drawHud() {
   const k = Theme.scale, I = view.inset;
@@ -377,25 +401,10 @@ export function drawHud() {
       y += lh;
     }
   }
-  // The event log: one line per notice, no backing (a shadow keeps it readable), newest at the
-  // bottom. Below the minimap a line may run the screen's width; a longer one ends in '…'.
-  const TONE = { info: COLORS.hud, good: COLORS.good, warn: COLORS.amber, hostile: COLORS.hostile };
   const logged = Messages.log;
-  if (logged.length) {
-    if (lines.length) y += 6;
-    ctx.font = Theme.font(13);
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
-    ctx.shadowBlur = 4;
-    for (const l of logged) {
-      const below = !minimap.size || y - lh > minimap.y + minimap.size;
-      ctx.globalAlpha = 0.9 * clamp(Messages.LOG_TIME - l.age, 0, 1); // fades over its last second
-      ctx.fillStyle = TONE[l.tone] || COLORS.hud;
-      ctx.fillText(fit(l.n > 1 ? `${l.text} ×${l.n}` : l.text, below ? view.w - pad - I.r - left : room), left, y);
-      y += lh;
-    }
-    ctx.shadowBlur = 0;
-  }
+  y = drawEventLog(left, lines.length ? y + 6 : y, room);
   hudBottom = lines.length || logged.length ? y - lh + 8 : pad + I.t;
+  ctx.font = Theme.font(logged.length ? 13 : 14); // as the bar's text has always been drawn
 
   // Bottom left: the speed bar (actual speed filled, set throttle marked), and above it the hold
   // and a damaged hull.

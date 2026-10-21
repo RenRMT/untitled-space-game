@@ -69,9 +69,10 @@ import * as drawWorld from './game/draw-world.js';
 import * as hud from './game/hud.js';
 import * as loop from './game/loop.js';
 import * as warp from './game/warp.js';
+import * as landing from './game/landing.js';
 
 const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, jobs, docking, squad, mining, travel,
-  selection, combat, input, update, starfield, drawWorld, hud, loop, warp];
+  selection, combat, input, update, starfield, drawWorld, hud, loop, warp, landing];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);

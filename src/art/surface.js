@@ -19,6 +19,7 @@
 //   ArtSurface.render(w, style, { dpr }) -> { canvas, w, h, pad }   // whole surface; cache it
 //   ArtSurface.renderRegion(w, style, { i0, j0, i1, j1, dpr }) -> layer  // tiles [i0, i1) × [j0, j1)
 //   ArtSurface.farImage(w, style) -> layer                          // the whole surface, low detail
+//   ArtSurface.farBuilder(w, style) -> { step(budgetMs) -> done, layer }  // ... built across frames
 //   ArtSurface.draw(ctx, w, style, { lw, extra, region })           // ctx maps projected units
 //   ArtSurface.drawLive(ctx, w, style, t, { lw, all })             // lightning in storms
 //   ArtSurface.blocked(w, x, y, r), overlay(w) -> { fill, edge } at flight altitude
@@ -886,33 +887,47 @@ const ArtSurface = (() => {
 
   // Tiles [i0, i1) × [j0, j1) into one canvas: a band of the surface, cut on tile lines (in projected
   // units: x from i0·T, y from j0·T·cos(tilt)), with everything that reaches into it from the
-  // tiles around (tall things from the row below, cliff walls from either side).
+  // tiles around (tall things from the row below, cliff walls from either side). The canvas is whole
+  // pixels, a fraction of one past the band, and painted to its edges: no half-covered edge row to
+  // show as a seam where it meets the next.
   function renderRegion(W, style, o) {
     const ct = cam(W).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
     const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1) };
     const cv = document.createElement('canvas'); cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
     const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, -x0 * dpr, -y0 * dpr);
-    ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
+    ctx.beginPath(); ctx.rect(x0, y0, cv.width / dpr, cv.height / dpr); ctx.clip();
     draw(ctx, W, style, { lw: 1, region });
     return { canvas: cv, x0, y0, sx: dpr, sy: dpr, w, h };
   }
-  // The whole surface at low detail (6 world units a pixel, more on surfaces over 150 tiles), for the ground far away: ground
-  // kinds, sea, high ground and storms in flat colours lit by the slope (Low-poly), or the coast,
-  // the cliff edges and a few contours (Line).
+  // The whole surface at low detail (6 world units a pixel, more on surfaces over 150 tiles; o.upp
+  // sets it), for the ground far away: ground kinds, sea, high ground and storms in flat colours lit
+  // by the slope (Low-poly), or the coast, the cliff edges and a few contours (Line).
   function farImage(W, style, o = {}) {
+    const b = farBuilder(W, style, o);
+    while (!b.step(Infinity));
+    return b.layer;
+  }
+  // The same, built a row at a time: step(budgetMs) works for about that long and returns true once
+  // it's done, when .layer holds it. So it can be built across frames.
+  function farBuilder(W, style, o = {}) {
     const bi = B[W.type], ct = cam(W).ct, L = LIGHT(), Wu = W.w * T, Hu = W.h * T, upp = o.upp || Math.max(6, Math.max(Wu, Hu) / 1600);
-    const nx = Math.ceil(Wu / upp) + 1, ny = Math.ceil((Hu * ct) / upp) + 1, sea = bi.sea, line = style === 'line';
+    const nx = Math.ceil(Wu / upp) + 1, ny = Math.ceil((Hu * ct) / upp) + 1, sea = bi.sea, line = style === 'line', q = line ? 2 : 1;
     const F = new Float32Array(nx * ny), Hi = new Float32Array(nx * ny), Raw = new Float32Array(nx * ny);
-    for (let py = 0; py < ny; py++) for (let px = 0; px < nx; px++) {
-      const x = Math.min(Wu, px * upp), y = Math.min(Hu, (py * upp) / ct), k = py * nx + px;
-      const raw = rawHeight(W, x, y), hi = bi.storm ? 0 : sstep(0.3, 0.7, corner(W, W.C, x, y));
-      Raw[k] = raw; Hi[k] = hi; F[k] = (sea ? Math.max(raw, sea.level) : raw) * (1 - hi) + hi * bi.high.h;
-    }
     const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
-    if (!line) {
-      cv.width = nx; cv.height = ny;
-      const im = ctx.createImageData(nx, ny), D = im.data;
-      for (let py = 0; py < ny; py++) for (let px = 0; px < nx; px++) {
+    cv.width = nx * q; cv.height = ny * q;
+    const im = line ? null : ctx.createImageData(nx, ny);
+    // The heights, high ground and sea, a row at a time.
+    const fieldRow = (py) => {
+      for (let px = 0; px < nx; px++) {
+        const x = Math.min(Wu, px * upp), y = Math.min(Hu, (py * upp) / ct), k = py * nx + px;
+        const raw = rawHeight(W, x, y), hi = bi.storm ? 0 : sstep(0.3, 0.7, corner(W, W.C, x, y));
+        Raw[k] = raw; Hi[k] = hi; F[k] = (sea ? Math.max(raw, sea.level) : raw) * (1 - hi) + hi * bi.high.h;
+      }
+    };
+    // Low-poly: a row of colours.
+    const colourRow = (py) => {
+      const D = im.data;
+      for (let px = 0; px < nx; px++) {
         const k = py * nx + px, x = px * upp, y = (py * upp) / ct;
         let col;
         if (bi.fluid) col = cloudCol(W, x, y, true);
@@ -920,7 +935,7 @@ const ArtSurface = (() => {
           const zx = (F[py * nx + Math.min(nx - 1, px + 1)] - F[py * nx + Math.max(0, px - 1)]) / (2 * upp);
           const zy = (F[Math.min(ny - 1, py + 1) * nx + px] - F[Math.max(0, py - 1) * nx + px]) / ((2 * upp) / ct);
           const n = nrm([-zx, -zy, 1]), wt = weights(W, x, y);
-          col = [0, 0, 0]; ['a', 'b', 'c'].forEach((q, m) => { col = col.map((v, i) => v + bi[q].c[i] * wt[m]); });
+          col = [0, 0, 0]; ['a', 'b', 'c'].forEach((g, m) => { col = col.map((v, i) => v + bi[g].c[i] * wt[m]); });
           let kk = 0.24 + 0.95 * Math.max(0, dot(n, L));
           if (bi.b.emit && wt[1] > 0.5) kk = 1;
           // Blended, not thresholded, so edges stay smooth when the image is drawn large.
@@ -933,12 +948,8 @@ const ArtSurface = (() => {
         }
         D[k * 4] = Math.min(255, col[0]); D[k * 4 + 1] = Math.min(255, col[1]); D[k * 4 + 2] = Math.min(255, col[2]); D[k * 4 + 3] = 255;
       }
-      ctx.putImageData(im, 0, 0);
-      return { canvas: cv, x0: 0, y0: 0, sx: 1 / upp, sy: 1 / upp };
-    }
-    // Line: contours by marching squares, at twice the field's resolution.
-    const q = 2; cv.width = nx * q; cv.height = ny * q;
-    ctx.fillStyle = BG(); ctx.fillRect(0, 0, cv.width, cv.height);
+    };
+    // Line: contours by marching squares, at twice the field's resolution, one level a step.
     const iso = (fld, lev, col, w) => {
       ctx.beginPath();
       for (let py = 0; py < ny - 1; py++) for (let px = 0; px < nx - 1; px++) {
@@ -948,11 +959,32 @@ const ArtSurface = (() => {
       }
       ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke();
     };
-    for (let lev = -6.4; lev < 12; lev += 6.4) if (!sea || lev > sea.level) iso(F, lev + 0.01, rgb(bi.LN, 1, 0.35), 1);
-    if (sea) iso(Raw, sea.level, rgb(bi.LN, 1, 0.9), 1.2);
-    if (!bi.storm) iso(Hi, 0.5, rgb(bi.LN, 1, 0.9), 1.2);
-    else iso(Array.from({ length: nx * ny }, (_, k) => corner(W, W.C, (k % nx) * upp, (Math.floor(k / nx) * upp) / ct)), 0.5, rgb(bi.LN, 1, 0.8), 1.2);
-    return { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp };
+    const lines = () => {
+      const jobs = [() => { ctx.fillStyle = BG(); ctx.fillRect(0, 0, cv.width, cv.height); }];
+      for (let lev = -6.4; lev < 12; lev += 6.4) if (!sea || lev > sea.level) jobs.push(() => iso(F, lev + 0.01, rgb(bi.LN, 1, 0.35), 1));
+      if (sea) jobs.push(() => iso(Raw, sea.level, rgb(bi.LN, 1, 0.9), 1.2));
+      if (!bi.storm) jobs.push(() => iso(Hi, 0.5, rgb(bi.LN, 1, 0.9), 1.2));
+      else jobs.push(() => iso(Array.from({ length: nx * ny }, (_, k) => corner(W, W.C, (k % nx) * upp, (Math.floor(k / nx) * upp) / ct)), 0.5, rgb(bi.LN, 1, 0.8), 1.2));
+      return jobs;
+    };
+    let stage = 0, row = 0, jobs = null;
+    const out = { layer: null };
+    out.step = (budgetMs) => {
+      const t0 = performance.now();
+      while (!out.layer && performance.now() - t0 < budgetMs) {
+        if (stage === 0) { fieldRow(row++); if (row === ny) { stage = 1; row = 0; } }
+        else if (!line) {
+          colourRow(row++);
+          if (row === ny) { ctx.putImageData(im, 0, 0); out.layer = { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp }; }
+        } else {
+          jobs = jobs || lines();
+          jobs.shift()();
+          if (!jobs.length) out.layer = { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp };
+        }
+      }
+      return !!out.layer;
+    };
+    return out;
   }
 
   // Blocked footprints projected at flight altitude, so they sit level with the ship.
@@ -981,7 +1013,7 @@ const ArtSurface = (() => {
     return false;
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, sample, build, draw, drawLive, render, renderRegion, farImage, overlay, blocked, siteDist, project, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, sample, build, draw, drawLive, render, renderRegion, farImage, farBuilder, overlay, blocked, siteDist, project, heightAt, shadowShift };
 })();
 
 export { ArtSurface };

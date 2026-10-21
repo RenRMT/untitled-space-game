@@ -680,6 +680,15 @@
      corner buttons on a narrow screen; the context menu waits until they're done. */
   body.talking #context, body.talking #factions-btn, body.talking #map-btn, body.talking #settings-btn { display: none; }
   body.warping #context, body.warping #factions-btn, body.warping #map-btn, body.warping #settings-btn { display: none; } /* a gate jump (game/warp.js) */
+  /* Landing on a planet, its surface and taking off (game/landing.js): no context menu, map or
+     factions; on the surface, Take off at the bottom in the middle. */
+  body.landing #context, body.landing #factions-btn, body.landing #map-btn { display: none; }
+  #takeoff-btn {
+    display: none; position: absolute; z-index: 4; left: 50%; transform: translateX(-50%);
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px)); min-height: var(--hit); align-items: center; gap: 8px;
+  }
+  #takeoff-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+  body.landed #takeoff-btn { display: flex; }
 
   /* Text size (Settings > Accessibility): the DOM panels are zoomed by --ui-scale (1, 1.15, 1.3; set
      on <html> by game/options.js). A zoomed element's own lengths are zoomed too, so positions and
@@ -766,6 +775,7 @@
 <button id="settings-btn" class="btn icon-btn" type="button" aria-haspopup="dialog" aria-label="Settings" title="Settings">
   <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.9 10.2L20.5 10.5L20.5 13.5L17.9 13.8L17.5 14.9L19.0 17.0L17.0 19.0L14.9 17.5L13.8 17.9L13.5 20.5L10.5 20.5L10.2 17.9L9.1 17.5L7.0 19.0L5.0 17.0L6.5 14.9L6.1 13.8L3.5 13.5L3.5 10.5L6.1 10.2L6.5 9.1L5.0 7.0L7.0 5.0L9.1 6.5L10.2 6.1L10.5 3.5L13.5 3.5L13.8 6.1L14.9 6.5L17.0 5.0L19.0 7.0L17.5 9.1z"/><circle cx="12" cy="12" r="2.8"/></svg>
 </button>
+<button id="takeoff-btn" class="btn" type="button" title="Take off (T)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20.5h18"/><path d="M5.5 20.5a6.5 6.5 0 0 1 13 0"/><path d="M12 11.5v-9M9 5.5l3-3 3 3"/></svg>Take off</button>
 <div id="context" role="region" aria-label="Selected object" hidden>
   <div class="cx-info" aria-live="polite">
     <div class="cx-head">

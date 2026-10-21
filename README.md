@@ -40,12 +40,12 @@ URL parameters:
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, HUD, the frame loop |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat, missions, landing on planets and moons (`landing.js`), HUD, the frame loop |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: round-based (`combat.js`) and real time (`combat-realtime.js`), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
-| `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`), planet and moon surfaces to land on (`surface.js`: a landing site ringed by cliffs or sea; `surface-globe.js` draws them curving away over a globe, flat near the ship, in chunks built as it flies; not wired into the game yet: `tools/surface.html` is a prototype to land on one, fly round and take off) and the sprite caches |
+| `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`), planet and moon surfaces to land on (`surface.js`: a landing site ringed by cliffs or sea; `surface-globe.js` draws them in chunks built as the ship flies, bent over a globe while landing and taking off; `tools/surface.html` is the prototype it started from) and the sprite caches |
 | `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
@@ -65,6 +65,8 @@ Each file starts with a comment saying what it does and, for modules other parts
 - **A kind of thing in space:** an entry in `KINDS` in `src/flight/entities.js` (drawing, picking, label,
   minimap mark, context menu) and its art; if it does something, an action added in its part of
   `src/game/` (see `Interactions` in `src/flight/interactions.js`).
+- **A planet or moon to land on:** its type in `LANDABLE` (`src/game/landing.js`), with a surface of that
+  type in `src/art/surface.js` (planets by their type, moons as `moon-` and theirs).
 - **A combat mode:** a module with the shape `src/combat/combat-core.js` describes, added to `COMBAT`
   in `src/game/options.js`.
 - **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,

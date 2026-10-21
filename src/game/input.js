@@ -9,6 +9,7 @@ import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
 import { act, pickAt, select } from './selection.js';
 import { SHIP, autopilot, canvas, fight, flyingFight, inFight, intro, ship, view } from './state.js';
+import { landing, onSurface } from './landing.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
@@ -19,7 +20,7 @@ export const LONG_PRESS = 0.5; // seconds
 // Each step (game/loop.js react): a finger held still on something for LONG_PRESS does its long
 // press action (flight/interactions.js `hold`), approaching first if it's out of reach.
 export function tickHold(dt) {
-  if (!drag.active || drag.long || drag.moved >= DEADZONE || inFight() || intro.on || warp.on) return;
+  if (!drag.active || drag.long || drag.moved >= DEADZONE || inFight() || intro.on || warp.on || landing.on) return;
   drag.held += dt;
   if (drag.held < LONG_PRESS) return;
   const hit = pickAt(drag.x0, drag.y0);
@@ -68,6 +69,10 @@ export function endDrag(e) {
   if (drag.long) return; // the long press did its action
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
+  if (landing.on) { // nothing to select on the surface (game/landing.js): only flying
+    if (onSurface() && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
+    return;
+  }
   if (intro.on) { // nothing to select yet: only flying
     if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
     if (intro.flying && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
@@ -110,6 +115,7 @@ export function init() {
     if (inFight() && !flyingFight()) return; // no flying in a round-based fight; taps still focus fire
     if (intro.on && !intro.flying) return; // the pod waits while the station talks, then the beam has it
     if (warp.on) return; // a gate jump has the controls
+    if (landing.on && landing.phase !== 'surface') return; // landing or taking off has them
     if (len > DEADZONE) {
       autopilot.key = null; // flying by hand ends an approach
       ship.targetAngle = Math.atan2(dy, dx);

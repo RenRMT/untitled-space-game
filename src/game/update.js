@@ -18,6 +18,7 @@ import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
 import { tickAutopilot } from './selection.js';
 import { tickWings } from './squad.js';
+import { landingCamera, tickLanding } from './landing.js';
 import { tickWarp, warp, warpZoom } from './warp.js';
 import { SHIP, cam, debris, fadeFlash, fight, fightMode, intro, lerp, particles, ship, toast, view } from './state.js';
 
@@ -34,7 +35,7 @@ export function update(dt) {
   if (intro.on && !intro.flying) ship.targetSpeed = 0; // the pod waits while the station talks
   if (intro.arrive) tickArrive(dt);
   else if (intro.beam) tickBeam(dt);
-  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
+  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 
@@ -110,6 +111,7 @@ export function update(dt) {
     view.zoom = view.base * view.k;
   }
   if (!intro.arrive) view.zoom = view.base * view.k * warpZoom(); // a gate jump pulls back and settles
+  landingCamera(); // landing closes in on the planet, taking off pulls back from it
 
   SystemMap.setPlayer(ship.x, ship.y);
 }

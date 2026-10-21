@@ -6,7 +6,7 @@
 //   const actions = Interactions.create({ gap(e), speed() })
 //     gap(e): distance from the ship to e's edge; speed(): the ship's speed
 //   actions.add({ id, kind, verb, key?, when?(e), range, maxSpeed?, allowed?(e), busy?(e), hold?, run(e) })
-//     kind: the entity kind it applies to, when: and only to these (e.g. hostile ships)
+//     kind: the entity kind it applies to (or a list of kinds), when: and only to these (e.g. hostile ships)
 //     hold: the action a long press on the thing does (dock at a station, mine an asteroid)
 //     range, maxSpeed: numbers or functions; how close the ship must be (beyond e's radius) and
 //       how slow it must go to start
@@ -35,7 +35,7 @@ const Interactions = (() => {
       return a;
     }
     const get = (id) => byId.get(id) || null;
-    const applies = (a, e) => a.kind === e.kind && (!a.when || a.when(e));
+    const applies = (a, e) => (Array.isArray(a.kind) ? a.kind.includes(e.kind) : a.kind === e.kind) && (!a.when || a.when(e));
     const of = (e) => list.filter((a) => applies(a, e));
     const forKey = (key) => list.find((a) => a.key && a.key === String(key).toLowerCase()) || null;
     const forKeys = (key) => list.filter((a) => a.key && a.key === String(key).toLowerCase());

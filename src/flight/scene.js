@@ -53,15 +53,16 @@ const Scene = (() => {
       };
       addWide({ kind: 'nebula', nebula: n, cloud, radius: n.r, x: n.x, y: n.y });
     }
-    // Planets, lit from their star; moons (art/bodies.js) by the fixed world light.
+    // Planets, lit from their star; moons (art/bodies.js) by the fixed world light. Each is keyed by
+    // its name, so it can be selected (and landed on, game/landing.js).
     for (const p of galaxy.planets) {
       const S = galaxy.stars[p.system];
       add({
-        kind: 'planet', body: { r: p.r, type: p.type, ring: p.ring, ringTilt: p.ringTilt, seed: p.seed }, name: p.name, radius: p.r * 2,
+        kind: 'planet', key: p.name, body: { r: p.r, type: p.type, ring: p.ring, ringTilt: p.ringTilt, seed: p.seed }, name: p.name, radius: p.r * 2,
         lightAngle: Math.atan2(S.y - p.y, S.x - p.x), x: p.x, y: p.y,
       });
     }
-    for (const m of galaxy.moons) add({ kind: 'moon', body: { type: m.type, r: m.r, seed: m.seed }, name: m.name, radius: m.r * 1.3, x: m.x, y: m.y });
+    for (const m of galaxy.moons) add({ kind: 'moon', key: m.name, body: { type: m.type, r: m.r, seed: m.seed }, name: m.name, radius: m.r * 1.3, x: m.x, y: m.y });
 
     // ---------- Stations ----------
     // market: { kind: 'system' | 'outpost', type } for rules/economy.js; key identifies the station.

@@ -18,6 +18,7 @@ import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { drag, showHints } from './input.js';
+import { landing } from './landing.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
 import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
@@ -261,7 +262,7 @@ export function init() {
   // Keyboard shortcuts. An action's key (F to dock, E to mine: see `actions` below) acts on the
   // selected object, or else on the nearest one in reach.
   window.addEventListener('keydown', (e) => {
-    if (SystemMap.isOpen || docked || intro.on || warp.on) return;
+    if (SystemMap.isOpen || docked || intro.on || warp.on || landing.on) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();

@@ -23,6 +23,7 @@ import { drawStarfield, starCount } from './starfield.js';
 import { cam, ctx, fight, flash, here, intro, ship, view } from './state.js';
 import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
+import { drawLanding, drawLandingOverlay, landing, onSurface, tickLanding } from './landing.js';
 import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
 import { world } from './world.js';
 
@@ -70,16 +71,18 @@ export function render(list = nearbyEntities(simTime)) {
   drawShip(t);
   ctx.restore();
   drawWarpOverlay();
+  drawLandingOverlay();
   placeMenu();
 
   if (flash > 0) {
     ctx.fillStyle = `rgba(210, 240, 255, ${flash * flash * 0.85})`;
     ctx.fillRect(0, 0, view.w, view.h);
   }
-  if (!warp.on) drawLabels(list); // names would hang in the streaks of a gate jump
+  const moving = warp.on || landing.on; // names and markers would hang in a gate jump's streaks, or over the globe
+  if (!moving) drawLabels(list);
   drawMiningCountdown();
   drawFightOverlay();
-  if (!warp.on) drawNavMarkers();
+  if (!moving) drawNavMarkers();
   drawFoeMarkers();
   drawDragIndicator();
   if (hudShown()) {
@@ -166,7 +169,11 @@ export function frame(now) {
   const t0 = performance.now();
   Messages.tick(dt);
   tickTravel(dt);
-  if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
+  if (onSurface()) { // on a planet's surface (game/landing.js) space is left as it was
+    if (!(Settings.isOpen || FactionsMenu.isOpen)) tickLanding(dt);
+    drawLanding(simTime);
+    recordFrame(performance.now() - t0, gap);
+  } else if (!SystemMap.isOpen && !docked) { // the map overlay and docking pause flight
     const paused = Settings.isOpen || FactionsMenu.isOpen || resume.on; // the menus pause it too, but keep it drawn
     if (!paused) {
       update(dt);

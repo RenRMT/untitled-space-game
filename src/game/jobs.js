@@ -25,6 +25,7 @@ import { Factions } from '../world/factions.js';
 import { addTo, cargo, devUnlock, gatesOnline, hold, opening, saveCargo } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
+import { landing } from './landing.js';
 import { faceOf } from './intro.js';
 import { calm, say } from './missions.js';
 import { frameList } from './selection.js';
@@ -212,7 +213,7 @@ function reachPoint(J, i, k) {
 // A rushing wave comes in near the ship once its step is open and the ship is somewhere it can
 // (rushReady), and each of its fights starts as it comes, like an ambush.
 function rushIn(J, i) {
-  if (inFight() || fight.grace > 0 || docked || fight.result) return;
+  if (inFight() || fight.grace > 0 || docked || landing.on || fight.result) return;
   const k = `${J.id}:${i}`;
   if (!jobRun.centre.has(k)) {
     if (!rushReady(J.steps[i])) return;

@@ -10,6 +10,7 @@ import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS } from './selection.js';
 import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
+import { landingShipScale } from './landing.js';
 import { warpShipScale } from './warp.js';
 import { world } from './world.js';
 
@@ -104,8 +105,8 @@ export function drawEntities(list, t) {
 // (flight/entities.js SHIP_SCALE).
 export function drawShip(t) {
   if (fight.wrecked) return; // blown up, waiting for the tow
-  const k = (SHIP.radius * 1.25 * Entities.SHIP_SCALE * warpShipScale()) / ship.art.radius;
-  if (k <= 0.01) return; // gone into a jump gate's ring
+  const k = (SHIP.radius * 1.25 * Entities.SHIP_SCALE * warpShipScale() * landingShipScale()) / ship.art.radius;
+  if (k <= 0.01) return; // gone into a jump gate's ring, or down to a planet
   ctx.save();
   ctx.translate(rx(ship.x), ry(ship.y));
   if (k !== 1) ctx.scale(k, k);
