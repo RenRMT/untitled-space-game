@@ -1,6 +1,7 @@
 // A planet or moon surface (ArtSurface) drawn bent over a globe round the camera, so the ground
 // drops away toward a horizon with space above it. Same camera as the surfaces: orthographic,
-// Art.config.tilt from straight down.
+// tilted from straight down by the style's tilt (ArtSurface.tiltOf: none for Line, where the globe's
+// edge is a circle round the focus).
 //
 // The bend is a profile: the ground stays flat out to `flat` world units from the focus (the point
 // under the camera), then curves more and more until, past 2·flat, it curves like a sphere of
@@ -16,7 +17,8 @@
 // it and is the limb. Fog fades the ground with distance the same way: exp(−d²/F²) splits into a
 // row factor and a column factor. Ground no layer covers is filled with `under`.
 //
-//   const v = SurfaceGlobe.view({ R, flat, fx, fy, W, H, ox, oy })  // focus (fx, fy) at view (ox, oy); W×H view units
+//   const v = SurfaceGlobe.view({ R, flat, fx, fy, W, H, ox, oy, tilt })  // focus (fx, fy) at view (ox, oy); W×H view units;
+//                                                           // tilt: the camera's (default Art.config.tilt)
 //   SurfaceGlobe.draw(ctx, layers, v, { dpr, fog, fogDist, under })
 //   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr, under })  // the same unbent (v's R is ignored): far cheaper
 //     layers: ArtSurface layers, drawn in order; a layer's fade: [d0, d1] fades it out from d0 to d1 ahead
@@ -46,10 +48,10 @@ const SurfaceGlobe = (() => {
   // The profile, as a table every ds: heading φ (how far the ground has turned), h (out from the
   // focus) and z (down from it). Lookups past the table's end carry on in a straight line.
   const profiles = new Map();
-  function profile(R, flat) {
-    const key = R + '/' + flat;
+  function profile(R, flat, tilt) {
+    const key = R + '/' + flat + '/' + tilt;
     if (profiles.has(key)) return profiles.get(key);
-    const tilt = Art.config.tilt, end = Math.PI / 2 + tilt + 0.02, ds = clamp((2 * flat + R * end) / 3000, 1, 16);
+    const end = Math.PI / 2 + tilt + 0.02, ds = clamp((2 * flat + R * end) / 3000, 1, 16);
     const kap = (s) => sstep(flat, 2 * flat, s) / R, phi = [0], h = [0], z = [0];
     for (let s = 0, p = 0, x = 0, y = 0; p < end && s < CAP; s += ds) {
       const dp = kap(s + ds / 2) * ds, pm = p + dp / 2; // midpoint rule
@@ -68,7 +70,7 @@ const SurfaceGlobe = (() => {
   }
 
   function view(o) {
-    const t = Art.config.tilt, v = { ...o, st: Math.sin(t), ct: Math.cos(t), P: profile(o.R, o.flat || 0) };
+    const t = o.tilt ?? Art.config.tilt, v = { ...o, st: Math.sin(t), ct: Math.cos(t), P: profile(o.R, o.flat || 0, t) };
     v.sH = Math.min(v.P.sH, CAP); v.sB = Math.min(v.P.sB, CAP);
     return v;
   }
@@ -100,10 +102,17 @@ const SurfaceGlobe = (() => {
   // The outline: where the turned surface's normal is square to the view. On the right half, for
   // each heading φ past the horizon's, the direction round the focus α with sin α = −cot(tilt)/tan φ.
   // Its top is lowered to the warped ground's top where that's lower, so there's no gap under it.
+  // Straight down, it's the circle where the ground turns square to the view.
   function outline(v) {
     if (v.out !== undefined) return v.out;
     const P = v.P;
     if (P.sH === Infinity) return (v.out = null);
+    if (!v.st) {
+      const r = P.hMax, hw = Math.max(v.ox, v.W - v.ox) + 8, xr = Math.min(r, hw), top = [], poly = [];
+      for (let x = -xr; x <= xr + 0.01; x += 4) top.push([v.ox + x, v.oy - Math.sqrt(Math.max(0, r * r - x * x))]);
+      for (let k = 0; k < 96; k++) poly.push([v.ox + Math.cos((k / 96) * 2 * Math.PI) * r, v.oy + Math.sin((k / 96) * 2 * Math.PI) * r]);
+      return (v.out = { top, poly, full: true });
+    }
     const right = [];
     for (let s = P.sH; s <= Math.min(P.sB, CAP); s += P.ds) {
       const p = P.PHI(s), sa = clamp(-v.ct / (v.st * Math.tan(p)), -1, 1), h = P.H(s);
@@ -223,7 +232,7 @@ const SurfaceGlobe = (() => {
   // Detailed chunks of a surface, size × size tiles, built when first asked for and dropped when
   // they haven't been used for a while (keep: how many stay).
   function tiles(W, style, o = {}) {
-    const size = o.size || 8, dpr = o.dpr || 1, keep = o.keep || 40, T = ArtSurface.T, ct = Math.cos(Art.config.tilt);
+    const size = o.size || 8, dpr = o.dpr || 1, keep = o.keep || 40, T = ArtSurface.T, ct = Math.cos(ArtSurface.tiltOf(style));
     const map = new Map();
     let frame = 0;
     const key = (ci, cj) => ci * 4096 + cj;

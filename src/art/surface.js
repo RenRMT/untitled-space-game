@@ -1,6 +1,8 @@
 // Planet surfaces: the ground the player flies over when landed in a planet's atmosphere, in the
-// line and lowpoly styles. Same camera as the low-poly assets (orthographic, Art.config.tilt from
-// straight down, heights rising up the screen) and the same world light (Art.kit.LIGHT).
+// line and lowpoly styles, with the same world light (Art.kit.LIGHT). Each style has its own
+// camera: Line looks straight down (heights read from contours, hatching and cast shadows only);
+// Low-poly is the low-poly assets' camera, orthographic, Art.config.tilt from straight down, heights
+// rising up the screen. Geometry is built and kept per camera.
 //
 // A surface is a grid of T×T tiles built from three corner grids, so any layout is seamless:
 //   C[i][j] 0/1: high ground. Each tile takes its cliff piece from its four corners (marching
@@ -24,7 +26,7 @@
 //   ArtSurface.farBuilder(w, style) -> { step(budgetMs) -> done, layer }  // ... built across frames
 //   ArtSurface.draw(ctx, w, style, { lw, extra, region })           // ctx maps projected units
 //   ArtSurface.drawLive(ctx, w, style, t, { lw, all })             // lightning in storms
-//   ArtSurface.blocked(w, x, y, r), overlay(w) -> { fill, edge } at flight altitude
+//   ArtSurface.blocked(w, x, y, r), overlay(w, style) -> { fill, edge } at flight altitude
 //   ArtSurface.siteDist(w, x, y)   // how far (x, y) is outside the landing site's edge (< 0: inside)
 //   A layer: { canvas, x0, y0, sx, sy }: canvas px = (x − x0)·sx across, (projected y − y0)·sy down.
 //   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
@@ -32,7 +34,8 @@
 //     past the edge the player has left the site.
 //   ArtSurface.sample(type, kind)  // 3×3 world showing one asset in its centre tile (asset sheets);
 //     kind: a | b | c | plateau | edge | outer | inner | saddle | small0.. | hole0.. | tall0..
-//   ArtSurface.project(w, x, y, z), heightAt(w, x, y), shadowShift(z), BIOMES, TYPES, SURFACE_OF, T, FLY, PAD
+//   ArtSurface.project(w, x, y, z, style), tiltOf(style), padOf(style), heightAt(w, x, y), shadowShift(z),
+//     BIOMES, TYPES, SURFACE_OF, T, FLY, PAD (padOf: the room above the first row a tilted camera needs)
 //   Moons: generate(moonSurface(moonType), …); one template per ArtBodies moon type, colour only (MOON_SURFACES).
 // ES module (`ArtSurface`); needs a browser.
 
@@ -241,8 +244,11 @@ const ArtSurface = (() => {
   const MOON_SURFACES = TYPES.filter((t) => B[t].moon); // 'moon-' + bodies.js moon type
   const moonSurface = (moonType) => 'moon-' + moonType;
 
-  const cam = (W) => { if (!W.cam) { const t = Art.config.tilt; W.cam = { st: Math.sin(t), ct: Math.cos(t) }; } return W.cam; };
-  const project = (W, x, y, z) => { const c = cam(W); return [x, y * c.ct - z * c.st]; };
+  // The camera's tilt from straight down for a style: none for Line.
+  const tiltOf = (style) => (style === 'line' ? 0 : Art.config.tilt);
+  const padOf = (style) => (tiltOf(style) ? PAD : 6);
+  const cam = (W, style) => { const t = tiltOf(style), m = W.cams || (W.cams = {}); return m[t] || (m[t] = { t, st: Math.sin(t), ct: Math.cos(t) }); };
+  const project = (W, x, y, z, style) => { const c = cam(W, style); return [x, y * c.ct - z * c.st]; };
 
   function hull(pts) {
     const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
@@ -434,17 +440,19 @@ const ArtSurface = (() => {
   // Runs a generator (the *Steps functions below) to its end and returns what it returns.
   const run = (gen) => { let r; while (!(r = gen.next()).done); return r.value; };
 
-  // Geometry in projected units, style-independent: the whole world's built once and kept; a
+  // Geometry in projected units, for the style's camera: the whole world's built once and kept; a
   // region's (tiles [i0, i1) × [j0, j1)) is built each time it's asked for.
-  function build(W, reg) {
-    return !reg && W.geo ? W.geo : run(buildSteps(W, reg));
+  function build(W, reg, style) {
+    const c = cam(W, style);
+    return !reg && W.geos && W.geos[c.t] ? W.geos[c.t] : run(buildSteps(W, reg, style));
   }
   // The same as a generator: a row of the work at each next() (renderRegionSteps). Each yield names
   // the work just done, for profiling.
-  function* buildSteps(W, reg) {
-    if (!reg && W.geo) return W.geo;
+  function* buildSteps(W, reg, style) {
+    const view = cam(W, style), geos = W.geos || (W.geos = {});
+    if (!reg && geos[view.t]) return geos[view.t];
     const rg = reg || { i0: 0, j0: 0, i1: W.w, j1: W.h };
-    const s = W.seed, bi = B[W.type], L = LIGHT(), { st, ct } = cam(W), VIEW = [0, st, ct], sea = bi.sea;
+    const s = W.seed, bi = B[W.type], L = LIGHT(), { st, ct } = view, VIEW = [0, st, ct], sea = bi.sea;
     const pp = (v) => [v[0], v[1] * ct - v[2] * st];
     const depth = (pts) => { let d = 0; for (const p of pts) d += p[1] * st + p[2] * ct; return d / pts.length; };
     const kOf = (n, sf) => { const m = sf ? nrm([n[0] * (1 - sf), n[1] * (1 - sf), n[2] * (1 - sf) + sf]) : n; return 0.24 + 0.95 * Math.max(0, dot(m, L)); };
@@ -593,7 +601,8 @@ const ArtSurface = (() => {
           continue;
         }
         addTop(pc.pts.map((p) => [p[0], p[1], topZ(W, p[0], p[1])]), pc.cut, bi.high.c.top);
-        pc.pts.forEach((a, m) => {
+        // Straight down, a wall is no more than the line along its rim (the top's edge).
+        if (st) pc.pts.forEach((a, m) => {
           if (!pc.cut[m]) return;
           const b = pc.pts[(m + 1) % pc.pts.length], nx = b[1] - a[1], ny = a[0] - b[0], u = Math.hypot(nx, ny), ta = topZ(W, a[0], a[1]), tb = topZ(W, b[0], b[1]);
           for (let r = 0; r < prof.length - 1; r++) {
@@ -668,7 +677,7 @@ const ArtSurface = (() => {
       }
     }
     g.raised.sort((a, b) => a.d - b.d);
-    if (!reg) W.geo = g;
+    if (!reg) geos[view.t] = g;
     return g;
   }
 
@@ -691,7 +700,7 @@ const ArtSurface = (() => {
   // storm pockets, slow funnels on downdrafts. Drawn at a fixed cloud height.
   function flows(ctx, W, g, bi, style, t, lw) {
     const line = style === 'line', col = (a) => (line ? rgb(bi.LN, 1, a) : rgb(bi.storm.c.bolt, 1, a));
-    const P = (x, y) => project(W, x, y, 5);
+    const P = (x, y) => project(W, x, y, 5, style);
     const poly = (pts) => { ctx.beginPath(); pts.forEach(([x, y], k) => { const q = P(x, y); k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); };
     if (!line) { flowsLow(ctx, W, g, bi, t, lw, P); return; }
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -879,8 +888,8 @@ const ArtSurface = (() => {
   }
   // The same as a generator: the geometry a row at a time, then the drawing a batch at a time.
   function* drawSteps(ctx, W, style, o = {}) {
-    const g = yield* buildSteps(W, o.region), bi = B[W.type], lw = o.lw || 1, ln = (a) => rgb(bi.LN, 1, a), rg = o.region, ct = cam(W).ct;
-    const bb = rg ? [rg.i0 * T - 10, rg.j0 * T * ct - PAD - 10, rg.i1 * T + 10, rg.j1 * T * ct + 10] : [-10, -PAD - 10, W.w * T + 10, W.h * T * ct + 10];
+    const g = yield* buildSteps(W, o.region, style), bi = B[W.type], lw = o.lw || 1, ln = (a) => rgb(bi.LN, 1, a), rg = o.region, ct = cam(W, style).ct, pad = padOf(style);
+    const bb = rg ? [rg.i0 * T - 10, rg.j0 * T * ct - pad - 10, rg.i1 * T + 10, rg.j1 * T * ct + 10] : [-10, -pad - 10, W.w * T + 10, W.h * T * ct + 10];
     // Whole-region hatching (lee slopes, shadows) only over the tiles a chunk shows: its margin is clipped off.
     const hb = rg && rg.inner ? [rg.inner.i0 * T - 4, rg.inner.j0 * T * ct - 4, rg.inner.i1 * T + 4, rg.inner.j1 * T * ct + 4] : bb;
     ctx.fillStyle = BG(); ctx.fillRect(bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]);
@@ -888,13 +897,13 @@ const ArtSurface = (() => {
     const specks = (col) => { for (const sp of g.specks) { ctx.beginPath(); ctx.arc(sp.p[0], sp.p[1], sp.r, 0, TAU); if (col) { ctx.strokeStyle = col; ctx.lineWidth = lw * 0.7; ctx.stroke(); } else { ctx.fillStyle = rgb(sp.col, 1, 0.85); ctx.fill(); } } };
     const puffs = () => {
       for (const p of g.puffs) {
-        const [x, y] = project(W, p.x, p.y, p.h);
+        const [x, y] = project(W, p.x, p.y, p.h, style);
         for (let k = 0; k < (p.flat ? 2 : 3); k++) {
           const r = p.r * (1 - k * 0.28);
-          ctx.beginPath(); ctx.ellipse(x + k * 0.8, y - k * 1.6, r * (p.flat ? 1.5 : 1), r * cam(W).ct * (p.flat ? 0.7 : 1), 0, 0, TAU);
+          ctx.beginPath(); ctx.ellipse(x + k * 0.8, y - k * 1.6, r * (p.flat ? 1.5 : 1), r * ct * (p.flat ? 0.7 : 1), 0, 0, TAU);
           if (style !== 'line') {
             const n = 7, pts = [];
-            for (let m = 0; m < n; m++) { const a = (m / n) * TAU + k; pts.push([x + k * 0.8 + Math.cos(a) * r * (p.flat ? 1.5 : 1), y - k * 1.6 + Math.sin(a) * r * cam(W).ct * (p.flat ? 0.7 : 1)]); }
+            for (let m = 0; m < n; m++) { const a = (m / n) * TAU + k; pts.push([x + k * 0.8 + Math.cos(a) * r * (p.flat ? 1.5 : 1), y - k * 1.6 + Math.sin(a) * r * ct * (p.flat ? 0.7 : 1)]); }
             const c0 = [x + k * 0.8, y - k * 1.6 - r * 0.15];
             pts.forEach((q, m) => { const q2 = pts[(m + 1) % n], up = Math.sin(((m + 0.5) / n) * TAU + k) < 0, left = Math.cos(((m + 0.5) / n) * TAU + k) < 0;
               ctx.beginPath(); ctx.moveTo(c0[0], c0[1]); ctx.lineTo(q[0], q[1]); ctx.lineTo(q2[0], q2[1]); ctx.closePath();
@@ -949,7 +958,7 @@ const ArtSurface = (() => {
   // Lightning in storm fronts and pockets: short flashes, drawn live over the surface.
   // all: draw every bolt (a still frame for asset sheets).
   function drawLive(ctx, W, style, t, o = {}) {
-    const g = build(W), bi = B[W.type], lw = o.lw || 1;
+    const g = build(W, null, style), bi = B[W.type], lw = o.lw || 1, td = !cam(W, style).st;
     if (bi.fluid) flows(ctx, W, g, bi, style, t, lw);
     if (!g.bolts.length) return;
     for (const b of g.bolts) {
@@ -958,7 +967,8 @@ const ArtSurface = (() => {
       const f = o.all ? 1 : Math.floor(t * 24), gz = heightAt(W, b.x, b.y), pts = [];
       for (let k = 0; k <= 5; k++) {
         const j = k === 0 || k === 5 ? 0 : (hash(k, f, b.id) - 0.5) * 9;
-        pts.push(project(W, b.x + j, b.y + j * 0.3, lerp(gz + 26, gz + 1, k / 5)));
+        // Straight down a bolt has no height to fall through: it forks across the ground instead.
+        pts.push(td ? project(W, b.x + j + (k / 5 - 0.5) * 16, b.y + j * 0.5 + (k / 5 - 0.5) * 9, gz, style) : project(W, b.x + j, b.y + j * 0.3, lerp(gz + 26, gz + 1, k / 5), style));
       }
       ctx.save(); ctx.lineJoin = 'miter';
       if (style !== 'line') {
@@ -972,18 +982,18 @@ const ArtSurface = (() => {
     }
   }
 
-  // The whole surface into one canvas, 1 world unit per CSS pixel; y is offset by PAD so tall
-  // objects on the first row fit. Draw it at (−PAD) and project points with project() + PAD.
+  // The whole surface into one canvas, 1 world unit per CSS pixel; y is offset by pad (padOf) so
+  // tall objects on the first row fit. Draw it at (−pad) and project points with project() + pad.
   function render(W, style, o = {}) {
-    const dpr = o.dpr || Math.min(2, window.devicePixelRatio || 1), w = W.w * T, h = W.h * T * cam(W).ct + PAD + 6;
+    const pad = padOf(style), dpr = o.dpr || Math.min(2, window.devicePixelRatio || 1), w = W.w * T, h = W.h * T * cam(W, style).ct + pad + 6;
     const cv = document.createElement('canvas'); cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
-    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, PAD * dpr);
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, pad * dpr);
     draw(ctx, W, style, { lw: 1 });
-    return { canvas: cv, w, h, pad: PAD };
+    return { canvas: cv, w, h, pad };
   }
 
   // Tiles [i0, i1) × [j0, j1) into one canvas: a band of the surface, cut on tile lines (in projected
-  // units: x from i0·T, y from j0·T·cos(tilt)), with everything that reaches into it from the
+  // units: x from i0·T, y from j0·T·cos(tilt of the style)), with everything that reaches into it from the
   // tiles around (tall things from the row below, cliff walls from either side). The canvas is whole
   // pixels, a fraction of one past the band, and painted to its edges: no half-covered edge row to
   // show as a seam where it meets the next.
@@ -994,7 +1004,7 @@ const ArtSurface = (() => {
   // built across frames (art/surface-globe.js tiles).
   // o.canvas: one to draw into (a chunk no longer needed), sized to fit, rather than a new one.
   function* renderRegionSteps(W, style, o) {
-    const ct = cam(W).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
+    const ct = cam(W, style).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
     const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1), inner: o, lines: style === 'line' };
     const cv = o.canvas || document.createElement('canvas'), cw = Math.ceil(w * dpr), ch = Math.ceil(h * dpr);
     if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
@@ -1019,7 +1029,7 @@ const ArtSurface = (() => {
   // The same, built a row at a time: step(budgetMs) works for about that long and returns true once
   // it's done, when .layer holds it; .progress says how far it's got (0..1). So it can be built across frames.
   function farBuilder(W, style, o = {}) {
-    const bi = B[W.type], ct = cam(W).ct, L = LIGHT(), Wu = W.w * T, Hu = W.h * T, upp = o.upp || Math.max(6, Math.max(Wu, Hu) / 1600);
+    const bi = B[W.type], ct = cam(W, style).ct, L = LIGHT(), Wu = W.w * T, Hu = W.h * T, upp = o.upp || Math.max(6, Math.max(Wu, Hu) / 1600);
     const nx = Math.ceil(Wu / upp) + 1, ny = Math.ceil((Hu * ct) / upp) + 1, sea = bi.sea, line = style === 'line', q = line ? 2 : 1;
     const F = new Float32Array(nx * ny), Hi = new Float32Array(nx * ny), Raw = new Float32Array(nx * ny);
     const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
@@ -1098,14 +1108,14 @@ const ArtSurface = (() => {
   }
 
   // Blocked footprints projected at flight altitude, so they sit level with the ship.
-  function overlay(W) {
-    const g = build(W), fill = new Path2D(), edge = new Path2D(), ct = cam(W).ct;
+  function overlay(W, style) {
+    const g = build(W, null, style), fill = new Path2D(), edge = new Path2D(), ct = cam(W, style).ct;
     for (const k in g.block) for (const pc of g.block[k]) {
-      const s2 = pc.pts.map((p) => project(W, p[0], p[1], FLY));
+      const s2 = pc.pts.map((p) => project(W, p[0], p[1], FLY, style));
       fill.addPath(polyPath(s2));
       s2.forEach((p, m) => { if (!pc.cut[m]) return; const q = s2[(m + 1) % s2.length]; edge.moveTo(p[0], p[1]); edge.lineTo(q[0], q[1]); });
     }
-    for (const t of g.talls) { const [x, y] = project(W, t.x, t.y, FLY); const e = new Path2D(); e.ellipse(x, y, t.r, t.r * ct, 0, 0, TAU); fill.addPath(e); edge.addPath(e); }
+    for (const t of g.talls) { const [x, y] = project(W, t.x, t.y, FLY, style); const e = new Path2D(); e.ellipse(x, y, t.r, t.r * ct, 0, 0, TAU); fill.addPath(e); edge.addPath(e); }
     return { fill, edge };
   }
   const inPoly = (x, y, pts) => { let c = false; for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) { const [xa, ya] = pts[a], [xb, yb] = pts[b]; if ((ya > y) !== (yb > y) && x < ((xb - xa) * (y - ya)) / (yb - ya) + xa) c = !c; } return c; };
@@ -1123,7 +1133,7 @@ const ArtSurface = (() => {
     return false;
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, siteDist, project, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
 })();
 
 export { ArtSurface };
