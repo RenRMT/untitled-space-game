@@ -306,20 +306,20 @@ function detailRect(v) {
 const detail = (tiles, v, budgetMs) => tiles.layers(detailRect(v), budgetMs);
 
 // Flying on the surface, the chunks the ship is heading for (the view a moment ahead, and a ring
-// round it) are built ahead of need, so they're rarely missing as they come into view: one at a
-// time, in a quiet moment (requestIdleCallback with most of a frame free; without it, at the end
-// of a frame that took little), every other frame at most, so the work is spread out.
+// round it) are built ahead of need, so they're rarely missing as they come into view: a step at a
+// time (art/surface-globe.js tiles), in the time each frame leaves over (requestIdleCallback, at most
+// 6 ms; without it, 3 ms after the frame), so the work is spread thin.
 const LEAD = 1.2, RING = 300; // seconds ahead, world units round the view
-let idle = null, skip = false;
+let idle = null;
 function aheadRect() {
   const C = landing.craft, r = detailRect(viewAt(1).v), dx = C.vx * LEAD, dy = C.vy * LEAD;
   return { x0: r.x0 + dx - RING, x1: r.x1 + dx + RING, y0: r.y0 + dy - RING, y1: r.y1 + dy + RING, cx: C.x + dx, cy: C.y + dy };
 }
-function buildAhead(frameStart) {
-  if (landing.phase !== 'surface' || idle || (skip = !skip)) return;
-  const tiles = surface().tiles, one = (room) => { let n = 0; tiles.warm(aheadRect(), () => n++ < 1 && room()); };
-  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') one(() => dl.timeRemaining() > 1); });
-  else one(() => performance.now() - frameStart < 4);
+function buildAhead() {
+  if (landing.phase !== 'surface' || idle) return;
+  const tiles = surface().tiles;
+  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') tiles.warm(aheadRect(), Math.min(6, dl.timeRemaining() - 2)); }); // idle time can run to 50 ms: the next frame mustn't wait on it
+  else tiles.warm(aheadRect(), 3);
 }
 
 // The ground at t, drawn at alpha over whatever is there: the low-detail image, then the chunks
@@ -331,8 +331,8 @@ function drawGround(t, alpha) {
   if (!s.far.layer) s.far.step(6);
   const layers = s.far.layer ? [s.far.layer] : [];
   const dA = smoothstep(0.45, 0.8, k);
-  // Chunks are built here only on the surface; on the way down tickLanding builds them, one a frame.
-  if (dA > 0) for (const L of detail(s.tiles, v, landing.phase === 'surface' ? 8 : 0)) { L.alpha = dA; layers.push(L); }
+  // Chunks are built here (a few ms of one a frame) only on the surface; on the way down tickLanding builds them.
+  if (dA > 0) for (const L of detail(s.tiles, v, landing.phase === 'surface' ? 4 : 0)) { L.alpha = dA; layers.push(L); }
   ctx.save();
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = alpha;
@@ -351,7 +351,7 @@ export function drawLandingOverlay() {
 
 // The surface's frame: the ground, the ship and its shadow, the minimap and the HUD.
 export function drawLanding(time) {
-  const t0 = performance.now(), L = landing, s = surface(), C = L.craft, style = artStyle.value;
+  const L = landing, s = surface(), C = L.craft, style = artStyle.value;
   Art.beginFrame(); // the sprite caches' build budget for this frame, as in space
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   ctx.fillStyle = COLORS.bg;
@@ -379,7 +379,7 @@ export function drawLanding(time) {
   ctx.restore();
   drawSurfaceMinimap();
   drawSurfaceHud();
-  buildAhead(t0);
+  buildAhead();
 }
 
 // The minimap on the surface: the planet (or moon) as it's drawn in space, the landing site as a
