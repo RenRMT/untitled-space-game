@@ -33,6 +33,7 @@ import { Art } from '../art/render.js';
 import { ArtBodies } from '../art/bodies.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
+import { Display } from '../core/display.js';
 import { Feedback } from '../core/feedback.js';
 import { smoothstep } from '../core/math.js';
 import { COLORS, Theme } from '../core/theme.js';
@@ -65,9 +66,12 @@ const ORBIT_Z = 900; // the ship's altitude then
 const DISC = 0.36; // the planet's radius on screen when the globe takes over, a share of the screen's smaller side
 // The air's colour, for the haze and the glow at the limb; moons have none.
 const AIR = { terran: '#7fb2ea', blue: '#7fa8ea', desert: '#e0b080', ice: '#cfe6f5', lava: '#c0603a', gas: '#e8c890' };
-// On the surface the ship flies slower than in space, and is drawn half as large again (as are its
-// shadow and the room it needs between the rocks).
-const SURFACE_SPEED = 0.4, SURFACE_SCALE = 1.5;
+// On the surface the ship flies slower than in space and is drawn a little smaller, against ground
+// seen from closer than space is: the whole view (ship, ground and all) is zoomed in SURFACE_ZOOM
+// times, and its chunks are drawn at that resolution (up to 2 device px per world unit; 1.5 on
+// touch screens, which keep less in memory).
+const SURFACE_SPEED = 0.4, SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
+const surfaceZoom = () => view.base * SURFACE_ZOOM;
 
 export const landing = {
   on: false, phase: null, k: 0, u: 0, e: null, from: null, out: null,
@@ -107,7 +111,7 @@ function prepare(e, budgetMs) {
 function surface() {
   const style = artStyle.value, s = entry(landing.e);
   s.far[style] ||= ArtSurface.farBuilder(s.W, style, { upp: 10 });
-  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, { size: 8, dpr: clamp(view.dpr * view.base, 1, 1.5), keep: 28 });
+  s.tiles[style] ||= SurfaceGlobe.tiles(s.W, style, { size: 8, dpr: clamp(view.dpr * surfaceZoom(), 1, Display.touch() ? 1.5 : 2), keep: 24 });
   return { W: s.W, far: s.far[style], tiles: s.tiles[style] };
 }
 
@@ -285,7 +289,7 @@ export function landingShipScale() {
 // The surface's view at a point u of the landing (0: the globe as big as the planet was, 1: down).
 function viewAt(u) {
   const e = u * u * (3 - 2 * u), st = Math.sin(Art.config.tilt), W = view.w, H = view.h;
-  const z0 = (DISC * Math.min(W, H)) / ORBIT_R, zoom = Math.exp(lerp(Math.log(z0), Math.log(view.base), e));
+  const z0 = (DISC * Math.min(W, H)) / ORBIT_R, zoom = Math.exp(lerp(Math.log(z0), Math.log(surfaceZoom()), e));
   // Curvature: the globe's, tightening as the view closes in (so the horizon stays in sight), then
   // easing out to none by the time the ship is down.
   const k = lerp(1 / ORBIT_R, 1 / 450, smoothstep(0, 0.6, u)) * (1 - smoothstep(0.55, 1, u));
