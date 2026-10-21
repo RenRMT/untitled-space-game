@@ -404,10 +404,18 @@ export function drawHud() {
   const logged = Messages.log;
   y = drawEventLog(left, lines.length ? y + 6 : y, room);
   hudBottom = lines.length || logged.length ? y - lh + 8 : pad + I.t;
-  ctx.font = Theme.font(logged.length ? 13 : 14); // as the bar's text has always been drawn
 
-  // Bottom left: the speed bar (actual speed filled, set throttle marked), and above it the hold
-  // and a damaged hull.
+  ctx.restore();
+  drawStatus(speed / SHIP.maxSpeed, ship.targetSpeed / SHIP.maxSpeed, logged.length ? 13 : 14);
+}
+
+// Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),
+// and above it the hold and a damaged hull. Also on a planet's surface (game/landing.js).
+export function drawStatus(speed, set, fontSize = 14) {
+  const k = Theme.scale, I = view.inset, pad = 12, left = pad + I.l;
+  ctx.save();
+  ctx.font = Theme.font(fontSize);
+  ctx.textBaseline = 'alphabetic';
   const barW = Math.min(160, view.w * 0.4);
   const by = view.h - pad - 8 - I.b;
   ctx.globalAlpha = 0.25;
@@ -415,9 +423,9 @@ export function drawHud() {
   ctx.fillRect(left, by, barW, 6);
   ctx.globalAlpha = 0.9;
   ctx.fillStyle = COLORS.cyan;
-  ctx.fillRect(left, by, barW * Math.min(1, speed / SHIP.maxSpeed), 6);
+  ctx.fillRect(left, by, barW * Math.min(1, speed), 6);
   ctx.fillStyle = COLORS.flame;
-  ctx.fillRect(left + barW * (ship.targetSpeed / SHIP.maxSpeed) - 1, by - 3, 2, 12);
+  ctx.fillRect(left + barW * set - 1, by - 3, 2, 12);
   let x = left;
   const ty = by - 10;
   ctx.globalAlpha = 0.9;

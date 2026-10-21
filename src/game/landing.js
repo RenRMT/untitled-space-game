@@ -7,7 +7,8 @@
 // it; once the planet fills the screen, the art cross-fades into the surface seen from high above,
 // and the zoom carries on down to it, the ship coming into view as it nears the ground. Taking off
 // is the same zoom backwards, ending beside the planet. On the surface the ground is flat.
-// From Land until the ship is back in space, flight, the map and the context menu are off.
+// While landing and taking off, flight, the map and the context menu are off (the 'landing' mode); on
+// the surface ('landed') the HUD, map, factions and shortcuts are back, but there's nothing to select.
 // The zoom runs on the clock, but no further than what it needs of the surface has been built (the
 // surface itself before the cross-fade, the chunks round the landing spot before the end): short of
 // that it slows to a crawl, building faster meanwhile, so a slow device sees a slower landing, never
@@ -24,6 +25,7 @@
 //   drawLanding()               the surface's frame; drawLandingOverlay(): the surface fading in or
 //                               out over the planet, in space
 //   landingShipScale()          the ship's size in space as it dives in or comes out (0..1)
+//   surfacePerf()               lines about the surface for the performance overlay (game/loop.js)
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
@@ -37,7 +39,7 @@ import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { actions, docked } from './docking.js';
-import { drawEventLog, minimapBox } from './hud.js';
+import { drawEventLog, drawStatus, minimapBox } from './hud.js';
 import { drag } from './input.js';
 import { stopMining } from './mining.js';
 import { artStyle, moveMode } from './options.js';
@@ -167,6 +169,7 @@ export function takeOff() {
   pinSprite(e);
   L.phase = 'takeoff';
   setMode('landed', false);
+  setMode('landing', true);
   notify(`Taking off from ${L.e.name}`, 2.5);
 }
 
@@ -210,7 +213,7 @@ export function tickLanding(dt) {
     L.t = Math.min(1, L.t + (dt / P.time) * rate);
     // The ship is set down on the surface's landing spot as the surface comes into view.
     if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) setDown();
-    if (L.t >= 1) { L.phase = 'surface'; setMode('landed', true); Feedback.emit('docked'); }
+    if (L.t >= 1) { L.phase = 'surface'; setMode('landing', false); setMode('landed', true); Feedback.emit('docked'); }
   } else {
     L.t = Math.max(0, L.t - dt / P.time);
     if (fadeAt(L.t) > 0) fly(surface().W, dt, true);
@@ -332,7 +335,11 @@ function drawGround(t, alpha) {
   const layers = s.far.layer ? [s.far.layer] : [];
   const dA = smoothstep(0.45, 0.8, k);
   // Chunks are built here (a few ms of one a frame) only on the surface; on the way down tickLanding builds them.
-  if (dA > 0) for (const L of detail(s.tiles, v, landing.phase === 'surface' ? 4 : 0)) { L.alpha = dA; layers.push(L); }
+  if (dA > 0) {
+    const got = detail(s.tiles, v, landing.phase === 'surface' ? 4 : 0);
+    perf.missing = got.missing;
+    for (const L of got) { L.alpha = dA; layers.push(L); }
+  }
   ctx.save();
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = alpha;
@@ -446,6 +453,23 @@ function drawSurfaceHud() {
   for (const [text, color] of lines) { ctx.fillStyle = color; ctx.fillText(text, left, y); y += lh; }
   ctx.restore();
   drawEventLog(left, y + 6, room);
+  // The speed bar, hold and hull, as in space; the speed a share of the surface's top speed.
+  const C = L.craft;
+  drawStatus(Math.hypot(C.vx, C.vy) / (SHIP.maxSpeed * SURFACE_SPEED || 1), ship.targetSpeed / (SHIP.maxSpeed || 1));
+}
+
+// For the performance overlay: the chunks (how many are kept, built a second, the time spent on
+// them in the last frame and how many steps that took, how many in view are missing) and the far
+// image. A stutter as a chunk is built shows as ms this frame jumping.
+const perf = { missing: 0, last: null, rate: 0, at: 0, built0: 0 };
+export function surfacePerf() {
+  const s = surface(), c = s.tiles.stats(), now = performance.now(), last = perf.last || c;
+  if (now - perf.at >= 1000) { perf.rate = ((c.built - perf.built0) * 1000) / Math.max(1, now - perf.at || 1000); perf.built0 = c.built; perf.at = now; }
+  perf.last = c;
+  return [
+    `surface chunks ${c.cached}/${c.keep} kept · ${perf.rate.toFixed(1)} built/s · ${perf.missing} missing in view${c.busy ? ' · one under way' : ''}`,
+    `chunk work ${(c.ms - last.ms).toFixed(1)} ms in ${c.steps - last.steps} steps last frame · far image ${s.far.layer ? 'ready' : `${Math.round(s.far.progress * 100)}%`}`,
+  ];
 }
 
 // Wiring, run once every module has loaded (src/main.js).

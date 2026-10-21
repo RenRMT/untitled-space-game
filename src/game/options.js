@@ -262,7 +262,7 @@ export function init() {
   // Keyboard shortcuts. An action's key (F to dock, E to mine: see `actions` below) acts on the
   // selected object, or else on the nearest one in reach.
   window.addEventListener('keydown', (e) => {
-    if (SystemMap.isOpen || docked || intro.on || warp.on || landing.on) return;
+    if (SystemMap.isOpen || docked || intro.on || warp.on || (landing.on && landing.phase !== 'surface')) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();
@@ -270,6 +270,7 @@ export function init() {
     if (e.key === 'Escape') select(null);
     // Several actions can share a key (E mines an asteroid or collects gas): the first that has a
     // target acts.
+    if (landing.on) return; // on a planet's surface: nothing to act on
     for (const a of actions.forKeys(e.key)) {
       const target = actions.target(a, selected && selected.e, frameList);
       if (target) { a.run(target); break; }
