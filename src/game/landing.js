@@ -192,6 +192,7 @@ export function tickLanding(dt) {
   const now = performance.now(), real = (now - (L.clock ?? now)) / 1000;
   dt = Math.max(dt, Math.min(0.25, real));
   L.clock = now;
+  L.slow = real > 0.022; // the last frame took long: build less of the surface in this one
   if (L.phase === 'surface') { fly(surface().W, dt); return false; }
   if (L.phase === 'landing') {
     // How far the zoom may get with what's built (1: all the way), and the build's time this frame:
@@ -311,7 +312,8 @@ const detail = (tiles, v, budgetMs) => tiles.layers(detailRect(v), budgetMs);
 // Flying on the surface, the chunks the ship is heading for (the view a moment ahead, and a ring
 // round it) are built ahead of need, so they're rarely missing as they come into view: a step at a
 // time (art/surface-globe.js tiles), in the time each frame leaves over (requestIdleCallback, at most
-// 6 ms; without it, 3 ms after the frame), so the work is spread thin.
+// 4 ms; without it, as in iOS Safari, 3 ms after the frame, or 1 after a slow one), so the work is
+// spread thin.
 const LEAD = 1.2, RING = 300; // seconds ahead, world units round the view
 let idle = null;
 function aheadRect() {
@@ -321,8 +323,8 @@ function aheadRect() {
 function buildAhead() {
   if (landing.phase !== 'surface' || idle) return;
   const tiles = surface().tiles;
-  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') tiles.warm(aheadRect(), Math.min(6, dl.timeRemaining() - 2)); }); // idle time can run to 50 ms: the next frame mustn't wait on it
-  else tiles.warm(aheadRect(), 3);
+  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; if (landing.phase === 'surface') tiles.warm(aheadRect(), Math.min(4, dl.timeRemaining() - 2)); }); // idle time can run to 50 ms: the next frame mustn't wait on it
+  else tiles.warm(aheadRect(), landing.slow ? 1 : 3);
 }
 
 // The ground at t, drawn at alpha over whatever is there: the low-detail image, then the chunks
@@ -336,7 +338,8 @@ function drawGround(t, alpha) {
   const dA = smoothstep(0.45, 0.8, k);
   // Chunks are built here (a few ms of one a frame) only on the surface; on the way down tickLanding builds them.
   if (dA > 0) {
-    const got = detail(s.tiles, v, landing.phase === 'surface' ? 4 : 0);
+    // In the frame itself, only while some in view are missing (building ahead sees to the rest).
+    const got = detail(s.tiles, v, landing.phase === 'surface' && perf.missing ? (landing.slow ? 1 : 2) : 0);
     perf.missing = got.missing;
     for (const L of got) { L.alpha = dA; layers.push(L); }
   }

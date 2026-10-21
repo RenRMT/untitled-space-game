@@ -247,7 +247,7 @@ const SurfaceGlobe = (() => {
         if (!job) {
           const next = want.find(([ci, cj]) => !map.has(key(ci, cj)));
           if (!next) break;
-          job = { k: key(next[0], next[1]), gen: ArtSurface.renderRegionSteps(W, style, region(next[0], next[1])) };
+          job = { k: key(next[0], next[1]), gen: ArtSurface.renderRegionSteps(W, style, { ...region(next[0], next[1]), canvas: pool.pop() }) };
         }
         const r = job.gen.next();
         counts.steps++;
@@ -255,8 +255,15 @@ const SurfaceGlobe = (() => {
       }
       counts.ms += performance.now() - t0;
     }
+    // Chunks dropped leave their canvases for the next ones to draw into: making a canvas is one of
+    // the slower parts of building a chunk (and leaves garbage to collect).
+    const pool = [];
     function evict() {
-      if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
+      if (map.size <= keep) return;
+      for (const [k, c] of [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep)) {
+        map.delete(k);
+        if (pool.length < 8) pool.push(c.canvas);
+      }
     }
     function layers(rect, budgetMs = 6, fade) {
       frame++;
