@@ -15,11 +15,18 @@
 //   a rock column, or on gas giants a storm pocket).
 // Cliffs, storm fronts and tall props rise above FLY and block.
 //
-//   const w = ArtSurface.generate(planetType, seed, { w, h, cover, tall })
+//   const w = ArtSurface.generate(planetType, seed, { w, h, cover, tall, site })
 //   ArtSurface.render(w, style, { dpr }) -> { canvas, w, h, pad }   // whole surface; cache it
-//   ArtSurface.draw(ctx, w, style, { lw, extra })                   // ctx maps projected units
+//   ArtSurface.renderRegion(w, style, { i0, j0, i1, j1, dpr }) -> layer  // tiles [i0, i1) × [j0, j1)
+//   ArtSurface.farImage(w, style) -> layer                          // the whole surface, low detail
+//   ArtSurface.draw(ctx, w, style, { lw, extra, region })           // ctx maps projected units
 //   ArtSurface.drawLive(ctx, w, style, t, { lw, all })             // lightning in storms
 //   ArtSurface.blocked(w, x, y, r), overlay(w) -> { fill, edge } at flight altitude
+//   ArtSurface.siteDist(w, x, y)   // how far (x, y) is outside the landing site's edge (< 0: inside)
+//   A layer: { canvas, x0, y0, sx, sy }: canvas px = (x − x0)·sx across, (projected y − y0)·sy down.
+//   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
+//     storm fronts) with gaps to fly through, or open sea on worlds with a sea. W.site.leave: how far
+//     past the edge the player has left the site.
 //   ArtSurface.sample(type, kind)  // 3×3 world showing one asset in its centre tile (asset sheets);
 //     kind: a | b | c | plateau | edge | outer | inner | saddle | small0.. | hole0.. | tall0..
 //   ArtSurface.project(w, x, y, z), heightAt(w, x, y), shadowShift(z), BIOMES, TYPES, SURFACE_OF, T, FLY, PAD
@@ -314,6 +321,7 @@ const ArtSurface = (() => {
     const th = vals[Math.min(vals.length - 1, Math.floor((1 - cover) * vals.length))], cx = w >> 1, cy = h >> 1;
     for (let i = 0; i <= w; i++) for (let j = 0; j <= h; j++) C[i][j] = C[i][j] >= th && !(Math.abs(i - cx) <= 2 && Math.abs(j - cy) <= 2) ? 1 : 0;
     const W = { type, seed, w, h, C, G, G2, props: {}, start: [cx * T, cy * T] };
+    if (o.site) rim(W, o.site);
     for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
       if (C[i][j] || C[i + 1][j] || C[i][j + 1] || C[i + 1][j + 1]) continue;
       let near = false;
@@ -331,6 +339,29 @@ const ArtSurface = (() => {
     }
     return W;
   }
+  // The landing site: a rounded rectangle (corner radius rc tiles, 0.4 of its width: nearly round).
+  // siteDist in world units.
+  function siteDist(W, x, y) {
+    const st = W.site; if (!st) return -1e9;
+    const qx = Math.abs(x / T - st.cx) - st.hx, qy = Math.abs(y / T - st.cy) - st.hy;
+    return (Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - st.rc) * T;
+  }
+  // The rim round the landing site, a band of corners from a little inside its edge to a few tiles
+  // out (the band meanders a few tiles either way, and its edges wander): high ground (storm fronts on gas giants) with gaps about a fifth of the
+  // way round, or on worlds with a sea, open water.
+  function rim(W, [i0, j0, i1, j1]) {
+    const { C, G, G2, seed } = W, bi = B[W.type], rc = 0.4 * Math.min(i1 - i0, j1 - j0);
+    const cx = (i0 + i1) / 2, cy = (j0 + j1) / 2;
+    W.site = { rect: [i0, j0, i1, j1], cx, cy, hx: (i1 - i0) / 2 - rc, hy: (j1 - j0) / 2 - rc, rc, leave: 9 * T };
+    const gapN = (i, j) => { const a = Math.atan2(j - cy, i - cx); return fbm(Math.cos(a) * 2.6 + 40, Math.sin(a) * 2.6 + 40, seed + 63); };
+    const ring = Array.from({ length: 360 }, (_, k) => gapN(cx + Math.cos((k / 180) * Math.PI), cy + Math.sin((k / 180) * Math.PI))).sort((a, b) => a - b);
+    const gapAt = ring[Math.floor(ring.length * 0.8)];
+    for (let i = 0; i <= W.w; i++) for (let j = 0; j <= W.h; j++) {
+      const e = siteDist(W, i * T, j * T) / T + 12 * (fbm(i * 0.05 + 31, j * 0.05 + 17, seed + 64) - 0.5), inner = -2 + 2.2 * fbm(i * 0.23 + 11, j * 0.23 + 5, seed + 61), outer = inner + 2 + 2.5 * fbm(i * 0.31 + 3, j * 0.31 + 9, seed + 62);
+      if (e <= inner || e >= outer) continue;
+      if (bi.sea) { G[i][j] = 0; G2[i][j] = 0; C[i][j] = 0; } else C[i][j] = gapN(i, j) > gapAt ? 0 : 1;
+    }
+  }
   const CARD_C = { plateau: [1, 1, 1, 1], edge: [1, 1, 0, 0], outer: [1, 0, 0, 0], inner: [1, 1, 0, 1], saddle: [1, 0, 1, 0] };
   function sample(type, kind) {
     type = SURFACE_OF[type] || type;
@@ -347,6 +378,7 @@ const ArtSurface = (() => {
     return W;
   }
 
+  const piecesAt = (W, i, j) => { const m = W.pieces || (W.pieces = {}), k = tkey(i, j); return m[k] || (m[k] = cliffPieces(W, i, j)); };
   function cliffPieces(W, i, j) {
     const C = W.C, s = W.seed, c = [C[i][j], C[i + 1][j], C[i + 1][j + 1], C[i][j + 1]], n = c[0] + c[1] + c[2] + c[3];
     if (!n) return [];
@@ -384,9 +416,11 @@ const ArtSurface = (() => {
     });
   }
 
-  // Geometry in projected units, built once per world (style-independent).
-  function build(W) {
-    if (W.geo) return W.geo;
+  // Geometry in projected units, style-independent: the whole world's built once and kept; a
+  // region's (tiles [i0, i1) × [j0, j1)) is built each time it's asked for.
+  function build(W, reg) {
+    if (!reg && W.geo) return W.geo;
+    const rg = reg || { i0: 0, j0: 0, i1: W.w, j1: W.h };
     const s = W.seed, bi = B[W.type], L = LIGHT(), { st, ct } = cam(W), VIEW = [0, st, ct], sea = bi.sea;
     const pp = (v) => [v[0], v[1] * ct - v[2] * st];
     const depth = (pts) => { let d = 0; for (const p of pts) d += p[1] * st + p[2] * ct; return d / pts.length; };
@@ -397,14 +431,14 @@ const ArtSurface = (() => {
       hull(pts2.concat(pts2.map((p) => [p[0] + sx, p[1] + sy]))).forEach((p, k) => { const q = pp([p[0], p[1], heightAt(W, p[0], p[1])]); k ? g.shadow.lineTo(q[0], q[1]) : g.shadow.moveTo(q[0], q[1]); });
       g.shadow.closePath();
     };
-    const N = 6, gs = T / N, GX = W.w * N, GY = W.h * N, V = [];
-    for (let gy = 0; gy <= GY; gy++) {
-      V[gy] = [];
-      for (let gx = 0; gx <= GX; gx++) {
-        const x = gx * gs + (gx > 0 && gx < GX ? (hash(gx, gy, s + 21) - 0.5) * gs * 0.5 : 0);
-        const y = gy * gs + (gy > 0 && gy < GY ? (hash(gx, gy, s + 22) - 0.5) * gs * 0.5 : 0);
-        const r = rawHeight(W, x, y);
-        V[gy][gx] = [x, y, sea ? Math.max(r, sea.level) : r, r];
+    const N = 6, gs = T / N, X0 = rg.i0 * N, Y0 = rg.j0 * N, GX = rg.i1 * N, GY = rg.j1 * N, V = [];
+    for (let gy = Y0; gy <= GY; gy++) {
+      const row = (V[gy - Y0] = []);
+      for (let gx = X0; gx <= GX; gx++) {
+        const x = gx * gs + (gx > 0 && gx < W.w * N ? (hash(gx, gy, s + 21) - 0.5) * gs * 0.5 : 0);
+        const y = gy * gs + (gy > 0 && gy < W.h * N ? (hash(gx, gy, s + 22) - 0.5) * gs * 0.5 : 0);
+        const z = rawHeight(W, x, y);
+        row[gx - X0] = [x, y, sea ? Math.max(z, sea.level) : z, z];
       }
     }
     const addTri = (a, b, c) => {
@@ -430,12 +464,12 @@ const ArtSurface = (() => {
       }
       g.tris.push({ pts: [pp(a), pp(b), pp(c)], col, k, wash });
     };
-    for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++) {
-      const a = V[gy][gx], b = V[gy][gx + 1], c = V[gy + 1][gx + 1], d = V[gy + 1][gx];
+    for (let gy = Y0; gy < GY; gy++) for (let gx = X0; gx < GX; gx++) {
+      const a = V[gy - Y0][gx - X0], b = V[gy - Y0][gx - X0 + 1], c = V[gy - Y0 + 1][gx - X0 + 1], d = V[gy - Y0 + 1][gx - X0];
       if (hash(gx, gy, s + 23) < 0.5) { addTri(a, b, c); addTri(a, c, d); } else { addTri(a, b, d); addTri(b, c, d); }
     }
-    const M = 8, ms = T / M, MX = W.w * M, MY = W.h * M, LV = 1.6, Z = [], R = [];
-    for (let b = 0; b <= MY; b++) { Z[b] = []; R[b] = []; for (let a = 0; a <= MX; a++) { const r = rawHeight(W, a * ms, b * ms); R[b][a] = r; Z[b][a] = sea ? Math.max(r, sea.level) : r; } }
+    const M = 8, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 1.6, Z = [], R = [];
+    for (let b = B0; b <= MY; b++) { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
     const cross0 = (zz, q, lev) => {
       const pts = [];
       for (let e = 0; e < 4; e++) {
@@ -444,8 +478,9 @@ const ArtSurface = (() => {
       }
       return pts;
     };
-    for (let b = 0; b < MY; b++) for (let a = 0; a < MX; a++) {
-      const zz = [Z[b][a], Z[b][a + 1], Z[b + 1][a + 1], Z[b + 1][a]], x0 = a * ms, y0 = b * ms;
+    for (let b = B0; b < MY; b++) for (let a = A0; a < MX; a++) {
+      const zb = Z[b - B0], zn = Z[b - B0 + 1], ia = a - A0;
+      const zz = [zb[ia], zb[ia + 1], zn[ia + 1], zn[ia]], x0 = a * ms, y0 = b * ms;
       const q = [[x0, y0], [x0 + ms, y0], [x0 + ms, y0 + ms], [x0, y0 + ms]];
       const lo = Math.min(...zz), hi = Math.max(...zz);
       for (let li = Math.ceil(lo / LV); li * LV <= hi; li++) {
@@ -458,7 +493,7 @@ const ArtSurface = (() => {
         const pts = cross0(zz, q, sea.level + 0.001);
         if (pts.length >= 2) g.coast.push([pts[0], pts[1]]);
         if (pts.length === 4) g.coast.push([pts[2], pts[3]]);
-        const rr = [R[b][a], R[b][a + 1], R[b + 1][a + 1], R[b + 1][a]];
+        const rr = [R[b - B0][ia], R[b - B0][ia + 1], R[b - B0 + 1][ia + 1], R[b - B0 + 1][ia]];
         if (Math.max(...rr) < sea.level - 0.6 && hash(a, b, s + 27) < 0.07) {
           const wx = x0 + ms * 0.2, wy = y0 + ms * 0.5;
           g.waves.push([[wx, wy], [wx + 2.5, wy - 1.4], [wx + 5, wy], [wx + 7.5, wy - 1.4]].map((p) => pp([p[0], p[1], sea.level])));
@@ -500,8 +535,8 @@ const ArtSurface = (() => {
     // Cliff walls follow high.prof ([f, out, deco?] from foot to rim). Each wall point is pushed
     // out along the mitred normal shared by the two walls meeting there, so neighbours stay joined.
     const PIECES = [], MIT = {}, PK = (p) => Math.round(p[0] * 8) + ',' + Math.round(p[1] * 8);
-    for (let j = 0; j < W.h; j++) for (let i = 0; i < W.w; i++) {
-      const ps = PIECES[j * W.w + i] = cliffPieces(W, i, j);
+    for (let j = rg.j0; j < rg.j1; j++) for (let i = rg.i0; i < rg.i1; i++) {
+      const ps = PIECES[j * W.w + i] = piecesAt(W, i, j);
       if (bi.storm) continue;
       for (const pc of ps) pc.pts.forEach((a, m) => {
         if (!pc.cut[m]) return;
@@ -516,7 +551,7 @@ const ArtSurface = (() => {
       return [p[0] + (v[0] / l) * d * f, p[1] + (v[1] / l) * d * f];
     };
     const wallPt = (p, f, d, tz) => { const q = offAt(p, d); return [q[0], q[1], f >= 1 ? tz : lerp(heightAt(W, q[0], q[1]), tz, f)]; };
-    for (let j = 0; j < W.h; j++) for (let i = 0; i < W.w; i++) {
+    for (let j = rg.j0; j < rg.j1; j++) for (let i = rg.i0; i < rg.i1; i++) {
       const key = tkey(i, j), pieces = PIECES[j * W.w + i], mx = (i + 0.5) * T, my = (j + 0.5) * T;
       for (const pc of pieces) {
         (g.block[key] = g.block[key] || []).push(pc);
@@ -600,7 +635,8 @@ const ArtSurface = (() => {
       }
     }
     g.raised.sort((a, b) => a.d - b.d);
-    return (W.geo = g);
+    if (!reg) W.geo = g;
+    return g;
   }
 
   // Cloud colour at a point (gas giants). q: quantise the tone terms into flat steps.
@@ -760,9 +796,10 @@ const ArtSurface = (() => {
 
   // style: 'line' or 'lowpoly'. lw: one screen pixel in ctx units. extra(ctx): drawn over the
   // ground and shadows, under everything raised.
+  // region: draw only the tiles [i0, i1) × [j0, j1).
   function draw(ctx, W, style, o = {}) {
-    const g = build(W), bi = B[W.type], lw = o.lw || 1, ln = (a) => rgb(bi.LN, 1, a);
-    const bb = [-10, -PAD - 10, W.w * T + 10, W.h * T * cam(W).ct + 10];
+    const g = build(W, o.region), bi = B[W.type], lw = o.lw || 1, ln = (a) => rgb(bi.LN, 1, a), rg = o.region, ct = cam(W).ct;
+    const bb = rg ? [rg.i0 * T - 10, rg.j0 * T * ct - PAD - 10, rg.i1 * T + 10, rg.j1 * T * ct + 10] : [-10, -PAD - 10, W.w * T + 10, W.h * T * ct + 10];
     ctx.fillStyle = BG(); ctx.fillRect(bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]);
     const lines = (arr, col, w) => { ctx.beginPath(); for (const l of arr) l.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]))); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke(); };
     const specks = (col) => { for (const sp of g.specks) { ctx.beginPath(); ctx.arc(sp.p[0], sp.p[1], sp.r, 0, TAU); if (col) { ctx.strokeStyle = col; ctx.lineWidth = lw * 0.7; ctx.stroke(); } else { ctx.fillStyle = rgb(sp.col, 1, 0.85); ctx.fill(); } } };
@@ -847,6 +884,77 @@ const ArtSurface = (() => {
     return { canvas: cv, w, h, pad: PAD };
   }
 
+  // Tiles [i0, i1) × [j0, j1) into one canvas: a band of the surface, cut on tile lines (in projected
+  // units: x from i0·T, y from j0·T·cos(tilt)), with everything that reaches into it from the
+  // tiles around (tall things from the row below, cliff walls from either side).
+  function renderRegion(W, style, o) {
+    const ct = cam(W).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
+    const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1) };
+    const cv = document.createElement('canvas'); cv.width = Math.ceil(w * dpr); cv.height = Math.ceil(h * dpr);
+    const ctx = cv.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, -x0 * dpr, -y0 * dpr);
+    ctx.beginPath(); ctx.rect(x0, y0, w, h); ctx.clip();
+    draw(ctx, W, style, { lw: 1, region });
+    return { canvas: cv, x0, y0, sx: dpr, sy: dpr, w, h };
+  }
+  // The whole surface at low detail (6 world units a pixel, more on surfaces over 150 tiles), for the ground far away: ground
+  // kinds, sea, high ground and storms in flat colours lit by the slope (Low-poly), or the coast,
+  // the cliff edges and a few contours (Line).
+  function farImage(W, style, o = {}) {
+    const bi = B[W.type], ct = cam(W).ct, L = LIGHT(), Wu = W.w * T, Hu = W.h * T, upp = o.upp || Math.max(6, Math.max(Wu, Hu) / 1600);
+    const nx = Math.ceil(Wu / upp) + 1, ny = Math.ceil((Hu * ct) / upp) + 1, sea = bi.sea, line = style === 'line';
+    const F = new Float32Array(nx * ny), Hi = new Float32Array(nx * ny), Raw = new Float32Array(nx * ny);
+    for (let py = 0; py < ny; py++) for (let px = 0; px < nx; px++) {
+      const x = Math.min(Wu, px * upp), y = Math.min(Hu, (py * upp) / ct), k = py * nx + px;
+      const raw = rawHeight(W, x, y), hi = bi.storm ? 0 : sstep(0.3, 0.7, corner(W, W.C, x, y));
+      Raw[k] = raw; Hi[k] = hi; F[k] = (sea ? Math.max(raw, sea.level) : raw) * (1 - hi) + hi * bi.high.h;
+    }
+    const cv = document.createElement('canvas'), ctx = cv.getContext('2d');
+    if (!line) {
+      cv.width = nx; cv.height = ny;
+      const im = ctx.createImageData(nx, ny), D = im.data;
+      for (let py = 0; py < ny; py++) for (let px = 0; px < nx; px++) {
+        const k = py * nx + px, x = px * upp, y = (py * upp) / ct;
+        let col;
+        if (bi.fluid) col = cloudCol(W, x, y, true);
+        else {
+          const zx = (F[py * nx + Math.min(nx - 1, px + 1)] - F[py * nx + Math.max(0, px - 1)]) / (2 * upp);
+          const zy = (F[Math.min(ny - 1, py + 1) * nx + px] - F[Math.max(0, py - 1) * nx + px]) / ((2 * upp) / ct);
+          const n = nrm([-zx, -zy, 1]), wt = weights(W, x, y);
+          col = [0, 0, 0]; ['a', 'b', 'c'].forEach((q, m) => { col = col.map((v, i) => v + bi[q].c[i] * wt[m]); });
+          let kk = 0.24 + 0.95 * Math.max(0, dot(n, L));
+          if (bi.b.emit && wt[1] > 0.5) kk = 1;
+          // Blended, not thresholded, so edges stay smooth when the image is drawn large.
+          if (sea) {
+            col = mixc(col, sea.c.sand, 0.75 * sstep(sea.level + 2.6, sea.level + 0.8, Raw[k]));
+            const wet = sstep(sea.level + 0.8, sea.level - 1.2, Raw[k]);
+            col = mixc(col.map((v) => v * kk), mixc(sea.c.shallow, sea.c.deep, clamp((sea.level - Raw[k]) / 6, 0, 1)).map((v) => v * 0.9), wet);
+          } else col = col.map((v) => v * kk);
+          if (bi.high.c) col = mixc(col, mixc(bi.high.c.wall, bi.high.c.top, sstep(0.7, 0.95, Hi[k])).map((v) => v * kk), sstep(0.2, 0.65, Hi[k]));
+        }
+        D[k * 4] = Math.min(255, col[0]); D[k * 4 + 1] = Math.min(255, col[1]); D[k * 4 + 2] = Math.min(255, col[2]); D[k * 4 + 3] = 255;
+      }
+      ctx.putImageData(im, 0, 0);
+      return { canvas: cv, x0: 0, y0: 0, sx: 1 / upp, sy: 1 / upp };
+    }
+    // Line: contours by marching squares, at twice the field's resolution.
+    const q = 2; cv.width = nx * q; cv.height = ny * q;
+    ctx.fillStyle = BG(); ctx.fillRect(0, 0, cv.width, cv.height);
+    const iso = (fld, lev, col, w) => {
+      ctx.beginPath();
+      for (let py = 0; py < ny - 1; py++) for (let px = 0; px < nx - 1; px++) {
+        const zz = [fld[py * nx + px], fld[py * nx + px + 1], fld[(py + 1) * nx + px + 1], fld[(py + 1) * nx + px]], c = [[px, py], [px + 1, py], [px + 1, py + 1], [px, py + 1]], pts = [];
+        for (let e = 0; e < 4; e++) { const za = zz[e], zb = zz[(e + 1) % 4]; if ((za < lev) !== (zb < lev)) { const t = (lev - za) / (zb - za), A = c[e], Bq = c[(e + 1) % 4]; pts.push([(A[0] + (Bq[0] - A[0]) * t) * q, (A[1] + (Bq[1] - A[1]) * t) * q]); } }
+        for (let m = 0; m + 1 < pts.length; m += 2) { ctx.moveTo(pts[m][0], pts[m][1]); ctx.lineTo(pts[m + 1][0], pts[m + 1][1]); }
+      }
+      ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke();
+    };
+    for (let lev = -6.4; lev < 12; lev += 6.4) if (!sea || lev > sea.level) iso(F, lev + 0.01, rgb(bi.LN, 1, 0.35), 1);
+    if (sea) iso(Raw, sea.level, rgb(bi.LN, 1, 0.9), 1.2);
+    if (!bi.storm) iso(Hi, 0.5, rgb(bi.LN, 1, 0.9), 1.2);
+    else iso(Array.from({ length: nx * ny }, (_, k) => corner(W, W.C, (k % nx) * upp, (Math.floor(k / nx) * upp) / ct)), 0.5, rgb(bi.LN, 1, 0.8), 1.2);
+    return { canvas: cv, x0: 0, y0: 0, sx: q / upp, sy: q / upp };
+  }
+
   // Blocked footprints projected at flight altitude, so they sit level with the ship.
   function overlay(W) {
     const g = build(W), fill = new Path2D(), edge = new Path2D(), ct = cam(W).ct;
@@ -862,14 +970,18 @@ const ArtSurface = (() => {
   // Whether a craft of radius r at (x, y) hits a cliff or storm front, a tall prop or the map edge.
   function blocked(W, x, y, r = 0) {
     if (x < r || y < r || x > W.w * T - r || y > W.h * T - r) return true;
-    const g = build(W), i = Math.floor(x / T), j = Math.floor(y / T);
+    const i = Math.floor(x / T), j = Math.floor(y / T);
     const probes = [[x, y], [x + r, y], [x - r, y], [x, y + r], [x, y - r]];
-    for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) for (const pc of g.block[tkey(a, b)] || []) for (const [px, py] of probes) if (inPoly(px, py, pc.pts)) return true;
-    for (const t of g.talls) if (Math.hypot(x - t.x, y - t.y) < t.r + r) return true;
+    for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) {
+      if (a < 0 || b < 0 || a >= W.w || b >= W.h) continue;
+      for (const pc of piecesAt(W, a, b)) for (const [px, py] of probes) if (inPoly(px, py, pc.pts)) return true;
+      const pr = W.props[tkey(a, b)];
+      if (pr && pr.type === 'tall' && Math.hypot(x - pr.x, y - pr.y) < pr.r + r) return true;
+    }
     return false;
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, sample, build, draw, drawLive, render, overlay, blocked, project, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, sample, build, draw, drawLive, render, renderRegion, farImage, overlay, blocked, siteDist, project, heightAt, shadowShift };
 })();
 
 export { ArtSurface };
