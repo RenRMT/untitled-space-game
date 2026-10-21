@@ -100,9 +100,10 @@ const CombatCore = (() => {
 
   // What a destroyed ship leaves floating: [{ kind, seed }] (rules/goods.js types). Seeded by the system
   // and the ship.
-  // - Fighters (pirates) usually drop a salvaged component, sometimes two, at a tier set by their
-  //   own gear tier (world/security.js: better-armed pirates in more dangerous space carry better
-  //   components), and often some of the cargo they took: trade goods, rarer ones from tier 3 up.
+  // - Fighters (pirates) usually drop a lot of salvaged components, sometimes two, each lot bigger
+  //   the better their own gear (world/security.js componentCount: better-armed pirates in more
+  //   dangerous space carry more), and often some of the cargo they took: trade goods, the better
+  //   of two from tier 3 up.
   // - Freighters spill trade goods, and now and then a component.
   // Computer components go into logic research (rules/research.js) as well as refits, so they turn up as
   // often as hull and weapon components.
@@ -113,7 +114,11 @@ const CombatCore = (() => {
     const r = seeded(galaxySeed, key, 0x1007);
     const seed = () => nextSeed(r);
     const out = [];
-    const component = () => ({ kind: G.component(weightedPick(SALVAGE, r()), Sec.componentTier(r, tier)), seed: seed() });
+    // A lot of components of one kind.
+    const component = () => {
+      const kind = G.component(weightedPick(SALVAGE, r()));
+      return Array.from({ length: Sec.componentCount(r, tier) }, () => ({ kind, seed: seed() }));
+    };
     // A trade good; well-armed pirates keep the better of two.
     const good = () => {
       const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)]);
@@ -124,12 +129,12 @@ const CombatCore = (() => {
     if (role === 'freighter') {
       const n = 1 + Math.floor(r() * 2);
       for (let i = 0; i < n; i++) out.push(good());
-      if (r() < 0.3) out.push(component());
+      if (r() < 0.3) out.push(...component());
       return out;
     }
     if (r() < chance.component) {
-      out.push(component());
-      if (r() < chance.second) out.push(component());
+      out.push(...component());
+      if (r() < chance.second) out.push(...component());
     }
     if (r() < chance.cargo) for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) out.push(good());
     return out;

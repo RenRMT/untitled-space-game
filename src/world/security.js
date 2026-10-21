@@ -15,7 +15,7 @@
 //   Security.PACK             how packs are laid out (world/solar-system.js)
 //   Security.pick(rng, [[value, weight]]) -> a value, by weight
 //   Security.lootTier(level) -> 1, 2 or 4, the loot tier of wrecks at that level
-//   Security.componentTier(rng, lootTier) -> a component tier (1–5) for something at that loot tier
+//   Security.componentCount(rng, lootTier) -> how many components (1–5) a lot holds at that loot tier
 // ES module (`Security`); also runs in Node (the tests).
 
 import { clamp } from '../core/math.js';
@@ -43,10 +43,9 @@ const Security = (() => {
   // star (docking stays safe), and `margin` inside the system's edge.
   const PACK = { spacing: 3200, orbit: [300, 550], clear: 2000, margin: 800 };
 
-  // Component tiers by loot tier, as [tier, weight]: a pirate's loot tier is its gear tier; a
-  // wreck's comes from the level where it lies. Exotic (tier 5) components only come from the most
-  // dangerous space.
-  const COMPONENT_TIERS = [
+  // How many components a pirate's lot holds, by loot tier, as [count, weight]: a pirate's loot
+  // tier is its gear tier. The biggest lots only come from the most dangerous space.
+  const COMPONENT_COUNTS = [
     null,
     [[1, 75], [2, 25]],
     [[1, 35], [2, 50], [3, 15]],
@@ -62,9 +61,9 @@ const Security = (() => {
   }
   const LOOT = [4, 2, 1]; // by level: lawless space has the best wrecks
   const lootTier = (level) => LOOT[clamp(level, 0, 2)];
-  const componentTier = (rng, tier) => pick(rng, COMPONENT_TIERS[clamp(tier, 1, 4)]);
+  const componentCount = (rng, tier) => pick(rng, COMPONENT_COUNTS[clamp(tier, 1, 4)]);
 
-  return { LEVELS, PIRATES, PACK, COMPONENT_TIERS, pirates, pick, lootTier, componentTier };
+  return { LEVELS, PIRATES, PACK, COMPONENT_COUNTS, pirates, pick, lootTier, componentCount };
 })();
 
 export { Security };

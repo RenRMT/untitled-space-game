@@ -1,11 +1,11 @@
-// Recipes: what production orders make (rules/industry.js), the production chain of notes/industry.md.
-// Raw materials (mined and collected) and salvaged components go into a refinery, which makes
-// refined goods and refines them further; a fabricator makes parts from those; an assembler makes
-// gear (rules/loadout.js) from parts, the best of it with complex and exotic components only
-// pirates in dangerous space carry. Shared goods feed many recipes (copper cable goes into
-// electronics, capacitors, power cells and superconductors), so no good is a dead end. A recipe
-// makes something worth more than what goes in. Mk I gear and everything below gear is known from
-// the start; gear from Mk II up needs its blueprint researched (rules/research.js `bp.<gear id>`).
+// Recipes: what production orders make (rules/industry.js), the production chain of notes/industry.md,
+// pared back to one good per category (rules/goods.js). Raw materials (mined and collected) and
+// salvaged components go into a refinery, which makes refined goods; a fabricator makes
+// electronics from those; an assembler makes gear (rules/loadout.js) from refined goods and
+// electronics, the best of it with salvaged components only pirates carry. Shared goods feed many
+// recipes, so no good is a dead end. A recipe makes something worth more than what goes in. Mk I
+// gear and everything below gear is known from the start; gear from Mk II up needs its blueprint
+// researched (rules/research.js `bp.<gear id>`).
 //
 //   Recipes.BAYS[type]              { id, label, code, note }: the stages, in chain order; each station
 //                                   type works one of them (Industry.STAGE)
@@ -29,51 +29,24 @@ import { Mods } from './mods.js';
 const Recipes = (() => {
   const BAYS = {
     refinery: { id: 'refinery', label: 'Refinery', code: 'REF', note: 'raw materials and salvage into refined goods, at mining camps and salvage yards' },
-    fabricator: { id: 'fabricator', label: 'Fabricator', code: 'FAB', note: 'refined goods into parts, at minor stations and the waystation' },
+    fabricator: { id: 'fabricator', label: 'Fabricator', code: 'FAB', note: 'refined goods into electronics, at minor stations and the waystation' },
     assembler: { id: 'assembler', label: 'Assembler', code: 'ASM', note: 'parts into gear, mods and consumables, at capitals and major hubs' },
   };
-  const c = (category, tier) => Goods.component(category, tier);
+  const c = (category) => Goods.component(category);
 
   // [bay, seconds per run, { in }, { out }]: the output's first kind names the recipe.
   const TABLE = [
     // Refining raw materials.
     ['refinery', 20, { iron: 2 }, { 'steel-pipe': 1 }],
-    ['refinery', 20, { 'copper-ore': 2 }, { 'copper-cable': 1 }],
-    ['refinery', 20, { carbon: 3 }, { 'carbon-fibre': 1 }],
-    ['refinery', 20, { 'water-ice': 2 }, { hydrazine: 1 }],
-    ['refinery', 25, { silicates: 2 }, { 'optical-fibre': 1 }],
-    // Refining further.
-    ['refinery', 40, { silicates: 2, deuterium: 1 }, { aerogel: 1 }],
-    ['refinery', 40, { carbon: 3, corundum: 1 }, { graphene: 1 }],
-    ['refinery', 40, { 'copper-cable': 2, deuterium: 1 }, { superconductor: 1 }],
-    ['refinery', 60, { graphene: 1, platinum: 1 }, { metamaterial: 1 }],
-    // Recycling salvage: simple and standard components into refined goods, advanced ones into parts.
-    ['refinery', 15, { [c('hull', 1)]: 1 }, { 'steel-pipe': 2 }],
-    ['refinery', 15, { [c('weapon', 1)]: 1 }, { 'copper-cable': 1, 'steel-pipe': 1 }],
-    ['refinery', 15, { [c('computer', 1)]: 1 }, { 'copper-cable': 1, silicates: 2 }],
-    ['refinery', 15, { [c('drive', 1)]: 1 }, { 'steel-pipe': 1, hydrazine: 1 }],
-    ['refinery', 20, { [c('hull', 2)]: 1 }, { 'steel-pipe': 2, titanium: 1 }],
-    ['refinery', 20, { [c('weapon', 2)]: 1 }, { 'copper-cable': 2, 'optical-fibre': 1 }],
-    ['refinery', 20, { [c('computer', 2)]: 1 }, { electronics: 1, 'copper-cable': 1 }],
-    ['refinery', 20, { [c('drive', 2)]: 1 }, { hydrazine: 2, titanium: 1, 'steel-pipe': 1 }],
-    ['refinery', 30, { [c('hull', 3)]: 1 }, { 'hull-plating': 1, 'steel-pipe': 1 }],
-    ['refinery', 30, { [c('weapon', 3)]: 1 }, { 'focusing-lens': 1, capacitor: 1 }],
-    ['refinery', 30, { [c('computer', 3)]: 1 }, { 'sensor-array': 1, graphene: 1 }],
-    ['refinery', 30, { [c('drive', 3)]: 1 }, { 'thruster-nozzle': 1, 'power-cell': 1 }],
+    ['refinery', 20, { silicates: 3 }, { 'carbon-fibre': 1 }],
+    ['refinery', 20, { deuterium: 2 }, { hydrazine: 1 }],
+    // Recycling salvage into refined goods.
+    ['refinery', 20, { [c('hull')]: 1 }, { 'steel-pipe': 2 }],
+    ['refinery', 20, { [c('weapon')]: 1 }, { 'steel-pipe': 2, 'carbon-fibre': 2 }],
+    ['refinery', 20, { [c('computer')]: 1 }, { electronics: 1, 'steel-pipe': 1 }],
+    ['refinery', 20, { [c('drive')]: 1 }, { hydrazine: 2, iron: 1 }],
     // Parts.
-    ['fabricator', 30, { 'copper-cable': 1, silicates: 1 }, { electronics: 1 }],
-    ['fabricator', 30, { 'steel-pipe': 1, electronics: 1 }, { actuator: 1 }],
-    ['fabricator', 30, { hydrazine: 1, 'copper-cable': 1, titanium: 1 }, { 'power-cell': 1 }],
-    ['fabricator', 30, { 'optical-fibre': 1, electronics: 1 }, { 'sensor-array': 1 }],
-    ['fabricator', 30, { titanium: 2, 'carbon-fibre': 1 }, { 'thruster-nozzle': 1 }],
-    ['fabricator', 30, { 'copper-cable': 1, graphene: 1 }, { capacitor: 1 }],
-    ['fabricator', 30, { 'steel-pipe': 2, titanium: 1 }, { 'hull-plating': 1 }],
-    ['fabricator', 30, { corundum: 1, 'optical-fibre': 1 }, { 'focusing-lens': 1 }],
-    ['fabricator', 45, { superconductor: 1, 'helium-3': 1 }, { 'cooling-loop': 1 }],
-    ['fabricator', 45, { actuator: 1, electronics: 1 }, { robotics: 1 }],
-    ['fabricator', 60, { superconductor: 1, deuterium: 1, platinum: 1 }, { 'plasma-conduit': 1 }],
-    ['fabricator', 60, { robotics: 1, aerogel: 1, 'water-ice': 1 }, { 'nanite-suspension': 1 }],
-    ['fabricator', 90, { robotics: 1, metamaterial: 1, diamond: 1 }, { 'ai-cores': 1 }],
+    ['fabricator', 30, { 'steel-pipe': 1, 'carbon-fibre': 1 }, { electronics: 1 }],
   ];
 
   const RECIPES = {};
@@ -85,55 +58,56 @@ const Recipes = (() => {
   }
 
   // Gear, per line, Mk I to Mk V (from the line's first Mk): what goes into each. Mk I takes refined
-  // goods; Mk II and up parts; Mk IV two complex components of the gear's kind of salvage, Mk V an
-  // exotic one too. The gear is worth more than its inputs (rules/loadout.js prices).
+  // goods, Mk II and up electronics too; Mk IV and V take salvaged components of the gear's kind
+  // (SALVAGE_COUNT). The gear is worth more than its inputs (rules/loadout.js prices).
   const SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer' };
+  const SALVAGE_COUNT = [0, 0, 0, 0, 8, 13];
   const GEAR = {
     'pulse-laser': [
-      { 'copper-cable': 1, 'optical-fibre': 1 },
-      { 'focusing-lens': 1, 'copper-cable': 2 },
-      { 'focusing-lens': 1, capacitor: 1, 'power-cell': 1 },
-      { 'focusing-lens': 2, capacitor: 1, 'power-cell': 1 },
-      { 'focusing-lens': 2, capacitor: 2, 'plasma-conduit': 1 },
+      { 'steel-pipe': 2 },
+      { 'carbon-fibre': 2, 'steel-pipe': 2 },
+      { 'carbon-fibre': 2, electronics: 2 },
+      { 'carbon-fibre': 4, electronics: 2 },
+      { 'carbon-fibre': 4, electronics: 2, 'steel-pipe': 4 },
     ],
     'heavy-cannon': [null,
-      { 'hull-plating': 1, actuator: 1 },
-      { 'hull-plating': 2, actuator: 1, capacitor: 1 },
-      { 'hull-plating': 2, actuator: 2, capacitor: 1 },
-      { 'hull-plating': 3, robotics: 1, capacitor: 2 },
+      { 'carbon-fibre': 2, electronics: 1 },
+      { 'carbon-fibre': 4, electronics: 2 },
+      { 'carbon-fibre': 4, electronics: 3 },
+      { 'carbon-fibre': 6, electronics: 4 },
     ],
     'beam-turret': [null, null,
-      { 'focusing-lens': 1, 'cooling-loop': 1, superconductor: 1 },
-      { 'focusing-lens': 2, 'cooling-loop': 1, superconductor: 1 },
-      { 'focusing-lens': 2, 'cooling-loop': 2, 'plasma-conduit': 1 },
+      { 'carbon-fibre': 2, 'steel-pipe': 5 },
+      { 'carbon-fibre': 4, 'steel-pipe': 5 },
+      { 'carbon-fibre': 4, 'steel-pipe': 10 },
     ],
     deflector: [
-      { 'copper-cable': 1, hydrazine: 1 },
-      { capacitor: 1, hydrazine: 1 },
-      { capacitor: 1, 'power-cell': 1, graphene: 1 },
-      { capacitor: 2, 'power-cell': 1, metamaterial: 1 },
-      { capacitor: 2, 'power-cell': 1, 'nanite-suspension': 1, metamaterial: 1 },
+      { 'steel-pipe': 1, hydrazine: 1 },
+      { electronics: 1, hydrazine: 1 },
+      { electronics: 2, 'carbon-fibre': 2 },
+      { electronics: 3, 'carbon-fibre': 3 },
+      { electronics: 3, hydrazine: 3, 'carbon-fibre': 3 },
     ],
     'flight-computer': [
       { electronics: 1 },
-      { electronics: 2, 'optical-fibre': 1 },
-      { electronics: 2, robotics: 1, 'optical-fibre': 1 },
-      { electronics: 2, robotics: 2, 'sensor-array': 1 },
-      { electronics: 2, robotics: 1, 'ai-cores': 1 },
+      { electronics: 2, 'steel-pipe': 1 },
+      { electronics: 4, 'steel-pipe': 1 },
+      { electronics: 7 },
+      { electronics: 7 },
     ],
     'courier-drive': [
       { 'steel-pipe': 1, hydrazine: 1 },
-      { 'thruster-nozzle': 1, hydrazine: 1 },
-      { 'thruster-nozzle': 2, 'power-cell': 1 },
-      { 'thruster-nozzle': 2, 'power-cell': 2 },
-      { 'thruster-nozzle': 3, 'plasma-conduit': 1 },
+      { electronics: 1, hydrazine: 1 },
+      { electronics: 3 },
+      { electronics: 4 },
+      { electronics: 3, 'steel-pipe': 4 },
     ],
     'survey-scanner': [
-      { 'optical-fibre': 1 },
-      { 'sensor-array': 1, 'copper-cable': 1 },
-      { 'sensor-array': 2, aerogel: 1, electronics: 1 },
-      { 'sensor-array': 2, aerogel: 2, electronics: 1 },
-      { 'sensor-array': 3, aerogel: 2, 'ai-cores': 1 },
+      { 'steel-pipe': 1 },
+      { electronics: 1, 'steel-pipe': 1 },
+      { electronics: 3, 'carbon-fibre': 2 },
+      { electronics: 3, 'carbon-fibre': 4 },
+      { electronics: 6, 'carbon-fibre': 4 },
     ],
   };
   const GEAR_TIME = [0, 120, 300, 900, 2700, 7200];
@@ -143,28 +117,27 @@ const Recipes = (() => {
       if (!parts) return;
       const tier = i + 1, gear = `${line}-${tier}`;
       const input = { ...parts };
-      if (tier >= 4) input[c(cat, 4)] = 2;
-      if (tier === 5) input[c(cat, 5)] = 1;
+      if (SALVAGE_COUNT[tier]) input[c(cat)] = SALVAGE_COUNT[tier];
       RECIPES[`make.${gear}`] = { id: `make.${gear}`, bay: 'assembler', in: input, out: { [gear]: 1 }, time: GEAR_TIME[tier], unlock: tier > 1 ? `bp.${gear}` : null };
     });
   }
   // Mods, at the assembler, once their kind is researched (rules/research.js `mods.<slot>`). A mod is
   // worth a little more than what goes into it.
   const MOD_PARTS = {
-    'mod.extended-barrel': { 'focusing-lens': 1, 'steel-pipe': 2 },
-    'mod.overcharger': { capacitor: 1, 'copper-cable': 2 },
-    'mod.rapid-cycler': { actuator: 1, capacitor: 1 },
-    'mod.gimbal-mount': { actuator: 2, 'hull-plating': 1 },
-    'mod.hardened-emitter': { 'hull-plating': 2, capacitor: 1 },
-    'mod.fast-cycler': { 'power-cell': 2, superconductor: 1 },
-    'mod.targeting-suite': { 'sensor-array': 1, electronics: 2 },
-    'mod.ore-analyser': { 'sensor-array': 1, aerogel: 1 },
-    'mod.lock-accelerator': { electronics: 2, 'optical-fibre': 2 },
-    'mod.afterburner': { 'thruster-nozzle': 1, hydrazine: 3 },
-    'mod.vector-thrusters': { 'thruster-nozzle': 1, actuator: 1 },
-    'mod.evasion-routine': { electronics: 1, actuator: 1, 'thruster-nozzle': 1 },
-    'mod.long-array': { 'sensor-array': 1, 'optical-fibre': 2 },
-    'mod.lock-array': { 'sensor-array': 1, electronics: 1 },
+    'mod.extended-barrel': { 'carbon-fibre': 2, 'steel-pipe': 2 },
+    'mod.overcharger': { electronics: 1, 'steel-pipe': 2 },
+    'mod.rapid-cycler': { electronics: 2 },
+    'mod.gimbal-mount': { electronics: 2, 'carbon-fibre': 2 },
+    'mod.hardened-emitter': { 'carbon-fibre': 4, electronics: 1 },
+    'mod.fast-cycler': { electronics: 2, 'steel-pipe': 2 },
+    'mod.targeting-suite': { electronics: 3 },
+    'mod.ore-analyser': { electronics: 1, 'carbon-fibre': 2 },
+    'mod.lock-accelerator': { electronics: 2, 'steel-pipe': 2 },
+    'mod.afterburner': { electronics: 1, hydrazine: 3 },
+    'mod.vector-thrusters': { electronics: 2, hydrazine: 1 },
+    'mod.evasion-routine': { electronics: 3, hydrazine: 1 },
+    'mod.long-array': { electronics: 1, 'steel-pipe': 2 },
+    'mod.lock-array': { electronics: 2, 'carbon-fibre': 1 },
   };
   const MOD_PRICE = {};
   for (const m of Mods.LIST) {
@@ -173,15 +146,14 @@ const Recipes = (() => {
   }
   // Consumables for abilities (rules/abilities.js), at the assembler: [id, { in }, how many a run makes].
   const CONSUMABLES = [
-    ['repair-nanites', { 'nanite-suspension': 1 }, 2],
-    ['shield-cell', { 'power-cell': 1, capacitor: 1 }, 1],
-    ['emp-charge', { capacitor: 1, superconductor: 1 }, 1],
-    ['jammer-pod', { 'sensor-array': 1, electronics: 1 }, 2],
+    ['repair-nanites', { hydrazine: 3 }, 2],
+    ['shield-cell', { electronics: 2 }, 1],
+    ['emp-charge', { electronics: 1, 'steel-pipe': 2 }, 1],
+    ['jammer-pod', { electronics: 2, 'carbon-fibre': 1 }, 2],
   ];
   for (const [id, input, n] of CONSUMABLES) RECIPES[`make.${id}`] = { id: `make.${id}`, bay: 'assembler', in: input, out: { [id]: n }, time: 300, unlock: null };
-  // Alternative recipes, unlocked by industry research (rules/research.js `ind.alt.*`).
-  RECIPES['alt.power-cell'] = { id: 'alt.power-cell', bay: 'fabricator', in: { 'water-ice': 2, 'copper-cable': 1, titanium: 1 }, out: { 'power-cell': 1 }, time: 40, unlock: 'ind.alt.power-cell' };
-  RECIPES['alt.graphene'] = { id: 'alt.graphene', bay: 'refinery', in: { carbon: 4, 'water-ice': 1 }, out: { graphene: 1 }, time: 60, unlock: 'ind.alt.graphene' };
+  // An alternative recipe, unlocked by industry research (rules/research.js `ind.alt.*`).
+  RECIPES['alt.electronics'] = { id: 'alt.electronics', bay: 'fabricator', in: { silicates: 3, 'steel-pipe': 1 }, out: { electronics: 1 }, time: 40, unlock: 'ind.alt.electronics' };
   const LIST = Object.values(RECIPES);
 
   const forBay = (type) => LIST.filter((r) => r.bay === type);

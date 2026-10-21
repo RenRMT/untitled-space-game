@@ -1,8 +1,9 @@
 // Jobs: the missions the galaxy's stations post, grown from the seed with it (the opening missions
-// are story/missions.js's). There are three tiers, by who offers a job and what is at stake:
+// are story/missions.js's). There are no job texts at the moment (story/job-texts.js), so the board
+// is empty; this module is the machinery that will place new ones. There are three tiers, by who
+// offers a job and what is at stake:
 //   station  one station's own concerns, offered only there: every station has one or two,
-//   system   a system's local situation (world/regions.js SITUATIONS, one job per hook), offered at
-//            every station in that system,
+//   system   a system's local situation (one job per hook), offered at every station in that system,
 //   faction  a faction's concern across known space (world/factions.js), offered at every station
 //            it owns.
 // Each is titled "[station, system or faction name]: [job]". What a job says and asks is
@@ -54,14 +55,6 @@ const Jobs = (() => {
   // in ('pirates': kitbashed, or a settled culture by id, world/solar-system.js CULTURES).
   const CREWS = {
     pirates: { label: 'Pirates', culture: 'pirates' },
-    raiders: { label: 'Wheel raiders', culture: 'pirates' },
-    cutters: { label: 'Chancery cutters', culture: 0 },
-    blackline: { label: 'Blackline', culture: 'pirates' },
-    scorched: { label: 'Scorched', culture: 'pirates' },
-    security: { label: 'Company security', culture: 1 },
-    unfaceted: { label: 'Unfaceted', culture: 'pirates' },
-    jumpers: { label: 'Claim-jumpers', culture: 'pirates' },
-    scavengers: { label: 'Scavengers', culture: 'pirates' },
   };
   const REACH = 2500; // a point in space counts as reached this close (map travel to it stops 2200 short)
   const ROCK_LABEL = { metal: 'metallic', stony: 'stony', carbon: 'carbonaceous', ice: 'icy' };
@@ -143,10 +136,10 @@ const Jobs = (() => {
     const stations = (pred = () => true) => sys.stations.filter(pred);
     const named = (name) => (name && sys.stations.find((st) => st.name === name)) || null;
     // A good this station is short of: one it consumes, raw or refined and not rare (anything a
-    // market stocks or a ship can mine), else water ice.
+    // market stocks or a ship can mine), else deuterium.
     function wanted(st) {
       const goods = Economy.market(galaxy.seed, st).goods.filter((g) => g.consumed && g.rarity <= 2 && ['raw', 'refined'].includes(Goods.type(g.kind).stage));
-      return goods.length ? goods[Math.floor(r() * goods.length)].kind : 'water-ice';
+      return goods.length ? goods[Math.floor(r() * goods.length)].kind : 'deuterium';
     }
     const n = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
     const pick = (list) => list[Math.floor(r() * list.length)];
@@ -265,7 +258,7 @@ const Jobs = (() => {
   // giver's faction owns, and lowers those of the faction it works against there; a faction's
   // raises every station the faction owns.
   function loyalty(galaxy, tier, scope, from, against, sysIndex) {
-    const F = (id) => ({ name: Factions.get(id).name.replace(/^The /, '') }); // "3 Facet stations"
+    const F = (id) => ({ name: Factions.get(id).name.replace(/^The /, '') }); // "3 Wedge stations"
     if (tier === 'station') {
       const st = galaxy.stations.find((x) => x.key === scope);
       return [{ keys: [scope], n: 1, text: `Loyalty +1 at ${st.name}` }];
@@ -313,7 +306,7 @@ const Jobs = (() => {
     const start = o.anchor, end = handIn ? null : o.anchor;
     const credits = value(galaxy, job, start, end);
     const components = {};
-    for (const [cat, t, n] of w.components || []) components[Goods.component(cat, t)] = n;
+    for (const [cat, n] of w.components || []) components[Goods.component(cat)] = (components[Goods.component(cat)] || 0) + n;
     const loyal = loyalty(galaxy, o.tier, o.scope, o.faction, o.against, o.system);
     const d = Reputation.JOB[o.tier], name = (id) => Factions.get(id).name.replace(/^The /, '');
     const regard = [`Regard +${d} with ${name(o.faction)}`, ...(o.against ? [`Regard −${d} with ${name(o.against)}`] : [])];
@@ -334,9 +327,8 @@ const Jobs = (() => {
     const add = (job) => { if (job) list.push(job); };
     const taken = new Map(); // system index -> points fought at
     const takenIn = (i) => { if (!taken.has(i)) taken.set(i, []); return taken.get(i); };
-    // Stations: one or two of their type's jobs each (the tutorial's waystation has its own).
+    // Stations: one or two of their type's jobs each.
     for (const sys of galaxy.systems) {
-      if (sys.index === 0) continue;
       const used = new Set();
       for (const st of sys.stations) {
         const r = mulberry32(hashInt(base, seedToInt(st.key), 0x70b5));
@@ -361,7 +353,6 @@ const Jobs = (() => {
     }
     // Systems: a job for each hook of each situation there.
     for (const sys of galaxy.systems) {
-      if (sys.index === 0) continue;
       const main = sys.stations.find((st) => st.market.type === 'capital') || sys.stations.find((st) => st.market.kind === 'system') || sys.stations[0];
       if (!main) continue;
       for (const sit of sys.situations) {
@@ -380,7 +371,7 @@ const Jobs = (() => {
     }
     // Factions: their concerns, for those with stations to offer them at.
     for (const f of Factions.LIST) {
-      const own = galaxy.stations.filter((st) => st.owner === f.id && st.system !== 0);
+      const own = galaxy.stations.filter((st) => st.owner === f.id);
       if (!own.length) continue;
       JobTexts.forFaction(f.id).forEach((t, i) => {
         const r = mulberry32(hashInt(base, i, seedToInt(f.id) ^ 0xfac7));

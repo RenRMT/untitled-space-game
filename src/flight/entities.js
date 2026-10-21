@@ -76,7 +76,7 @@ const Entities = (() => {
   const isHostile = (e) => e.kind === 'ship' && !!e.pirate;
 
   const MARKET_LABEL = { capital: 'Capital station', major: 'Station', minor: 'Station' };
-  // What it is, and whose (world/factions.js): "Capital station · shipyard · Meridian Compact".
+  // What it is, and whose (world/factions.js): "Capital station · shipyard · Wedge".
   function stationSubtitle(st) {
     const owner = Factions.get((st.station || st).owner);
     const whose = owner ? ` · ${owner.name}` : '';
@@ -167,7 +167,7 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
       label: (e) => [e.color, e.radius * 1.05],
       mark: (e) => ({ color: e.color, r: 4, ring: true }),
-      card: (e, galaxy) => ({ title: e.name, sub: e.offline ? 'Offline · leads nowhere yet' : `Jump gate to the ${galaxy.systems[e.gate.to].name} system`, color: e.color }),
+      card: (e, galaxy) => ({ title: e.name, sub: e.offline ? 'Offline · leads nowhere yet' : `${e.gate.wormhole ? 'Wormhole' : 'Jump gate'} to the ${galaxy.gates[e.gate.link].name}`, color: e.color }),
     },
     wreck: {
       order: 3,

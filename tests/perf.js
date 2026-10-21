@@ -1,8 +1,8 @@
 // Frame-cost benchmark in a real browser: `node tests/perf.js` (needs Playwright and a Chromium;
 // not part of `npm test`). Serves the repository, opens the game as a phone would (390×844 CSS
-// pixels at DPR 3, touch, CPU slowed 4×) and flies through the scenes that cost most: the tutorial
-// system's nebula, a station and the second system's asteroid belt, in several art styles, and the
-// galaxy's largest nebula (and open space beside it, to compare) on a 1080p desktop screen. For each it prints
+// pixels at DPR 3, touch, CPU slowed 4×) and flies through the scenes that cost most: the system's
+// nebula, a station and its asteroid field, in several art styles, and the galaxy's largest
+// nebula (and open space beside it, to compare) on a 1080p desktop screen. For each it prints
 // frames per second (which includes the browser's own raster work, mostly fill rate), the script
 // work per frame (update + render, ms: median, 95th percentile, worst) and the sprite caches' size
 // and build rate. Absolute numbers depend on the machine; compare runs on the same one.
@@ -39,10 +39,10 @@ const SCENARIOS = [
   { name: 'open space (lowpoly, desktop)', style: 'lowpoly', place: 'open', desktop: true },
   { name: 'station (line)', style: 'line', place: 'station' },
   { name: 'station (lowpoly)', style: 'lowpoly', place: 'station' },
-  { name: 'belt (line)', style: 'line', place: 'belt' },
+  { name: 'asteroid field (line)', style: 'line', place: 'field' },
 ];
 const PLACE = {
-  // The tutorial system's nebula: across its middle, slowly.
+  // The system's nebula: across its middle, slowly.
   nebula: `(() => {
     const n = world.galaxy.nebulae.find((o) => o.system === 0);
     placeShip(n.x - n.r * 0.5, n.y, 0);
@@ -60,18 +60,18 @@ const PLACE = {
     placeShip(n.x - n.r * 0.6, n.y + n.r * 2.2, 0);
     ship.targetSpeed = SHIP.maxSpeed;
   })()`,
-  // Beside the second system's first station, drifting past it.
+  // Beside the capital, drifting past it.
   station: `(() => {
-    const st = world.scene.entities.find((e) => e.kind === 'station' && e.station.id === world.galaxy.stations.find((o) => o.system === 1).id);
+    const st = world.scene.entities.find((e) => e.kind === 'station' && e.station.market.type === 'capital');
     placeBeside(st);
     ship.targetSpeed = SHIP.maxSpeed * 0.15;
   })()`,
-  // The second system's busiest asteroid: through the belt at full speed.
-  belt: `(() => {
-    const rocks = world.galaxy.asteroids.filter((a) => a.system === 1);
+  // The busiest asteroid: through the field at full speed.
+  field: `(() => {
+    const rocks = world.galaxy.asteroids;
     const crowd = (a) => rocks.reduce((n, b) => n + (Math.hypot(a.x - b.x, a.y - b.y) < 1500), 0);
     const a = rocks.reduce((best, r) => (crowd(r) > crowd(best) ? r : best));
-    const star = world.galaxy.systems[1].star;
+    const star = world.galaxy.systems[0].star;
     const out = Math.atan2(a.y - star.y, a.x - star.x);
     placeShip(a.x, a.y, out + Math.PI / 2);
     ship.targetSpeed = SHIP.maxSpeed;

@@ -673,18 +673,15 @@ const StationMenu = (() => {
 
   // ---------- Components and costs ----------
 
-  const ROMAN = [null, 'I', 'II', 'III', 'IV', 'V'];
-
-  // The salvaged components in store, by kind and tier.
+  // The salvaged components in store, by kind.
   function componentsGrid(components) {
     return h('table', { class: 'st-components' },
-      h('thead', {}, h('tr', {}, h('th', {}, ''), [1, 2, 3, 4, 5].map((t) => h('th', { scope: 'col', title: Goods.TIERS[t], style: { color: Kit.TIER[t] } }, ROMAN[t])))),
-      h('tbody', {}, Goods.categories('salvage').map((cat) => h('tr', {},
-        h('th', { scope: 'row' }, Goods.CATEGORIES[cat].label.replace(' components', '')),
-        [1, 2, 3, 4, 5].map((tier) => {
-          const n = components[Goods.component(cat, tier)] || 0;
-          return h('td', { class: n ? 'has num' : 'num', style: n ? { color: Kit.TIER[tier] } : undefined }, n ? String(n) : '·');
-        })))));
+      h('tbody', {}, Goods.categories('salvage').map((cat) => {
+        const n = components[Goods.component(cat)] || 0;
+        return h('tr', {},
+          h('th', { scope: 'row' }, Goods.CATEGORIES[cat].label.replace(' components', '')),
+          h('td', { class: n ? 'has num' : 'num' }, n ? String(n) : '·'));
+      })));
   }
   // What something costs in components (and credits), with how much of each you have.
   const costChips = (cost, credits, ...more) => h('span', { class: 'st-costs' },

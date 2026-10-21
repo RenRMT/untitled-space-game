@@ -302,9 +302,9 @@ export function withdrawn(J) {
 
 // The face of whoever gives a job (art/crew.js): for a station's own jobs, someone of the culture
 // the station is built in (a waystation's android); for a system's or a faction's, someone of the
-// giving faction's culture (world/factions.js): the Drifters for the breakaways, a human of one of
-// the three settled cultures for the guilds. A faction the player hasn't heard of sends a Drifter
-// go-between, so its face gives nothing away. Each giver keeps one face.
+// giving faction's culture (world/factions.js), or a human of one of the three settled cultures
+// for a faction without one. A faction the player hasn't heard of sends a Drifter go-between, so
+// its face gives nothing away. Each giver keeps one face.
 const faces = new Map();
 function cultureOf(lineage, seed) {
   if (lineage === 'android') return world.android;

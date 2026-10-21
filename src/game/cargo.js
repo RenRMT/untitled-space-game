@@ -53,13 +53,18 @@ export const cargo = {
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
-// online (nothing does that yet: until then the first system is all there is).
+// online by the third opening mission (until then the first system is all there is).
 export const STORY = ['intro', 'gates'];
 // ?dev (for testing): the jump gates online, every station service open and production orders
 // taken everywhere, even in a fresh game, without touching the save (see stationLocks, the jobs
 // board and game/industry.js). Combat god mode is the same switch (game/combat.js).
 export const devUnlock = Params.has('dev');
-export const gatesOnline = () => devUnlock || cargo.story.has('gates');
+// Whether the game plays the opening missions; off while the core gameplay is reworked: none are
+// offered, the game starts beside the start station and the jump gates are online from the start
+// (they're what the third mission brings online). ?missions plays them anyway.
+export const MISSIONS_ENABLED = false;
+export const missionsOn = MISSIONS_ENABLED || Params.has('missions');
+export const gatesOnline = () => devUnlock || !missionsOn || cargo.story.has('gates');
 // The opening missions (story/missions.js), which follow the introduction and pay off the player's
 // debt: "Payment in kind", then "The remaining balance". Until the second is handed in, station
 // screens offer only Missions (and Squad, once the first has brought a squad member): see The
@@ -357,7 +362,12 @@ export function readCargo(d) {
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
   if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
-  if (d.components && typeof d.components === 'object') for (const [kind, n] of Object.entries(d.components)) if (Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
+  if (d.components && typeof d.components === 'object') {
+    for (const [stored, n] of Object.entries(d.components)) {
+      const kind = Goods.resolve(stored); // tiered components from before there was one per kind
+      if (kind && Goods.isSalvage(kind) && n > 0) addTo(cargo.components, kind, Math.floor(n));
+    }
+  }
   if (Array.isArray(d.items)) cargo.items = d.items.map(upgradeItem).filter((it) => it && !Goods.isSalvage(it.kind));
   if (Array.isArray(d.removed)) cargo.removed = new Set(d.removed);
   if (Number.isFinite(d.credits)) cargo.credits = d.credits;

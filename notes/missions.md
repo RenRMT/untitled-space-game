@@ -1,5 +1,7 @@
 # Missions
 
+> **Pared back (October 2026):** the job texts are empty for now (the board posts nothing) and the galaxy is one system; the opening missions remain. See `notes/archived-systems.md`.
+
 Oct 17, 2026
 
 ## Two kinds

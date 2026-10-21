@@ -20,7 +20,6 @@ import { Theme } from '../core/theme.js';
 import { rx, ry } from './draw-world.js';
 import { placeShip } from './outfitting.js';
 import { TAU, ctx, setMode, ship, view, whiteOut } from './state.js';
-import { world } from './world.js';
 
 // Seconds: into the gate (the swap at its end), then out of the far one.
 export const WARP = { dive: 0.85, out: 0.85 };
@@ -33,10 +32,9 @@ const STREAKS = Array.from({ length: 110 }, (_, i) => {
 
 export function startWarp(gate, there, onArrive) {
   const dir = Math.atan2(gate.y - ship.y, gate.x - ship.x);
-  const system = world.galaxy.systems[there.gate.system];
   Object.assign(warp, {
     on: true, t: 0, gate, there, onArrive, from: { x: ship.x, y: ship.y }, dir, angle0: ship.angle,
-    dist: Math.hypot(there.x - gate.x, there.y - gate.y), name: `${system.name} system`,
+    dist: Math.hypot(there.x - gate.x, there.y - gate.y), name: there.gate.name,
   });
   setMode('warping', true);
 }

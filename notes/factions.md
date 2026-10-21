@@ -1,5 +1,7 @@
 # Faction Overview
 
+> **Pared back (October 2026):** the game has six factions for now, one per culture, all neutral but the hostile aliens; see `notes/archived-systems.md`. What follows is the fuller cast to come back to.
+
 Oct 16, 2026 · @RenMT
 
 ## How to read this
