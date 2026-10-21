@@ -27,7 +27,9 @@
 //   const tiles = SurfaceGlobe.tiles(W, style, { size, dpr })  // detailed chunks, built as needed
 //   tiles.layers(rect, budgetMs) -> layers                  // the chunks over rect, building the missing nearest first
 //                                                           // (layers.missing: how many still aren't built)
-//   tiles.warm(rect, more)                                  // builds the missing over rect, nearest first, while more()
+//   tiles.warm(rect, budgetMs)                              // works on the missing over rect, nearest first
+// Chunks are built a step at a time (ArtSurface.renderRegionSteps), one under way at once, for the
+// budget given each call: a frame never has to build a whole one (budgetMs Infinity: all, now).
 // One view unit is one world unit; draw the view scaled to zoom, with dpr × zoom. ES module; needs a browser.
 
 import { Art } from './render.js';
@@ -232,34 +234,46 @@ const SurfaceGlobe = (() => {
       for (let cj = cj0; cj <= cj1; cj++) for (let ci = ci0; ci <= ci1; ci++) want.push([ci, cj, Math.hypot((ci + 0.5) * size * T - rect.cx, (cj + 0.5) * size * T - rect.cy)]);
       return want.sort((p, q) => p[2] - q[2]);
     }
-    function build(ci, cj) {
-      const c = ArtSurface.renderRegion(W, style, { i0: ci * size, j0: cj * size, i1: Math.min(W.w, (ci + 1) * size), j1: Math.min(W.h, (cj + 1) * size), dpr });
-      map.set(key(ci, cj), c);
-      return c;
+    const region = (ci, cj) => ({ i0: ci * size, j0: cj * size, i1: Math.min(W.w, (ci + 1) * size), j1: Math.min(W.h, (cj + 1) * size), dpr });
+    // The chunk being built a step at a time ({ k, gen }), at most one: no frame builds a whole one.
+    let job = null;
+    // Works on the chunk under way (or else starts the first of `want` that's missing) for about
+    // budgetMs, a step of a few milliseconds at a time; a finished one is kept.
+    function pump(want, budgetMs) {
+      const t0 = performance.now();
+      while (performance.now() - t0 < budgetMs) {
+        if (!job) {
+          const next = want.find(([ci, cj]) => !map.has(key(ci, cj)));
+          if (!next) return;
+          job = { k: key(next[0], next[1]), gen: ArtSurface.renderRegionSteps(W, style, region(next[0], next[1])) };
+        }
+        const r = job.gen.next();
+        if (r.done) { r.value.used = frame; map.set(job.k, r.value); job = null; }
+      }
     }
     function evict() {
       if (map.size > keep) [...map.entries()].sort((p, q) => p[1].used - q[1].used).slice(0, map.size - keep).forEach(([k]) => map.delete(k));
     }
     function layers(rect, budgetMs = 6, fade) {
       frame++;
-      const want = wanted(rect), t0 = performance.now(), out = [];
+      const want = wanted(rect), out = [];
+      if (budgetMs === Infinity) { // all of them, now
+        for (const [ci, cj] of want) if (!map.has(key(ci, cj))) map.set(key(ci, cj), ArtSurface.renderRegion(W, style, region(ci, cj)));
+      } else if (budgetMs > 0) pump(want, budgetMs);
       for (const [ci, cj] of want) {
-        let c = map.get(key(ci, cj));
-        if (!c && (performance.now() - t0 < budgetMs || budgetMs === Infinity)) c = build(ci, cj);
+        const c = map.get(key(ci, cj));
         if (c) { c.used = frame; if (fade) c.fade = fade; out.push(c); }
       }
       out.missing = want.length - out.length;
       evict();
       return out;
     }
-    // Builds the missing chunks over rect, nearest first, while more() says there's time for one
-    // more; they're kept as if just used.
-    function warm(rect, more) {
-      for (const [ci, cj] of wanted(rect)) {
-        let c = map.get(key(ci, cj));
-        if (!c) { if (!more()) break; c = build(ci, cj); }
-        c.used = frame;
-      }
+    // Works on the missing chunks over rect, nearest first, for about budgetMs; those over it are
+    // kept as if just used.
+    function warm(rect, budgetMs) {
+      const want = wanted(rect);
+      if (budgetMs > 0) pump(want, budgetMs);
+      for (const [ci, cj] of want) { const c = map.get(key(ci, cj)); if (c) c.used = frame; }
       evict();
     }
     return { layers, warm, size: () => map.size, clear: () => map.clear() };
