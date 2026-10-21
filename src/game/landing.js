@@ -50,9 +50,9 @@ import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles
 import { warp } from './warp.js';
 import { world } from './world.js';
 
-// The planet and moon types with a surface to land on: every planet type (art/surface.js SURFACE_OF:
-// its surface type), and one moon type for now.
-export const LANDABLE = { planet: Object.keys(ArtSurface.SURFACE_OF), moon: ['grey'] };
+// The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
+// surface (art/surface.js), moons on their type's (moonSurface: 'moon-' and the type).
+export const LANDABLE = { planet: Object.keys(ArtSurface.SURFACE_OF), moon: Object.keys(ArtBodies.MOONS) };
 export const landable = (e) => (LANDABLE[e.kind] || []).includes(e.body.type);
 
 // The surface: a landing site SITE tiles across in the middle, with FRINGE tiles of ground round it

@@ -1819,11 +1819,11 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
 
 test('landing on each kind of planet and a moon: down to the surface, flying round it, and back to space', () => {
   game(`fight.grace = 1e9; artStyle.set('line')`);
-  // Only the planets and moons with a surface (landing.js LANDABLE) offer Land: every planet, some moons.
-  assert.ok(game(`__find((e) => e.kind === 'planet' && !landable(e))`) === null, 'every planet has a surface');
-  assert.ok(!game(`describe(__find((e) => e.kind === 'moon' && !landable(e))).actions.some((a) => a.id === 'land')`), 'no Land without a surface');
+  // Every planet and moon has a surface (landing.js LANDABLE) and offers Land.
+  assert.ok(game(`__find((e) => (e.kind === 'planet' || e.kind === 'moon') && !landable(e))`) === null, 'every planet and moon has a surface');
   const until = (cond) => { for (let i = 0; i < 1500 && !game(cond); i++) browser.frames(1); return game(cond); };
-  // Zantal I to VI: lava, desert, terran, ice, gas and blue; Zantal III a: a grey moon.
+  // Zantal I to VI: lava, desert, terran, ice, gas and blue; Zantal III a: a grey moon (the moon types
+  // share one surface, in their own colours).
   for (const name of ['Zantal I', 'Zantal II', 'Zantal III', 'Zantal IV', 'Zantal V', 'Zantal VI', 'Zantal III a']) {
     game(`globalThis.__body = __find((e) => e.name === '${name}'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
     assert.ok(game(`describe(__body).actions.some((a) => a.id === 'land' && a.enabled)`), `${name}: Land on its menu`);

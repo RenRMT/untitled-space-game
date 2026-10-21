@@ -65,8 +65,9 @@ Each file starts with a comment saying what it does and, for modules other parts
 - **A kind of thing in space:** an entry in `KINDS` in `src/flight/entities.js` (drawing, picking, label,
   minimap mark, context menu) and its art; if it does something, an action added in its part of
   `src/game/` (see `Interactions` in `src/flight/interactions.js`).
-- **A planet or moon to land on:** every planet type has a surface (`SURFACE_OF` in `src/art/surface.js`
-  names it); a moon type, in `LANDABLE` (`src/game/landing.js`), lands on `moon-` and its type.
+- **A planet or moon to land on:** every planet and moon type has a surface (`LANDABLE` in
+  `src/game/landing.js`): planets the one `SURFACE_OF` in `src/art/surface.js` names, moons `moon-` and
+  their type (one per `ArtBodies.MOONS` type), so a new type needs one of those.
 - **A combat mode:** a module with the shape `src/combat/combat-core.js` describes, added to `COMBAT`
   in `src/game/options.js`.
 - **A panel or a screen:** build it from the UI kit's components (`Kit` in `src/ui/kit.js`: buttons,
