@@ -77,17 +77,18 @@ const ArtSurface = (() => {
     block: { sides: 4, rings: [[0, 14], [6, 15], [44, 13], [50, 8.5]], lean: 8 },
   };
   // Small clutter: n pieces of radius r, height r × hMul, top ring at r × taper, apex r × apex above.
-  // trees: a trunk under a cone.
+  // trees: a cone on the ground (no trunk: the cone hides it from this camera). Kept to a few pieces
+  // each: they're a large share of what a chunk of surface has to build and draw.
   const SMALL = {
-    rocks: { n: [3, 5], r: [3, 7], sides: 6, hMul: [0.7, 1.2], taper: 0.7, apex: 0.3 },
-    skerries: { n: [3, 6], r: [3, 6], sides: 6, hMul: [0.25, 0.45], taper: 0.75, apex: 0.2 },
-    seracs: { n: [3, 5], r: [4, 7], sides: 4, hMul: [1.2, 1.8], taper: 0.55, apex: 0.2 },
-    drifts: { n: [3, 5], r: [5, 9], sides: 8, hMul: [0.3, 0.5], taper: 0.8, apex: 0.3 },
-    scrub: { n: [4, 7], r: [2.5, 4], sides: 7, hMul: [0.5, 0.8], taper: 0.75, apex: 0.4 },
-    cones: { n: [2, 4], r: [4, 6], sides: 6, hMul: [1, 1.4], taper: 0.3, apex: 0.1 },
-    puffs: { n: [3, 5], r: [5, 9], sides: 9, hMul: [0.5, 0.8], taper: 0.8, apex: 0.45 },
-    wisps: { n: [4, 6], r: [4, 7], sides: 8, hMul: [0.3, 0.5], taper: 0.85, apex: 0.35 },
-    trees: { n: [5, 8], r: [4, 6.5], sides: 6, trees: true },
+    rocks: { n: [2, 4], r: [3, 7], sides: 6, hMul: [0.7, 1.2], taper: 0.7, apex: 0.3 },
+    skerries: { n: [2, 4], r: [3, 6], sides: 6, hMul: [0.25, 0.45], taper: 0.75, apex: 0.2 },
+    seracs: { n: [2, 3], r: [4, 7], sides: 4, hMul: [1.2, 1.8], taper: 0.55, apex: 0.2 },
+    drifts: { n: [2, 4], r: [5, 9], sides: 8, hMul: [0.3, 0.5], taper: 0.8, apex: 0.3 },
+    scrub: { n: [3, 5], r: [2.5, 4], sides: 7, hMul: [0.5, 0.8], taper: 0.75, apex: 0.4 },
+    cones: { n: [2, 3], r: [4, 6], sides: 6, hMul: [1, 1.4], taper: 0.3, apex: 0.1 },
+    puffs: { n: [2, 4], r: [5, 9], sides: 9, hMul: [0.5, 0.8], taper: 0.8, apex: 0.45 },
+    wisps: { n: [3, 4], r: [4, 7], sides: 8, hMul: [0.3, 0.5], taper: 0.85, apex: 0.35 },
+    trees: { n: [3, 5], r: [4, 6.5], sides: 6, trees: true },
   };
 
   // One entry per surface type, colours from the matching planet palettes (render.js PLANETS).
@@ -104,7 +105,7 @@ const ArtSurface = (() => {
       c: { name: 'Gravel reg', sub: 'Stony plain, dark grit', col: '#b8693e', amp: 0.6, wave: 60, rough: 1.6, speck: '#5a2e18' },
       high: { name: 'Mesa', top: '#b8673d', wall: '#a8582f', strata: '#d9925a', h: 56, prof: [[0, 9], [0.28, 2], [0.28, 0, 'strata'], [1, 0]], jit: 0.3 },
       small: [
-        { name: 'Boulders', sub: '3–5 rocks, below flight altitude', kind: 'rocks', col: '#9a5030' },
+        { name: 'Boulders', sub: '2–4 rocks, below flight altitude', kind: 'rocks', col: '#9a5030' },
         { name: 'Dry scrub', sub: 'Low thorn bushes', kind: 'scrub', col: '#7a6a3a' },
       ],
       cSmall: 0,
@@ -126,7 +127,7 @@ const ArtSurface = (() => {
       sea: { level: 0, shallow: '#3f7fc0', deep: '#1d3b6e', sand: '#d9c38a', foam: '#eef2f4' },
       high: { name: 'Crag', top: '#4f8a3c', wall: '#7a6a5a', strata: '#a09080', h: 56, prof: [[0, 6], [0.35, 3.5], [0.38, 1.5], [0.7, 0.8], [0.72, 0], [1, 0]], jit: 0.8 },
       small: [
-        { name: 'Copse', sub: '5–8 conifers, below flight altitude', kind: 'trees', col: '#2e5e2e', col2: '#5a4a3a' },
+        { name: 'Copse', sub: '3–5 conifers, below flight altitude', kind: 'trees', col: '#2e5e2e' },
         { name: 'Boulders', sub: 'Grey rocks in the grass', kind: 'rocks', col: '#7a6a5a' },
         { name: 'Skerries', sub: 'Low rocks awash', kind: 'skerries', col: '#7a6a5a', on: 'water' },
       ],
@@ -235,6 +236,7 @@ const ArtSurface = (() => {
     for (const v of b.tall) if (v.col) { v.c = [hex(v.col), hex(v.col2)]; v.ct = hex(v.top); }
   }
   const TYPES = Object.keys(B);
+  const PROPS = 0.6; // the share of each biome's small-prop chances (p) that get one: fewer to build and draw
   const SURFACE_OF = { desert: 'desert', terran: 'terran', blue: 'terran', ice: 'ice', lava: 'lava', gas: 'gas' };
   const MOON_SURFACES = TYPES.filter((t) => B[t].moon); // 'moon-' + bodies.js moon type
   const moonSurface = (moonType) => 'moon-' + moonType;
@@ -346,7 +348,7 @@ const ArtSurface = (() => {
       const inC = on === 'land' && bi.cSmall !== undefined && weights(W, mx, my)[2] > 0.5;
       let t = null, v = -1;
       if (!start && r < tallP) { t = 'tall'; v = pick(bi.tall, 51); }
-      else if (r < tallP + (inC ? 0.55 : near ? bi.p.near : bi.p.far)) { t = 'small'; v = inC ? bi.cSmall : pick(bi.small, 52); }
+      else if (r < tallP + PROPS * (inC ? 0.55 : near ? bi.p.near : bi.p.far)) { t = 'small'; v = inC ? bi.cSmall : pick(bi.small, 52); }
       else if (r > 0.955 && !start) { t = 'hole'; v = pick(bi.hole, 53); }
       if (t && v >= 0) W.props[tkey(i, j)] = makeProp(W, t, v, i, j);
     }
@@ -493,8 +495,11 @@ const ArtSurface = (() => {
       const a = V[gy - Y0][gx - X0], b = V[gy - Y0][gx - X0 + 1], c = V[gy - Y0 + 1][gx - X0 + 1], d = V[gy - Y0 + 1][gx - X0];
       if (hash(gx, gy, s + 23) < 0.5) { addTri(a, b, c); addTri(a, c, d); } else { addTri(a, b, d); addTri(b, c, d); }
     }
+    // Contour lines and lee slopes only for a region drawn in the Line style (rg.lines, set by
+    // renderRegion); the coast and waves for any with a sea. Neither: no contour grid at all.
+    const lines = rg.lines !== false, contoured = lines || !!sea;
     const M = 6, ms = T / M, A0 = rg.i0 * M, B0 = rg.j0 * M, MX = rg.i1 * M, MY = rg.j1 * M, LV = 1.6, Z = [], R = [];
-    for (let b = B0; b <= MY; b++, yield 'contour heights') { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
+    if (contoured) for (let b = B0; b <= MY; b++, yield 'contour heights') { const zr = (Z[b - B0] = []), rr = (R[b - B0] = []); for (let a = A0; a <= MX; a++) { const z = rawHeight(W, a * ms, b * ms); rr[a - A0] = z; zr[a - A0] = sea ? Math.max(z, sea.level) : z; } }
     const cross0 = (zz, q, lev) => {
       const pts = [];
       for (let e = 0; e < 4; e++) {
@@ -503,12 +508,12 @@ const ArtSurface = (() => {
       }
       return pts;
     };
-    for (let b = B0; b < MY; b++, yield 'contours') for (let a = A0; a < MX; a++) {
+    if (contoured) for (let b = B0; b < MY; b++, yield 'contours') for (let a = A0; a < MX; a++) {
       const zb = Z[b - B0], zn = Z[b - B0 + 1], ia = a - A0;
       const zz = [zb[ia], zb[ia + 1], zn[ia + 1], zn[ia]], x0 = a * ms, y0 = b * ms;
       const q = [[x0, y0], [x0 + ms, y0], [x0 + ms, y0 + ms], [x0, y0 + ms]];
       const lo = Math.min(...zz), hi = Math.max(...zz);
-      for (let li = Math.ceil(lo / LV); li * LV <= hi; li++) {
+      if (lines) for (let li = Math.ceil(lo / LV); li * LV <= hi; li++) {
         if (sea && li * LV <= sea.level + 0.01) continue;
         const pts = cross0(zz, q, li * LV + 0.001), arr = ((li % 4) + 4) % 4 === 0 ? g.major : g.minor;
         if (pts.length >= 2) arr.push([pts[0], pts[1]]);
@@ -524,6 +529,7 @@ const ArtSurface = (() => {
           g.waves.push([[wx, wy], [wx + 2.5, wy - 1.4], [wx + 5, wy], [wx + 7.5, wy - 1.4]].map((p) => pp([p[0], p[1], sea.level])));
         }
       }
+      if (!lines) continue;
       const n = nrm([-((zz[1] - zz[0]) + (zz[2] - zz[3])) / (2 * ms), -((zz[3] - zz[0]) + (zz[2] - zz[1])) / (2 * ms), 1]);
       if (dot(n, L) < 0.5) { q.forEach((p, k) => { const r = pp([p[0], p[1], zz[k]]); k ? g.lee.lineTo(r[0], r[1]) : g.lee.moveTo(r[0], r[1]); }); g.lee.closePath(); }
     }
@@ -647,10 +653,8 @@ const ArtSurface = (() => {
           const r = lerp(sm.r[0], sm.r[1], h(93)), salt = i * 97 + j * 7 + c;
           let Rg, hgt;
           if (sm.trees) {
-            hgt = r * 2.4;
-            addColumn(bx, by, [[0, 1.2, base], [3, 1.2, base]], 4, [v.c2], v.c2, salt + 5);
-            Rg = addColumn(bx, by, [[3, r, base], [3.4, r * 0.9, base]], sm.sides, [v.c], v.c, salt, base + 3 + hgt);
-            hgt += 3;
+            hgt = r * 2.4 + 3;
+            Rg = addColumn(bx, by, [[0, r, base], [0.4, r * 0.9, base]], sm.sides, [v.c], v.c, salt, base + hgt);
           } else {
             hgt = r * lerp(sm.hMul[0], sm.hMul[1], h(94));
             Rg = addColumn(bx, by, [[0, r, base], [hgt, r * sm.taper, base]], sm.sides, [v.c], v.ct || v.c, salt, base + hgt + r * sm.apex, v.emit);
@@ -942,7 +946,7 @@ const ArtSurface = (() => {
   // o.canvas: one to draw into (a chunk no longer needed), sized to fit, rather than a new one.
   function* renderRegionSteps(W, style, o) {
     const ct = cam(W).ct, dpr = o.dpr || 1, x0 = o.i0 * T, y0 = o.j0 * T * ct, w = (o.i1 - o.i0) * T, h = (o.j1 - o.j0) * T * ct;
-    const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1), inner: o };
+    const region = { i0: Math.max(0, o.i0 - 1), j0: Math.max(0, o.j0 - 1), i1: Math.min(W.w, o.i1 + 1), j1: Math.min(W.h, o.j1 + 1), inner: o, lines: style === 'line' };
     const cv = o.canvas || document.createElement('canvas'), cw = Math.ceil(w * dpr), ch = Math.ceil(h * dpr);
     if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
     const ctx = cv.getContext('2d');
