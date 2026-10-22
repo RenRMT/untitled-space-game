@@ -17,6 +17,7 @@ import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawN
 import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
 import { drawDebris } from './mining.js';
+import { drawFlareGlow, drawHazards } from './hazards.js';
 import { drawGateWork, objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
@@ -33,7 +34,7 @@ import { world } from './world.js';
 // up, the selection, a long press, pirates noticing the ship, reaching the player's marker, and the objective
 // shown on the map. Not while paused, so nothing is picked up behind the settings menu.
 export function react(list, dt = 0) {
-  collectItems(list, dt);
+  if (!fight.wrecked) collectItems(list, dt); // a lost ship waiting for its tow picks nothing up
   updateSelection(list);
   tickHold(dt);
   checkAggro(list);
@@ -59,6 +60,7 @@ export function render(list = nearbyEntities(simTime)) {
   ctx.translate(view.w / 2, view.h / 2);
   ctx.scale(view.zoom, view.zoom);
   ctx.translate(-rx(cam.x), -ry(cam.y));
+  drawHazards(); // radiation belts, and shadows while a flare comes (game/hazards.js)
   drawEntities(list, t);
   drawSelection(t);
   drawFight();
@@ -69,6 +71,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawWarpWorld();
   drawShip(t);
   ctx.restore();
+  drawFlareGlow();
   drawWarpOverlay();
   drawLandingOverlay();
   placeMenu();

@@ -5,6 +5,7 @@
 //   Feedback.emit(event, detail?)   events:
 //     'hit'         the player's ship is hit, or knocked in a collision ({ hull: true when it reached the hull })
 //     'bump'        a collision too gentle to do harm
+//     'hazard'      a hazard warning: a meter filling, a flare coming, fuel low (game/hazards.js)
 //     'shields-down' the player's shields just failed
 //     'low-hull'    the hull fell below a third
 //     'locked'      the player's guns locked on

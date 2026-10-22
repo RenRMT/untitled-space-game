@@ -109,7 +109,7 @@ export const reducedMotion = () => motion.value === 'reduce';
 // one long rattle.
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
-  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20],
 };
 const HIT_GAP = 0.15;
 let lastHit = 0;

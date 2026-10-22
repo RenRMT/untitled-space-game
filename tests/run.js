@@ -20,6 +20,7 @@ import { Entities } from '../src/flight/entities.js';
 import { Scene } from '../src/flight/scene.js';
 import { Interactions } from '../src/flight/interactions.js';
 import { Collide } from '../src/flight/collide.js';
+import { Hazards } from '../src/rules/hazards.js';
 import { Travel } from '../src/flight/travel.js';
 import { Flight } from '../src/flight/flight.js';
 import { Knowledge } from '../src/rules/knowledge.js';
@@ -1822,6 +1823,77 @@ test('mining tools: each bites by the material, and a tool that does nothing to 
   const s = duel({ ...FIGHTER, weapons: [] }, [200, 0]);
   const shots = runPinned(s, 3);
   assert(shots.player.length > 0 && shots.player.every((ev) => ev.weapon === 0), 'only the laser fires at a ship');
+});
+
+test('hazards: flares come once a stretch, warned of first, and the same every time', () => {
+  const F = Hazards.config.flare;
+  let waves = 0, last = 'calm';
+  for (let t = 0; t < F.period * 10; t += 0.5) {
+    const f = Hazards.flare(1, t);
+    if (f.phase === 'wave' && last !== 'wave') {
+      waves++;
+      assert.strictEqual(last, 'warning', `a wave at ${t} with no warning`);
+    }
+    if (f.phase === 'warning') assert(f.in > 0 && f.in <= F.warn, `warned ${f.in} s ahead`);
+    last = f.phase;
+  }
+  assert(waves >= 9 && waves <= 11, `${waves} flares in ten stretches`);
+  assert.deepStrictEqual(Hazards.flare(1, 1234.5), Hazards.flare(1, 1234.5));
+  assert.notDeepStrictEqual([0, 1, 2, 3].map((i) => Hazards.flare(1, i * F.period).start), [0, 1, 2, 3].map((i) => Hazards.flare(2, i * F.period).start), 'another sky for another seed');
+});
+
+test('hazards: a planet, a moon or a big rock between the star and the ship shades it', () => {
+  const place = { stars: [{ x: 0, y: 0 }], planets: [{ x: 5000, y: 0, r: 200 }], moons: [] };
+  assert.ok(Hazards.shadowed(place, 7000, 50), 'behind the planet');
+  assert.strictEqual(Hazards.shadowed(place, 7000, 600), null, 'beside its shadow');
+  assert.strictEqual(Hazards.shadowed(place, 3000, 0), null, 'between the star and the planet');
+  assert.ok(Hazards.shadowed(place, 2000, 0, [{ x: 1000, y: 10, r: 30 }]), 'behind a rock');
+});
+
+test('hazards: the star heats the inner system, giants and moons irradiate, stations shelter', () => {
+  const g = galaxies.get(1), H = Hazards.config;
+  const calm = (() => { let t = 0; while (Hazards.flare(g.seed, t).phase !== 'calm') t += 1; return t; })();
+  const at = (x, y, o) => Hazards.exposure(g, g.seed, x, y, calm, o);
+  const near = (p, out) => [p.x + (p.body ?? p.r) + out, p.y];
+  const lava = g.planets.find((p) => p.type === 'lava'), terran = g.planets.find((p) => p.type === 'terran');
+  assert(at(...near(lava, 100)).heat > H.heat.cool, 'the lava planet is too hot to stay by');
+  assert(at(...near(terran, 100)).heat < H.heat.cool, 'the terran planet sheds heat');
+  assert(at(...near(lava, 100), { thrust: 1 }).heat > at(...near(lava, 100)).heat, 'thrust adds heat');
+  const sheltered = (x, y) => g.stations.some((st) => Math.hypot(x - st.x, y - st.y) < H.rad.shelter);
+  for (const m of g.moons) if (!sheltered(m.x + m.r + 50, m.y)) assert(at(m.x + m.r + 50, m.y).rad > 0, `${m.name} is radioactive`);
+  const giant = g.planets.find((p) => p.type === 'gas'), mid = (giant.body ?? giant.r) + (H.rad.beltIn + H.rad.beltOut) / 2;
+  const [gap] = Hazards.beltGaps(giant), inGap = (gap[0] + gap[1]) / 2;
+  const deepest = Math.max(...Array.from({ length: 72 }, (_, i) => Hazards.belt(giant, giant.x + Math.cos(i / 11.46) * mid, giant.y + Math.sin(i / 11.46) * mid)));
+  assert(deepest > 0.99, 'the thick of the belt, round most of it');
+  assert.strictEqual(Hazards.belt(giant, giant.x + Math.cos(inGap) * mid, giant.y + Math.sin(inGap) * mid), 0, 'a gap to thread');
+  assert.strictEqual(Hazards.belt(giant, giant.x + mid * 3, giant.y), 0, 'outside the belt');
+  assert.strictEqual(Hazards.belt(terran, terran.x + mid, terran.y), 0, 'only giants have belts');
+  for (const st of g.stations) assert.strictEqual(at(st.x, st.y).rad, 0, `${st.name}: a station shelters its approach`);
+  // A flare's wave adds heat and radiation, unless the ship is in a shadow.
+  const wave = (() => { let t = 0; while (Hazards.flare(g.seed, t).phase !== 'wave') t += 1; return t; })();
+  const behind = [terran.x * 1.1, terran.y * 1.1], open = [terran.x * 1.1 + 3000, terran.y * 1.1 - 3000];
+  const sun = (pt) => Hazards.exposure(g, g.seed, pt[0], pt[1], wave);
+  assert.ok(sun(behind).shadow, 'behind the terran planet');
+  assert(sun(open).rad > 0 && !sun(open).shadow, 'out in the open, the wave comes through');
+  assert(sun(open).heat > Hazards.exposure(g, g.seed, open[0], open[1], calm).heat, 'and heats');
+  assert.strictEqual(sun(behind).rad, at(...behind).rad, 'sheltered');
+});
+
+test('hazards: ion storms in a nebula push the ship, and fuel: thrust and map travel burn it', () => {
+  const n = galaxies.get(1).nebulae[0], S = Hazards.config.storm;
+  let stormy = 0;
+  for (let t = 0; t < S.period * 4; t += 1) {
+    const st = Hazards.storm(1, n, t);
+    if (!st) continue;
+    stormy++;
+    assert(Math.abs(Math.hypot(...st.wind) - S.wind) < 1e-6);
+  }
+  assert(stormy >= S.length * 3.5 && stormy <= S.length * 4 + 4, `${stormy} s of storm in four stretches`);
+  assert.strictEqual(Hazards.travelFuel(Hazards.config.fuel.travel * 3), 3);
+  const courier = Loadout.stats(Loadout.starter('courier'));
+  assert.strictEqual(courier.fuel, 100);
+  assert(courier.fuel / Hazards.config.fuel.burn > 120, 'a tank lasts minutes of full thrust');
+  assert(Hazards.travelFuel(2 * 40000) < courier.fuel / 2, 'crossing the system by map travel takes less than half a tank');
 });
 
 test('collisions: a hard hit bounces the ship off and knocks it; a gentle one does nothing', () => {

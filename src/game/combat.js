@@ -25,6 +25,7 @@ import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
+import { rescued } from './hazards.js';
 import { landing } from './landing.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
@@ -225,12 +226,13 @@ export function hurtShip(amount, at = null) {
   return d;
 }
 
-// The ship lost outside a fight: it spills its hold, and is towed home after a moment.
-export function wreck() {
+// The ship lost outside a fight (a hull knocked to nothing, a hazard meter full, the tank empty:
+// game/hazards.js): it spills its hold, and is towed home after a moment.
+export function wreck(reason = 'Hull breached') {
   playerDestroyed();
   fight.wreckT = 2.6;
   setMode('in-combat', true);
-  notify('Hull breached · calling a tow', 2.6, { tone: 'hostile' });
+  notify(`${reason} · calling a tow`, 2.6, { tone: 'hostile' });
 }
 
 export function engage(target, ambushed = false) {
@@ -396,6 +398,7 @@ export function playerDestroyed() {
 export function towHome() {
   cargo.hull = SHIP.hull; // patched up enough to fly
   guard.shield = SHIP.shield;
+  rescued(); // cooled, decontaminated, and fuel enough to reach a pump (game/hazards.js)
   fight.wrecked = false;
   setMode('in-combat', false);
   const home = cargo.home;
@@ -404,7 +407,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
-  notify(`Ship destroyed · towed to ${home ? home.name : startStation().name}`, 4, { priority: 2, tone: 'hostile' });
+  notify(`Ship lost · towed to ${home ? home.name : startStation().name} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
 
