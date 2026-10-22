@@ -1950,7 +1950,7 @@ test('hazards: the star heats the inner system, giants and moons irradiate, stat
   assert.strictEqual(sun(behind).rad, at(...behind).rad, 'sheltered');
 });
 
-test('hazards: ion storms in a nebula push the ship, and fuel: thrust and map travel burn it', () => {
+test('hazards: ion storms in a nebula push the ship, and fuel: dashes, take-offs and map travel spend it', () => {
   const n = galaxies.get(1).nebulae[0], S = Hazards.config.storm;
   let stormy = 0;
   for (let t = 0; t < S.period * 4; t += 1) {
@@ -1963,7 +1963,8 @@ test('hazards: ion storms in a nebula push the ship, and fuel: thrust and map tr
   assert.strictEqual(Hazards.travelFuel(Hazards.config.fuel.travel * 3), 3);
   const courier = Loadout.stats(Loadout.starter('courier'));
   assert.strictEqual(courier.fuel, 100);
-  assert(courier.fuel / Hazards.config.fuel.burn > 120, 'a tank lasts minutes of full thrust');
+  assert(courier.fuel / Hazards.config.fuel.dash >= 40, 'a tank holds dozens of dashes');
+  assert(Hazards.takeoffFuel(1.6, 1) < courier.fuel / 5, 'and several heavy take-offs');
   assert(Hazards.travelFuel(2 * 40000) < courier.fuel / 2, 'crossing the system by map travel takes less than half a tank');
 });
 

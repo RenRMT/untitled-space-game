@@ -29,7 +29,7 @@
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
-// fuelling: { fuel, max, room, hydrazine, price, cost, refuel() }: the tank, filled with hydrazine
+// fuelling: { fuel, max, room, hydrazine, price, cost, refuel() }: the tank (filled on docking and launch), filled with hydrazine
 //   aboard or in storage first, then fuel bought for credits.
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
@@ -492,22 +492,19 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
   }
 
-  // The tank, and filling it: hydrazine aboard or in storage first, then credits for the rest.
+  // The tank: filled on docking (game/docking.js), hydrazine aboard or in storage first, then credits;
+  // short of credits, it tops up on launch with what's been earned meanwhile.
   function fuelRow() {
-    const { fuelling: f, hold } = ctx;
+    const { fuelling: f } = ctx;
     const k = clamp(f.fuel / f.max, 0, 1);
     const room = f.room >= 0.5;
-    const canPay = f.hydrazine > 0 || hold.credits >= f.price;
-    const note = f.hydrazine > 0 ? `hydrazine first (${f.hydrazine} aboard and stored)` : `${f.price} cr a unit`;
     return h('div', { class: 'st-hull' },
       Kit.icon('fuel', 24, { code: 'FUL' }),
       h('div', { class: 'gauge' },
         h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Fuel'), h('span', { class: 'num' }, `${Math.floor(f.fuel)}/${f.max}`)),
         Kit.meter(k, { color: k < 0.25 ? 'var(--hostile)' : room ? 'var(--warn)' : 'var(--good)' })),
       room
-        ? Kit.button('Refuel', act(() => f.refuel()), {
-          kind: 'warn', price: f.cost || undefined, disabled: !canPay, aria: `Refuel: ${note}`,
-        })
+        ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--warn)' } }, 'Tops up on launch')
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Full'));
   }
 

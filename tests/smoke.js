@@ -1103,32 +1103,40 @@ test('hazards: a solar flare is warned of; a planet\'s shadow shelters the ship,
   game('cargo.rad = 0; hazard.heat = 0');
 });
 
-test('hazards: an empty tank leaves the ship adrift until a tow; refuelling takes hydrazine, then credits', () => {
+test('fuel: flying burns none; an empty tank flies on but can\'t dash or cruise; docking refuels, hydrazine first, then credits', () => {
   calmSky();
   game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 3000, __st.y, 0);
-    cargo.fuel = 0.02; ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed;`);
+    cargo.fuel = 50; ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed; dashState.t = -1; dashState.cool = 0`);
+  browser.frames(60);
+  assert.strictEqual(game('cargo.fuel'), 50, 'a second of full thrust burned nothing');
+  game('cargo.fuel = 0');
   browser.frames(30);
-  assert.ok(game('outOfFuel()'), 'the thrust burned the last of it');
-  const v = game('Math.hypot(ship.vx, ship.vy)');
-  browser.frames(30);
-  assert.ok(Math.abs(game('Math.hypot(ship.vx, ship.vy)') - v) < 1, 'adrift: neither speeding up nor slowing');
-  assert.match(game('hazardLine()[0]'), /^OUT OF FUEL · tow in \d+ s/);
-  assert.ok(until('fight.wreckT > 0', 60 * 8), 'a tow is called');
-  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
-  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel * 0.25'));
-  // At a station: hydrazine aboard goes in first, then credits buy the rest.
-  game(`globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150);
+  assert.ok(game('Math.hypot(ship.vx, ship.vy)') > game('SHIP.maxSpeed * 0.9'), 'the engine still works');
+  assert.ok(!game('fight.wreckT > 0'), 'no tow');
+  assert.match(game('hazardLine()[0]'), /^NO FUEL · no dashes or cruise/);
+  assert.strictEqual(game('tryDash(0)'), false, 'no dash');
+  // At a station: hydrazine aboard goes in first, then credits buy the rest, on docking.
+  game(`ship.targetSpeed = 0; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150); cargo.fuel = 25;
     cargo.items = [{ kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }, { kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }]; cargo.credits = 10000;`);
   browser.frames(1);
   game('dock(__st)');
-  game(`StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Fuel25\/100/);
-  pressOnStation(/^Refuel/);
   assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel'), 'full');
   assert.strictEqual(game('hold.count("hydrazine")'), 0, 'the hydrazine went in');
   assert.strictEqual(game('cargo.credits'), 10000 - 25 * game('FUEL_PRICE'), 'credits for the rest');
+  assert.match(Messages.log.at(-1).text, /^Refuelled · 2 hydrazine, 150 cr/);
+  game(`StationMenu.showTab('ship')`);
   assert.match(onStation(), /Fuel100\/100.*Full/);
   game('launch()');
+  // Short of credits: what they cover, a warning, and the rest on launch once some are earned.
+  game(`placeShip(__st.x, __st.y + __st.radius + 150); cargo.fuel = 10; cargo.credits = 60`);
+  browser.frames(1);
+  game('dock(__st)');
+  assert.strictEqual(game('cargo.fuel'), 20, 'what 60 cr buy');
+  assert.match(Messages.log.at(-1).text, /^Tank at 20\/100 · too few credits for fuel/);
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Tops up on launch/);
+  game('cargo.credits = 10000; launch()');
+  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel'), 'topped up on launch');
 });
 
 test('hazard gear: a radiator sheds more heat, shielding stops radiation, a tank and a pod lengthen a run', () => {

@@ -8,7 +8,7 @@ import { SystemMap } from '../ui/map.js';
 import { tickFight, tickShield } from './combat.js';
 import { tickCollisions } from './collisions.js';
 import { dashing, tickDash } from './dash.js';
-import { hazard, outOfFuel, tickHazards } from './hazards.js';
+import { hazard, tickHazards } from './hazards.js';
 import { gapTo } from './docking.js';
 import { updateRegion } from './draw-world.js';
 import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
@@ -42,8 +42,7 @@ export function update(dt) {
   if (intro.arrive) tickArrive(dt);
   else if (intro.beam) tickBeam(dt);
   else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
-    if (outOfFuel() && !intro.on) { ship.x += ship.vx * dt; ship.y += ship.vy * dt; ship.thrust = 0; } // adrift, the engine dead (game/hazards.js)
-    else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value, coast: dashing() }, dt);
+    Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value, coast: dashing() }, dt);
     if (!intro.on) tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
   }
   tickHazards(dt); // heat, radiation, flares, storms and fuel (game/hazards.js)

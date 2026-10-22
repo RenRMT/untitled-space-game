@@ -233,6 +233,20 @@ The steps, each playable on its own:
 - **Through harm:** for the burst and 0.15 s after (`dashSafe`), a collision bounces without harm,
   and a storm pocket doesn't burn.
 
+### Step 2, as built: fuel is what bold moves cost
+
+- **Flying is free** (`rules/hazards.js` `config.fuel`, `game/hazards.js`, `game/surface-run.js`):
+  thrust no longer burns fuel, in space or on a surface. Fuel goes on dashes (2, twice on the ice
+  planet), taking off (gravity × how full the hold is, as before) and map travel (one per 2,500
+  units).
+- **An empty tank no longer strands the ship in space:** it flies on, but can't dash or cruise
+  (the HUD says so). On a surface it still can't take off: Jettison or Call a tow, as before.
+- **Docking refuels on its own** (`game/docking.js` `refuelled`, `game/cargo.js` `fuelling.refuel`):
+  hydrazine aboard, then in storage, then credits, with a notice of what it took. Short of credits,
+  a warning, and the tank tops up on launch with what was earned meanwhile. The Refuel button is
+  gone; the Ship tab shows the tank, Full or Tops up on launch.
+- The ice planet's cold now doubles what dashes cost, rather than all thrust.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does

@@ -56,7 +56,6 @@ import { warp } from './warp.js';
 import { world } from './world.js';
 import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceWind, tickSurface } from './surface-run.js';
 import { updateCombatPanel } from './combat.js';
-import { outOfFuel } from './hazards.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
 // surface (art/surface.js), moons on their type's (moonSurface: 'moon-' and the type).
@@ -281,7 +280,7 @@ function warmTiles(s, budgetMs) {
 // going, above everything.
 function fly(W, dt, climbing = false) {
   const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * 0.6 };
-  const set = climbing || outOfFuel() ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
+  const set = climbing ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
   const x0 = C.x, y0 = C.y, r = SHIP.radius * SURFACE_SCALE;
   Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value, coast: dashing() }, dt);
   if (climbing) return;

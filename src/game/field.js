@@ -60,7 +60,7 @@ export function useField(id) {
   if ('shield' in r) { if (me) me.shield = r.shield; guard.shield = r.shield; }
   if ('heat' in r) hazard.heat = r.heat;
   if ('rad' in r) cargo.rad = r.rad;
-  if ('fuel' in r) { cargo.fuel = r.fuel; hazard.stranded = 0; }
+  if ('fuel' in r) cargo.fuel = r.fuel;
   addTo(cargo.kit, id, -1);
   field.cool[id] = simTime + a.cooldown;
   if (!r.rockDamage) { // a seismic charge shows as a hit on the rock (game/combat.js blastRock)
