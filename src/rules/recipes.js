@@ -76,7 +76,9 @@ const Recipes = (() => {
       { 'carbon-fibre': 4, electronics: 3 },
       { 'carbon-fibre': 6, electronics: 4 },
     ],
-    'beam-turret': [null, null,
+    'beam-turret': [
+      { 'steel-pipe': 2 },
+      { 'carbon-fibre': 1, 'steel-pipe': 3 },
       { 'carbon-fibre': 2, 'steel-pipe': 5 },
       { 'carbon-fibre': 4, 'steel-pipe': 5 },
       { 'carbon-fibre': 4, 'steel-pipe': 10 },

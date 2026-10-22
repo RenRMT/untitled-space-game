@@ -3,7 +3,7 @@
 // likely do there (dock at a station, mine an asteroid, collect a gas pocket), flying there first.
 // Part of the flight view; src/main.js starts it.
 
-import { focusOn, foeMarkerAt } from './combat.js';
+import { endExtraction, extract, extracting, focusOn, foeMarkerAt } from './combat.js';
 import { actions } from './docking.js';
 import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
@@ -80,6 +80,11 @@ export function endDrag(e) {
   }
   const marker = tap && fight.s ? foeMarkerAt(e.clientX, e.clientY) : null;
   const hit = tap && !marker ? pickAt(e.clientX, e.clientY) : null;
+  // Mining: another rock tapped joins the session; anything else ends it, and is selected.
+  if (extracting() && hit && !fight.ships.has(hit.key)) {
+    if (hit.kind === 'asteroid' || hit.kind === 'gas') { extract(hit); return; }
+    endExtraction();
+  }
   if (inFight()) {
     const foe = marker || (hit && fight.ships.has(hit.key) ? hit.key : null);
     if (foe) focusOn(foe);

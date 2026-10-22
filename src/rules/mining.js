@@ -1,12 +1,16 @@
-// Asteroid mining: which asteroid the ship can mine, how long it takes and what it leaves behind.
-// The flight view (game/mining.js) offers Mine for an asteroid; mining runs for `duration` seconds, then
-// the asteroid breaks up and may drop one raw material to collect: a metal, mineral or gas
-// (rules/goods.js). Drops are seeded by the system and the asteroid, so an asteroid always yields
-// the same. Gas pockets in nebulae (world/solar-system.js) are collected the same way, taking
-// longer: they always yield gas, one to three units by the pocket's size (gasOf).
+// Asteroid mining: how much an asteroid or gas pocket takes to break up and what it leaves behind.
+// Mining is extraction (game/combat.js): a rock is a passive target in a real-time fight
+// (combat/combat-realtime.js) with no shields, no engine and no guns, and its integrity as its hull.
+// The ship's tools wear it down while it's locked, in range and in their arc, each by its factor
+// for the rock's material (rules/loadout.js `vs`). Broken up, an asteroid may drop one raw material
+// to collect: a metal, mineral or gas (rules/goods.js). Drops are seeded by the system and the
+// asteroid, so an asteroid always yields the same. A gas pocket in a nebula (world/solar-system.js)
+// always yields gas, one to three units by the pocket's size (gasOf).
 //   Mining.yieldOf(galaxySeed, asteroid) -> { kind, seed } | null
 //   Mining.gasOf(galaxySeed, pocket) -> [{ kind, seed }]
-//   Mining.duration(e) -> seconds to mine or collect it with a Mk I computer
+//   Mining.material(e) -> 'rock' | 'gas'
+//   Mining.integrity(e) -> points of damage it takes to break it up
+//   Mining.stats(e) -> its stats as a combatant (rules/loadout.js stats() shape)
 // ES module (`Mining`); also runs in Node (the tests).
 
 import { nextSeed, seeded, weightedPick } from '../core/rng.js';
@@ -16,11 +20,8 @@ const Mining = (() => {
   const G = Goods;
 
   const config = {
-    duration: 5, // seconds of mining before the asteroid breaks up
-    gasDuration: 8, // seconds of collecting before a gas pocket is used up
-    range: 160, // world units beyond the asteroid's radius within which mining can start
-    slack: 60, // ... and how much further the ship may drift before mining is interrupted
-    maxSpeed: 150, // the ship must be this slow to start (it then stops), as for docking
+    rock: 6, // an asteroid's integrity per unit of its radius
+    gas: 2, // a gas pocket's, per unit of its radius
   };
 
   // Drop chance and what drops, by asteroid type (world/solar-system.js): a category (a raw type of
@@ -50,9 +51,15 @@ const Mining = (() => {
     const n = 1 + Math.floor((pocket.pocket ? pocket.pocket.r : pocket.r || 60) / 45 + r() * 0.8);
     return Array.from({ length: Math.min(3, n) }, () => ({ kind: G.pick(r, 'gas', 'raw'), seed: nextSeed(r) }));
   }
-  const duration = (e) => (e.kind === 'gas' ? config.gasDuration : config.duration);
+  const material = (e) => (e.kind === 'gas' ? 'gas' : 'rock');
+  const integrity = (e) => Math.max(20, Math.round(e.radius * config[material(e)]));
+  // A rock as a combatant: it doesn't move, shoot, dodge or shield itself.
+  const stats = (e) => ({
+    name: e.kind === 'gas' ? 'Gas pocket' : 'Asteroid', radius: e.radius, hull: integrity(e), shield: 0, shieldRecharge: 0,
+    maxSpeed: 0, accel: 0, turnRate: 0, evasion: 0, accuracy: 0, weapons: [], lockTime: Infinity, lockRange: 0, miningRate: 0,
+  });
 
-  return { config, YIELD, yieldOf, gasOf, duration };
+  return { config, YIELD, yieldOf, gasOf, material, integrity, stats };
 })();
 
 export { Mining };

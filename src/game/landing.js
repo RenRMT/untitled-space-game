@@ -16,7 +16,7 @@
 //
 //   LANDABLE, landable(e)       the planet and moon types that have a surface, and whether e does
 //   land(e), takeOff()
-//   landing                     { on, phase ('landing' | 'surface' | 'takeoff'), t, e, craft }:
+//   landing                     { on, phase ('landing' | 'surface' | 'takeoff'), t, e, craft, wrecked }:
 //                               t runs 0 (in space) .. 1 (down) along the zoom
 //   tickLanding(dt)             a step: from update() while the view is space (it then steers the
 //                               ship and returns true), from the frame loop once it's the surface
@@ -36,12 +36,13 @@ import { Display } from '../core/display.js';
 import { Feedback } from '../core/feedback.js';
 import { smoothstep } from '../core/math.js';
 import { COLORS, Theme } from '../core/theme.js';
+import { Collide } from '../flight/collide.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
+import { hurtShip, wreck } from './combat.js';
 import { actions, docked } from './docking.js';
 import { drawEventLog, drawStatus, minimapBox } from './hud.js';
 import { drag } from './input.js';
-import { stopMining } from './mining.js';
 import { artStyle, moveMode } from './options.js';
 import { placeShip } from './outfitting.js';
 import { select, selected } from './selection.js';
@@ -72,7 +73,7 @@ const COVER = 0.6, DEPTH = 8, SPEED = 0.85, EASE = 0.8, FADE = 0.3;
 const ALTITUDE = 420; // the ship's height above the ground as it comes into view (surface units)
 
 export const landing = {
-  on: false, phase: null, t: 0, e: null, path: null,
+  on: false, phase: null, t: 0, e: null, path: null, wrecked: false, // wrecked: the hull gave out on the surface
   craft: { x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }, // the ship on the surface (surface units)
 };
 
@@ -143,7 +144,6 @@ export const onSurface = () => landing.on && (landing.phase === 'surface' || fad
 
 export function land(e) {
   if (landing.on || docked || inFight() || warp.on || !actions.state('land', e).ok) return;
-  stopMining();
   select(null);
   autopilot.key = null;
   drag.active = false;
@@ -242,12 +242,13 @@ function setDown() { const [x, y] = surface().W.start; Object.assign(landing.cra
 function pinSprite(e) { e.ppu = 2 ** Math.ceil(Math.log2(Math.exp(landing.path.x) * view.dpr)); }
 
 function finish() {
-  const { out, e } = landing;
+  const { out, e, wrecked } = landing;
   e.ppu = undefined;
-  Object.assign(landing, { on: false, phase: null, e: null });
+  Object.assign(landing, { on: false, phase: null, e: null, wrecked: false });
   setMode('landing', false);
   setMode('landed', false);
   placeShip(out.x, out.y, out.a);
+  if (wrecked) { wreck(); return; } // the hull gave out on the surface: lost here, the hold spilled beside the planet
   notify(`Back in orbit round ${e.name}`, 2.5);
   Feedback.emit('launched');
 }
@@ -259,17 +260,25 @@ function warmTiles(s, budgetMs) {
 }
 
 // Flying on the surface: the drag sets heading and speed as in space (game/input.js), slower; cliffs,
-// storm fronts and tall rocks stop the ship. Out past the rim, it takes off. climbing: lifting off,
-// the ship keeps drifting the way it was going, above everything.
+// storm fronts and tall rocks stop the ship, bouncing it back, and a hard hit knocks its shields and
+// hull (flight/collide.js, game/combat.js hurtShip). Out past the rim, it takes off; so does a ship
+// whose hull gives out (landing.wrecked), to be lost in orbit. climbing: lifting off, the ship keeps
+// drifting the way it was going, above everything.
 function fly(W, dt, climbing = false) {
   const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * 0.6 };
   const set = climbing ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
   const x0 = C.x, y0 = C.y, r = SHIP.radius * SURFACE_SCALE;
   Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value }, dt);
   if (climbing) return;
-  if (ArtSurface.blocked(W, C.x, y0, r)) { C.x = x0; C.vx = 0; }
-  if (ArtSurface.blocked(W, C.x, C.y, r)) { C.y = y0; C.vy = 0; }
-  if (ArtSurface.siteDist(W, C.x, C.y) > W.site.leave) takeOff();
+  let hit = 0;
+  if (ArtSurface.blocked(W, C.x, y0, r)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
+  if (ArtSurface.blocked(W, C.x, C.y, r)) { C.y = y0; hit = Math.max(hit, Collide.bounce(C, 0, -Math.sign(C.vy))); }
+  const knock = Collide.damage(hit, Collide.config.surfaceSafe);
+  if (knock > 0) {
+    const d = hurtShip(knock);
+    if (d.hullDamage > 0) notify(`Hit the ground · hull −${Math.round(d.hullDamage)}`, 2, { tone: 'warn' });
+  } else if (hit > Collide.config.surfaceSafe * 0.5) Feedback.emit('bump');
+  if (landing.wrecked || ArtSurface.siteDist(W, C.x, C.y) > W.site.leave) takeOff();
 }
 
 // ---------- The camera in space ----------

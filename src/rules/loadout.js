@@ -1,19 +1,21 @@
 // Ship classes (hulls), their equipment slots and the equipment fitted in them.
-// A hull has 1–4 weapon slots and one each of shield, ship computer, engine and scanner. What is
-// fitted decides how the ship flies and senses:
+// A hull has 1–4 tool mounts (slot type 'weapon', from when they held guns) and one each of shield,
+// ship computer, engine and scanner. What is fitted decides how the ship flies, senses and mines:
 // - engine: top speed, acceleration and turn rate (the hull's handling scales the last two),
-// - scanner: how far around the ship hidden contacts are identified, and how far they are pinged,
-// - ship computer: mining speed, accuracy in combat, and how fast it locks on in real-time combat,
-// - weapons and shields: damage and protection in combat (combat/combat.js); engine evasion and scanner
-//   initiative count there too. In real-time combat (combat/combat-realtime.js) a weapon also has a range
-//   and a firing arc, and the scanner sets how far away a target can be locked.
+// - scanner: how far around the ship hidden contacts are identified, how far they are pinged, and
+//   how far away a rock can be locked,
+// - ship computer: accuracy, how fast it locks on, and how hard its tools bite (miningRate),
+// - tools: what wears rocks down (game/combat.js extraction, on combat/combat-realtime.js): damage,
+//   fire rate, range and a field of fire (arc), and a factor for each material (vs: rock, gas), so
+//   a drill does nothing to gas and a siphon nothing to rock,
+// - shields: take collisions (flight/collide.js) and other knocks before the hull does.
 // Equipment comes in lines of Mk I–V (tier 1–5). The player starts with the Mk I of each slot's
 // line; the rest is assembled from parts (rules/recipes.js), Mk II and up by blueprint
 // (rules/research.js). `price` is what it's worth: spare gear sells for half.
-// NPC ships (fighters, freighters) fit their own lines, by tier: pirates in more dangerous space
-// fly better gear (world/security.js). Hulls marked with a price are sold at shipyards.
+// NPC ships (fighters, freighters) fit their own lines, by tier (they are switched off for now).
+// Hulls marked with a price are sold at shipyards.
 // Research (rules/research.js upgrades: hull refits, refinements) comes in as `upgrades`:
-// { cargo, hull } as fractions added, { weapons } as extra weapon slots, and { lines: { [line]:
+// { cargo, hull } as fractions added, { weapons } as extra tool mounts, and { lines: { [line]:
 // { [stat]: fraction } } } added to the stats of that line's gear (tuned), within LIMITS.
 // Mods (rules/mods.js) are fitted to a slot, as many as its gear has room for (the rest wait, unused).
 // A loadout is plain data, ready to save: { hull, fitted: { [slot id]: equipment id | null },
@@ -30,24 +32,26 @@ const Loadout = (() => {
 
   // Slot types, in the order the Ship tab lists them.
   const SLOT_TYPES = {
-    weapon: 'Weapon',
+    weapon: 'Tool',
     shield: 'Shield',
     computer: 'Ship computer',
     engine: 'Engine',
     scanner: 'Scanner',
   };
 
-  // Equipment lines. stats(tier) feeds stats() below; turnRate is in radians per second. In combat
-  // (combat/combat.js) the computer's accuracy is weighed against the target engine's evasion.
-  // Real-time combat only: a weapon's arc is the width of its field of fire in degrees, centred on
-  // the ship's nose (360 for a turret); lockTime is the computer's seconds to lock on, lockRange
-  // the scanner's reach for a lock, in world units. from: the first tier the line has (a branch
-  // that starts later); npc: fitted to NPC ships only, never sold.
+  // Equipment lines. stats(tier) feeds stats() below; turnRate is in radians per second. A tool's
+  // arc is the width of its field of fire in degrees, centred on the ship's nose (360: all round);
+  // vs: its damage factor on each material (rules/mining.js material, or 'ship'; missing: 1). lockTime is the
+  // computer's seconds to lock on, lockRange the scanner's reach for a lock, in world units.
+  // from: the first tier the line has (a branch that starts later); npc: fitted to NPC ships only,
+  // never sold. The tool lines keep the ids of the weapons they were, so saves need no change.
   const at = (list, t) => list[t - 1];
   const LINES = {
-    'pulse-laser': { slot: 'weapon', name: 'Pulse laser', stats: (t) => ({ damage: at([6, 8, 10, 13, 17], t), fireRate: 4, range: 650 + 50 * t, arc: 60 }) },
-    'heavy-cannon': { slot: 'weapon', name: 'Heavy cannon', from: 2, stats: (t) => ({ damage: at([0, 18, 23, 29, 37], t), fireRate: 2, range: 800 + 100 * t, arc: 30 }) },
-    'beam-turret': { slot: 'weapon', name: 'Beam turret', from: 3, stats: (t) => ({ damage: at([0, 0, 7, 9, 12], t), fireRate: 5, range: 500 + 50 * t, arc: 360 }) },
+    // Tools: the laser reaches far and does a little to gas; the drill bites hard, close in; the
+    // siphon draws gas from all round.
+    'pulse-laser': { slot: 'weapon', name: 'Mining laser', stats: (t) => ({ damage: at([6, 8, 10, 13, 17], t), fireRate: 4, range: 650 + 50 * t, arc: 60, vs: { rock: 1, gas: 0.25 } }) },
+    'heavy-cannon': { slot: 'weapon', name: 'Fracture drill', from: 2, stats: (t) => ({ damage: at([0, 18, 23, 29, 37], t), fireRate: 2, range: 260 + 30 * t, arc: 40, vs: { rock: 1.5, gas: 0 } }) },
+    'beam-turret': { slot: 'weapon', name: 'Gas siphon', stats: (t) => ({ damage: at([4, 5, 7, 9, 12], t), fireRate: 5, range: 350 + 50 * t, arc: 360, vs: { rock: 0, gas: 1, ship: 0 } }) },
     deflector: { slot: 'shield', name: 'Deflector', stats: (t) => ({ strength: at([80, 110, 150, 200, 270], t), recharge: at([6, 8, 10, 13, 17], t) }) },
     'flight-computer': { slot: 'computer', name: 'Flight computer', stats: (t) => ({ miningRate: at([1, 1.25, 1.5, 1.8, 2.2], t), accuracy: at([0.75, 0.8, 0.85, 0.9, 0.95], t), lockTime: at([1, 0.85, 0.7, 0.55, 0.4], t) }) },
     'courier-drive': { slot: 'engine', name: 'Courier drive', stats: (t) => ({ maxSpeed: at([650, 700, 760, 820, 900], t), accel: at([520, 600, 690, 790, 900], t), turnRate: at([3.6, 3.8, 4, 4.2, 4.5], t), evasion: at([0.15, 0.18, 0.21, 0.24, 0.28], t) }) },
@@ -62,7 +66,7 @@ const Loadout = (() => {
     'freighter-drive': { slot: 'engine', name: 'Freighter drive', npc: true, stats: () => ({ maxSpeed: 300, accel: 200, turnRate: 1.5, evasion: 0.05 }) },
     'basic-scanner': { slot: 'scanner', name: 'Basic scanner', npc: true, stats: (t) => ({ sensorRange: 2000, pingRange: 2000, lockRange: 1200 + 150 * (t - 1) }) },
   };
-  // Credits to buy one, by tier; weapons cost a fifth more.
+  // Credits to buy one, by tier; tools cost a fifth more.
   const PRICES = [null, 250, 800, 2000, 5000, 12000];
   const WEAPON_PRICE = 1.2;
 
@@ -108,7 +112,7 @@ const Loadout = (() => {
       name: 'Courier', radius: 16, cargo: 20, hull: 120, weapons: 2, handling: 1, price: 4000,
       note: 'Quick and balanced: the ship you start in.',
       starter: {
-        'weapon-1': 'pulse-laser-1', 'weapon-2': null,
+        'weapon-1': 'pulse-laser-1', 'weapon-2': 'beam-turret-1',
         shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1',
       },
     },
@@ -224,20 +228,22 @@ const Loadout = (() => {
       else if (type === 'weapon') {
         out.firepower += s.damage * s.fireRate;
         out.weaponsFitted++;
-        out.weapons.push({ name: item.name, damage: s.damage, fireRate: s.fireRate, range: s.range, arc: s.arc });
+        out.weapons.push({ name: item.name, damage: s.damage, fireRate: s.fireRate, range: s.range, arc: s.arc, ...(s.vs ? { vs: s.vs } : {}) });
       }
     }
     return out;
   }
 
   const degrees = (rad) => Math.round((rad * 180) / Math.PI);
+  // What a tool does to each material: 'rock ×1.5 · no gas'.
+  const vsText = (vs) => Object.entries(vs).map(([m, f]) => (f ? `${m} ×${f}` : `no ${m}`)).join(' · ');
   const k = Format.dist;
 
   // One line of what a piece of equipment does, for the Ship tab.
   function summary(item) {
     const s = item.stats;
     switch (item.slot) {
-      case 'weapon': return `${s.damage} damage · ${s.fireRate} shots/s · ${s.range} range · ${s.arc >= 360 ? 'turret' : `${s.arc}° arc`}`;
+      case 'weapon': return `${s.damage} damage · ${s.fireRate}/s · ${s.range} range · ${s.arc >= 360 ? 'all round' : `${s.arc}° arc`}${s.vs ? ` · ${vsText(s.vs)}` : ''}`;
       case 'shield': return `${s.strength} strength · ${s.recharge}/s recharge`;
       case 'computer': return `${Math.round(s.accuracy * 100)}% accuracy · ${s.lockTime} s lock · mining ×${s.miningRate.toFixed(1)}`;
       case 'engine': return `${s.maxSpeed} speed · ${s.accel} accel · ${degrees(s.turnRate)}°/s · ${Math.round(s.evasion * 100)}% evasion`;

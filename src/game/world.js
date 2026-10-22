@@ -25,13 +25,16 @@ import { arriveAt } from './travel.js';
 export const world = { galaxy: null, cultures: null, scene: null, knowledge: null, travel: null };
 
 // The galaxy is generated from SYSTEM_CONFIG (world/system-config.js); a ?seed= URL parameter
-// overrides its seed, and the map's Reroll asks for a new one.
+// overrides its seed, and the map's Reroll asks for a new one. ?pirates brings the pirates back
+// (they're switched off: world/galaxy.js), for the fights still in the game.
 export function initialSeed() {
   const param = Params.get('seed');
   if (param === null || param === '') return SYSTEM_CONFIG.seed;
   return /^\d+$/.test(param) ? Number(param) : param;
 }
-export const newGalaxy = (seed) => loadGalaxy(Galaxy.generate(seed, SYSTEM_CONFIG));
+const PIRATES = { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } };
+const config = () => (Params.has('pirates') ? { ...SYSTEM_CONFIG, galaxy: { ...SYSTEM_CONFIG.galaxy, system: { ...SYSTEM_CONFIG.galaxy.system, ...PIRATES } } } : SYSTEM_CONFIG);
+export const newGalaxy = (seed) => loadGalaxy(Galaxy.generate(seed, config()));
 
 export function loadGalaxy(galaxy) {
   if (world.knowledge) world.knowledge.save(); // keep the old galaxy's charts before switching

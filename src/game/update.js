@@ -5,14 +5,14 @@ import { Flight } from '../flight/flight.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
-import { tickFight } from './combat.js';
+import { tickFight, tickShield } from './combat.js';
+import { tickCollisions } from './collisions.js';
 import { gapTo } from './docking.js';
 import { updateRegion } from './draw-world.js';
 import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
 import { steady } from './input.js';
 import { tickIndustry } from './industry.js';
 import { tickLab } from './lab.js';
-import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
@@ -35,7 +35,10 @@ export function update(dt) {
   if (intro.on && !intro.flying) ship.targetSpeed = 0; // the pod waits while the station talks
   if (intro.arrive) tickArrive(dt);
   else if (intro.beam) tickBeam(dt);
-  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
+  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
+    Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
+    if (!intro.on) tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
+  }
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 
@@ -58,8 +61,8 @@ export function update(dt) {
       p.y += p.vy * dt;
     }
   }
-  tickMining(dt);
   tickFight(dt);
+  tickShield(dt);
   tickWings(dt);
   tickIntro(dt);
   tickMission(dt);

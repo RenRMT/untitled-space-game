@@ -16,7 +16,7 @@ import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-wo
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
 import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
-import { drawDebris, drawMining, drawMiningCountdown } from './mining.js';
+import { drawDebris } from './mining.js';
 import { drawGateWork, objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
@@ -63,7 +63,6 @@ export function render(list = nearbyEntities(simTime)) {
   drawSelection(t);
   drawFight();
   drawDebris();
-  drawMining(t);
   drawGateWork(t);
   drawParticles();
   if (intro.on) drawTractorBeam(t);
@@ -80,7 +79,6 @@ export function render(list = nearbyEntities(simTime)) {
   }
   const moving = warp.on || landing.on; // names and markers would hang in a gate jump's streaks, or over the globe
   if (!moving) drawLabels(list);
-  drawMiningCountdown();
   drawFightOverlay();
   if (!moving) drawNavMarkers();
   drawFoeMarkers();

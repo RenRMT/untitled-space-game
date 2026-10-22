@@ -53,7 +53,6 @@ import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
-import { Mining } from '../rules/mining.js';
 import { Mods } from '../rules/mods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
@@ -295,7 +294,7 @@ const StationMenu = (() => {
   // ---------- Ship ----------
 
   const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
-  const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Weapon hardpoint' };
+  const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Tool mount' };
   const SHORT = { computer: 'Computer' }; // slot labels on the schematic
   const lineName = (item) => Loadout.LINES[item.line].name; // the name without its Mk
   const deg = (r) => Math.round((r * 180) / Math.PI);
@@ -305,7 +304,7 @@ const StationMenu = (() => {
   // What the slot sheet compares, per slot type (Loadout.summary has the same stats as text).
   const METRICS = {
     weapon: [
-      { code: 'DPS', label: 'Firepower', get: (i) => i.stats.damage * i.stats.fireRate, fmt: (v) => `${r2(v)}/s`, fmtDiff: (v) => `${r2(v)}` },
+      { code: 'DPS', label: 'Output', get: (i) => i.stats.damage * i.stats.fireRate, fmt: (v) => `${r2(v)}/s`, fmtDiff: (v) => `${r2(v)}` },
       { code: 'RNG', label: 'Range', get: (i) => i.stats.range, fmt: String, fmtDiff: String },
       { code: 'ARC', label: 'Firing arc', get: (i) => i.stats.arc, fmt: (v) => `${v}°`, fmtDiff: (v) => `${v}°` },
     ],
@@ -451,7 +450,7 @@ const StationMenu = (() => {
         cur ? Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true,
           action: Kit.button('Remove', act(() => o.unfit(s.id)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
-        }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open hardpoint' : 'Nothing fitted'),
+        }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open mount' : 'Nothing fitted'),
         modSection(s),
         h('span', { class: 'ui-label' }, 'Options'),
         options.length ? options : h('p', { class: 'ui-note' }, 'Better gear for this slot is assembled at an assembler, by blueprint.'),
@@ -506,7 +505,7 @@ const StationMenu = (() => {
 
   // The shipyard (capital and major stations): other hulls, against the one you fly, with it traded in.
   const HULL_METRICS = [
-    { code: 'WPN', label: 'Weapon slots', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
+    { code: 'WPN', label: 'Tool mounts', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
     { code: 'HUL', label: 'Hull', get: (s) => s.hull, fmt: String, fmtDiff: String },
     { code: 'CRG', label: 'Hold', get: (s) => s.cargo, fmt: String, fmtDiff: String },
     { code: 'HND', label: 'Handling', get: (s) => s.handling, fmt: (v) => `×${v}`, fmtDiff: (v) => `${r2(v)}` },
@@ -565,10 +564,10 @@ const StationMenu = (() => {
       { id: 'trn', code: 'TRN', label: 'Turn', value: `${deg(ship.turnRate)}°/s`, detail: `Degrees per second the ship can turn (the ${ship.name} handles ×${Loadout.HULLS[hullId].handling}).`, from: fromItem('engine') },
       { id: 'eva', code: 'EVA', label: 'Evasion', value: pct(ship.evasion), detail: 'Chance to avoid incoming fire.', from: fromItem('engine') },
       { id: 'shd', code: 'SHD', label: 'Shield', value: `${ship.shield}`, detail: ship.shield ? `${ship.shield} strength, recharging ${ship.shieldRecharge} per second.` : 'No shield fitted.', from: fromItem('shield') },
-      { id: 'dps', code: 'DPS', label: 'Firepower', value: `${r2(ship.firepower)}/s`, detail: `${r2(ship.firepower)} damage per second from ${ship.weaponsFitted} of ${ship.weaponSlots} weapons.`, from: ship.weapons.map((w) => w.name).join(' + ') || 'No weapons fitted' },
+      { id: 'dps', code: 'DPS', label: 'Output', value: `${r2(ship.firepower)}/s`, detail: `${r2(ship.firepower)} damage per second to rock or gas, by what each tool works on, from ${ship.weaponsFitted} of ${ship.weaponSlots} tools.`, from: ship.weapons.map((w) => w.name).join(' + ') || 'No tools fitted' },
       { id: 'aim', code: 'AIM', label: 'Accuracy', value: pct(ship.accuracy), detail: `Hit chance, weighed against the target's evasion. Locks on in ${r2(ship.lockTime)} s.`, from: fromItem('computer') },
       { id: 'sns', code: 'SNS', label: 'Sensors', value: Format.dist(ship.sensorRange), detail: `Identifies at ${Format.dist(ship.sensorRange)} · pings at ${Format.dist(ship.pingRange)} · locks at ${Format.dist(ship.lockRange)}.`, from: fromItem('scanner') },
-      { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `${(Mining.config.duration / ship.miningRate).toFixed(1)} s` : '—', detail: ship.miningRate ? 'Seconds to mine an asteroid.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: no mining.', from: fromItem('computer') },
+      { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `×${ship.miningRate.toFixed(2)}` : '—', detail: ship.miningRate ? 'How hard the tools bite into rock and gas, from the computer.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: the tools work unguided.', from: fromItem('computer') },
       { id: 'crg', code: 'CRG', label: 'Hold', value: `${ship.cargo}`, detail: ship.cargo ? 'Hold capacity in units.' : 'No hold.', from: `From the ${ship.name} hull` },
     ];
   }

@@ -1,5 +1,7 @@
-// Combat in flight: engaging and being ambushed, the fight's events as effects, loot, the combat
-// panel, and losing the ship. The rules: combat/combat.js (rounds), combat/combat-realtime.js.
+// Combat in flight: extraction (mining an asteroid or a gas pocket as a fight against a passive
+// target), engaging and being ambushed, the fight's events as effects, loot, the combat panel,
+// knocks to the ship (collisions: hurtShip) and losing the ship. The rules: combat/combat-realtime.js
+// (combat/combat.js, rounds, is only for fights with ships, which are switched off with the pirates).
 // Part of the flight view; src/main.js starts it.
 
 import { CombatCore } from '../combat/combat-core.js';
@@ -13,6 +15,7 @@ import { Flight } from '../flight/flight.js';
 import { Scene } from '../flight/scene.js';
 import { Abilities } from '../rules/abilities.js';
 import { Loadout } from '../rules/loadout.js';
+import { Mining } from '../rules/mining.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
@@ -27,7 +30,7 @@ import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
 import { lab } from './lab.js';
-import { burst, stopMining } from './mining.js';
+import { burst, chips, rockBroken } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
 import { HOSTILE_COLOR, brackets, fmtDist, frameList, isHostile, select } from './selection.js';
@@ -55,6 +58,11 @@ export const godMode = Params.has('dev');
 // - lost: the cargo spills where the ship was destroyed, and it's towed back to the last
 //   station it docked at (or the capital), with the hull patched up.
 // Pirates that survive a real-time fight fly back to their usual paths.
+//
+// Mining is a fight too, always in real time (extract): the asteroid or gas pocket is a passive
+// target, with its integrity as its hull (rules/mining.js). Your tools fire at it while it's locked,
+// in range and in their arc; another rock tapped joins the session. Broken up, it leaves what it
+// held (rockBroken); fly out past lock range and the session ends.
 export const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 export const RESPAWN_GRACE = 8;
 export const SHOT_COLOR = { player: COLORS.cyan, ally: '#5ad8ff', enemy: COLORS.hostile };
@@ -68,8 +76,8 @@ export function fighterPos(id) {
 }
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
 // drawn larger than their size (flight/entities.js SHIP_SCALE), the player's a quarter larger again
-// (game/draw-world.js drawShip).
-const shownRadius = (p) => p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1);
+// (game/draw-world.js drawShip); rocks at their size.
+const shownRadius = (p) => (p.rock ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 export const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
 
@@ -128,6 +136,103 @@ export function threat(target) {
   return { word: 'Outmatched', tone: 'hostile', detail };
 }
 
+// ---------- Extraction ----------
+
+// A rock (an asteroid or a gas pocket) as the real-time mode takes it, and its pose for the effects.
+export const rockName = (e) => Entities.KINDS[e.kind].card(e, null).title;
+export function rockSpec(e) {
+  return { id: e.key, name: rockName(e), stats: Mining.stats(e), passive: true, material: Mining.material(e), body: { x: e.x, y: e.y, vx: 0, vy: 0, angle: 0, radius: e.radius } };
+}
+const rockPose = (e) => ({ x: e.x, y: e.y, a: 0, thrust: 0, radius: e.radius, name: rockName(e), rock: e });
+// Whether a fight is mining (only rocks in it).
+export const extracting = () => !!fight.s && fight.extract;
+
+// Start mining a rock, or add it to the session under way and turn the tools on it.
+export function extract(rock) {
+  if (docked || landing.on || fight.wreckT > 0 || cargo.removed.has(rock.key) || fight.dying.has(rock.key)) return;
+  const s = fight.s;
+  if (s) {
+    if (!fight.extract) return;
+    if (!fight.ships.has(rock.key)) {
+      fightMode().join(s, rockSpec(rock));
+      fight.ships.set(rock.key, rockPose(rock));
+    }
+    focusOn(rock.key);
+    return;
+  }
+  fight.mode = 'realtime';
+  fight.extract = true;
+  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  fight.s = fightMode().start(rng, playerSpec(), [rockSpec(rock)], { target: rock.key, ambushed: false, allies: allySpecs() });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
+  fight.ships = new Map([[rock.key, rockPose(rock)]]);
+  fight.log = [`${Mining.material(rock) === 'gas' ? 'Siphoning' : 'Mining'} the ${rockName(rock).toLowerCase()}`];
+  fight.lowHull = false;
+  fight.lockers = new Set();
+  fight.result = null;
+  autopilot.key = null;
+  setMode('in-combat', true);
+}
+
+// Mining stopped without the rocks broken (the ship moved by a teleport, or something else
+// tapped): the session just ends.
+export function endExtraction() {
+  if (!fight.s || !fight.extract) return;
+  fight.final = fight.s;
+  fight.s = null;
+  endFight('fled');
+}
+
+// The player's ship as a fight takes it: its hull and the shields it has now.
+function playerSpec() {
+  return {
+    id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull, shield: shieldNow(),
+    body: { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius },
+  };
+}
+
+// ---------- Shields and knocks ----------
+
+// The ship's shields outside a fight (a fight keeps its own, on its player): they take knocks before
+// the hull, and recharge after SHIELD_DELAY seconds without one, as in a real-time fight.
+export const SHIELD_DELAY = RealtimeCombat.config.shieldDelay;
+export const guard = { shield: null, quiet: Infinity };
+export const shieldNow = () => (fight.s ? fight.s.player.shield : Math.min(SHIP.shield, guard.shield ?? SHIP.shield));
+export function tickShield(dt) {
+  if (fight.s) { guard.shield = fight.s.player.shield; guard.quiet = fight.s.player.quiet; return; }
+  guard.quiet += dt;
+  guard.shield = shieldNow();
+  if (guard.quiet >= SHIELD_DELAY) guard.shield = Math.min(SHIP.shield, guard.shield + SHIP.shieldRecharge * dt);
+}
+
+// The ship takes a knock (a collision, flight/collide.js): shields first, then the hull, shown like
+// a hit in a fight. Returns what it took; a hull knocked to nothing loses the ship (wreck).
+export function hurtShip(amount, at = null) {
+  if (amount <= 0 || fight.wrecked || fight.wreckT > 0 || landing.wrecked) return { shieldDamage: 0, hullDamage: 0 };
+  const target = fight.s ? fight.s.player : { hull: cargo.hull, shield: shieldNow(), invulnerable: godMode };
+  const d = CombatCore.applyDamage(target, Math.round(amount));
+  if (fight.s) target.quiet = 0;
+  else { guard.shield = target.shield; guard.quiet = 0; cargo.hull = target.hull; }
+  if (d.shieldDamage + d.hullDamage <= 0) return d;
+  if (d.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: 0, t: 0.3, max: 0.3, at: 'player' });
+  if (d.hullDamage > 0) burst(at ? at.x : ship.x, at ? at.y : ship.y, 6, { speed: [40, 180], life: [0.3, 0.8], size: [1.5, 3.5], colors: [COLORS.flash, COLORS.flame] });
+  addDamage('player', d.shieldDamage + d.hullDamage, d.hullDamage > 0);
+  Feedback.emit('hit', { hull: d.hullDamage > 0 });
+  if (!fight.s && target.hull <= 0) {
+    if (landing.on) landing.wrecked = true; // game/landing.js takes off, and the ship is lost in orbit
+    else wreck();
+  }
+  return d;
+}
+
+// The ship lost outside a fight: it spills its hold, and is towed home after a moment.
+export function wreck() {
+  playerDestroyed();
+  fight.wreckT = 2.6;
+  setMode('in-combat', true);
+  notify('Hull breached · calling a tow', 2.6, { tone: 'hostile' });
+}
+
 export function engage(target, ambushed = false) {
   if (inFight() || docked || landing.on || !isHostile(target) || fight.dying.has(target.key)) return;
   if (!ambushed && !actions.state('attack', target).ok) return;
@@ -135,12 +240,9 @@ export function engage(target, ambushed = false) {
   const names = group.map((e, i) => shipName(e, i, group.length));
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
   fight.mode = combatMode.value;
+  fight.extract = false;
   const m = fightMode();
-  const player = {
-    id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull,
-    body: { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius },
-  };
-  fight.s = m.start(rng, player, group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: allySpecs() });
+  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: allySpecs() });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
@@ -152,7 +254,6 @@ export function engage(target, ambushed = false) {
   fight.lowHull = false;
   fight.lockers = new Set(); // enemies locking on the player, to buzz once as each starts
   fight.result = null;
-  stopMining();
   autopilot.key = null;
   select(null);
   setMode('in-combat', true);
@@ -202,10 +303,13 @@ export function playEvents(s, events) {
   for (const ev of events) {
     if (ev.type !== 'shot') continue;
     const d = ev.delay || 0, hit = d + look.after;
+    // Mining: chips (or puffs of gas) off the rock with each hit.
+    const rock = fight.ships.get(ev.to)?.rock;
+    if (rock && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => chips(rock, 2, 90) });
     const color = ev.from === 'player' ? SHOT_COLOR.player : wings.has(ev.from) ? SHOT_COLOR.ally : SHOT_COLOR.enemy;
     fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: hit, t: look.shield, max: look.shield, at: ev.to });
-    if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
+    if (ev.hullDamage > 0 && !rock) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
     if (ev.to === 'player' && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => Feedback.emit('hit', { hull: ev.hullDamage > 0 }) });
     if (look.sum) { if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0); }
     else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${ev.damage}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
@@ -252,6 +356,7 @@ export function explode(x, y, r) {
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
+  if (p?.rock) { fight.dying.delete(key); rockBroken(p.rock); return; }
   if (!cargo.removed.has(key) && world.scene.get(key)?.pack !== undefined) Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
@@ -290,6 +395,7 @@ export function playerDestroyed() {
 
 export function towHome() {
   cargo.hull = SHIP.hull; // patched up enough to fly
+  guard.shield = SHIP.shield;
   fight.wrecked = false;
   setMode('in-combat', false);
   const home = cargo.home;
@@ -315,6 +421,16 @@ export function endFight(result) {
   fight.ships = new Map();
   fight.result = result;
   fight.resultT = 4;
+  const mined = fight.extract;
+  fight.extract = false;
+  if (mined && result !== 'lost') {
+    // Mining over: every rock broken up, or the ship flown off. No outcome to show.
+    fight.result = null;
+    CombatPanel.hide();
+    setMode('in-combat', false);
+    saveCargo();
+    return;
+  }
   if (result === 'lost') {
     // Controls and the map stay locked until the wreck is towed home (towHome).
     fight.wreckT = 2.6;
@@ -394,6 +510,7 @@ export function tickFight(dt) {
   // Hull damage is saved when the fight ends (endFight) or the page is hidden (saveAll), not on
   // every hit: a save writes the whole cargo.
   cargo.hull = Math.max(0, s.player.hull);
+  guard.shield = s.player.shield;
   if (s.over) {
     fight.s = null;
     fight.final = s; // shown on the panel until it closes
@@ -453,6 +570,7 @@ export function updateCombatPanel() {
     };
   });
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
+  if (!over && fight.extract) live.title = s.away ? 'Moving off' : live.title.replace(/^Locking on/, 'Locking tools on').replace(/^Locked on/, 'Working');
   CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log.slice(-1), abilities: over ? [] : abilityButtons(s) });
 }
 

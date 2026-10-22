@@ -62,6 +62,7 @@ import * as mining from './game/mining.js';
 import * as travel from './game/travel.js';
 import * as selection from './game/selection.js';
 import * as combat from './game/combat.js';
+import * as collisions from './game/collisions.js';
 import * as input from './game/input.js';
 import * as update from './game/update.js';
 import * as starfield from './game/starfield.js';
@@ -72,7 +73,7 @@ import * as warp from './game/warp.js';
 import * as landing from './game/landing.js';
 
 const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, jobs, docking, squad, mining, travel,
-  selection, combat, input, update, starfield, drawWorld, hud, loop, warp, landing];
+  selection, combat, collisions, input, update, starfield, drawWorld, hud, loop, warp, landing];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);

@@ -10,7 +10,7 @@ import assert from 'node:assert';
 import { install } from './browser-stub.js';
 
 // The stand-in browser first: the game's modules use the DOM as they load.
-const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro&missions' }); // ?intro, ?missions: play them though they're off
+const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro&missions&pirates' }); // ?intro, ?missions, ?pirates: play them though they're off
 const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
@@ -315,10 +315,10 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   for (let i = 0; i < 3; i++) {
     game(`{ globalThis.__rock = mission.rocks.find((a) => !cargo.removed.has(a.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); }`);
     browser.frames(1);
-    game('startMining(__rock)');
-    assert.ok(game('mining.target === __rock'), 'mining');
-    if (i) game('mining.t = mineTime() - 0.05');
-    assert.ok(until('cargo.removed.has(__rock.key)', 60 * 8), 'mined');
+    game('extract(__rock)');
+    assert.ok(game('extracting() && fight.ships.has(__rock.key)'), 'mining');
+    if (i) game('fight.s.enemies.find((e) => e.id === __rock.key).hull = 1');
+    assert.ok(until('cargo.removed.has(__rock.key)', 60 * 15), 'mined');
   }
   assert.strictEqual(game('cargo.missions.count(SALVAGE, "mine")'), 3);
   assert.match(game('objective().text'), /^Collect gas pockets · 0\/3/);
@@ -328,7 +328,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
     assert.ok(game('!!__gas && __gas.pocket.nebula === mission.salvage.nebula'), 'the marker is on a pocket of the nebula');
     game('placeShip(__gas.x, __gas.y + __gas.radius + 60)');
     browser.frames(1);
-    game('startMining(__gas); mining.t = mineTime() - 0.05');
+    game('extract(__gas); fight.s.enemies.find((e) => e.id === __gas.key).hull = 1');
     assert.ok(until('cargo.removed.has(__gas.key)', 60 * 4), 'collected');
     game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   }
@@ -653,11 +653,11 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['research', 'industry', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
-  assert.match(onStation(), /Weapon 2Weapon hardpoint · \d+ options?/, 'the slot\'s sheet');
-  assert.match(onStation(), /Fitted.*Pulse laserMk I.*Options/, 'what is fitted, then the options');
-  assert.match(onStation(), /Pulse laserMk IIBlueprint needed/, 'the next Mk, not made without its blueprint');
+  assert.match(onStation(), /Tool 2Tool mount · \d+ options?/, 'the slot\'s sheet');
+  assert.match(onStation(), /Fitted.*Mining laserMk I.*Options/, 'what is fitted, then the options');
+  assert.match(onStation(), /Mining laserMk IIBlueprint needed/, 'the next Mk, not made without its blueprint');
   game(`StationMenu.showTab('trade')`);
-  assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'the sheet closes with the tab');
+  assert.doesNotMatch(onStation(), /Tool mount/, 'the sheet closes with the tab');
   // Components for a refit, put aboard.
   const give = (id) => game(`for (const c of lab.status('${id}').cost) cargo.components[c.kind] = c.need`);
   // Take out the second salvaged laser (from the first mission) and sell it, freeing a hardpoint.
@@ -674,20 +674,20 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   game(`cargo.loyalty[industry.here.key] = 1; StationMenu.refresh()`);
   pressOnStation('Store all');
   pressOnStation(/^\+ New order/);
-  assert.match(onStation(), /New order.*Gear.*Pulse laser Mk II/, 'the blueprint\'s recipe is there');
+  assert.match(onStation(), /New order.*Gear.*Mining laser Mk II/, 'the blueprint\'s recipe is there');
   game(`StationMenu.closeSheet(); industry.place('make.pulse-laser-2', 1)`);
   game(`__T += Industry.runTime(industry.orders()[0], industry.env(), __T); StationMenu.tick()`);
-  assert.match(onStation(), /Done.*1 of 1 made.*Pulse laser Mk II1 in storage.*Storage/, 'made');
-  pressLabelled(/^Pulse laser Mk II, 1$/); // its tile in storage
+  assert.match(onStation(), /Done.*1 of 1 made.*Mining laser Mk II1 in storage.*Storage/, 'made');
+  pressLabelled(/^Mining laser Mk II, 1$/); // its tile in storage
   pressOnStation('Take');
   game(`industry.cancel(industry.orders()[0].id)`);
   assert.strictEqual(game(`cargo.gear['pulse-laser-2']`), 1, 'into the spare gear');
   // Fitted through the Ship tab: the empty hardpoint's sheet, Fit on the Mk II.
   const fp = game('SHIP.firepower');
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
-  assert.match(onStation(), /Open hardpoint/);
+  assert.match(onStation(), /Open mount/);
   pressOnStation('Fit');
-  assert.doesNotMatch(onStation(), /Weapon hardpoint/, 'fitted, and the sheet closed');
+  assert.doesNotMatch(onStation(), /Tool mount/, 'fitted, and the sheet closed');
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
   // A mod in the Mk II's slot: a spare one fitted from the slot's sheet, changing the ship.
   game(`cargo.mods['mod.extended-barrel'] = 1`);
@@ -969,14 +969,39 @@ test('mines an asteroid and collects what it leaves', () => {
   game('select(__rock)');
   browser.frames(1);
   assert.deepStrictEqual(game('describe(__rock).actions.map((a) => a.id)'), ['mine']);
+  // Mining is a fight against the rock: the tools lock on and wear it down.
   clickCard('mine');
-  assert.ok(game('mining.target === __rock'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
-  assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+ sec$/);
-  assert.ok(until('cargo.removed.has(__rock.key)', Math.ceil(game('mineTime()') * 60) + 30), 'the asteroid broke up');
+  assert.ok(game('extracting() && fight.ships.has(__rock.key)'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
+  browser.frames(120); // the lock, then some work
+  assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+%$/);
+  assert.ok(game('fight.s.enemies[0].hull < fight.s.enemies[0].stats.hull'), 'worn down');
+  assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a rock never fires back');
+  assert.ok(until('cargo.removed.has(__rock.key)', 60 * 30), 'the asteroid broke up');
+  assert.ok(!game('fight.s') && !game('extracting()'), 'and the session is over');
   const held = game('cargo.items.length');
   game(`{ const d = cargo.drops.find((e) => e.key === 'drop:' + __rock.key); placeShip(d.x, d.y); }`);
   browser.frames(2);
   assert.strictEqual(game('cargo.items.length'), held + 1, 'the drop was collected');
+});
+
+test('the ship bounces off an asteroid: a gentle bump does nothing, a hard one knocks the shields', () => {
+  game(`fight.grace = 1e9; cargo.hull = SHIP.hull; guard.shield = SHIP.shield; guard.quiet = Infinity;
+    globalThis.__rock = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key));
+    globalThis.__at = (gap, speed) => { placeShip(__rock.x - __rock.radius - SHIP.radius - gap, __rock.y, 0); Object.assign(ship, { vx: speed, vy: 0, targetSpeed: 0, targetAngle: 0 }); };`);
+  const apart = () => game('Math.hypot(ship.x - __rock.x, ship.y - __rock.y) - __rock.radius - SHIP.radius');
+  game('__at(20, 140)');
+  browser.frames(30);
+  assert.ok(apart() > -1, 'kept out of the rock');
+  assert.deepStrictEqual(game('[cargo.hull, guard.shield]'), game('[SHIP.hull, SHIP.shield]'), 'a gentle bump does nothing');
+  game('__at(40, SHIP.maxSpeed)');
+  browser.frames(10);
+  assert.ok(apart() > -1, 'kept out of the rock');
+  assert.ok(game('ship.vx') < 0, 'bounced back');
+  assert.ok(game('guard.shield < SHIP.shield'), 'the shields took the knock');
+  assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'all of it, at full speed with full shields');
+  // The shields come back after a few seconds clear.
+  browser.frames(60 * (game('SHIELD_DELAY') + 1) + game('Math.ceil(60 * SHIP.shield / SHIP.shieldRecharge)'));
+  assert.strictEqual(game('guard.shield'), game('SHIP.shield'), 'recharged');
 });
 
 test('collects a gas pocket in a nebula and picks up its gas', () => {
@@ -991,12 +1016,12 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   // The E shortcut collects it (no asteroid near enough to mine instead).
   game('select(null)');
   browser.key('e');
-  assert.ok(game('mining.target === __gas'), `collecting: ${game(`actions.state('collect', __gas).label`)}`);
+  assert.ok(game('extracting() && fight.ships.has(__gas.key)'), `siphoning: ${game(`actions.state('collect', __gas).label`)}`);
   game('select(__gas)');
-  browser.frames(1);
-  assert.match(game('describe(__gas).actions[0].label'), /^Collecting · \d+ sec$/);
-  assert.ok(until('cargo.removed.has(__gas.key)', Math.ceil(game('mineTime(__gas)') * 60) + 30), 'the pocket is used up');
-  assert.match(game('toast.text'), /^Gas pocket collected · \d × /);
+  browser.frames(30);
+  assert.match(game('describe(__gas).actions[0].label'), /^Siphoning · \d+%$/);
+  assert.ok(until('cargo.removed.has(__gas.key)', 60 * 30), 'the pocket is used up');
+  assert.match(game('toast.text'), /^Gas pocket used up · \d × /);
   assert.ok(game('!frameList.includes(__gas)'), 'and gone');
   const n = game('Mining.gasOf(world.galaxy.seed, __gas).length'), held = game('cargo.items.length');
   game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
@@ -1338,8 +1363,8 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
   // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.
   game(`cargo.gear['pulse-laser-2'] = 1; StationMenu.refresh(); StationMenu.toggleSlot('weapon-1')`);
-  assert.match(onStation(), new RegExp(`Weapon 1${name} · Weapon hardpoint`), 'the sheet is for the wingman');
-  assert.match(onStation(), /Fitted.*Pulse laserMk I.*Remove.*Options.*Pulse laserMk IISpare ×1/, 'what it has (your starting gear), then the spare gear');
+  assert.match(onStation(), new RegExp(`Tool 1${name} · Tool mount`), 'the sheet is for the wingman');
+  assert.match(onStation(), /Fitted.*Mining laserMk I.*Remove.*Options.*Mining laserMk IISpare ×1/, 'what it has (your starting gear), then the spare gear');
   const dps = game('Squad.stats(cargo.squad[0]).firepower');
   assert.ok(game(`outfitting.member('${id}').fit('weapon-1', 'pulse-laser-2')`));
   assert.ok(game('Squad.stats(cargo.squad[0]).firepower') > dps, 'it fires harder');
@@ -1347,7 +1372,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.deepStrictEqual(game(`[cargo.gear['pulse-laser-2'] || 0, cargo.gear['pulse-laser-1']]`), [0, 1], 'its Mk I to the spare gear');
   game(`StationMenu.closeSheet()`);
   pressOnStation(/^Spare gear · /); // folded until opened
-  assert.match(ship(), /Spare gear.*Pulse laserMk I.*Sell/, 'spare gear like any other');
+  assert.match(ship(), /Spare gear.*Mining laserMk I.*Sell/, 'spare gear like any other');
   assert.ok(game(`outfitting.member('${id}').unfit('shield') && cargo.squad[0].loadout.fitted.shield === null && Squad.stats(cargo.squad[0]).shield === 0`), 'a slot emptied');
   assert.ok(game(`outfitting.member('${id}').fit('shield', 'deflector-1') && outfitting.member('${id}').fit('weapon-1', 'pulse-laser-1')`), 'and its own gear back');
   // Android gear (from a save made before) fits squad ships only, and isn't sold.

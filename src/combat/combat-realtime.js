@@ -16,6 +16,10 @@
 // - Allies (squad members) fly the same way at the enemy their orders name, locking on and firing
 //   by the same rules; with no target they hold their place in formation (setOrders).
 // - Escape: stay clear of every enemy's guns for a few seconds.
+// - Passive targets (`passive` in their spec: rocks and gas pockets, game/combat.js extraction)
+//   don't move, lock on or fire. A weapon's `vs` factor for the target's `material` scales its
+//   damage (a tool that does nothing to it doesn't fire at it), and so does the firer's computer
+//   (miningRate). Leaving them is flying out past lock range.
 // - Abilities (rules/abilities.js) wear off on fight time (s.t); a ship an EMP has silenced holds fire.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
@@ -52,10 +56,13 @@ const RealtimeCombat = (() => {
   const { clamp, lerp, angleDiff, dist } = MathUtil;
 
   // A ship in a fight. stats: Loadout.stats(); body: { x, y, vx, vy, angle, radius } (radius
-  // defaults to the hull's); hull: current hull points (defaults to full).
-  function ship(id, name, stats, body = {}, hull = stats.hull) {
+  // defaults to the hull's); hull, shield: current points (default full). o.passive, o.material:
+  // a target that only takes damage (a rock), and what it's made of.
+  function ship(id, name, stats, body = {}, hull = stats.hull, o = {}) {
+    const c = combatant(id, name, stats, hull);
+    if (o.shield !== undefined && o.shield !== null) c.shield = Math.min(stats.shield, Math.max(0, o.shield));
     return {
-      ...combatant(id, name, stats, hull),
+      ...c, ...(o.passive ? { passive: true } : {}), ...(o.material ? { material: o.material } : {}),
       x: body.x || 0, y: body.y || 0, vx: body.vx || 0, vy: body.vy || 0, angle: body.angle || 0, thrust: 0,
       radius: body.radius || stats.radius,
       cool: stats.weapons.map(() => 0), // seconds until each weapon can fire again
@@ -111,7 +118,11 @@ const RealtimeCombat = (() => {
 
   // Whether a weapon can fire at a target: within range of its edge, and inside the arc (a
   // target's own size counts, so a big ship near the arc's edge can still be hit).
+  // A weapon's damage factor on a target, by what the target is made of (a ship, unless it says).
+  const factor = (w, t) => (w.vs ? w.vs[t.material || 'ship'] ?? 1 : 1);
+
   function canFire(a, w, t) {
+    if (!factor(w, t)) return false;
     const dx = t.x - a.x, dy = t.y - a.y, d = Math.hypot(dx, dy);
     if (d - t.radius > w.range) return false;
     if (w.arc >= 360) return true;
@@ -147,7 +158,7 @@ const RealtimeCombat = (() => {
       if (t.hull <= 0 || a.hull <= 0 || !canFire(a, w, t)) { a.cool[i] = 0; return; }
       while (a.cool[i] <= 0 && t.hull > 0) {
         const hit = s.rng() < hitChance(a, w, t);
-        const dmg = hit ? w.damage : 0;
+        const dmg = hit ? Math.round(w.damage * factor(w, t) * (t.passive ? a.stats.miningRate || 1 : 1) * 10) / 10 : 0;
         const d = damage(t, dmg);
         events.push({ type: 'shot', from: a.id, to: t.id, weapon: i, shots: 1, hits: hit ? 1 : 0, damage: dmg, ...d, destroyed: t.hull <= 0 });
         a.cool[i] += 1 / w.fireRate;
@@ -183,6 +194,7 @@ const RealtimeCombat = (() => {
       s.locked = false;
     }
     for (const e of alive(s)) {
+      if (e.passive) continue;
       const target = aimAt(s, e);
       e.lockT = dist(e, target) - target.radius <= e.stats.lockRange ? e.lockT + dt : 0;
     }
@@ -296,7 +308,7 @@ const RealtimeCombat = (() => {
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
     s.t += dt;
     for (const c of [p, ...allies(s), ...alive(s)]) Abilities.tick(c, s.t);
-    for (const e of alive(s)) steer(s, e, dt);
+    for (const e of alive(s)) if (!e.passive) steer(s, e, dt);
     for (const a of allies(s)) steerAlly(s, a, dt);
     updateFocus(s, events);
     updateLocks(s, dt, events);
@@ -309,7 +321,7 @@ const RealtimeCombat = (() => {
       else a.cool.forEach((c, i) => { a.cool[i] = Math.max(0, c - dt); });
     }
     for (const e of alive(s)) {
-      if (e.lockT < e.stats.lockTime) continue;
+      if (e.passive || e.lockT < e.stats.lockTime) continue;
       const t = aimAt(s, e);
       const before = events.length;
       fire(s, e, t, dt, events);
@@ -323,7 +335,7 @@ const RealtimeCombat = (() => {
     if (p.hull <= 0) s.over = 'lost';
     else if (!alive(s).length) s.over = 'won';
     else {
-      const clear = alive(s).every((e) => dist(e, p) - p.radius > Math.max(reach(e), config.escapeMin) + config.escapeMargin);
+      const clear = alive(s).every((e) => dist(e, p) - p.radius > (e.passive ? p.stats.lockRange : Math.max(reach(e), config.escapeMin)) + config.escapeMargin);
       s.away = clear ? s.away + dt : 0;
       if (s.away >= config.escapeTime) s.over = 'fled';
     }
@@ -344,7 +356,7 @@ const RealtimeCombat = (() => {
 
   // ---------- As a combat mode (combat/combat-core.js) ----------
 
-  const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull);
+  const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull, c);
   const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / s.player.stats.lockTime));
 
   // The panel's last two lines: what the guns are locking onto, shields going down, kills, and an
