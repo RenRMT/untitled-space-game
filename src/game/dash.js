@@ -1,7 +1,10 @@
 // The dash (flight/flight.js dash): a flick on the flight view (game/input.js), or Space, throws
 // the ship a short way at DASH.speed × its top speed, to slip past a vent, a storm pocket or a rock.
-// It costs fuel (Hazards.config.fuel.dash; more in the cold of the ice planet), comes back after
-// DASH.cooldown, and for its burst and a moment after, a collision or a storm pocket does no harm.
+// When the burst ends the ship flies on at the speed it had before, so a dash is a sidestep, not a
+// new course; a hit mid-dash ends it at once, the bounce kept (dashHit), so steering comes straight
+// back. It costs fuel (Hazards.config.fuel.dash; more in the cold of the ice planet), comes back
+// after DASH.cooldown, and for its burst and a moment after, a collision or a storm pocket does no
+// harm. It ticks once a frame, in space (game/update.js) and on a surface (game/loop.js).
 // In open flight (a mining session too) and on a surface; not docked, landing, jumping, in the
 // introduction, wrecked or in a fight with ships.
 // Part of the flight view; src/main.js starts it.
@@ -19,8 +22,9 @@ import { surfaceRun } from './surface-run.js';
 import { SHIP, TAU, autopilot, ctx, fight, intro, notify, ship } from './state.js';
 import { warp } from './warp.js';
 
-// t: seconds of the burst left; cool: seconds until the next.
-export const dashState = { t: 0, cool: 0 };
+// t: seconds of the burst left (below 0: since it ended); cool: seconds until the next; body: the
+// ship or surface craft dashing; v: its velocity before, to fly on with.
+export const dashState = { t: -1, cool: 0, body: null, v: null };
 export const DASH_SAFE = 0.15; // seconds after the burst that a hit still does no harm
 // A flick: a drag let go within `time` seconds of touching down, at least `min` CSS px long.
 export const FLICK = { time: 0.2, min: 28 };
@@ -45,8 +49,10 @@ export function tryDash(angle) {
   const cost = dashFuel();
   if (cargo.fuel < cost) { notify('Too little fuel to dash', 1.5, { tone: 'warn' }); return false; }
   cargo.fuel -= cost;
-  const surf = surfaceDash();
-  Flight.dash(surf ? landing.craft : ship, angle, SHIP.maxSpeed * (surf ? SURFACE_SPEED : 1));
+  const surf = surfaceDash(), body = surf ? landing.craft : ship;
+  dashState.body = body;
+  dashState.v = [body.vx, body.vy];
+  Flight.dash(body, angle, SHIP.maxSpeed * (surf ? SURFACE_SPEED : 1));
   dashState.t = Flight.DASH.time;
   dashState.cool = Flight.DASH.cooldown;
   autopilot.key = null; // a dash ends an approach
@@ -55,8 +61,22 @@ export function tryDash(angle) {
 }
 
 export function tickDash(dt) {
+  const was = dashing();
   dashState.t = Math.max(-1, dashState.t - dt);
   dashState.cool = Math.max(0, dashState.cool - dt);
+  if (was && !dashing() && dashState.body) { // the burst over: on at the speed it had
+    [dashState.body.vx, dashState.body.vy] = dashState.v;
+    dashState.body = null;
+  }
+}
+// The ship hit something mid-dash (game/collisions.js, game/landing.js fly): the dash ends, the
+// bounce kept but no faster than half its top speed (top), and it steers again at once.
+export function dashHit(top) {
+  if (!dashing()) return;
+  const b = dashState.body, v = b ? Math.hypot(b.vx, b.vy) : 0, cap = top * 0.5;
+  if (v > cap) { b.vx *= cap / v; b.vy *= cap / v; }
+  dashState.t = 0;
+  dashState.body = null;
 }
 
 // The cooldown, as a ring round the ship filling back up (in the ship's own frame: x, y its centre,

@@ -5,7 +5,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { endExtraction, extract, extracting, focusOn, foeMarkerAt } from './combat.js';
-import { FLICK, tryDash } from './dash.js';
+import { FLICK, canDash, tryDash } from './dash.js';
 import { actions } from './docking.js';
 import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
@@ -72,10 +72,12 @@ export function endDrag(e) {
   drag.active = false;
   held.clear();
   if (drag.long) return; // the long press did its action
-  // A flick (a short drag let go at once) dashes the way it went. Its own steering is undone, so
-  // the ship keeps the course it had; in Direct mode letting go stops it, as ever.
+  // A flick (a short drag let go at once) dashes the way it went, if it can (game/dash.js). Its own
+  // steering is undone either way, so the ship keeps the course it had; in Direct mode letting go
+  // stops it, as ever.
   const fx = e.clientX - drag.x0, fy = e.clientY - drag.y0;
-  if (e.type === 'pointerup' && seconds(e) - drag.t0 <= FLICK.time && Math.hypot(fx, fy) >= FLICK.min && tryDash(Math.atan2(fy, fx))) {
+  if (e.type === 'pointerup' && seconds(e) - drag.t0 <= FLICK.time && Math.hypot(fx, fy) >= FLICK.min && canDash()) {
+    tryDash(Math.atan2(fy, fx));
     ship.targetAngle = drag.course.angle;
     ship.targetSpeed = moveMode.value === 'direct' ? 0 : drag.course.speed;
     return;

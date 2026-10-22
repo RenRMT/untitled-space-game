@@ -7,7 +7,7 @@
 import { Collide } from '../flight/collide.js';
 import { Feedback } from '../core/feedback.js';
 import { hurtShip } from './combat.js';
-import { dashSafe } from './dash.js';
+import { dashHit, dashSafe } from './dash.js';
 import { frameList } from './selection.js';
 import { SHIP, fight, ship } from './state.js';
 
@@ -23,6 +23,7 @@ export function tickCollisions() {
     if (!k || e.shard || fight.dying.has(e.key)) continue; // shards (game/mining.js) are too small to stop the ship
     const speed = Collide.resolve(ship, SHIP.radius, { x: e.x, y: e.y, radius: e.radius * k });
     if (!speed) continue;
+    dashHit(SHIP.maxSpeed); // a hit ends a dash (game/dash.js)
     const knock = Collide.damage(speed);
     if (knock > 0 && !dashSafe()) hurtShip(knock, { x: (ship.x + e.x) / 2, y: (ship.y + e.y) / 2 });
     else if (speed > Collide.config.safe * 0.5) Feedback.emit('bump');
