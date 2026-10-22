@@ -2201,6 +2201,59 @@ test('the surface run: a gas giant\'s storm pocket burns the ship touching it, d
   game('cargo.surfaceDrops = {}');
 });
 
+// A drag on the flight view from screen px (600, 400), dx, dy long, let go ms after it touched down.
+function swipe(id, dx, dy, ms) {
+  const canvas = browser.document.getElementById('game'), at = { pointerId: id, pointerType: 'touch', button: 0 };
+  canvas.dispatch('pointerdown', { ...at, clientX: 600, clientY: 400, timeStamp: 1000 });
+  canvas.dispatch('pointermove', { ...at, clientX: 600 + dx, clientY: 400 + dy, timeStamp: 1000 + ms / 2 });
+  canvas.dispatch('pointerup', { ...at, clientX: 600 + dx, clientY: 400 + dy, timeStamp: 1000 + ms });
+}
+
+test('a flick dashes the way it went, for fuel, keeping the course; not again until it cools; a slow drag only steers', () => {
+  calmSky();
+  game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 4000, __st.y, 0);
+    cargo.fuel = SHIP.fuel; dashState.t = 0; dashState.cool = 0; select(null)`);
+  browser.frames(2);
+  const fuel = game('cargo.fuel');
+  swipe(21, 0, 60, 100); // a flick down the screen
+  assert.ok(game('dashing()'), 'dashing');
+  assert.ok(game('ship.vy') > game('SHIP.maxSpeed * 2'), `thrown down the screen: ${game('ship.vy')}`);
+  assert.ok(Math.abs(game('cargo.fuel') - (fuel - game('Hazards.config.fuel.dash'))) < 0.05, 'it cost fuel');
+  assert.strictEqual(game('ship.targetSpeed'), 0, 'the course it had (stopped) kept');
+  swipe(22, 60, 0, 100);
+  assert.ok(game('ship.vx') < game('SHIP.maxSpeed'), 'no second dash while it cools');
+  browser.frames(130);
+  assert.ok(!game('dashing()') && game('dashState.cool') === 0, 'cooled');
+  assert.ok(game('Math.hypot(ship.vx, ship.vy)') < game('SHIP.maxSpeed'), 'slowing after the burst');
+  swipe(23, 60, 0, 400); // held too long: a drag
+  assert.ok(game('dashState.cool') === 0, 'a slow drag does not dash');
+  assert.ok(game('ship.targetSpeed') > 0 && Math.abs(game('ship.targetAngle')) < 1e-9, 'it steers');
+  game('ship.targetSpeed = 0; cargo.fuel = 1; dashState.cool = 0');
+  swipe(24, 0, 60, 100);
+  assert.ok(!game('dashing()'), 'too little fuel: no dash');
+  game('cargo.fuel = SHIP.fuel');
+});
+
+test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pocket does no harm', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = 0; dashState.cool = 0`);
+  landOn('Zantal IV'); // the ice planet
+  game('Object.assign(landing.craft, { vx: 0, vy: 0 }); ship.targetSpeed = 0; while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1)');
+  const fuel = game('cargo.fuel');
+  swipe(25, 60, 0, 100);
+  assert.ok(game('dashing()'), 'dashing on the surface');
+  assert.ok(game('landing.craft.vx') > game('SHIP.maxSpeed * SURFACE_SPEED * 2'), 'thrown across the ground');
+  assert.ok(Math.abs(fuel - game('cargo.fuel') - 2 * game('Hazards.config.fuel.dash')) < 0.05, 'twice the fuel in the cold');
+  takeOffTo();
+  landOn('Zantal V');
+  game(`{ const W = surfaceRun.W, p = Object.values(W.props).filter((q) => q.type === 'tall').sort((a, b) => Math.hypot(a.x - landing.craft.x, a.y - landing.craft.y) - Math.hypot(b.x - landing.craft.x, b.y - landing.craft.y))[0];
+    Object.assign(landing.craft, { x: p.x + p.r + SHIP.radius * 0.85 + 4, y: p.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; dashState.t = 5; }`);
+  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
+  browser.frames(30);
+  assert.strictEqual(hp(), h0, 'no burn mid-dash');
+  game('dashState.t = 0; dashState.cool = 0');
+  takeOffTo();
+});
+
 test('nothing was drawn at a non-finite position', () => {
   assert.deepStrictEqual(browser.badDraws, []);
 });

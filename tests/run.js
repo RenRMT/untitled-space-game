@@ -1710,6 +1710,20 @@ test('flight: both movement modes turn and change speed by the engine\'s numbers
   assert(Math.abs(Math.atan2(c.vy, c.vx) - c.angle) > 0.1, 'cruise mode did not drift');
 });
 
+test('flight: a dash throws the ship the way it points, coasting, then it slows by the engine', () => {
+  const dt = 1 / 60, b = { x: 0, y: 0, vx: 0, vy: 0, angle: 0, thrust: 0 };
+  Flight.dash(b, Math.PI / 2, COURIER.maxSpeed);
+  assert(Math.abs(b.vy - COURIER.maxSpeed * Flight.DASH.speed) < 1e-9 && Math.abs(b.vx) < 1e-9 && b.angle === Math.PI / 2);
+  // Coasting: no steering, no slowing, whatever is set.
+  for (let i = 0; i < 6; i++) Flight.step(b, COURIER, { targetAngle: 0, targetSpeed: 0, mode: 'cruise', coast: true }, dt);
+  assert(Math.abs(speedOf(b) - COURIER.maxSpeed * Flight.DASH.speed) < 1e-9 && b.angle === Math.PI / 2, 'coasted');
+  assert(Math.abs(b.y - 0.1 * COURIER.maxSpeed * Flight.DASH.speed) < 1e-6, 'moved');
+  // After: slowing toward the set speed at the engine's acceleration.
+  const v0 = speedOf(b);
+  for (let i = 0; i < 30; i++) Flight.step(b, COURIER, { targetAngle: 0, targetSpeed: 0, mode: 'cruise' }, dt);
+  assert(Math.abs(v0 - speedOf(b) - COURIER.accel * 0.5) < 2, 'slowing by the engine');
+});
+
 // A duel set-up: the player at the origin facing +x, one enemy, fixed rolls.
 function duel(enemyStats, at, o = {}) {
   const me = RealtimeCombat.ship('player', 'Me', o.me || COURIER, { x: 0, y: 0, angle: o.angle || 0 });

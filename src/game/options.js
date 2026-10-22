@@ -109,7 +109,7 @@ export const reducedMotion = () => motion.value === 'reduce';
 // one long rattle.
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
-  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], dash: [8], hazard: [20, 60, 20],
 };
 const HIT_GAP = 0.15;
 let lastHit = 0;
@@ -130,8 +130,8 @@ export const ART_HINT = {
 
 // The controls, as the Controls section of Settings lists them (and the flight hints show them).
 export const CONTROLS = {
-  cruise: ['Drag to fly; drag length sets speed.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
-  direct: ['Hold and drag to fly; drag length sets speed.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
+  cruise: ['Drag to fly; drag length sets speed.', 'Flick to dash.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
+  direct: ['Hold and drag to fly; drag length sets speed.', 'Flick to dash.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.

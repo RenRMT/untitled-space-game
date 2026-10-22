@@ -190,6 +190,46 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   field bar. Mining sets its own `mining` mode instead of `in-combat`: the context menu and the map
   wait for it, but the settings and factions buttons stay.
 
+## The core loop rework (October 2026)
+
+A review of the loop against games built on the same push-your-luck idea (Dredge, Subnautica, Deep
+Rock Galactic, Dome Keeper, Lethal Company) found it had the parts but not the tension:
+- the Courier's hold fills on one landing, so the hold, not a hazard, ends every run;
+- what danger pays can be taken safely: the tools reach 650, a vent's heat 40;
+- being lost is free (the tow cools and decontaminates);
+- most hazards are meters to watch, not things to react to.
+
+The loop should work at three scales:
+- **moment:** dodge, and choose the node worth it;
+- **landing:** calm, then greed, then the danger closing in, then a heavy take-off;
+- **trip:** several landings between docks, all of the hold at stake ("one more, or home?").
+
+The steps, each playable on its own:
+1. **A dash** (done, below).
+2. **Fuel as what bold moves cost:** dashes, take-off and map travel, not plain thrust; refuelled
+   on docking.
+3. **Hazards on a rhythm, to dodge:** vents that erupt, storm pockets that drift and strike, dust
+   fronts that roll in, sunrise sweeping over the ground.
+4. **Greed:** rich nodes inside the hazards' reach, holding the rarer good; less per landing, so a
+   trip takes two or three.
+5. **Loss that stings but can be won back:** a tow fee, radiation kept until docking, caches that
+   lose some of what they hold.
+6. **Smoother heat cliffs, and goods of their own for the ice and gas worlds.**
+
+### Step 1, as built: the dash
+
+- **A flick** (`game/input.js`): a drag let go within 0.2 s, at least 28 px long, dashes the way it
+  went. The drag's own steering is undone: the ship keeps its course, and in Direct mode letting go
+  still stops it. Space dashes the way the ship points.
+- **The burst** (`flight/flight.js` `dash`, `DASH`): 2.5 × top speed (on a surface, of its surface
+  speed), coasting for 0.25 s, then slowing by the engine, so it's a sidestep. 2 s to come back,
+  drawn as a ring round the ship.
+- **Its cost** (`game/dash.js`, `Hazards.config.fuel.dash`): 2 fuel, × the site's fuel burn (twice
+  on the ice planet). Not docked, landing, jumping, wrecked, in the introduction or in a fight with
+  ships.
+- **Through harm:** for the burst and 0.15 s after (`dashSafe`), a collision bounces without harm,
+  and a storm pocket doesn't burn.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does

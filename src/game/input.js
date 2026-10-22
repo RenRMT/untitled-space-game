@@ -1,9 +1,11 @@
 // Touch and mouse input on the flight view: a drag sets the heading and its length the speed; a
+// quick flick dashes (game/dash.js); a
 // tap selects (or, in a fight, focuses fire; on a planet's surface, mines the deposit under it); a long press on something does what you'd most
 // likely do there (dock at a station, mine an asteroid, collect a gas pocket), flying there first.
 // Part of the flight view; src/main.js starts it.
 
 import { endExtraction, extract, extracting, focusOn, foeMarkerAt } from './combat.js';
+import { FLICK, tryDash } from './dash.js';
 import { actions } from './docking.js';
 import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
@@ -14,8 +16,9 @@ import { depositAt, mineDeposit } from './surface-run.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
-// held: seconds the finger has stayed put; long: a long press acted, so letting go does nothing more.
-export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0, held: 0, long: false };
+// held: seconds the finger has stayed put; long: a long press acted, so letting go does nothing more;
+// t0: when it touched down (s); course: the heading and speed set then, for a flick to keep.
+export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0, held: 0, long: false, t0: 0, course: null };
 export const LONG_PRESS = 0.5; // seconds
 
 // Each step (game/loop.js react): a finger held still on something for LONG_PRESS does its long
@@ -57,8 +60,9 @@ export const maxDrag = () => Math.min(view.w, view.h) * 0.3;
 // targets it; in real time the ship stops as it would outside a fight.
 export const DOUBLE_TAP = 0.4; // seconds between the taps of a double-tap
 let lastEmptyTap = -Infinity;
+const seconds = (e) => (e.timeStamp || performance.now()) / 1000;
 function emptyTapStops(e) {
-  const t = (e.timeStamp || performance.now()) / 1000;
+  const t = seconds(e);
   const double = t - lastEmptyTap <= DOUBLE_TAP;
   lastEmptyTap = double ? -Infinity : t;
   return double;
@@ -68,6 +72,14 @@ export function endDrag(e) {
   drag.active = false;
   held.clear();
   if (drag.long) return; // the long press did its action
+  // A flick (a short drag let go at once) dashes the way it went. Its own steering is undone, so
+  // the ship keeps the course it had; in Direct mode letting go stops it, as ever.
+  const fx = e.clientX - drag.x0, fy = e.clientY - drag.y0;
+  if (e.type === 'pointerup' && seconds(e) - drag.t0 <= FLICK.time && Math.hypot(fx, fy) >= FLICK.min && tryDash(Math.atan2(fy, fx))) {
+    ship.targetAngle = drag.course.angle;
+    ship.targetSpeed = moveMode.value === 'direct' ? 0 : drag.course.speed;
+    return;
+  }
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
   if (landing.on) { // on the surface (game/landing.js): a tap on a deposit mines it; nothing else to select
@@ -109,6 +121,7 @@ export function init() {
     Object.assign(drag, {
       active: true, id: e.pointerId,
       x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0, held: 0, long: false,
+      t0: seconds(e), course: { angle: ship.targetAngle, speed: ship.targetSpeed },
     });
     interacted = true;
   });
