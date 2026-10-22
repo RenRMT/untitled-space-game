@@ -28,6 +28,7 @@
 //     heat, rad: what comes in, per second; o: { thrust (0..1), blockers, nebula (the one there) };
 //     place.stations (if given) shelter their approaches
 //   Hazards.travelFuel(distance) -> fuel       map travel's cost
+//   config.fuel.dash: what a dash costs (game/dash.js; × the surface's fuelBurn: the cold)
 //
 // On a surface (game/landing.js, game/surface-run.js) each kind of body has its own hazard, and
 // something worth landing for (notes/hazards.md §4, §6):
@@ -85,7 +86,7 @@ const Hazards = (() => {
       ref: 10000, min: 0.4, max: 3, // its strength: by ref / distance from the star, kept in [min, max]
     },
     storm: { period: 150, length: 30, wind: 140 }, // ion storms: one per stretch per nebula, this long, pushing this hard (units/s²)
-    fuel: { burn: 0.5, travel: 2500 }, // per second at full thrust; map travel: one per this many units
+    fuel: { burn: 0.5, travel: 2500, dash: 2 }, // per second at full thrust; map travel: one per this many units; a dash
     surface: {
       day: { period: 240, length: 80 }, // a day on every surface: this long, this much of it in sunlight
       vent: 30, ventReach: 40, // heat per second right over a vent, fading out this far past its rim

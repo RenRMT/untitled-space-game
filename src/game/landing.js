@@ -43,6 +43,7 @@ import { Collide } from '../flight/collide.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { hurtShip, wreck } from './combat.js';
+import { dashSafe, dashing, drawDashRing } from './dash.js';
 import { actions, docked } from './docking.js';
 import { drawEventLog, drawStatus, minimapBox } from './hud.js';
 import { drag } from './input.js';
@@ -69,7 +70,8 @@ const SITE = 48, FRINGE = Math.ceil(3200 / ArtSurface.T), SIZE = SITE + 2 * FRIN
 // seen from closer than space is: the whole view (ship, ground and all) is zoomed in SURFACE_ZOOM
 // times, and its chunks are drawn at that resolution (up to 2 device px per world unit; 1.5 on
 // touch screens, which keep less in memory).
-const SURFACE_SPEED = 0.5, SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
+export const SURFACE_SPEED = 0.5; // the top speed on a surface, × the ship's (game/dash.js too)
+const SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
 const surfaceZoom = () => view.base * SURFACE_ZOOM;
 // The zoom: in space, until the planet is COVER times as wide as the screen's diagonal; then on the
 // surface, from DEPTH times further out than the landed view down to it. Each factor of e (2.7)
@@ -281,14 +283,14 @@ function fly(W, dt, climbing = false) {
   const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * 0.6 };
   const set = climbing || outOfFuel() ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
   const x0 = C.x, y0 = C.y, r = SHIP.radius * SURFACE_SCALE;
-  Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value }, dt);
+  Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value, coast: dashing() }, dt);
   if (climbing) return;
   const wind = surfaceWind(); // a dust storm carries the ship along, into the cliffs too
   if (wind) { C.x += wind[0] * dt; C.y += wind[1] * dt; }
   let hit = 0;
   if (ArtSurface.blocked(W, C.x, y0, r)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
   if (ArtSurface.blocked(W, C.x, C.y, r)) { C.y = y0; hit = Math.max(hit, Collide.bounce(C, 0, -Math.sign(C.vy))); }
-  const knock = Collide.damage(hit, Collide.config.surfaceSafe);
+  const knock = dashSafe() ? 0 : Collide.damage(hit, Collide.config.surfaceSafe); // mid-dash: a bounce, no harm
   if (knock > 0) {
     const d = hurtShip(knock);
     if (d.hullDamage > 0) notify(`Hit the ground · hull −${Math.round(d.hullDamage)}`, 2, { tone: 'warn' });
@@ -427,6 +429,7 @@ export function drawLanding(time) {
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = smoothstep(0.4, 0.6, g);
   ctx.translate(v.ox, v.oy - z * st);
+  if (L.phase === 'surface') drawDashRing(0, 0, SHIP.radius * SURFACE_SCALE * 1.9, 1.5); // the dash coming back (game/dash.js)
   ctx.scale(k, k);
   Art.drawAsset(ctx, ship.art, style, { angle: C.angle, t: time, thrust: C.thrust });
   ctx.restore();

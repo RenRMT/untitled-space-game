@@ -7,9 +7,15 @@
 //   engine's acceleration.
 // Either way the ship turns toward the set heading at its turn rate, and only while the set
 // speed is above zero.
+// - A dash (the player's flick, game/dash.js): a burst the way it points at DASH.speed × top
+//   speed; the ship coasts on it for DASH.time, then flies as before, slowing at the engine's
+//   acceleration, so it's a sidestep, not a new course.
 //
-//   Flight.step(body, stats, { targetAngle, targetSpeed, mode }, dt)
+//   Flight.step(body, stats, { targetAngle, targetSpeed, mode, coast }, dt)
 //   body: { x, y, vx, vy, angle, thrust } (thrust 0..1, for the engine flame), updated in place.
+//   coast: mid-dash, the body only moves (no steering).
+//   Flight.dash(body, angle, topSpeed)   starts a dash
+//   Flight.DASH                          { speed (× top speed), time (s), cooldown (s) }
 // ES module (`Flight`); also runs in Node (the tests).
 
 import { MathUtil } from '../core/math.js';
@@ -25,8 +31,22 @@ const Flight = (() => {
   // Change v toward target by at most by.
   const approach = (v, target, by) => (v < target ? Math.min(target, v + by) : Math.max(target, v - by));
 
+  const DASH = { speed: 2.5, time: 0.25, cooldown: 2 };
+  function dash(body, angle, topSpeed) {
+    const v = topSpeed * DASH.speed;
+    body.vx = Math.cos(angle) * v;
+    body.vy = Math.sin(angle) * v;
+    body.angle = angle;
+    body.thrust = 1;
+  }
+
   function step(body, stats, control, dt) {
-    const { targetAngle, targetSpeed, mode = 'cruise' } = control;
+    const { targetAngle, targetSpeed, mode = 'cruise', coast = false } = control;
+    if (coast) {
+      body.x += body.vx * dt;
+      body.y += body.vy * dt;
+      return;
+    }
     const moving = targetSpeed > 0;
     if (moving) body.angle = turnToward(body.angle, targetAngle, stats.turnRate * dt);
     const hx = Math.cos(body.angle), hy = Math.sin(body.angle);
@@ -54,7 +74,7 @@ const Flight = (() => {
     body.y += body.vy * dt;
   }
 
-  return { step, turnToward };
+  return { step, turnToward, dash, DASH };
 })();
 
 export { Flight };

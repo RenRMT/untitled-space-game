@@ -34,6 +34,7 @@ import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight
 import { hazard, meterWarnings, outOfFuel } from './hazards.js';
 import { landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
+import { dashSafe } from './dash.js';
 import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
 import { world } from './world.js';
@@ -169,7 +170,7 @@ export function tickSurface(dt) {
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
   if (!outOfFuel()) cargo.fuel = Math.max(0, cargo.fuel - H.fuel.burn * site.fuelBurn * C.thrust * dt);
-  if (inPocket(C)) {
+  if (inPocket(C) && !dashSafe()) { // dashing through one does no harm (game/dash.js)
     surfaceRun.burn += H.surface.pocket * dt;
     once('pocket', 'Storm pocket · it burns the hull: keep clear', 'hostile');
     if (surfaceRun.burn >= 1) { const n = Math.floor(surfaceRun.burn); surfaceRun.burn -= n; hurtShip(n); }

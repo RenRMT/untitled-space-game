@@ -9,6 +9,7 @@ import { Goods } from '../rules/goods.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS } from './selection.js';
+import { drawDashRing } from './dash.js';
 import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
 import { warpShipScale } from './warp.js';
@@ -112,6 +113,7 @@ export function drawShip(t) {
   if (k !== 1) ctx.scale(k, k);
   Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
   ctx.restore();
+  drawDashRing(rx(ship.x), ry(ship.y), SHIP.radius * 1.9, 1.5 / view.zoom); // the dash coming back (game/dash.js)
 }
 
 export function drawParticles() {
