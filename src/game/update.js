@@ -14,6 +14,7 @@ import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js
 import { steady } from './input.js';
 import { tickIndustry } from './industry.js';
 import { tickLab } from './lab.js';
+import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
@@ -66,6 +67,7 @@ export function update(dt) {
       p.y += p.vy * dt;
     }
   }
+  tickMining(dt); // shards crumbling, the tools picking their next rock (game/mining.js)
   tickFight(dt);
   tickShield(dt);
   tickWings(dt);

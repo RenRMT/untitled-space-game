@@ -150,7 +150,7 @@ const Entities = (() => {
       mark: () => null, // too many to show
       card(e) {
         const pal = Art.ASTEROIDS[e.ast.type] || Art.ASTEROIDS.stony;
-        return { title: `${pal.label} asteroid`, sub: asteroidSize(e.radius), color: pal.line };
+        return { title: `${pal.label} ${e.shard ? 'shard' : 'asteroid'}`, sub: asteroidSize(e.radius), color: pal.line };
       },
     },
     // A gas pocket in a nebula (flight/scene.js): collected like an asteroid is mined (game/mining.js).

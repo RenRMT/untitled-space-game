@@ -8,27 +8,39 @@ import { Feedback } from '../core/feedback.js';
 import { COLORS } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Mining } from '../rules/mining.js';
-import { cargo, dropEntity, saveCargo } from './cargo.js';
-import { endExtraction, extract, extracting } from './combat.js';
+import { Entities } from '../flight/entities.js';
+import { cargo, dropEntity, hold, saveCargo } from './cargo.js';
+import { endExtraction, extract, extracting, focusOn, joinRock, pilot } from './combat.js';
 import { actions } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { missionCollected } from './missions.js';
+import { frameList } from './selection.js';
 import { depositBroken } from './surface-run.js';
-import { SHIP, TAU, ctx, debris, fight, notify } from './state.js';
+import { SHIP, TAU, ctx, debris, fight, notify, ship } from './state.js';
 import { world } from './world.js';
 
 //
 // Gas pockets in nebulae are worked the same way (Siphon), and leave gas floating to pick up.
+// Mining is active (notes/hazards.md phase 4): once a session is under way the tools pick their own
+// next rock (autoMine), and a big asteroid breaks into shards to chain through.
 
 export const MINE_COLOR = COLORS.busy;
 
 export const isGas = (e) => e.kind === 'gas';
+
+// A big asteroid's shards (Mining.shards): small asteroids where it broke, quick to mine and not
+// saved; they crumble away after SHARD_LIFE seconds (left alone that long).
+export const shards = [];
+const SHARD_LIFE = 120;
+// How far past a tool's range a rock can be and still be picked next (the ship closes on it).
+const REACH = 120;
 export const mineVerb = (e) => (isGas(e) ? ['Siphon', 'Siphoning'] : ['Mine', 'Mining']);
 
 // Mining ends where the ship is moved by a teleport (game/outfitting.js placeShip). Must not touch
 // anything declared below: placeShip runs it while the system first loads.
 export function stopMining() {
   if (fight.s && fight.extract) endExtraction();
+  shards.length = 0;
 }
 
 // While a rock is being worked (game/combat.js extract), its button shows how far along it is.
@@ -67,6 +79,7 @@ export function chips(a, n, speed) {
 // what it held floats free to collect. A deposit on a surface: game/surface-run.js.
 export function rockBroken(a) {
   if (a.surface) { depositBroken(a); return; }
+  if (a.shard) { shardBroken(a); return; }
   cargo.removed.add(a.key);
   chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
   if (isGas(a)) { // the pocket used up: its gas floats free, a canister per unit
@@ -83,6 +96,7 @@ export function rockBroken(a) {
     return;
   }
   missionCollected('mine', a);
+  spawnShards(a);
   const found = Mining.yieldOf(world.galaxy.seed, a);
   if (found) {
     const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
@@ -94,6 +108,80 @@ export function rockBroken(a) {
     Feedback.emit('mined');
   }
   saveCargo();
+}
+
+// ---------- Shards ----------
+
+// The shards a broken asteroid leaves, round where it was.
+function spawnShards(a) {
+  for (const sh of Mining.shards(world.galaxy.seed, a)) {
+    const d = a.radius * 0.5 + sh.d;
+    const e = Entities.asteroid({ key: `${a.key}:s${sh.i}`, type: a.ast.type, r: sh.r, seed: sh.seed, spin0: sh.a, tumble: (sh.i % 2 ? 0.6 : -0.6), x: a.x + Math.cos(sh.a) * d, y: a.y + Math.sin(sh.a) * d });
+    shards.push(Object.assign(e, { shard: true, parent: { key: a.key, ast: a.ast }, i: sh.i, life: SHARD_LIFE }));
+  }
+}
+// A shard broken: gone, and now and then a drop of its asteroid's kind.
+function shardBroken(a) {
+  const k = shards.indexOf(a);
+  if (k >= 0) shards.splice(k, 1);
+  chips(a, 8, 100);
+  Feedback.emit('mined');
+  const found = Mining.shardYield(world.galaxy.seed, a.parent, a.i);
+  if (!found) return;
+  const e = dropEntity({ key: `drop:${a.key}`, kind: found.kind, seed: found.seed, x: a.x, y: a.y });
+  cargo.drops.push(e);
+  notify(`Shard broken · ${e.label} found`, 2);
+  saveCargo();
+}
+
+// ---------- The tools on their own ----------
+
+// The tools that work a rock's material, and how far the furthest of them reaches.
+function toolsFor(c) {
+  const mat = Mining.material(c);
+  return SHIP.weapons.filter((w) => (w.vs ? w.vs[mat] ?? 1 : 1) > 0);
+}
+const toolRange = (c) => Math.max(0, ...toolsFor(c).map((w) => w.range));
+// How good a next target a rock is (lower is better): its distance, doubled when it isn't ahead of a
+// tool that works it; Infinity further than `reach` (by default as far as the tools reach, and a little).
+function rank(P, c, reach = toolRange(c) + REACH) {
+  const tools = toolsFor(c), d = Math.hypot(c.x - P.x, c.y - P.y);
+  if (!tools.length || d - c.radius > reach) return Infinity;
+  const off = Math.abs(Math.atan2(Math.sin(Math.atan2(c.y - P.y, c.x - P.x) - P.angle), Math.cos(Math.atan2(c.y - P.y, c.x - P.x) - P.angle)));
+  const ahead = tools.some((w) => w.arc >= 360 || off <= (w.arc * Math.PI) / 360 + Math.atan2(c.radius, Math.max(d, 1)));
+  return ahead ? d : d * 2;
+}
+
+// While mining (start: or with no session yet, on a surface), keep the tools busy: when the target is
+// gone, or one they picked has fallen out of their range, the best rock in `list` within `reach` is
+// next; and one more stays joined, so the session carries on when this one breaks. A target picked
+// by hand is kept. Not with the hold full.
+export function autoMine(list, start = false, reach = undefined) {
+  const s = fight.s;
+  if (hold.free < 1 || fight.wreckT > 0 || (s ? !fight.extract : !start)) return;
+  const P = pilot();
+  const ranked = list.filter((c) => !fight.dying.has(c.key) && !cargo.removed.has(c.key)).map((c) => [c, rank(P, c, reach)]).filter(([, v]) => v < Infinity).sort((a, b) => a[1] - b[1]).map(([c]) => c);
+  if (!s) { if (ranked[0]) extract(ranked[0]); return; }
+  const live = s.enemies.filter((e) => e.hull > 0), focus = live.find((e) => e.id === s.focus);
+  if (!focus || (!s.manual && rank(P, focus, toolRange(focus)) === Infinity)) {
+    const next = ranked[0];
+    if (next) { joinRock(next); focusOn(next.key, false); }
+  }
+  if (live.length < 2) {
+    const spare = ranked.find((c) => c.key !== s.focus && !fight.ships.has(c.key));
+    if (spare) joinRock(spare);
+  }
+}
+
+// Each step in space: shards crumble away in time (not while being worked), and the tools chain on.
+export function tickMining(dt) {
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const e = shards[i];
+    if (fight.ships.has(e.key)) continue;
+    e.life -= dt;
+    if (e.life <= 0) shards.splice(i, 1);
+  }
+  if (extracting() && pilot() === ship) autoMine(frameList.filter((e) => e.kind === 'asteroid' || e.kind === 'gas'));
 }
 
 export function drawDebris() {

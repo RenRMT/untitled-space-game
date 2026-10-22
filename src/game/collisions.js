@@ -19,7 +19,7 @@ export function tickCollisions() {
   if (fight.wrecked) return;
   for (const e of frameList) {
     const k = SOLID[e.kind];
-    if (!k || fight.dying.has(e.key)) continue;
+    if (!k || e.shard || fight.dying.has(e.key)) continue; // shards (game/mining.js) are too small to stop the ship
     const speed = Collide.resolve(ship, SHIP.radius, { x: e.x, y: e.y, radius: e.radius * k });
     if (!speed) continue;
     const knock = Collide.damage(speed);

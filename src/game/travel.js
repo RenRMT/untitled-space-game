@@ -9,6 +9,7 @@ import { SolarSystem } from '../world/solar-system.js';
 import { cargo } from './cargo.js';
 import { outOfFuel } from './hazards.js';
 import { landing } from './landing.js';
+import { shards } from './mining.js';
 import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
 import { NEAR, cam, fight, intro, notify, ship, wings } from './state.js';
@@ -90,6 +91,12 @@ export function nearbyEntities(t) {
   }
   // The squad's ships fly with yours.
   if (!intro.on) for (const w of wings.values()) if (!w.member.disabled) out.push(w);
+  // A broken asteroid's shards (game/mining.js), outside the generated scene too.
+  for (const e of shards) {
+    if (Math.abs(e.x - cam.x) > NEAR || Math.abs(e.y - cam.y) > NEAR) continue;
+    Scene.pose(e, t);
+    out.push(e);
+  }
   // Floating items left by mining, combat or a lost ship live outside the generated scene.
   for (const e of cargo.drops) {
     if (Math.abs(e.x - cam.x) > NEAR || Math.abs(e.y - cam.y) > NEAR) continue;

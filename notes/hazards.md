@@ -123,6 +123,39 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   the dust, and HUD lines for sunrise or the day side, a storm, the take-off fuel and deposits left.
 - Drones stay in orbit for now.
 
+## Phase 4, as built
+
+- **Many small nodes** (`rules/mining.js` `deposits`): 18 × the site's `rich` (`rules/hazards.js`
+  `surface`: Terran 1, ice 1.25, desert, gas giants and moons 1.5, a giant's moon and lava 2), radius
+  8–13, 70 apart, 160 clear of the landing spot. A node's integrity is 1.3 per unit of radius with no
+  floor (10–17), about a second's work for the starting laser.
+- **A fresh field on every landing:** the field is seeded by the body and a number picked on landing
+  (`surfaceRun.field`; `nextField` sets it for the tests). `cargo.mined` is gone (save migration 18).
+- **Risk pays:** nodes gather by the lava's vents and the gas giants' storm pockets (fully within 30
+  units of the rim, none past 110, else 40% of the picks are kept), and those within half that are
+  rich (+1 unit, a pulsing halo). On a world whose day is hot, a node broken on the day side gives +1
+  (the HUD says `YIELD +1`). A node otherwise leaves 1 unit. The scan line and the HUD show the yield
+  (×`rich`), and the HUD the hold.
+- **The tools on their own** (`game/mining.js` `autoMine`): when the target is gone, or one they
+  picked is out of their range, the best rock in reach is next (its distance, doubled if it isn't in
+  a working tool's arc), and one more stays joined, so a session runs on when a rock breaks
+  (`game/combat.js` `joinRock`; `focusOn(id, false)` picks without making it manual). A rock picked
+  by hand is kept. Nothing is picked with the hold full.
+  - On a surface it runs whenever landed, picking nodes within 240 units, so the ship flies from
+    cluster to cluster. E and a tap still work.
+  - In space it runs only inside a session started with Mine or Siphon, over the asteroids and gas
+    pockets posed nearby (tools' range + 120), so a session chains on through a field until the ship
+    flies off.
+- **Quicker locks:** the player locks onto a rock in a quarter of its computer's lock time
+  (`RealtimeCombat.config.rockLock`, `lockTime(s)`).
+- **Shards** (`Mining.shards`, `shardYield`; `game/mining.js` `shards`): an asteroid of radius 18 or
+  more breaks into 3–6 shards (radius 5–9) 30–70 units out from its edge. They're asteroids with
+  `shard: true`: not saved, not solid, crumbling after 120 s left alone, with a drop at 0.6 × the
+  asteroid's chance. Rock integrity is down from 6 to 4 per unit of radius.
+- **Magnet pickup on surfaces:** what lies within 120 units is pulled to the ship at its speed + 260
+  a second while the hold has room, and picked up within 30.
+- **Faster on the ground:** the surface top speed is up from 0.4 to 0.5 of the ship's.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -374,7 +407,7 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 3. **Surface run.** *(done: see Phase 3, as built)* Deposits as targets, the surface clock, biome
    hazards (lava, moons, desert first), takeoff fuel, surface caches, the scan before landing. 3–4
    new raw goods with recipes.
-4. **Active mining.** Many small surface nodes, a fresh field each landing, richer by hazard (the
+4. **Active mining.** *(done: see Phase 4, as built)* Many small surface nodes, a fresh field each landing, richer by hazard (the
    site, near vents and pockets, the day side); tools that target on their own; magnet pickup on
    surfaces; quicker locks on rocks; asteroids that break into shards, chained through.
 5. **Gear and consumables for hazards.** Siphon line, radiator, shielding, tank and cargo pod; field
