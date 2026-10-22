@@ -40,6 +40,11 @@
 //   and push the ship about; moons: steady radiation (more round a giant); ice: the cold makes the
 //   dashes cost twice the fuel; gas giants: the storm pockets burn the ship that touches one;
 // - taking off costs fuel, by the body's gravity and how full the hold is.
+// Two of them come in bursts, to see coming and get out of (or dash through, game/dash.js):
+// - the lava's vents erupt, each on its own rhythm: a warning glow, then for a moment heat and a
+//   blast that hurts the hull across `reach` past the rim;
+// - lightning strikes round the gas giants' storm pockets: a ring marks the spot, then the bolt,
+//   which hurts the hull of a ship inside the ring. Each strike lands somewhere new.
 //
 //   Hazards.surface(kind, type, seed, parentType?) -> site   kind: 'planet' | 'moon'; a moon's
 //     parentType: its planet's type. site: { id, label, tag (the hazard in a word or two), hazard, gravity, heat, day, rad, fuelBurn,
@@ -51,6 +56,11 @@
 //   Hazards.surfaceExposure(site, t, o?) -> { heat, rad, day, dust }   per second; o: { thrust (0..1),
 //     vent (0..1: how close over a vent) }
 //   Hazards.takeoffFuel(gravity, holdFill) -> fuel   holdFill: 0 (empty) .. 1 (full)
+//   Hazards.pulse(seed, t, P) -> { phase: 'calm' | 'warning' | 'on', in, left, n }   a hazard's own
+//     rhythm (P: config.surface.erupt or strike; seed: an integer, the vent's or pocket's): in, the
+//     seconds until it's on (0 while on); left, the seconds of it left; n, which burst this is
+//   Hazards.eruption(vent, t) -> pulse   vent: { seed }
+//   Hazards.strike(pocket, t) -> pulse + { at: [x, y] }   pocket: { x, y, r, seed }; where it lands
 //
 // What a ship's utility gear (rules/loadout.js stats: cool, radGuard) does to that, in space and on
 // a surface alike:
@@ -90,7 +100,13 @@ const Hazards = (() => {
     fuel: { travel: 2500, dash: 2 }, // map travel: one per this many units; a dash (× a surface's fuelBurn)
     surface: {
       day: { period: 240, length: 80 }, // a day on every surface: this long, this much of it in sunlight
-      vent: 30, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
+      vent: 12, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
+      // a vent erupting: every period (s, seeded per vent in this range), a warning, then `length`
+      // of heat and hull damage (per second) to a ship within `reach` past its rim
+      erupt: { period: [6, 10], warn: 1.5, length: 1.2, reach: 55, heat: 40, hull: 25 },
+      // lightning round a storm pocket: every period, a ring of radius r marks a spot from..to past
+      // the pocket's rim; after `warn` the bolt (`length` s), `hull` damage to a ship inside the ring
+      strike: { period: [4, 7], warn: 1.2, length: 0.3, r: 45, from: 25, to: 120, hull: 30 },
       dust: { period: 100, length: 25, wind: 60 }, // dust storms on the desert: the ship drifts with the wind at this (surface units/s)
       pocket: 12, pocketReach: 12, // hull per second touching a gas giant's storm pocket (within this of it)
       takeoff: { base: 3, hold: 7 }, // fuel to take off: (base + hold × how full the hold is) × gravity
@@ -102,11 +118,11 @@ const Hazards = (() => {
   // so heat below that never builds. Moons by their type; a giant's moons are twice as radioactive.
   const body = (o) => ({ heat: 0, day: 0, rad: 0, gravity: 1, fuelBurn: 1, dust: false, vents: false, pockets: false, material: 'rock', rich: 1, ...o });
   const SURFACES = {
-    lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; hot vents', heat: 7, day: 14, gravity: 0.9, vents: true, rich: 2, deposits: [['tungsten', 3], ['iron', 1]] }),
+    lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; vents that erupt', heat: 7, day: 14, gravity: 0.9, vents: true, rich: 2, deposits: [['tungsten', 3], ['iron', 1]] }),
     desert: body({ label: 'Desert planet', tag: 'Dust storms', hazard: 'Dust storms; hot by day', heat: 3, day: 12, gravity: 0.8, dust: true, rich: 1.5, deposits: [['rare-earths', 3], ['silicates', 1]] }),
     terran: body({ label: 'Terran planet', tag: 'Mild', hazard: 'Mild', day: 4, deposits: [['iron', 1], ['silicates', 1]] }),
     ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: dashes cost twice the fuel', day: 3, gravity: 0.7, fuelBurn: 2, rich: 1.25, deposits: [['deuterium', 1]] }),
-    gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull', day: 5, gravity: 1.6, pockets: true, material: 'gas', rich: 1.5, deposits: [['deuterium', 1]] }),
+    gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull; lightning strikes round them', day: 5, gravity: 1.6, pockets: true, material: 'gas', rich: 1.5, deposits: [['deuterium', 1]] }),
     moon: body({ label: 'Moon', tag: 'Radiation', hazard: 'Radiation; hot by day', day: 10, rad: 0.8, gravity: 0.3, rich: 1.5 }),
   };
   const MOON_DEPOSITS = {
@@ -241,10 +257,26 @@ const Hazards = (() => {
     return Math.round((T.base + T.hold * clamp(holdFill, 0, 1)) * gravity * 10) / 10;
   };
 
+  // A hazard's rhythm: its period and its moment in it, seeded; on for the last `length` of each
+  // period, warning for `warn` before that.
+  const frac = (seed, k) => hashInt(seed | 0, k, 0x9a15e) / 4294967296;
+  function pulse(seed, t, P) {
+    const period = P.period[0] + (P.period[1] - P.period[0]) * frac(seed, 1), u = t + frac(seed, 2) * period;
+    const n = Math.floor(u / period), at = u - n * period, on = period - P.length;
+    if (at >= on) return { phase: 'on', in: 0, left: period - at, n };
+    return { phase: at >= on - P.warn ? 'warning' : 'calm', in: on - at, left: 0, n };
+  }
+  const eruption = (vent, t) => pulse(vent.seed, t, config.surface.erupt);
+  function strike(pocket, t) {
+    const S = config.surface.strike, p = pulse(pocket.seed, t, S);
+    const a = frac(pocket.seed + p.n * 7919, 3) * Math.PI * 2, d = pocket.r + S.from + frac(pocket.seed + p.n * 7919, 4) * (S.to - S.from);
+    return { ...p, at: [pocket.x + Math.cos(a) * d, pocket.y + Math.sin(a) * d] };
+  }
+
   const shed = (stats = {}) => config.heat.cool + (stats.cool || 0);
   const radTaken = (rate, stats = {}) => rate * (1 - clamp(stats.radGuard || 0, 0, 1));
 
-  return { shed, radTaken, config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel };
+  return { shed, radTaken, config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel, pulse, eruption, strike };
 })();
 
 export { Hazards };

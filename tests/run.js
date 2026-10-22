@@ -1968,6 +1968,30 @@ test('hazards: ion storms in a nebula push the ship, and fuel: dashes, take-offs
   assert(Hazards.travelFuel(2 * 40000) < courier.fuel / 2, 'crossing the system by map travel takes less than half a tank');
 });
 
+test('surface bursts: vents erupt and lightning strikes on their own seeded rhythms, a warning first', () => {
+  const E = Hazards.config.surface.erupt, S = Hazards.config.surface.strike, dt = 0.05, T = 300;
+  for (const seed of [1, 2, 77, 12345]) {
+    let on = 0, starts = 0, last = null;
+    for (let t = 0; t < T; t += dt) {
+      const p = Hazards.eruption({ seed }, t);
+      if (p.phase === 'on') on += dt;
+      if (p.phase === 'on' && last && last !== 'on') { starts++; assert.strictEqual(last, 'warning', 'a warning comes first'); }
+      last = p.phase;
+    }
+    assert(starts >= T / E.period[1] - 2 && starts <= T / E.period[0] + 1, `${starts} eruptions in ${T} s`);
+    assert(Math.abs(on / (starts + 1) - E.length) < 0.2, 'each lasts its length');
+  }
+  assert.notDeepStrictEqual(Hazards.eruption({ seed: 1 }, 50), Hazards.eruption({ seed: 2 }, 50), 'each vent its own rhythm');
+  const pocket = { x: 100, y: -50, r: 30, seed: 9 }, spots = new Set();
+  for (let t = 0; t < 120; t += 0.5) {
+    const st = Hazards.strike(pocket, t), d = Math.hypot(st.at[0] - 100, st.at[1] + 50) - 30;
+    assert(d >= S.from - 1e-6 && d <= S.to + 1e-6, `${d} past the rim`);
+    spots.add(st.at.map(Math.round).join(','));
+  }
+  assert(spots.size > 8, 'each strike lands somewhere new');
+  assert.deepStrictEqual(Hazards.strike(pocket, 42), Hazards.strike(pocket, 42), 'the same moment, the same strike');
+});
+
 test('surfaces: each body has its hazard and goods; the day comes round, hot on lava, desert and moons', () => {
   const H = Hazards.config, cool = H.heat.cool;
   const lava = Hazards.surface('planet', 'lava', 5), desert = Hazards.surface('planet', 'desert', 5), terran = Hazards.surface('planet', 'terran', 5);

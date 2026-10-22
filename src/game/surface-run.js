@@ -24,6 +24,7 @@
 import { SurfaceGlobe } from '../art/surface-globe.js';
 import { ArtSurface } from '../art/surface.js';
 import { Feedback } from '../core/feedback.js';
+import { hashInt, seedToInt } from '../core/rng.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Goods } from '../rules/goods.js';
@@ -43,8 +44,12 @@ import { world } from './world.js';
 // landing's (its nodes seeded by it); deposits: those not yet worked out, as extraction targets; exp:
 // the last step's exposure; burn: storm-pocket
 // damage still to take (whole points at a time); left: drops not to pick up again until the ship has
-// moved off them (just jettisoned); said: notices given this landing.
-export const surfaceRun = { e: null, W: null, site: null, field: 0, deposits: [], exp: null, burn: 0, left: new Set(), said: new Set() };
+// moved off them (just jettisoned); said: notices given this landing; vents, pockets: the lava's
+// vents and the gas giants' storm pockets ({ x, y, r, seed }: Hazards.eruption, strike); blast: a
+// vent's damage still to take; struck: each pocket's last strike (by index) already resolved; bolts:
+// lightning just struck ({ x, y, t }), to draw; warn: a burst coming where the ship is ('vent' |
+// 'strike' | null).
+export const surfaceRun = { e: null, W: null, site: null, field: 0, deposits: [], exp: null, burn: 0, left: new Set(), said: new Set(), vents: [], pockets: [], blast: 0, struck: new Map(), bolts: [], warn: null };
 const PICKUP = 30; // surface units between the ship and something lying there to pick it up
 const PULL = { range: 120, speed: 260 }; // what lies this close is pulled in, this much faster than the ship flies
 const DEPOSIT_RANGE = 260; // E locks the nearest deposit within this of the ship's lock range
@@ -100,8 +105,15 @@ export function enterSurface(e, W) {
   const ok = (x, y, r) => ArtSurface.siteDist(W, x, y) < -T && ArtSurface.open(W, x, y, r + 10);
   const near = site.vents || site.pockets ? (x, y) => hazardNear(W, site, x, y) : undefined;
   const found = Mining.deposits(e.body.seed, site, { x0: (i0 + 1) * T, y0: (j0 + 1) * T, x1: (i1 - 1) * T, y1: (j1 - 1) * T, start: W.start, ok, near, field });
+  // The vents and storm pockets, each with its own rhythm (seeded by the body and where it is); a
+  // strike already on as the ship lands doesn't hit it.
+  const s0 = seedToInt(e.body.seed), props = site.vents || site.pockets ? ArtSurface.propsAll(W) : [];
+  const seeded = (p) => ({ ...p, seed: hashInt(Math.round(p.x), Math.round(p.y), s0) });
+  const vents = site.vents ? props.filter((p) => p.type === 'hole' && p.emit).map(seeded) : [];
+  const pockets = site.pockets ? props.filter((p) => p.type === 'tall').map(seeded) : [];
+  const struck = new Map(pockets.map((p, k) => { const st = Hazards.strike(p, simTime); return [k, st.phase === 'on' ? st.n : st.n - 1]; }));
   Object.assign(surfaceRun, {
-    e, W, site, field, exp: null, burn: 0, left: new Set(), said: new Set(),
+    e, W, site, field, exp: null, burn: 0, left: new Set(), said: new Set(), vents, pockets, blast: 0, struck, bolts: [], warn: null,
     deposits: found.map((d) => ({
       kind: 'deposit', surface: true, key: `${e.key}:deposit:${field}:${d.i}`, i: d.i, x: d.x, y: d.y, radius: d.r, material: d.material, rich: d.rich,
       good: d.kind, name: `${d.rich ? 'Rich ' : ''}${goodName(d.kind)} ${d.material === 'gas' ? 'pocket' : 'node'}`, color: goodColor(d.kind), edge: goodColor(d.kind, 0.78),
@@ -175,6 +187,7 @@ export function tickSurface(dt) {
     if (surfaceRun.burn >= 1) { const n = Math.floor(surfaceRun.burn); surfaceRun.burn -= n; hurtShip(n); }
     if (!surfaceRun.e) return; // the hull gave out: lost here (lostOnSurface)
   } else surfaceRun.burn = 0;
+  if (!tickBursts(C, dt)) return; // the hull gave out: lost here
   // Notices: the sun coming up, a dust storm, a vent.
   const d = exp.day;
   if (hotDay(site)) {
@@ -193,6 +206,47 @@ export function tickSurface(dt) {
   setMode('stranded', stranded);
   if (hazard.heat >= H.max) lostOnSurface('Overheated');
   else if (cargo.rad >= H.max) lostOnSurface('Radiation overload');
+}
+
+// The bursts (rules/hazards.js pulse): vents erupting near the ship heat it and blast its hull, and
+// lightning hits it inside a strike's ring; mid-dash neither does (game/dash.js). Notes what's
+// coming where the ship is (surfaceRun.warn). False when the hull gave out.
+function tickBursts(C, dt) {
+  const H = Hazards.config, E = H.surface.erupt, S = H.surface.strike;
+  let erupting = false, warn = null;
+  for (const v of surfaceRun.vents) {
+    if (Math.hypot(C.x - v.x, C.y - v.y) - v.r > E.reach) continue;
+    const ph = Hazards.eruption(v, simTime).phase;
+    if (ph === 'on') erupting = true;
+    else if (ph === 'warning') warn = 'vent';
+  }
+  if (erupting && !dashSafe()) {
+    hazard.heat = clamp(hazard.heat + E.heat * dt, 0, H.max);
+    surfaceRun.blast += E.hull * dt;
+    once('erupt', 'A vent erupted · keep clear of the glow, or dash through', 'hostile');
+    if (surfaceRun.blast >= 1) { const n = Math.floor(surfaceRun.blast); surfaceRun.blast -= n; hurtShip(n); }
+    if (!surfaceRun.e) return false;
+  } else if (!erupting) surfaceRun.blast = 0;
+  const reach = S.r + SHIP.radius * 0.85;
+  for (let k = 0; k < surfaceRun.pockets.length; k++) {
+    const p = surfaceRun.pockets[k];
+    if (Math.hypot(C.x - p.x, C.y - p.y) > p.r + S.to + reach) continue;
+    const st = Hazards.strike(p, simTime), inside = Math.hypot(C.x - st.at[0], C.y - st.at[1]) < reach;
+    if (st.phase === 'warning' && inside) warn = 'strike';
+    if (st.phase !== 'on' || surfaceRun.struck.get(k) === st.n) continue;
+    surfaceRun.struck.set(k, st.n);
+    surfaceRun.bolts.push({ x: st.at[0], y: st.at[1], t: BOLT });
+    if (inside && !dashSafe()) {
+      notify('Lightning strike · hull hit', 2, { tone: 'hostile' });
+      hurtShip(S.hull);
+      if (!surfaceRun.e) return false;
+    }
+  }
+  for (let i = surfaceRun.bolts.length - 1; i >= 0; i--) if ((surfaceRun.bolts[i].t -= dt) <= 0) surfaceRun.bolts.splice(i, 1);
+  if (warn === 'vent') once('vent-warn', 'A vent is about to erupt · the glow comes first: get clear, or dash');
+  if (warn === 'strike') once('strike-warn', 'Lightning marks its spot with a ring · get out of it, or dash');
+  surfaceRun.warn = warn;
+  return true;
 }
 
 // What lies on the surface, pulled in as the ship flies near it and picked up: trade goods while the
@@ -335,6 +389,7 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
   const at = (x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, z);
   ctx.save();
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
+  drawBursts(at, v.ct, time);
   for (const d of surfaceRun.deposits) {
     const p = at(d.x, d.y);
     if (p) drawDeposit(d, p, v.ct, time);
@@ -419,6 +474,55 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     ctx.fillText(f.text, q[0] + 14 + (f.jx || 0), q[1] - 26 - (1 - k) * 26);
   }
   ctx.restore();
+}
+
+// The bursts on the ground near the ship: each vent's reach, faint while calm, glowing brighter as
+// it's about to erupt and ablaze while it does; each strike's ring, a second ring closing in on it as
+// the bolt comes; and the bolts just struck, from the sky to the ground.
+const BURST_VIEW = 1100; // drawn this close to the ship
+const BOLT = 0.6; // seconds a bolt is drawn
+function drawBursts(at, ct, time) {
+  const C = landing.craft, E = Hazards.config.surface.erupt, S = Hazards.config.surface.strike;
+  const ring = (p, R, stroke, fill, alpha, w = 1.5) => {
+    ctx.beginPath();
+    ctx.ellipse(p[0], p[1], R, R * ct, 0, 0, TAU);
+    if (fill) { ctx.fillStyle = fill; ctx.globalAlpha = alpha * 0.45; ctx.fill(); }
+    ctx.strokeStyle = stroke; ctx.globalAlpha = alpha; ctx.lineWidth = w; ctx.stroke();
+  };
+  for (const v of surfaceRun.vents) {
+    if (Math.hypot(v.x - C.x, v.y - C.y) > BURST_VIEW) continue;
+    const p = at(v.x, v.y), ph = Hazards.eruption(v, simTime);
+    if (!p) continue;
+    const R = v.r + E.reach;
+    if (ph.phase === 'on') { ring(p, R, COLORS.flash, COLORS.flame, 0.85 + 0.15 * Math.sin(time * 30), 3); continue; }
+    if (ph.phase === 'calm') { ctx.setLineDash([6, 8]); ring(p, R, COLORS.amber, null, 0.12); ctx.setLineDash([]); continue; }
+    const k = 1 - ph.in / E.warn; // warning: the reach lit, a ring closing in on the vent as it comes
+    ring(p, R, COLORS.amber, null, 0.45 + 0.3 * Math.sin(time * 18), 2);
+    ring(p, v.r + E.reach * (1 - k), COLORS.flame, null, 0.8, 2);
+  }
+  for (const pk of surfaceRun.pockets) {
+    if (Math.hypot(pk.x - C.x, pk.y - C.y) > BURST_VIEW) continue;
+    const st = Hazards.strike(pk, simTime);
+    if (st.phase !== 'warning') continue;
+    const p = at(st.at[0], st.at[1]), k = 1 - st.in / S.warn;
+    if (!p) continue;
+    ring(p, S.r, COLORS.hostile, COLORS.hostile, 0.35 + 0.4 * k, 2);
+    ring(p, S.r * (1 - k) + 2, COLORS.flash, null, 0.6);
+  }
+  for (const b of surfaceRun.bolts) {
+    const p = at(b.x, b.y);
+    if (!p) continue;
+    const k = b.t / BOLT;
+    ring(p, S.r, COLORS.flash, COLORS.flash, 0.7 * k, 2);
+    ctx.strokeStyle = COLORS.flash;
+    ctx.globalAlpha = k;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(p[0], p[1]);
+    for (let s = 1; s <= 6; s++) ctx.lineTo(p[0] + Math.sin(b.x + s * 2.3) * 14, p[1] - s * 45);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
 }
 
 // A deposit: a cluster of crystals (or, siphoned from a gas giant's cloud deck, a swirl) in its
@@ -550,6 +654,8 @@ export function surfaceLines() {
     else out.push([`SUNRISE IN ${mmss(d.in)}`, d.in <= 30 ? COLORS.amber : COLORS.hud]);
   }
   if (exp.dust) out.push(['DUST STORM · pushed off course', COLORS.amber]);
+  if (surfaceRun.warn === 'vent') out.push(['VENT ABOUT TO ERUPT · get clear or dash', COLORS.hostile]);
+  if (surfaceRun.warn === 'strike') out.push(['LIGHTNING ABOUT TO STRIKE HERE · move or dash', COLORS.hostile]);
   const need = takeoffNeed();
   if (cargo.fuel + 1e-6 < need) out.push([`NOT ENOUGH FUEL TO TAKE OFF · ${need} needed`, COLORS.hostile]);
   if (hold.free < 1) out.push(['HOLD FULL · the tools stop', COLORS.amber]);

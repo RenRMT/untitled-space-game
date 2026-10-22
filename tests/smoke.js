@@ -2072,13 +2072,13 @@ test('the surface run: the scan before landing; the tools work the nodes on thei
   game(`globalThis.__body = __find((e) => e.name === 'Zantal I'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
   const card = game('describe(__body)');
   assert.strictEqual(card.tag, 'Heat');
-  assert.match(card.detail, /Heat, worst by day; hot vents · Deposits: Tungsten, Iron · Yield ×2 · (Sunrise in \d+:\d\d|Day side now) · Take-off [\d.]+ fuel/);
+  assert.match(card.detail, /Heat, worst by day; vents that erupt · Deposits: Tungsten, Iron · Yield ×2 · (Sunrise in \d+:\d\d|Day side now) · Take-off [\d.]+ fuel/);
   // Down at night, with time before the sun comes up.
   game(`while (Hazards.daylight(bodySite(__body), simTime).in < 140) skipTime(5)`);
   game('nextField.value = 1');
   clickCard('land');
   assert.ok(until('landing.phase === "surface"', 1500), 'down');
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Lava planet · Heat, worst by day; hot vents · \d+ nodes(, \d+ rich)? · yield ×2/);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Lava planet · Heat, worst by day; vents that erupt · \d+ nodes(, \d+ rich)? · yield ×2/);
   const n = game('surfaceRun.deposits.length');
   assert.ok(n >= 25, `many nodes round the landing site: ${n}`);
   assert.ok(game('surfaceRun.deposits.some((d) => d.rich)'), 'some of them rich, by the vents');
@@ -2208,6 +2208,66 @@ test('the surface run: a gas giant\'s storm pocket burns the ship touching it, d
   assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
   assert.ok(game('cargo.surfaceDrops["Zantal V"].some((d) => d.kind === "iron")'), 'the hold left on the gas giant');
   game('cargo.surfaceDrops = {}');
+});
+
+test('the surface run: a vent erupts on its rhythm, a warning first, heating the ship and blasting its hull; not mid-dash', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
+  landOn('Zantal I');
+  assert.ok(game('surfaceRun.vents.length') > 0, 'the lava planet has vents');
+  // Beside the nearest vent, at night (only the vent heats), as its warning starts.
+  const atVent = () => game(`{ const C = landing.craft, v = surfaceRun.vents.slice().sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
+    globalThis.__vent = v; while (Hazards.daylight(surfaceRun.site, simTime).day || Hazards.eruption(v, simTime).phase !== 'warning') skipTime(0.25);
+    Object.assign(C, { x: v.x + v.r + 15, y: v.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; hazard.heat = 0; }`);
+  atVent();
+  browser.frames(2);
+  assert.strictEqual(game('surfaceRun.warn'), 'vent', 'the warning');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /VENT ABOUT TO ERUPT/);
+  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
+  assert.ok(until('Hazards.eruption(__vent, simTime).phase === "on"', 120), 'it erupts');
+  browser.frames(40);
+  assert.ok(hp() < h0 - 8, `blasted: ${h0} → ${hp()}`);
+  assert.ok(game('hazard.heat') > 15, `heated: ${game('hazard.heat')}`);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /A vent erupted/);
+  // The next one, dashing through it: no harm.
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield`);
+  atVent();
+  const h1 = hp();
+  game('dashState.t = 5');
+  assert.ok(until('Hazards.eruption(__vent, simTime).phase === "on"', 120), 'it erupts again');
+  browser.frames(40);
+  assert.strictEqual(hp(), h1, 'no harm mid-dash');
+  game('dashState.t = -1; dashState.cool = 0; hazard.heat = 0');
+  takeOffTo();
+});
+
+test('the surface run: lightning marks its spot round a storm pocket, then strikes a ship inside the ring; not mid-dash', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
+  landOn('Zantal V');
+  assert.ok(game('surfaceRun.pockets.length') > 0, 'the gas giant has storm pockets');
+  // In the ring of the nearest pocket's next strike (one well clear of the pocket), as it's marked.
+  const inRing = () => game(`{ const C = landing.craft, p = surfaceRun.pockets.slice().sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
+    globalThis.__pk = p; const st = () => Hazards.strike(p, simTime);
+    while (st().phase !== 'warning' || Math.hypot(st().at[0] - p.x, st().at[1] - p.y) - p.r < 60) skipTime(0.1);
+    Object.assign(C, { x: st().at[0], y: st().at[1], vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
+  inRing();
+  browser.frames(2);
+  assert.strictEqual(game('surfaceRun.warn'), 'strike', 'the ring is on the ship');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /LIGHTNING ABOUT TO STRIKE HERE/);
+  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
+  assert.ok(until('Hazards.strike(__pk, simTime).phase === "on"', 120), 'it strikes');
+  browser.frames(2);
+  assert.ok(hp() <= h0 - game('Hazards.config.surface.strike.hull') + 1, `struck: ${h0} → ${hp()}`);
+  assert.ok(game('surfaceRun.bolts.length') > 0, 'the bolt is drawn');
+  // The next, dashing: no harm.
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield`);
+  inRing();
+  const h1 = hp();
+  game('dashState.t = 5');
+  assert.ok(until('Hazards.strike(__pk, simTime).phase === "on"', 120), 'it strikes again');
+  browser.frames(2);
+  assert.strictEqual(hp(), h1, 'no harm mid-dash');
+  game('dashState.t = -1; dashState.cool = 0');
+  takeOffTo();
 });
 
 // A drag on the flight view from screen px (600, 400), dx, dy long, let go ms after it touched down.
