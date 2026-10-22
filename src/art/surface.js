@@ -29,6 +29,7 @@
 //   ArtSurface.blocked(w, x, y, r), overlay(w, style) -> { fill, edge } at flight altitude
 //   ArtSurface.siteDist(w, x, y)   // how far (x, y) is outside the landing site's edge (< 0: inside)
 //   ArtSurface.propsNear(w, x, y) -> [{ type, x, y, r, emit }]   holes and tall props close by
+//   ArtSurface.propsAll(w) -> [{ type, x, y, r, emit }]   ... all of them (for a landing's hazards)
 //   ArtSurface.open(w, x, y, r)    // open ground: not blocked, above the sea, clear of holes and tall props
 //   A layer: { canvas, x0, y0, sx, sy }: canvas px = (x − x0)·sx across, (projected y − y0)·sy down.
 //   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
@@ -1226,6 +1227,15 @@ const ArtSurface = (() => {
     }
     return out;
   }
+  function propsAll(W) {
+    const bi = B[W.type], out = [];
+    for (const pr of Object.values(W.props)) {
+      if (!pr || pr.type === 'small') continue;
+      const v = bi[pr.type][pr.v];
+      out.push({ type: pr.type, x: pr.x, y: pr.y, r: pr.type === 'hole' ? v.r : pr.r, emit: !!v.emit });
+    }
+    return out;
+  }
   // Open ground for something of radius r at (x, y): nothing blocks it, it's above the sea, and no
   // hole or tall prop is within r of it.
   function open(W, x, y, r = 0) {
@@ -1235,7 +1245,7 @@ const ArtSurface = (() => {
     return !propsNear(W, x, y).some((p) => Math.hypot(x - p.x, y - p.y) < p.r + r);
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, open, propsNear, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, open, propsNear, propsAll, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
 })();
 
 export { ArtSurface };

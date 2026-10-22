@@ -247,6 +247,26 @@ The steps, each playable on its own:
   gone; the Ship tab shows the tank, Full or Tops up on launch.
 - The ice planet's cold now doubles what dashes cost, rather than all thrust.
 
+### Step 3a, as built: bursts to dodge
+
+Two hazards now come in bursts with a warning first, so the dash has something to dodge. (The dust
+storm as a front and the sunrise sweeping over the ground are step 3b.)
+- **The rhythm** (`rules/hazards.js` `pulse`): each vent or storm pocket has its own period, seeded by
+  the body and where it is; a warning, then the burst, at the end of each period. Pure and on
+  flight time, like the flares, so a test can find one.
+- **Vents erupt** (`Hazards.eruption`, `config.surface.erupt`): every 6 to 10 s, a 1.5 s warning,
+  then for 1.2 s heat (40 a second) and a blast to the hull (25 a second, shields first) across 55
+  units past the rim. Hovering over a vent between eruptions heats less than before (12 a second,
+  down from 30): the danger is now the burst.
+- **Lightning strikes round storm pockets** (`Hazards.strike`, `config.surface.strike`): every 4 to
+  7 s a ring (radius 45) marks a spot 25 to 120 past the pocket's rim, then after 1.2 s the bolt
+  hits a ship inside it for 30 (shields first). Each strike lands somewhere new.
+- **Mid-dash neither does harm** (`dashSafe`, game/dash.js).
+- **Shown** (`game/surface-run.js` `drawBursts`): a vent's reach as a faint dashed ring while calm,
+  lit with a ring closing in on the vent as the eruption comes, ablaze while it erupts; a strike's
+  ring with a ring closing in on its spot, then the bolt. A HUD line and a notice (once a landing)
+  when one is coming where the ship is; the scan names them.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
