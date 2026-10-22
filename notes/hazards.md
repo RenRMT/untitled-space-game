@@ -48,6 +48,35 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   the showcase system, and the Combat setting is out of the menu. `?pirates` brings them back,
   which the opening missions' tests use.
 
+## Phase 2, as built
+
+- **Rules** (`rules/hazards.js`, pure and seeded, on flight time): the star's heat by
+  (4000 / distance)², 20 a second at that distance; a ship sheds 6 a second, so heat builds only
+  inside about 7,300 units (the lava planet's orbit) and sheds everywhere else. Thrust adds a
+  little. Gas giants have a radiation belt from 150 to 1,100 units outside the planet, 6 a second
+  in the thick of it, with two gaps of 0.7 radians placed by the planet's seed. Every moon gives
+  radiation up close (2 a second, 4 round a giant), fading out 350 units from its surface.
+  **Stations shelter their approaches** (no belt or moon radiation within 800), because some
+  stations orbit inside a giant's belt.
+- **Flares:** one in each 200 s stretch of flight time, at a seeded moment; a 15 s warning, then an
+  8 s wave of heat and radiation, stronger closer to the star (×0.4 to ×3), unless a planet, moon
+  or asteroid of radius 24 or more lies between the star and the ship.
+- **Ion storms:** one 30 s storm in each 150 s stretch per nebula. Inside it, a wind pushes the ship
+  and the sensors stop.
+- **Meters** (`game/hazards.js`): heat (not saved, sheds), radiation (`cargo.rad`, saved, cleared
+  by docking), fuel (`cargo.fuel`, saved; tanks by hull, the Courier's 100). Thrust burns 0.5 a
+  second at full; map travel burns one per 2,500 units, and an empty tank drops out of cruise.
+  Full heat or radiation loses the ship (`wreck`). An empty tank leaves it adrift, engine dead, and
+  calls a tow after 6 s. The tow cools, decontaminates and leaves a quarter tank; the hold stays
+  where the ship was lost (it no longer picks it back up while waiting for the tow).
+- **Refuelling** at any station (the Ship tab, beside the hull): hydrazine aboard first, then
+  hydrazine in storage (25 fuel a unit), then fuel bought at 6 credits a unit.
+- **Shown:** the belts as bands with their gaps, shadows behind the bodies while a flare comes, an
+  orange glow in the wave when exposed, a warning line at the top of the HUD (flare countdown,
+  sheltered or exposed, storm, out of fuel), and gauges at the bottom left (hull, shield, heat,
+  radiation, fuel) that appear as each needs watching. Warnings sound off as meters pass 60/85%
+  heat, 50/75/90% radiation and 25/10% fuel, with the 'hazard' vibration.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -276,7 +305,7 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
    - Remove pirates and the rounds mode.
    - Collisions in space and on surfaces; the lasting shield meter.
    - This alone is playable, with today's production and research.
-2. **Hazards in space.** `rules/hazards.js` with star heat, flares and shadows, radiation belts and
+2. **Hazards in space.** *(done: see Phase 2, as built)* `rules/hazards.js` with star heat, flares and shadows, radiation belts and
    moons; heat, radiation and fuel meters (fuel from hydrazine); disabled ship → tow home with its
    cargo cached.
 3. **Surface run.** Deposits as targets, the surface clock, biome hazards (lava, moons, desert first),

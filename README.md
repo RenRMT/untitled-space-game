@@ -3,8 +3,9 @@
 A browser space game: fly a ship through a procedurally generated galaxy, mine asteroids and gas
 for materials, turn them into better gear through production and research, and take it into more
 hazardous places. There's no fighting: mining runs on the real-time combat rules against rocks
-that never fire back, and the danger comes from flying (collisions now; environmental hazards
-next). `notes/hazards.md` is the plan.
+that never fire back, and the danger comes from flying: collisions, the star's heat, radiation
+round the gas giants and the moons, solar flares to shelter from, ion storms, and running out of
+fuel. `notes/hazards.md` is the plan.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The game is pared back to its core mechanics for now: the galaxy is one showcase system (one of
@@ -44,13 +45,13 @@ URL parameters:
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, missions, landing on planets and moons (`landing.js`), HUD, the frame loop |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), missions, landing on planets and moons (`landing.js`), HUD, the frame loop |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`), planet and moon surfaces to land on (`surface.js`: a landing site ringed by cliffs or sea; `surface-globe.js` draws them in chunks built as the ship flies (and, in the prototype, bent over a globe); `tools/surface.html` is the prototype it started from) and the sprite caches |
-| `src/rules/` | items, markets, mining, ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
+| `src/rules/` | items, markets, mining, hazards in space (`hazards.js`), ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
 | `assets/` | the fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |

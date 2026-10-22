@@ -1030,6 +1030,92 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   assert.ok(game(`cargo.items.slice(-${n}).every((it) => Goods.type(it.kind).category === 'gas')`));
 });
 
+// Hazards (rules/hazards.js, game/hazards.js): a calm moment first, so no flare muddles a test.
+const calmSky = () => game(`{ const f = () => Hazards.flare(world.galaxy.seed, simTime); while (f().phase !== 'calm' || f().in < 60) skipTime(5); }`);
+
+test('hazards: staying by the hot inner planet overheats the ship; it is towed home, cooled, its hold left behind', () => {
+  calmSky();
+  game(`fight.grace = 1e9; cargo.hull = SHIP.hull; globalThis.__lava = world.galaxy.planets.find((p) => p.type === 'lava');
+    placeShip(__lava.x + __lava.body + 60, __lava.y, 0); hazard.heat = 0;
+    cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }];`);
+  browser.frames(60);
+  assert.ok(game('hazard.heat') > 2, `heating up: ${game('hazard.heat')}`);
+  game('hazard.heat = 95');
+  assert.ok(until('fight.wreckT > 0', 60 * 5), 'overheated');
+  assert.match(game('toast.text'), /^Overheated · calling a tow/);
+  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
+  assert.deepStrictEqual(game('[hazard.heat, cargo.rad]'), [0, 0], 'cooled and decontaminated');
+  assert.ok(game('cargo.drops.some((d) => d.key.startsWith("lost:") && d.itemKind === "iron")'), 'the iron waits where the ship was lost');
+  assert.ok(game('cargo.fuel >= SHIP.fuel * 0.25'), 'fuel enough to reach a pump');
+});
+
+test('hazards: a gas giant\'s moon irradiates the ship, and docking decontaminates it', () => {
+  calmSky();
+  game(`fight.grace = 1e9; cargo.rad = 0;
+    globalThis.__moon = world.galaxy.moons.find((m) => ['gas', 'blue'].includes(world.galaxy.planets[m.parent].type)
+      && !world.galaxy.stations.some((st) => Math.hypot(st.x - m.x, st.y - m.y) < Hazards.config.rad.shelter + 400));
+    placeShip(__moon.x, __moon.y + __moon.r + 60, 0);`);
+  browser.frames(120);
+  assert.ok(game('cargo.rad') > 3, `radiation taken in: ${game('cargo.rad')}`);
+  browser.frames(2);
+  game('globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150)');
+  const rad = game('cargo.rad');
+  browser.frames(30);
+  assert.ok(Math.abs(game('cargo.rad') - rad) < 0.01, 'it stays, but the station shelters its approach');
+  game('dock(__st)');
+  assert.ok(game('!!docked'), 'docked');
+  assert.strictEqual(game('cargo.rad'), 0);
+  assert.match(game('toast.text'), /^Decontaminated/);
+  game('launch()');
+});
+
+test('hazards: a solar flare is warned of; a planet\'s shadow shelters the ship, the open doesn\'t', () => {
+  calmSky();
+  game(`fight.grace = 1e9; cargo.rad = 0; hazard.heat = 0; globalThis.__terran = world.galaxy.planets.find((p) => p.type === 'terran');
+    placeShip(__terran.x + __terran.x / Math.hypot(__terran.x, __terran.y) * (__terran.body + 400), __terran.y + __terran.y / Math.hypot(__terran.x, __terran.y) * (__terran.body + 400), 0);
+    while (Hazards.flare(world.galaxy.seed, simTime).phase !== 'warning') skipTime(1);`);
+  browser.frames(2);
+  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE IN \d+ s · in shadow/);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Solar flare in \d+ s/);
+  game('skipTime(Hazards.flare(world.galaxy.seed, simTime).in + 0.5)');
+  browser.frames(30);
+  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · sheltered/);
+  const rad = game('cargo.rad');
+  game('placeShip(ship.x + 3000, ship.y - 3000, 0)'); // out of the shadow
+  browser.frames(30);
+  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · EXPOSED/);
+  assert.ok(game('cargo.rad') > rad, 'the wave irradiates the ship in the open');
+  game('cargo.rad = 0; hazard.heat = 0');
+});
+
+test('hazards: an empty tank leaves the ship adrift until a tow; refuelling takes hydrazine, then credits', () => {
+  calmSky();
+  game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 3000, __st.y, 0);
+    cargo.fuel = 0.02; ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed;`);
+  browser.frames(30);
+  assert.ok(game('outOfFuel()'), 'the thrust burned the last of it');
+  const v = game('Math.hypot(ship.vx, ship.vy)');
+  browser.frames(30);
+  assert.ok(Math.abs(game('Math.hypot(ship.vx, ship.vy)') - v) < 1, 'adrift: neither speeding up nor slowing');
+  assert.match(game('hazardLine()[0]'), /^OUT OF FUEL · tow in \d+ s/);
+  assert.ok(until('fight.wreckT > 0', 60 * 8), 'a tow is called');
+  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
+  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel * 0.25'));
+  // At a station: hydrazine aboard goes in first, then credits buy the rest.
+  game(`globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150);
+    cargo.items = [{ kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }, { kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }]; cargo.credits = 10000;`);
+  browser.frames(1);
+  game('dock(__st)');
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Fuel25\/100/);
+  pressOnStation(/^Refuel/);
+  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel'), 'full');
+  assert.strictEqual(game('hold.count("hydrazine")'), 0, 'the hydrazine went in');
+  assert.strictEqual(game('cargo.credits'), 10000 - 25 * game('FUEL_PRICE'), 'credits for the rest');
+  assert.match(onStation(), /Fuel100\/100.*Full/);
+  game('launch()');
+});
+
 test('sensors find a hidden derelict, and the radar shows it once found', () => {
   game(`fight.grace = 1e9; globalThis.__der = world.galaxy.contacts.find((c) => c.type === 'derelict' && !world.knowledge.contactState(c.id));`);
   assert.ok(game('!!__der'), 'an unfound derelict');

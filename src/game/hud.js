@@ -6,9 +6,12 @@ import { COLORS, Theme } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
 import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
+import { Hazards } from '../rules/hazards.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
+import { shieldNow } from './combat.js';
 import { visible } from './draw-world.js';
+import { hazard, hazardLine } from './hazards.js';
 import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
 import { CONTROLS, moveMode } from './options.js';
@@ -382,6 +385,8 @@ export function drawHud() {
     lines.push([`${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · SECURITY ${security.label.toUpperCase()}`, security.color, locAlpha]);
     if (r.nebula) lines.push([`${r.nebula.name} · sensors dampened`, r.nebula.color, locAlpha]);
   }
+  const danger = hazardLine(); // a flare coming, a storm, an empty tank (game/hazards.js)
+  if (danger) lines.push([...danger, 1]);
   const obj = here.objective;
   if (obj) for (const t of wrap(`◇ ${obj.text}`, room)) lines.push([t, COLORS.amber, 1]);
   if (!interacted && !intro.on) { // the introduction has its own hint
@@ -410,7 +415,9 @@ export function drawHud() {
 }
 
 // Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),
-// and above it the hold and a damaged hull. Also on a planet's surface (game/landing.js).
+// and above it the hold and the meters that need watching: a damaged hull, shields down, heat,
+// radiation and fuel (game/hazards.js), each a small gauge, in rows going up as they fill one.
+// Also on a planet's surface (game/landing.js).
 export function drawStatus(speed, set, fontSize = 14) {
   const k = Theme.scale, I = view.inset, pad = 12, left = pad + I.l;
   ctx.save();
@@ -426,24 +433,36 @@ export function drawStatus(speed, set, fontSize = 14) {
   ctx.fillRect(left, by, barW * Math.min(1, speed), 6);
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(left + barW * set - 1, by - 3, 2, 12);
-  let x = left;
-  const ty = by - 10;
-  ctx.globalAlpha = 0.9;
-  if (cargo.items.length) {
-    ctx.fillStyle = cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud;
-    const t = `HOLD ${cargo.items.length}/${SHIP.cargo}`;
-    ctx.fillText(t, x, ty);
-    x += ctx.measureText(t).width + 16;
+  const H = Hazards.config.max, gw = 56 * k, gh = Math.round(5 * k), lh = Math.round(fontSize * 1.45 * k);
+  // Each: [label, fill 0..1, colour], or a plain text.
+  const items = [];
+  if (cargo.items.length) items.push({ text: `HOLD ${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
+  const lowFirst = (f) => (f < 0.35 ? COLORS.hostile : COLORS.flame), highFirst = (f) => (f > 0.75 ? COLORS.hostile : COLORS.flame);
+  if (!inFight()) { // in a fight the panel shows these
+    if (cargo.hull < SHIP.hull) items.push({ label: 'HULL', f: cargo.hull / SHIP.hull, color: lowFirst(cargo.hull / SHIP.hull) }); // until it's repaired at a station
+    if (SHIP.shield && shieldNow() < SHIP.shield - 0.5) items.push({ label: 'SHD', f: shieldNow() / SHIP.shield, color: COLORS.cyan });
   }
-  if (cargo.hull < SHIP.hull && !inFight()) { // damage shows until it's repaired at a station
-    const f = cargo.hull / SHIP.hull, tone = f < 0.35 ? COLORS.hostile : COLORS.flame;
-    ctx.fillStyle = tone;
-    ctx.fillText('HULL', x, ty);
-    const gx = x + ctx.measureText('HULL').width + 6, gw = 56 * k, gh = Math.round(5 * k);
-    ctx.globalAlpha = 0.3;
-    ctx.fillRect(gx, ty - gh - 2, gw, gh);
-    ctx.globalAlpha = 0.95;
-    ctx.fillRect(gx, ty - gh - 2, gw * f, gh);
+  if (hazard.heat >= 1) items.push({ label: 'HEAT', f: hazard.heat / H, color: highFirst(hazard.heat / H) });
+  if (cargo.rad >= 1) items.push({ label: 'RAD', f: cargo.rad / H, color: highFirst(cargo.rad / H) });
+  if (SHIP.fuel && cargo.fuel < SHIP.fuel - 0.5) items.push({ label: 'FUEL', f: cargo.fuel / SHIP.fuel, color: cargo.fuel / SHIP.fuel < 0.25 ? COLORS.hostile : COLORS.hud });
+  const room = Math.max(barW, Math.min(view.w * 0.6, 420 * k));
+  let x = left, ty = by - 10;
+  ctx.globalAlpha = 0.9;
+  for (const it of items) {
+    const w = it.text ? ctx.measureText(it.text).width : ctx.measureText(it.label).width + 6 + gw;
+    if (x > left && x + w > left + room) { x = left; ty -= lh; } // a new row above
+    ctx.fillStyle = it.color;
+    ctx.globalAlpha = 0.9;
+    if (it.text) ctx.fillText(it.text, x, ty);
+    else {
+      ctx.fillText(it.label, x, ty);
+      const gx = x + ctx.measureText(it.label).width + 6;
+      ctx.globalAlpha = 0.3;
+      ctx.fillRect(gx, ty - gh - 2, gw, gh);
+      ctx.globalAlpha = 0.95;
+      ctx.fillRect(gx, ty - gh - 2, gw * clamp(it.f, 0, 1), gh);
+    }
+    x += w + 16;
   }
   ctx.restore();
 }

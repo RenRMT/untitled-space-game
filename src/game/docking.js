@@ -13,7 +13,8 @@ import { Reputation } from '../rules/reputation.js';
 import { Factions } from '../world/factions.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
-import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
+import { cargo, fuelling, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
+import { decontaminate } from './hazards.js';
 import { drag } from './input.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
 import { artStyle } from './options.js';
@@ -89,6 +90,7 @@ export function dock(station) {
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
   missionDocked(station);
   repairSquad();
+  if (decontaminate()) notify('Decontaminated · radiation cleared', 2.5, { tone: 'good' });
   saveCargo();
   ship.vx = ship.vy = 0;
   ship.targetSpeed = 0;
@@ -113,6 +115,7 @@ export function dock(station) {
     get kit() { return cargo.kit; },
     shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
     repairs,
+    fuelling,
     squad: programs,
     missions: { list: () => missionViews(station) },
     locks: stationLocks,

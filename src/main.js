@@ -21,6 +21,7 @@ import { ArtBodies } from './art/bodies.js';
 import { Combat } from './combat/combat.js';
 import { Economy } from './rules/economy.js';
 import { Goods } from './rules/goods.js';
+import { Hazards } from './rules/hazards.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
 import { Logic } from './rules/logic.js';
@@ -62,6 +63,7 @@ import * as mining from './game/mining.js';
 import * as travel from './game/travel.js';
 import * as selection from './game/selection.js';
 import * as combat from './game/combat.js';
+import * as hazards from './game/hazards.js';
 import * as collisions from './game/collisions.js';
 import * as input from './game/input.js';
 import * as update from './game/update.js';
@@ -73,7 +75,7 @@ import * as warp from './game/warp.js';
 import * as landing from './game/landing.js';
 
 const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, jobs, docking, squad, mining, travel,
-  selection, combat, collisions, input, update, starfield, drawWorld, hud, loop, warp, landing];
+  selection, combat, collisions, hazards, input, update, starfield, drawWorld, hud, loop, warp, landing];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);
@@ -81,7 +83,7 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, HullMods, Industry, Jobs, Knowledge, Loadout,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout,
   Logic, Mining, Missions, Recipes, Reputation, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {

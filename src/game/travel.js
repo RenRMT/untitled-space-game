@@ -3,9 +3,11 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Scene } from '../flight/scene.js';
+import { Hazards } from '../rules/hazards.js';
 import { SystemMap } from '../ui/map.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { cargo } from './cargo.js';
+import { outOfFuel } from './hazards.js';
 import { landing } from './landing.js';
 import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
@@ -54,8 +56,12 @@ export function finishTrip(ev) {
 export function tickTravel(dt) {
   if (!world.travel.active) return;
   if (!SystemMap.isOpen) { finishTrip(world.travel.stop()); return; }
+  const from = world.travel.pos && { ...world.travel.pos };
   const ev = world.travel.step(dt);
   const p = world.travel.pos;
+  // The trip burns fuel by the distance (rules/hazards.js); an empty tank drops out of cruise there.
+  if (from && p) cargo.fuel = Math.max(0, cargo.fuel - Hazards.travelFuel(Math.hypot(p.x - from.x, p.y - from.y)));
+  if (!ev && outOfFuel()) { finishTrip(world.travel.stop()); notify('Out of fuel · dropped out of cruise', 3, { tone: 'hostile' }); return; }
   if (p) SystemMap.setPlayer(p.x, p.y);
   if (ev && ev.type !== 'prompt') finishTrip(ev);
   else SystemMap.redraw();
@@ -98,6 +104,7 @@ export function init() {
   SystemMap.hooks = {
     travel(dest) {
       if (landing.on) { notify('Take off first', 2.5, { once: true, tone: 'warn' }); return; } // map travel is from space
+      if (outOfFuel()) { notify('No fuel for cruise', 2.5, { once: true, tone: 'warn' }); return; }
       world.travel.start({ x: ship.x, y: ship.y }, dest);
       SystemMap.redraw();
     },

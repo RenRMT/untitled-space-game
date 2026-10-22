@@ -103,13 +103,14 @@ const Loadout = (() => {
   }
 
   // Ship classes. radius is the hull's collision size in world units, cargo its hold in units,
-  // hull its hit points in combat, handling a factor on the engine's acceleration and turn rate.
+  // hull its hit points, fuel its tank (rules/hazards.js burns it), handling a factor on the
+  // engine's acceleration and turn rate.
   // price: sold at shipyards for this many credits (a trade-in fetches half); art: which design
   // it is drawn as (game/options.js). The player starts in a Courier; fighters and freighters are the NPC
   // ships of the same names (flight/scene.js roles), fitted with their lines at a tier (npc()).
   const HULLS = {
     courier: {
-      name: 'Courier', radius: 16, cargo: 20, hull: 120, weapons: 2, handling: 1, price: 4000,
+      name: 'Courier', radius: 16, cargo: 20, hull: 120, fuel: 100, weapons: 2, handling: 1, price: 4000,
       note: 'Quick and balanced: the ship you start in.',
       starter: {
         'weapon-1': 'pulse-laser-1', 'weapon-2': 'beam-turret-1',
@@ -117,15 +118,15 @@ const Loadout = (() => {
       },
     },
     hauler: {
-      name: 'Hauler', radius: 26, cargo: 60, hull: 160, weapons: 1, handling: 0.7, price: 9000,
+      name: 'Hauler', radius: 26, cargo: 60, hull: 160, fuel: 160, weapons: 1, handling: 0.7, price: 9000,
       note: 'Three times the hold, one hardpoint, slow to turn.',
     },
     corvette: {
-      name: 'Corvette', radius: 20, cargo: 24, hull: 220, weapons: 3, handling: 0.9, price: 16000,
+      name: 'Corvette', radius: 20, cargo: 24, hull: 220, fuel: 120, weapons: 3, handling: 0.9, price: 16000,
       note: 'Three hardpoints and a tougher hull.',
     },
     gunship: {
-      name: 'Gunship', radius: 24, cargo: 16, hull: 340, weapons: 4, handling: 0.75, price: 36000,
+      name: 'Gunship', radius: 24, cargo: 16, hull: 340, fuel: 140, weapons: 4, handling: 0.75, price: 36000,
       note: 'Four hardpoints and the heaviest hull; little room for cargo.',
     },
     fighter: {
@@ -213,7 +214,7 @@ const Loadout = (() => {
     const out = {
       name: hull.name, radius: hull.radius,
       cargo: Math.round(hull.cargo * (1 + (upgrades.cargo || 0))),
-      hull: Math.round(hull.hull * (1 + (upgrades.hull || 0) + (loadout.armour || 0))),
+      hull: Math.round(hull.hull * (1 + (upgrades.hull || 0) + (loadout.armour || 0))), fuel: hull.fuel || 100,
       maxSpeed: 0, accel: 0, turnRate: 0, sensorRange: 0, pingRange: 0, miningRate: 0,
       shield: 0, shieldRecharge: 0, firepower: 0, weaponSlots: weaponSlots(loadout.hull, upgrades), weaponsFitted: 0,
       accuracy: 0, evasion: 0, initiative: 0, weapons: [], ...NO_LOCK,

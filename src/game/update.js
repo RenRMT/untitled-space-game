@@ -7,6 +7,7 @@ import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
 import { tickFight, tickShield } from './combat.js';
 import { tickCollisions } from './collisions.js';
+import { hazard, outOfFuel, tickHazards } from './hazards.js';
 import { gapTo } from './docking.js';
 import { updateRegion } from './draw-world.js';
 import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
@@ -24,6 +25,8 @@ import { SHIP, cam, debris, fadeFlash, fight, fightMode, intro, lerp, particles,
 
 export let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
 export let senseTimer = 0;
+// Flight time moved on at once, for the tests (tests/smoke.js: to a solar flare, rules/hazards.js).
+export function skipTime(secs) { simTime += secs; }
 
 export function update(dt) {
   simTime += dt;
@@ -36,9 +39,11 @@ export function update(dt) {
   if (intro.arrive) tickArrive(dt);
   else if (intro.beam) tickBeam(dt);
   else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
-    Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
+    if (outOfFuel() && !intro.on) { ship.x += ship.vx * dt; ship.y += ship.vy * dt; ship.thrust = 0; } // adrift, the engine dead (game/hazards.js)
+    else Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
     if (!intro.on) tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
   }
+  tickHazards(dt); // heat, radiation, flares, storms and fuel (game/hazards.js)
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 
@@ -70,9 +75,9 @@ export function update(dt) {
   fadeFlash(dt);
   toast.t = Math.max(0, toast.t - dt);
   updateRegion();
-  // Ship sensors look for contacts around it, a few times a second.
+  // Ship sensors look for contacts around it, a few times a second (not in an ion storm).
   senseTimer -= dt;
-  if (senseTimer <= 0) {
+  if (senseTimer <= 0 && !hazard.exp?.storm) {
     senseTimer = 0.25;
     sense();
   }
