@@ -267,6 +267,28 @@ storm as a front and the sunrise sweeping over the ground are step 3b.)
   ring with a ring closing in on its spot, then the bolt. A HUD line and a notice (once a landing)
   when one is coming where the ship is; the scan names them.
 
+### Step 3b, as built: weather that moves over the ground
+
+The day and the desert's dust storms no longer switch on everywhere at once: each moves across the
+site its own way (seeded by the body), so where the ship is matters, and it can be seen coming.
+- **The sunrise sweeps** (`rules/hazards.js` `daylight(site, t, at)`, `sun`, `config.surface.day.sweep`):
+  the line of sunrise crosses the ground at 40 units a second, far slower than a ship, with the
+  lit band (80 s of day, 3,200 units deep) behind it. Just ahead of the line it's still night, so
+  the day side can be outrun, and parts of a site can be lit while others are dark. The HUD gives
+  the sunrise countdown at the ship and the way it comes from, and by day how far the nearest night
+  is and which way (`nightWay`: ahead of the line, or back past the sunset line).
+- **Dust storms are fronts** (`dustFront`, `dust(site, t, at)`, `config.surface.dust`): once a 100 s
+  period, a front 1,800 units deep crosses the whole site in 40 s (about 155 units a second, from
+  2,200 before the landing spot to 2,200 past it), blowing the way it moves. A ship staying put is
+  in it for about 12 s. The HUD counts it down with the way it comes from (inside: how long until
+  it has passed), with a notice as it nears.
+- **Drawn on the ground** (`game/surface-run.js` `drawMovingWeather`): the lit band in a warm wash
+  with its sunrise edge bright (on worlds whose day is hot; this replaces the full-screen glare),
+  and the front as a dark wall with a light leading edge. Inside a storm, the murk over the view
+  stays as it was.
+- Positions are from the landing spot (`sitePos`); `daylight` and `dust` without one are the spot
+  itself, as before.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
