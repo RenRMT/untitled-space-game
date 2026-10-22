@@ -11,7 +11,7 @@
 //   of a ship lost there. Flying near it pulls it in and picks it up.
 // - Hazards (rules/hazards.js surface): the day side coming round (heat; the countdown to sunrise is
 //   on the HUD), hot vents on the lava planet, dust storms on the desert, radiation on the moons, the
-//   cold on the ice planet (fuel burns faster) and the storm pockets of the gas giants. The meters
+//   cold on the ice planet (dashes cost twice the fuel) and the storm pockets of the gas giants. The meters
 //   are the ones in space (game/hazards.js); one that fills loses the ship here, and its hold stays
 //   on the surface, to come back for.
 // - Taking off costs fuel (Hazards.takeoffFuel), by gravity and how full the hold is. Short of it,
@@ -31,7 +31,7 @@ import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
-import { hazard, meterWarnings, outOfFuel } from './hazards.js';
+import { hazard, meterWarnings } from './hazards.js';
 import { landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
 import { dashSafe } from './dash.js';
@@ -164,12 +164,11 @@ export function tickSurface(dt) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
   }
-  // The meters: heat (the day side, vents, thrust), radiation, fuel (the cold burns more).
+  // The meters: heat (the day side, vents, thrust) and radiation. (Fuel goes on dashes and taking off.)
   const vent = ventNear(C), before = surfaceRun.exp;
-  const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: outOfFuel() ? 0 : C.thrust, vent });
+  const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: C.thrust, vent });
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
-  if (!outOfFuel()) cargo.fuel = Math.max(0, cargo.fuel - H.fuel.burn * site.fuelBurn * C.thrust * dt);
   if (inPocket(C) && !dashSafe()) { // dashing through one does no harm (game/dash.js)
     surfaceRun.burn += H.surface.pocket * dt;
     once('pocket', 'Storm pocket · it burns the hull: keep clear', 'hostile');

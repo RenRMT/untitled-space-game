@@ -12,7 +12,8 @@
 //   a planet, a moon or a big asteroid stands between the star and the ship (its shadow).
 // - ion storms: now and then a storm runs through each nebula; inside it a wind pushes the ship
 //   off course and the sensors go dark.
-// - fuel: thrust burns it, and so does map travel, by the distance; hydrazine refills it.
+// - fuel: what bold moves cost: a dash, taking off from a surface, and map travel, by the distance.
+//   Flying about is free. Docking refills it (hydrazine first, then credits).
 // Everything is seeded and runs on flight time (t, seconds), so the same moment gives the same
 // sky: a flare can be waited out, and a test can find one.
 //
@@ -37,7 +38,7 @@
 //   Terran, ice and gas worlds). The countdown to sunrise is on the HUD;
 // - lava: hot vents (the glowing holes) heat the ship over them; desert: dust storms darken the view
 //   and push the ship about; moons: steady radiation (more round a giant); ice: the cold makes the
-//   engine burn fuel twice as fast; gas giants: the storm pockets burn the ship that touches one;
+//   dashes cost twice the fuel; gas giants: the storm pockets burn the ship that touches one;
 // - taking off costs fuel, by the body's gravity and how full the hold is.
 //
 //   Hazards.surface(kind, type, seed, parentType?) -> site   kind: 'planet' | 'moon'; a moon's
@@ -86,7 +87,7 @@ const Hazards = (() => {
       ref: 10000, min: 0.4, max: 3, // its strength: by ref / distance from the star, kept in [min, max]
     },
     storm: { period: 150, length: 30, wind: 140 }, // ion storms: one per stretch per nebula, this long, pushing this hard (units/s²)
-    fuel: { burn: 0.5, travel: 2500, dash: 2 }, // per second at full thrust; map travel: one per this many units; a dash
+    fuel: { travel: 2500, dash: 2 }, // map travel: one per this many units; a dash (× a surface's fuelBurn)
     surface: {
       day: { period: 240, length: 80 }, // a day on every surface: this long, this much of it in sunlight
       vent: 30, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
@@ -96,7 +97,7 @@ const Hazards = (() => {
     },
   };
   // The bodies' surfaces: heat (per second, always) and day (more in sunlight), radiation, gravity,
-  // fuel burned for thrust (×), the deposits there, by weight, and how rich the ground is for its
+  // fuel a dash costs (×), the deposits there, by weight, and how rich the ground is for its
   // danger (rich ×: the mild Terran planet 1, the lava planet 2). A ship sheds heat.cool a second,
   // so heat below that never builds. Moons by their type; a giant's moons are twice as radioactive.
   const body = (o) => ({ heat: 0, day: 0, rad: 0, gravity: 1, fuelBurn: 1, dust: false, vents: false, pockets: false, material: 'rock', rich: 1, ...o });
@@ -104,7 +105,7 @@ const Hazards = (() => {
     lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; hot vents', heat: 7, day: 14, gravity: 0.9, vents: true, rich: 2, deposits: [['tungsten', 3], ['iron', 1]] }),
     desert: body({ label: 'Desert planet', tag: 'Dust storms', hazard: 'Dust storms; hot by day', heat: 3, day: 12, gravity: 0.8, dust: true, rich: 1.5, deposits: [['rare-earths', 3], ['silicates', 1]] }),
     terran: body({ label: 'Terran planet', tag: 'Mild', hazard: 'Mild', day: 4, deposits: [['iron', 1], ['silicates', 1]] }),
-    ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: fuel burns twice as fast', day: 3, gravity: 0.7, fuelBurn: 2, rich: 1.25, deposits: [['deuterium', 1]] }),
+    ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: dashes cost twice the fuel', day: 3, gravity: 0.7, fuelBurn: 2, rich: 1.25, deposits: [['deuterium', 1]] }),
     gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull', day: 5, gravity: 1.6, pockets: true, material: 'gas', rich: 1.5, deposits: [['deuterium', 1]] }),
     moon: body({ label: 'Moon', tag: 'Radiation', hazard: 'Radiation; hot by day', day: 10, rad: 0.8, gravity: 0.3, rich: 1.5 }),
   };

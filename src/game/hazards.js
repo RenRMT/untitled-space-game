@@ -1,9 +1,10 @@
 // Hazards in flight (rules/hazards.js): the star's heat, radiation from the giants' belts and the
 // moons, solar flares and the shadows that shelter from them, ion storms in the nebulae, and fuel.
-// Each step adds up what comes in to the ship's meters: heat (sheds on its own), radiation (stays
-// until a station decontaminates the ship: docking) and fuel (refuelled at a station). Warnings come
-// as notices and vibration as a meter fills; a full one, or an empty tank, disables the ship, which
-// is lost and towed home (game/combat.js wreck), its hold left where it was, to go back for.
+// Each step adds up what comes in to the ship's meters: heat (sheds on its own) and radiation (stays
+// until a station decontaminates the ship: docking). Fuel isn't burned by flying: dashes, taking off
+// and map travel spend it, and docking refills it (game/docking.js). Warnings come as notices and
+// vibration as a meter fills (or fuel falls); a full meter disables the ship, which is lost and
+// towed home (game/combat.js wreck), its hold left where it was, to go back for.
 // Also what's drawn of them: the belts (with their gaps), the shadows while a flare comes, a glow
 // over the screen in a flare's wave, and the HUD's warning line.
 // Only in open flight: not docked, landing, jumping, in the introduction or wrecked. On a planet's
@@ -25,10 +26,8 @@ import { warp } from './warp.js';
 import { world } from './world.js';
 
 // heat: the ship's heat now (not saved: it sheds); exp: the last step's exposure (rules/hazards.js);
-// stranded: seconds drifting with an empty tank; said: the warnings given, so each is said once
-// until its meter falls back.
-export const hazard = { heat: 0, exp: null, stranded: 0, said: new Set() };
-export const STRANDED_TOW = 6; // seconds adrift with no fuel before the tow is called
+// said: the warnings given, so each is said once until its meter falls back.
+export const hazard = { heat: 0, exp: null, said: new Set() };
 const WARN = { heat: [60, 85], rad: [50, 75, 90], fuel: [25, 10] }; // % at which each meter warns
 const BIG_ROCK = 24; // asteroids at least this big cast a shadow
 
@@ -49,10 +48,9 @@ export function tickHazards(dt) {
   const G = world.galaxy, H = Hazards.config;
   const blockers = frameList.filter((e) => e.kind === 'asteroid' && e.radius >= BIG_ROCK).map((e) => ({ x: e.x, y: e.y, r: e.radius }));
   const before = hazard.exp;
-  const exp = hazard.exp = Hazards.exposure(G, G.seed, ship.x, ship.y, simTime, { thrust: outOfFuel() ? 0 : ship.thrust, blockers, nebula: here.region?.nebula });
+  const exp = hazard.exp = Hazards.exposure(G, G.seed, ship.x, ship.y, simTime, { thrust: ship.thrust, blockers, nebula: here.region?.nebula });
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
-  if (!outOfFuel()) cargo.fuel = Math.max(0, cargo.fuel - H.fuel.burn * ship.thrust * dt);
   // An ion storm pushes the ship about.
   if (exp.storm) { ship.vx += exp.storm.wind[0] * dt; ship.vy += exp.storm.wind[1] * dt; }
 
@@ -66,11 +64,6 @@ export function tickHazards(dt) {
 
   if (hazard.heat >= H.max) disable('Overheated');
   else if (cargo.rad >= H.max) disable('Radiation overload');
-  else if (outOfFuel()) {
-    if (hazard.stranded === 0) notify(`Out of fuel · drifting, calling a tow in ${STRANDED_TOW} s`, STRANDED_TOW, { tone: 'hostile' });
-    hazard.stranded += dt;
-    if (hazard.stranded >= STRANDED_TOW) disable('Out of fuel');
-  } else hazard.stranded = 0;
 }
 
 // Warnings as the meters fill (and fuel as it falls); also on a surface (game/surface-run.js).
@@ -81,12 +74,12 @@ export function meterWarnings() {
   const fuelPct = SHIP.fuel ? (100 * cargo.fuel) / SHIP.fuel : 0;
   for (const step of WARN.fuel) { // fuel warns as it falls
     const key = `fuel:${step}`;
-    if (fuelPct <= step && !hazard.said.has(key)) { hazard.said.add(key); notify(`Fuel ${step}% · refuel at a station`, 3, { tone: step <= 10 ? 'hostile' : 'warn' }); Feedback.emit('hazard'); }
+    if (fuelPct <= step && !hazard.said.has(key)) { hazard.said.add(key); notify(`Fuel ${step}% · ${step <= 10 ? 'no dashes or cruise left soon' : 'docking refuels'}`, 3, { tone: step <= 10 ? 'hostile' : 'warn' }); Feedback.emit('hazard'); }
     else if (fuelPct > step + 5) hazard.said.delete(key);
   }
 }
 
-// A meter full, or the tank empty: the ship is lost (in a fight with ships, that fight decides).
+// A meter full: the ship is lost (in a fight with ships, that fight decides).
 function disable(reason) {
   if (fight.s && !fight.extract) return;
   endExtraction();
@@ -94,7 +87,7 @@ function disable(reason) {
 }
 
 // The tow home, or docking: heat gone; docking also decontaminates (towHome and dock call these).
-export function cooled() { hazard.heat = 0; hazard.stranded = 0; hazard.said.clear(); }
+export function cooled() { hazard.heat = 0; hazard.said.clear(); }
 export function decontaminate() {
   const had = cargo.rad >= 1;
   cargo.rad = 0;
@@ -176,6 +169,6 @@ export function hazardLine() {
   if (f.phase === 'warning') return [`SOLAR FLARE IN ${Math.ceil(f.in)} s · ${e.shadow ? 'in shadow' : 'find a shadow'}`, e.shadow ? COLORS.hud : COLORS.amber];
   if (f.phase === 'wave') return [`SOLAR FLARE · ${e.shadow ? 'sheltered' : 'EXPOSED'} · ${Math.ceil(f.left)} s`, e.shadow ? COLORS.hud : COLORS.hostile];
   if (e.storm) return ['ION STORM · sensors dark', COLORS.amber];
-  if (outOfFuel()) return [`OUT OF FUEL · tow in ${Math.max(0, Math.ceil(STRANDED_TOW - hazard.stranded))} s`, COLORS.hostile];
+  if (outOfFuel()) return ['NO FUEL · no dashes or cruise · dock to refuel', COLORS.amber];
   return null;
 }

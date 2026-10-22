@@ -466,9 +466,10 @@ export const repairs = {
   },
 };
 
-// Refuelling as the station menu sees it: hydrazine in the hold goes in first (FUEL_PER_HYDRAZINE a
-// unit, while at least half of one fits), then hydrazine in storage, then fuel bought for credits,
-// as much as there is room for and the credits cover.
+// Refuelling, on docking and again on launch (game/docking.js): hydrazine in the hold goes in first
+// (FUEL_PER_HYDRAZINE a unit, while at least half of one fits), then hydrazine in storage, then fuel
+// bought for credits, as much as there is room for and the credits cover.
+//   fuelling.refuel() -> { hydrazine, credits } (what it took) | null (nothing went in)
 export const FUEL_PER_HYDRAZINE = 25;
 export const FUEL_PRICE = 6; // credits per unit (hydrazine's price over FUEL_PER_HYDRAZINE, and a little)
 export const fuelling = {
@@ -480,7 +481,7 @@ export const fuelling = {
   // What filling up would cost in credits, after the hydrazine aboard and in storage.
   get cost() { return Math.ceil(Math.max(0, fuelling.room - fuelling.hydrazine * FUEL_PER_HYDRAZINE)) * FUEL_PRICE; },
   refuel() {
-    if (fuelling.room <= 0) return false;
+    if (fuelling.room < 0.5) return null;
     let used = 0;
     // A unit of hydrazine while at least half of it fits; credits top up the rest.
     const fits = () => fuelling.room >= FUEL_PER_HYDRAZINE / 2;
@@ -495,14 +496,14 @@ export const fuelling = {
       cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
       used++;
     }
-    const units = Math.min(Math.ceil(fuelling.room), Math.floor(cargo.credits / FUEL_PRICE));
+    const units = Math.max(0, Math.min(Math.ceil(fuelling.room), Math.floor(cargo.credits / FUEL_PRICE)));
     if (units > 0) {
       cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + units);
       cargo.credits -= units * FUEL_PRICE;
     }
-    if (!used && units <= 0) return false;
+    if (!used && units <= 0) return null;
     saveCargo();
-    return true;
+    return { hydrazine: used, credits: units * FUEL_PRICE };
   },
 };
 
