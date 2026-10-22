@@ -51,6 +51,9 @@ game(`
     return e;
   };
   globalThis.__startStation = startStation;
+  // A point on the surface landed on, from its landing spot (the day and the dust move over the ground).
+  globalThis.__rel = (x, y) => [x - surfaceRun.W.start[0], y - surfaceRun.W.start[1]];
+  globalThis.__night = (x, y, secs = 60) => { const d = Hazards.daylight(surfaceRun.site, simTime, __rel(x, y)); return !d.day && d.in > secs; };
 `);
 // A click on one of the context card's buttons, as the card's click handler sees it.
 function clickCard(id) {
@@ -2086,7 +2089,7 @@ test('the surface run: the scan before landing; the tools work the nodes on thei
   browser.frames(1);
   assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /SUNRISE IN \d+:\d\d.*\d+ nodes · hold 0\/\d+ · yield ×2 · take-off [\d.]+ fuel/);
   // Beside a node, doing nothing: the tools pick it, and work it down; its goods are pulled in.
-  game(`globalThis.__dep = surfaceRun.deposits.filter((d) => !d.rich)[0]; Object.assign(landing.craft, { x: __dep.x - 100, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
+  game(`globalThis.__dep = surfaceRun.deposits.filter((d) => !d.rich && __night(d.x, d.y))[0]; Object.assign(landing.craft, { x: __dep.x - 100, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
   assert.ok(until('extracting() && fight.ships.has(__dep.key)', 30), 'mining it, untouched');
   assert.ok(until('!surfaceRun.deposits.includes(__dep)', 60 * 5), 'worked out quickly');
   assert.ok(until('cargo.items.some((it) => it.kind === __dep.good)', 60 * 3), 'its goods pulled into the hold without flying over them');
@@ -2216,7 +2219,7 @@ test('the surface run: a vent erupts on its rhythm, a warning first, heating the
   assert.ok(game('surfaceRun.vents.length') > 0, 'the lava planet has vents');
   // Beside the nearest vent, at night (only the vent heats), as its warning starts.
   const atVent = () => game(`{ const C = landing.craft, v = surfaceRun.vents.slice().sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
-    globalThis.__vent = v; while (Hazards.daylight(surfaceRun.site, simTime).day || Hazards.eruption(v, simTime).phase !== 'warning') skipTime(0.25);
+    globalThis.__vent = v; while (!__night(v.x, v.y, 10) || Hazards.eruption(v, simTime).phase !== 'warning') skipTime(0.25);
     Object.assign(C, { x: v.x + v.r + 15, y: v.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; hazard.heat = 0; }`);
   atVent();
   browser.frames(2);
@@ -2267,6 +2270,46 @@ test('the surface run: lightning marks its spot round a storm pocket, then strik
   browser.frames(2);
   assert.strictEqual(hp(), h1, 'no harm mid-dash');
   game('dashState.t = -1; dashState.cool = 0');
+  takeOffTo();
+});
+
+test('the surface run: the sunrise sweeps over the ground: just ahead of its line it\'s still night, and the HUD says which way the night is', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel`);
+  landOn('Zantal I');
+  // Just after sunrise at the landing spot, the ship on it: the day side.
+  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 }); ship.targetSpeed = 0;
+    while (Hazards.daylight(surfaceRun.site, simTime).day) skipTime(5); skipTime(Hazards.daylight(surfaceRun.site, simTime).in + 2)`);
+  browser.frames(2);
+  assert.ok(game('surfaceRun.exp.day.day'), 'day at the spot');
+  assert.match(game('surfaceLines()[0][0]'), /^DAY SIDE · HEAT CLIMBING · YIELD \+1 · night \d+ s to the (N|NE|E|SE|S|SW|W|NW)$/);
+  // 300 units on the way the light moves: ahead of the line, night, and the sunrise on its way.
+  game(`{ const s = Hazards.sun(surfaceRun.site, simTime); landing.craft.x += s.dir[0] * 300; landing.craft.y += s.dir[1] * 300; }`);
+  browser.frames(2);
+  assert.ok(!game('surfaceRun.exp.day.day'), 'night just ahead of the line');
+  const secs = game('surfaceRun.exp.day.in'), sweep = game('Hazards.config.surface.day.sweep');
+  assert.ok(Math.abs(secs - (300 - game('Hazards.sun(surfaceRun.site, simTime).rise')) / sweep) < 0.5, `the line gets here in ${secs} s`);
+  assert.match(game('surfaceLines()[0][0]'), /^SUNRISE IN 0:\d\d · from the (N|NE|E|SE|S|SW|W|NW)$/);
+  takeOffTo();
+});
+
+test('the surface run: a dust storm is a front crossing the desert: seen coming with a countdown, then pushing the ship until it passes', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel`);
+  landOn('Zantal II');
+  // A front on its way to the landing spot, the ship on it.
+  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 }); ship.targetSpeed = 0;
+    { const f = () => Hazards.dustFront(surfaceRun.site, simTime); while (!f() || f().lead > -f().speed * 12 || f().lead < -f().speed * 13) skipTime(0.25); }`);
+  browser.frames(2);
+  assert.ok(!game('surfaceRun.exp.dust'), 'not here yet');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST FRONT IN 1\d s · from the (N|NE|E|SE|S|SW|W|NW)/);
+  assert.ok(until('surfaceRun.said.has(`front:${Hazards.dustFront(surfaceRun.site, simTime).n}`)', 60 * 5), 'a notice as it nears');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Dust front from the \w+ in \d+ s/);
+  assert.ok(until('surfaceRun.exp.dust', 60 * 16), 'it arrives');
+  const x0 = game('landing.craft.x'), y0 = game('landing.craft.y');
+  browser.frames(60);
+  assert.ok(Math.hypot(game('landing.craft.x') - x0, game('landing.craft.y') - y0) > 20, 'pushed by the wind');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST STORM · pushed off course · clear in \d+ s/);
+  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 })`);
+  assert.ok(until('!surfaceRun.exp.dust', 60 * 16, 'Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 })'), 'and passes');
   takeOffTo();
 });
 

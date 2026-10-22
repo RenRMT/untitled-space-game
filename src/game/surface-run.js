@@ -9,8 +9,8 @@
 //   beside it, a unit more on a hot day side (notes/hazards.md phase 4).
 // - What lies on the surface (cargo.surfaceDrops): a node's goods, cargo jettisoned and the hold
 //   of a ship lost there. Flying near it pulls it in and picks it up.
-// - Hazards (rules/hazards.js surface): the day side coming round (heat; the countdown to sunrise is
-//   on the HUD), hot vents on the lava planet, dust storms on the desert, radiation on the moons, the
+// - Hazards (rules/hazards.js surface): the day side sweeping over the ground (heat; the countdown to
+//   sunrise and the way to the night on the HUD), hot vents on the lava planet, dust storms on the desert, radiation on the moons, the
 //   cold on the ice planet (dashes cost twice the fuel) and the storm pockets of the gas giants. The meters
 //   are the ones in space (game/hazards.js); one that fills loses the ship here, and its hold stays
 //   on the surface, to come back for.
@@ -33,7 +33,7 @@ import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
 import { hazard, meterWarnings } from './hazards.js';
-import { landing, takeOff } from './landing.js';
+import { SURFACE_SPEED, landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
 import { dashSafe } from './dash.js';
 import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
@@ -163,6 +163,32 @@ function once(key, text, tone = 'warn') {
 // its engine does (game/landing.js fly), or null.
 export const surfaceWind = () => (surfaceRun.e && surfaceRun.exp?.dust ? surfaceRun.exp.dust.wind : null);
 
+// Where the ship is from the landing spot (surface units): the day and the dust move over the
+// ground, so they depend on it (rules/hazards.js daylight, dust).
+export const sitePos = () => (surfaceRun.W ? [landing.craft.x - surfaceRun.W.start[0], landing.craft.y - surfaceRun.W.start[1]] : [0, 0]);
+// A way as a compass point (north is up the screen).
+const COMPASS = ['E', 'NE', 'N', 'NW', 'W', 'SW', 'S', 'SE'];
+const compass = ([x, y]) => COMPASS[((Math.round(Math.atan2(-y, x) / (Math.PI / 4)) % 8) + 8) % 8];
+const along = (dir, [x, y]) => dir[0] * x + dir[1] * y;
+// The dust front coming (or over the ship): { f (Hazards.dustFront), eta (s until its edge gets
+// here; 0 inside), clear (s until it has passed) } or null.
+function frontHere() {
+  const f = Hazards.dustFront(surfaceRun.site, simTime);
+  if (!f) return null;
+  const q = along(f.dir, sitePos());
+  if (q < f.lead - f.width) return null; // passed
+  return { f, eta: Math.max(0, (q - f.lead) / f.speed), clear: (q - f.lead + f.width) / f.speed };
+}
+
+// The nearest night from the day side: ahead of the sunrise line (flying the way the light moves)
+// or back past the sunset line; { way (a compass point), secs (at full surface speed) }.
+function nightWay() {
+  const s = Hazards.sun(surfaceRun.site, simTime), D = Hazards.config.surface.day, q = along(s.dir, sitePos());
+  const band = D.period * D.sweep, m = Math.floor((q - s.set) / band), rise = s.rise + m * band, set = s.set + m * band;
+  const v = SHIP.maxSpeed * SURFACE_SPEED, ahead = (rise - q) / Math.max(1, v - D.sweep), back = (q - set) / (v + D.sweep);
+  return ahead <= back ? { way: compass(s.dir), secs: ahead } : { way: compass([-s.dir[0], -s.dir[1]]), secs: back };
+}
+
 // A step on the surface, after the ship has flown (game/landing.js fly).
 export function tickSurface(dt) {
   if (!surfaceRun.e || landing.wrecked) return;
@@ -178,7 +204,7 @@ export function tickSurface(dt) {
   }
   // The meters: heat (the day side, vents, thrust) and radiation. (Fuel goes on dashes and taking off.)
   const vent = ventNear(C), before = surfaceRun.exp;
-  const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: C.thrust, vent });
+  const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: C.thrust, vent, at: sitePos() });
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
   if (inPocket(C) && !dashSafe()) { // dashing through one does no harm (game/dash.js)
@@ -192,7 +218,13 @@ export function tickSurface(dt) {
   const d = exp.day;
   if (hotDay(site)) {
     if (!d.day && d.in <= 30 && (!before || before.day.in > 30)) { notify(`Sunrise in ${Math.ceil(d.in)} s · heat climbs fast by day`, 3.5, { tone: 'warn' }); Feedback.emit('hazard'); }
-    if (d.day && before && !before.day.day) { notify('Sunrise · the day side: take off or find the night', 3, { tone: 'hostile' }); Feedback.emit('hazard'); }
+    if (d.day && before && !before.day.day) { notify(`Sunrise · the day side: take off, or fly ${nightWay().way} to find the night`, 3, { tone: 'hostile' }); Feedback.emit('hazard'); }
+  }
+  const front = frontHere();
+  if (front && front.eta > 0 && front.eta <= 15 && !surfaceRun.said.has(`front:${front.f.n}`)) {
+    surfaceRun.said.add(`front:${front.f.n}`);
+    notify(`Dust front from the ${compass([-front.f.dir[0], -front.f.dir[1]])} in ${Math.ceil(front.eta)} s · the wind will push the ship`, 3.5, { tone: 'warn' });
+    Feedback.emit('hazard');
   }
   if (exp.dust && !before?.dust) { notify('Dust storm · the wind pushes the ship, and you can see less', 3, { tone: 'warn' }); Feedback.emit('hazard'); }
   if (vent > 0.5) once('vent', 'Over a hot vent · it heats the ship');
@@ -389,6 +421,7 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
   const at = (x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, z);
   ctx.save();
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
+  drawMovingWeather(at);
   drawBursts(at, v.ct, time);
   for (const d of surfaceRun.deposits) {
     const p = at(d.x, d.y);
@@ -475,6 +508,38 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
   }
   ctx.restore();
 }
+
+// The day and the dust as they move over the ground near the ship: the lit band (on a world whose
+// day is hot), its sunrise line bright; the dust front's band, its leading edge marked.
+const WEATHER_VIEW = 3000; // drawn this far round the ship
+function drawMovingWeather(at) {
+  const site = surfaceRun.site, [sx, sy] = surfaceRun.W.start, P = sitePos();
+  // The band from q0 to q1 along dir (from the landing spot), as wide as the view, and its edge at q1.
+  const band = (dir, q0, q1, fill, edge, w = 2.5) => {
+    const qs = along(dir, P), a = Math.max(q0, qs - WEATHER_VIEW), b = Math.min(q1, qs + WEATHER_VIEW);
+    if (a >= b) return;
+    const n = [-dir[1], dir[0]], pn = along(n, P);
+    const pt = (q, s) => at(sx + dir[0] * q + n[0] * (pn + s), sy + dir[1] * q + n[1] * (pn + s));
+    const c = [pt(a, -WEATHER_VIEW), pt(b, -WEATHER_VIEW), pt(b, WEATHER_VIEW), pt(a, WEATHER_VIEW)];
+    if (c.some((p) => !p)) return;
+    ctx.beginPath();
+    c.forEach((p, k) => (k ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+    ctx.closePath();
+    ctx.fillStyle = fill[0]; ctx.globalAlpha = fill[1]; ctx.fill();
+    if (b === q1) {
+      ctx.beginPath(); ctx.moveTo(c[1][0], c[1][1]); ctx.lineTo(c[2][0], c[2][1]);
+      ctx.strokeStyle = edge; ctx.globalAlpha = 0.8; ctx.lineWidth = w; ctx.stroke();
+    }
+  };
+  if (hotDay(site)) {
+    const s = Hazards.sun(site, simTime), D = Hazards.config.surface.day, rep = D.period * D.sweep;
+    for (let m = -1; m <= 1; m++) band(s.dir, s.set + m * rep, s.rise + m * rep, [COLORS.flame, 0.12], COLORS.amber);
+  }
+  const f = Hazards.dustFront(site, simTime);
+  if (f) band(f.dir, f.lead - f.width, f.lead, [DUST, 0.7], DUST_EDGE, 4);
+  ctx.globalAlpha = 1;
+}
+const DUST = '#26170b', DUST_EDGE = '#e2aa72';
 
 // The bursts on the ground near the ship: each vent's reach, faint while calm, glowing brighter as
 // it's about to erupt and ablaze while it does; each strike's ring, a second ring closing in on it as
@@ -608,17 +673,12 @@ function drawFireField(scr) {
   ctx.globalAlpha = 1;
 }
 
-// Over the whole surface view (screen px): a dust storm's murk, streaked the way the wind blows; and
-// the day side's glare, where the day is hot.
+// Over the whole surface view (screen px), inside a dust storm: its murk, streaked the way the wind
+// blows. (The day's light and the front coming are drawn on the ground: drawMovingWeather.)
 export function drawSurfaceWeather(w, h, time) {
   const exp = surfaceRun.exp;
   if (!exp) return;
   ctx.save();
-  if (exp.day.day && hotDay(surfaceRun.site)) {
-    ctx.fillStyle = COLORS.flame;
-    ctx.globalAlpha = 0.08 + 0.02 * Math.sin(time * 2);
-    ctx.fillRect(0, 0, w, h);
-  }
   if (exp.dust) {
     // Thin round the ship (a little below the middle of the screen), thick further out.
     const cx = w / 2, cy = h * 0.6, near = Math.min(w, h) * 0.18, far = Math.max(w, h) * 0.6;
@@ -630,7 +690,7 @@ export function drawSurfaceWeather(w, h, time) {
     ctx.globalAlpha = 1;
     ctx.fillRect(0, 0, w, h);
     const [wx, wy] = exp.dust.wind, a = Math.atan2(wy, wx), len = 60;
-    ctx.strokeStyle = '#e2aa72';
+    ctx.strokeStyle = DUST_EDGE;
     ctx.globalAlpha = 0.35;
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -650,10 +710,13 @@ export function surfaceLines() {
   if (!exp || !site) return [];
   const out = [], d = exp.day;
   if (hotDay(site)) {
-    if (d.day) out.push([`DAY SIDE · HEAT CLIMBING · YIELD +1 · night in ${mmss(d.left)}`, COLORS.hostile]);
-    else out.push([`SUNRISE IN ${mmss(d.in)}`, d.in <= 30 ? COLORS.amber : COLORS.hud]);
+    const s = Hazards.sun(site, simTime);
+    if (d.day) { const n = nightWay(); out.push([`DAY SIDE · HEAT CLIMBING · YIELD +1 · night ${Math.ceil(n.secs)} s to the ${n.way}`, COLORS.hostile]); }
+    else out.push([`SUNRISE IN ${mmss(d.in)} · from the ${compass([-s.dir[0], -s.dir[1]])}`, d.in <= 30 ? COLORS.amber : COLORS.hud]);
   }
-  if (exp.dust) out.push(['DUST STORM · pushed off course', COLORS.amber]);
+  const front = frontHere();
+  if (exp.dust) out.push([`DUST STORM · pushed off course · clear in ${Math.ceil(front ? front.clear : 0)} s`, COLORS.amber]);
+  else if (front && front.eta <= 20) out.push([`DUST FRONT IN ${Math.ceil(front.eta)} s · from the ${compass([-front.f.dir[0], -front.f.dir[1]])}`, COLORS.amber]);
   if (surfaceRun.warn === 'vent') out.push(['VENT ABOUT TO ERUPT · get clear or dash', COLORS.hostile]);
   if (surfaceRun.warn === 'strike') out.push(['LIGHTNING ABOUT TO STRIKE HERE · move or dash', COLORS.hostile]);
   const need = takeoffNeed();

@@ -33,7 +33,7 @@
 //
 // On a surface (game/landing.js, game/surface-run.js) each kind of body has its own hazard, and
 // something worth landing for (notes/hazards.md §4, §6):
-// - the day side: the surface turns, and for part of each day the landing site is in sunlight, where
+// - the day side: the surface turns, and for part of each day the ground is in sunlight, where
 //   heat climbs (fast on the lava and desert planets and on the airless moons; harmless on the
 //   Terran, ice and gas worlds). The countdown to sunrise is on the HUD;
 // - lava: hot vents (the glowing holes) heat the ship over them; desert: dust storms darken the view
@@ -50,11 +50,20 @@
 //     parentType: its planet's type. site: { id, label, tag (the hazard in a word or two), hazard, gravity, heat, day, rad, fuelBurn,
 //     dust, vents, pockets, deposits: [[good, weight]], material, rich, seed }   rich: what the site's
 //     danger pays (×: how many nodes its field holds, rules/mining.js deposits)
-//   Hazards.daylight(site, t) -> { day, in, left }   day: in sunlight; in: seconds to sunrise (0 by
-//     day); left: seconds of daylight left
-//   Hazards.dust(site, t) -> { wind: [x, y] } | null   a dust storm at t (desert)
+// Both the day and the desert's dust storms move over the ground, each its own way (seeded by the
+// body), so where the ship is matters (at: [x, y] from the landing spot, surface units; the spot if
+// left out): sunrise is a line sweeping across at day.sweep a second, slower than a ship, so the
+// night can be flown into; a dust storm is a front, `width` deep, crossing the whole site.
+//   Hazards.daylight(site, t, at?) -> { day, in, left }   day: in sunlight; in: seconds to sunrise
+//     (0 by day); left: seconds of daylight left (both for a ship staying put)
+//   Hazards.sun(site, t) -> { dir: [x, y], rise, set }   the way the light moves, and how far along
+//     it (from the landing spot) the sunrise and sunset lines are now: lit between set and rise,
+//     again every day.period × day.sweep along
+//   Hazards.dustFront(site, t) -> { n, dir, wind, lead, width, speed } | null   a storm crossing the
+//     site (desert): its leading edge `lead` along dir from the landing spot, moving at speed
+//   Hazards.dust(site, t, at?) -> { wind: [x, y] } | null   inside a dust storm (desert)
 //   Hazards.surfaceExposure(site, t, o?) -> { heat, rad, day, dust }   per second; o: { thrust (0..1),
-//     vent (0..1: how close over a vent) }
+//     vent (0..1: how close over a vent), at }
 //   Hazards.takeoffFuel(gravity, holdFill) -> fuel   holdFill: 0 (empty) .. 1 (full)
 //   Hazards.pulse(seed, t, P) -> { phase: 'calm' | 'warning' | 'on', in, left, n }   a hazard's own
 //     rhythm (P: config.surface.erupt or strike; seed: an integer, the vent's or pocket's): in, the
@@ -99,7 +108,7 @@ const Hazards = (() => {
     storm: { period: 150, length: 30, wind: 140 }, // ion storms: one per stretch per nebula, this long, pushing this hard (units/s²)
     fuel: { travel: 2500, dash: 2 }, // map travel: one per this many units; a dash (× a surface's fuelBurn)
     surface: {
-      day: { period: 240, length: 80 }, // a day on every surface: this long, this much of it in sunlight
+      day: { period: 240, length: 80, sweep: 40 }, // a day on every surface: this long, this much of it in sunlight; the sunrise moves this fast over the ground
       vent: 12, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
       // a vent erupting: every period (s, seeded per vent in this range), a warning, then `length`
       // of heat and hull damage (per second) to a ship within `reach` past its rim
@@ -107,7 +116,9 @@ const Hazards = (() => {
       // lightning round a storm pocket: every period, a ring of radius r marks a spot from..to past
       // the pocket's rim; after `warn` the bolt (`length` s), `hull` damage to a ship inside the ring
       strike: { period: [4, 7], warn: 1.2, length: 0.3, r: 45, from: 25, to: 120, hull: 30 },
-      dust: { period: 100, length: 25, wind: 60 }, // dust storms on the desert: the ship drifts with the wind at this (surface units/s)
+      // dust storms on the desert: one front a period, taking `length` to cross from `span` before the
+      // landing spot to `span` past it, `width` deep; inside, the ship drifts with the wind at this (surface units/s)
+      dust: { period: 100, length: 40, wind: 60, span: 2200, width: 1800 },
       pocket: 12, pocketReach: 12, // hull per second touching a gas giant's storm pocket (within this of it)
       takeoff: { base: 3, hold: 7 }, // fuel to take off: (base + hold × how full the hold is) × gravity
     },
@@ -232,25 +243,40 @@ const Hazards = (() => {
     const id = PLANET_SURFACE[type] || 'terran';
     return { ...SURFACES[id], id, seed };
   }
-  // Each body's day starts at its own moment (by its seed); sunlight comes in the last `length` of it.
-  function daylight(site, t) {
-    const D = config.surface.day, at = ((t + (hashInt(seedToInt(site.seed), 0xda7) / 4294967296) * D.period) % D.period + D.period) % D.period;
+  const along = (dir, at) => (at ? at[0] * dir[0] + at[1] * dir[1] : 0);
+  // Each body's day starts at its own moment (by its seed) at the landing spot; sunlight comes in the
+  // last `length` of it. Further along the way the light moves, it comes later.
+  const dayAt = (site, t) => t + (hashInt(seedToInt(site.seed), 0xda7) / 4294967296) * config.surface.day.period;
+  const sunDir = (site) => { const a = (hashInt(seedToInt(site.seed), 0x5a7) / 4294967296) * Math.PI * 2; return [Math.cos(a), Math.sin(a)]; };
+  function daylight(site, t, at) {
+    const D = config.surface.day, u = dayAt(site, t) - along(sunDir(site), at) / D.sweep, ph = ((u % D.period) + D.period) % D.period;
     const dawn = D.period - D.length;
-    return at >= dawn ? { day: true, in: 0, left: D.period - at } : { day: false, in: dawn - at, left: 0 };
+    return ph >= dawn ? { day: true, in: 0, left: D.period - ph } : { day: false, in: dawn - ph, left: 0 };
   }
-  // A dust storm, as an ion storm in a nebula (storm), on the desert only.
-  function dust(site, t) {
+  function sun(site, t) {
+    const D = config.surface.day, ph = ((dayAt(site, t) % D.period) + D.period) % D.period, rise = (ph - (D.period - D.length)) * D.sweep;
+    return { dir: sunDir(site), rise, set: rise - D.length * D.sweep };
+  }
+  // A dust storm on the desert: a front crossing the site at its seeded moment in each period.
+  function dustFront(site, t) {
     if (!site.dust) return null;
-    const S2 = config.surface.dust, i = Math.floor(t / S2.period), salt = 0xd057;
-    const start = i * S2.period + stretchSeed(site.seed, i, salt) * (S2.period - S2.length);
+    const S2 = config.surface.dust, n = Math.floor(t / S2.period), salt = 0xd057;
+    const start = n * S2.period + stretchSeed(site.seed, n, salt) * (S2.period - S2.length);
     if (t < start || t >= start + S2.length) return null;
-    const a = stretchSeed(site.seed, i, salt + 0x100) * Math.PI * 2;
-    return { wind: [Math.cos(a) * S2.wind, Math.sin(a) * S2.wind] };
+    const a = stretchSeed(site.seed, n, salt + 0x100) * Math.PI * 2, dir = [Math.cos(a), Math.sin(a)];
+    const speed = (2 * S2.span + S2.width) / S2.length;
+    return { n, dir, wind: [dir[0] * S2.wind, dir[1] * S2.wind], lead: -S2.span + (t - start) * speed, width: S2.width, speed };
+  }
+  function dust(site, t, at) {
+    const f = dustFront(site, t);
+    if (!f) return null;
+    const q = along(f.dir, at);
+    return q <= f.lead && q >= f.lead - f.width ? { wind: f.wind } : null;
   }
   function surfaceExposure(site, t, o = {}) {
-    const d = daylight(site, t);
+    const d = daylight(site, t, o.at);
     const heat = site.heat + (d.day ? site.day : 0) + config.heat.thrust * (o.thrust || 0) + config.surface.vent * (o.vent || 0);
-    return { heat, rad: site.rad, day: d, dust: dust(site, t) };
+    return { heat, rad: site.rad, day: d, dust: dust(site, t, o.at) };
   }
   const takeoffFuel = (gravity, holdFill) => {
     const T = config.surface.takeoff;
@@ -276,7 +302,7 @@ const Hazards = (() => {
   const shed = (stats = {}) => config.heat.cool + (stats.cool || 0);
   const radTaken = (rate, stats = {}) => rate * (1 - clamp(stats.radGuard || 0, 0, 1));
 
-  return { shed, radTaken, config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel, pulse, eruption, strike };
+  return { shed, radTaken, config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, sun, dustFront, dust, surfaceExposure, takeoffFuel, pulse, eruption, strike };
 })();
 
 export { Hazards };

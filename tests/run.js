@@ -2023,11 +2023,40 @@ test('surfaces: each body has its hazard and goods; the day comes round, hot on 
   assert.strictEqual(noon.heat - midnight.heat, lava.day);
   assert.strictEqual(Hazards.surfaceExposure(lava, t, { vent: 1 }).heat - midnight.heat, H.surface.vent, 'a vent heats the ship over it');
   assert.strictEqual(Hazards.surfaceExposure(giantMoon, t).rad, giantMoon.rad);
-  // Dust storms on the desert, as ion storms: one a stretch, pushing the ship.
-  const storms = Array.from({ length: 10 * H.surface.dust.period }, (_, k) => Hazards.dust(desert, k)).filter(Boolean);
-  assert.strictEqual(storms.length, 10 * H.surface.dust.length);
-  assert(Math.abs(Math.hypot(...storms[0].wind) - H.surface.dust.wind) < 1e-9);
-  assert(Array.from({ length: H.surface.dust.period }, (_, k) => Hazards.dust(lava, k)).every((x) => x === null), 'no dust off the desert');
+  // Dust storms on the desert: a front a period, crossing the landing spot in width / speed, pushing the ship.
+  const S2 = H.surface.dust, pass = (S2.width * S2.length) / (2 * S2.span + S2.width);
+  const storms = Array.from({ length: 10 * S2.period }, (_, k) => Hazards.dust(desert, k)).filter(Boolean);
+  assert(Math.abs(storms.length - 10 * pass) <= 10, `${storms.length} s of storm at the spot in ten periods`);
+  assert(Math.abs(Math.hypot(...storms[0].wind) - S2.wind) < 1e-9);
+  assert(Array.from({ length: S2.period }, (_, k) => Hazards.dust(lava, k)).every((x) => x === null), 'no dust off the desert');
+});
+
+test('surfaces: the sunrise sweeps over the ground, slower than a ship; a dust storm is a front crossing the site', () => {
+  const H = Hazards.config, D = H.surface.day, lava = Hazards.surface('planet', 'lava', 5), desert = Hazards.surface('planet', 'desert', 5);
+  // Just after sunrise at the landing spot: day there; ahead of the light, still night, and the
+  // sunrise comes there later by the distance over the sweep.
+  let t = 0;
+  while (Hazards.daylight(lava, t).day) t++;
+  t += Hazards.daylight(lava, t).in + 1;
+  const s = Hazards.sun(lava, t), ahead = [s.dir[0] * 400, s.dir[1] * 400], behind = [-s.dir[0] * 400, -s.dir[1] * 400];
+  assert(Hazards.daylight(lava, t).day && !Hazards.daylight(lava, t, ahead).day && Hazards.daylight(lava, t, behind).day, 'lit behind the line, dark ahead');
+  assert(Math.abs(Hazards.daylight(lava, t, ahead).in - (400 - s.rise) / D.sweep) < 1e-6, 'its sunrise comes as the line gets there');
+  assert(s.rise > 0 && s.rise < 2 * D.sweep && Math.abs(s.rise - s.set - D.length * D.sweep) < 1e-6, 'the lit band, just past the spot');
+  const surface = Loadout.stats(Loadout.starter('courier')).maxSpeed * 0.5;
+  assert(D.sweep < surface / 4, 'a ship outruns the sunrise');
+  // The front: crossing from span before the spot to span past it; a point further along it gets it later.
+  let k = 0;
+  while (!Hazards.dustFront(desert, k)) k += 0.5;
+  const f = Hazards.dustFront(desert, k), S2 = H.surface.dust;
+  assert(Math.abs(f.lead + S2.span) <= f.speed * 0.5 + 1e-6, 'it starts out past the site');
+  assert.strictEqual(Hazards.dust(desert, k), null, 'not yet at the spot');
+  const eta = (0 - f.lead) / f.speed;
+  assert(Hazards.dust(desert, k + eta + 0.1), 'there when its edge arrives');
+  const far = [f.dir[0] * 1000, f.dir[1] * 1000];
+  assert.strictEqual(Hazards.dust(desert, k + eta + 0.1, far), null, 'later further along');
+  assert(Hazards.dust(desert, k + eta + 1000 / f.speed + 0.1, far), 'then there');
+  assert.strictEqual(Hazards.dust(desert, k + eta + (S2.width + 10) / f.speed), null, 'and gone once it has passed');
+  assert(Math.abs(Math.hypot(...f.wind) - S2.wind) < 1e-9 && Math.abs(f.wind[0] / S2.wind - f.dir[0]) < 1e-9, 'blowing the way it moves');
 });
 
 test('surfaces: taking off costs fuel by gravity and how full the hold is', () => {
