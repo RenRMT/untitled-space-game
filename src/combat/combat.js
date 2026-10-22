@@ -54,6 +54,9 @@ const Combat = (() => {
     if (s.enemies.some((e) => e.id === id && e.hull > 0)) s.focus = id;
   }
 
+  // Tools that do nothing to ships (a gas siphon: rules/loadout.js vs) sit out a fight.
+  const armed = (c) => c.stats.weapons.filter((w) => !w.vs || (w.vs.ship ?? 1) > 0);
+
   // One weapon firing at a target: rolls each shot and applies the damage.
   function volley(rng, attacker, weapon, target) {
     const shots = shotsPerRound(weapon);
@@ -86,14 +89,14 @@ const Combat = (() => {
       if (a.hull <= 0 || s.player.hull <= 0 || Abilities.disabled(a, s.t)) continue;
       if (a === s.player) {
         if (s.fleeing) continue;
-        for (const w of a.stats.weapons) {
+        for (const w of armed(a)) {
           if (!alive(s).some((e) => e.id === s.focus)) setFocus(s, alive(s)[0] && alive(s)[0].id);
           const t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
           if (!t) break;
           events.push(volley(s.rng, a, w, t));
         }
       } else if (s.allies.includes(a)) {
-        for (const w of a.stats.weapons) {
+        for (const w of armed(a)) {
           const t = s.enemies.find((e) => e.id === a.order.target && e.hull > 0);
           if (!t) break;
           events.push(volley(s.rng, a, w, t));

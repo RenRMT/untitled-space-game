@@ -59,10 +59,12 @@ export const MOVE_MODES = ['cruise', 'direct'];
 export const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
 // Combat: automatic rounds with the ships stopped (combat/combat.js), or real-time, flying throughout
-// (combat/combat-realtime.js). Each fight keeps the mode it started in; the menu is closed during fights.
+// (combat/combat-realtime.js). Mining is always real time (game/combat.js extract). Fights with ships
+// are switched off with the pirates, so the setting is out of the menu; it stays for the opening
+// missions' fights (?missions) and the ?combat= parameter. Each fight keeps the mode it started in.
 export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
-export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
+export const combatMode = setting('combat', COMBAT_MODES, 'realtime');
 
 // A conversation's question answered (story/intro.js, story/missions.js: { ask: key, options }):
 // the setting it asks about, by its saved key, takes the chosen value.
@@ -107,7 +109,7 @@ export const reducedMotion = () => motion.value === 'reduce';
 // one long rattle.
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
-  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6],
 };
 const HIT_GAP = 0.15;
 let lastHit = 0;
@@ -186,14 +188,6 @@ export function init() {
       { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to brake to a stop.' },
     ],
     get: () => moveMode.value, set: (v) => moveMode.set(v),
-  });
-  Settings.add({
-    id: 'combat', label: 'Combat',
-    choices: [
-      { value: 'rounds', label: 'Rounds', hint: 'Ships stop and trade fire in automatic rounds. Pick targets and decide when to flee.' },
-      { value: 'realtime', label: 'Real-time', hint: 'Keep flying. Your guns fire on their own while the locked target is in range and ahead of you. Outfly pirates to get away.' },
-    ],
-    get: () => combatMode.value, set: (v) => combatMode.set(v),
   });
   Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',

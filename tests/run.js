@@ -19,6 +19,7 @@ import { SpriteCache } from '../src/art/sprite-cache.js';
 import { Entities } from '../src/flight/entities.js';
 import { Scene } from '../src/flight/scene.js';
 import { Interactions } from '../src/flight/interactions.js';
+import { Collide } from '../src/flight/collide.js';
 import { Travel } from '../src/flight/travel.js';
 import { Flight } from '../src/flight/flight.js';
 import { Knowledge } from '../src/rules/knowledge.js';
@@ -488,9 +489,10 @@ test('mined asteroids drop metals, minerals or gases, at the configured rates', 
 
 test('the Mine shortcut picks the nearest asteroid within mining range of its edge', () => {
   // As the flight view sets it up (game/docking.js): a ship at the origin, gaps measured to the edge.
+  // (Mining reaches as far as a lock, less a margin: game/mining.js.)
+  const R = 1400;
   const A = Interactions.create({ gap: (e) => Math.hypot(e.x, e.y) - e.radius, speed: () => 0 });
-  const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => Mining.config.range, run() {} });
-  const R = Mining.config.range;
+  const mine = A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', range: () => R, run() {} });
   const rock = (key, x, r = 20) => ({ kind: 'asteroid', key, x, y: 0, radius: r, ast: { type: 'stony' } });
   const near = rock('near', 60), far = rock('far', 120), out = rock('out', R + 21 + 0.1);
   assert.strictEqual(A.target(mine, null, [far, { kind: 'station', x: 10, y: 0, radius: 5 }, near, out]), near);
@@ -649,8 +651,10 @@ test('keys are unique across everything that can leave the world, and survive a 
     const keyed = sceneOf(seed).entities.filter((e) => e.key);
     assert.strictEqual(new Set(keyed.map((e) => e.key)).size, keyed.length, `seed ${seed}: duplicate keys`);
   }
-  const s = galaxies.get(1);
-  const a = thingsOf(1, 'ship'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship');
+  assert.strictEqual(thingsOf(1, 'ship').length, 0, 'the showcase has no pirates');
+  // With the pirates turned back on, their ships keep their keys through a rebuild.
+  const s = Galaxy.generate(1, { ...SYSTEM_CONFIG, galaxy: { system: { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } } } });
+  const a = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship');
   assert(a.length > 15, `only ${a.length} ships`);
   assert(a.every((e) => e.role === 'fighter' || e.role === 'freighter'), 'ship without a role');
   assert.deepStrictEqual(a.map((e) => [e.key, e.role]), b.map((e) => [e.key, e.role]));
@@ -683,7 +687,7 @@ test('gas pockets: a few inside every nebula, clear of its ambush, keyed for goo
     assert(gas.every((x) => Goods.type(x.kind).category === 'gas'), 'gas only');
     assert.deepStrictEqual(Mining.gasOf(g.seed, e), gas, 'the same every time');
   }
-  assert(Mining.duration(things[0]) > Mining.duration({ kind: 'asteroid' }), 'slower than mining');
+  assert(things.every((e) => Mining.material(e) === 'gas' && Mining.integrity(e) > 0), 'gas to siphon');
   // E mines an asteroid or collects gas: both actions share the key, in order.
   const A = Interactions.create({ gap: () => 0, speed: () => 0 });
   A.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: 100, run() {} });
@@ -698,7 +702,8 @@ test('the starter Courier flies, senses and mines as before', () => {
     { name: 'Courier', maxSpeed: 650, accel: 520, turnRate: 3.6, radius: 16, cargo: 20 });
   assert.strictEqual(s.sensorRange, Knowledge.SENSOR_RANGE);
   assert.strictEqual(s.pingRange, Knowledge.PING_RANGE);
-  assert.strictEqual(Mining.config.duration / s.miningRate, 5);
+  assert.strictEqual(s.miningRate, 1);
+  assert.deepStrictEqual(s.weapons.map((w) => w.name), ['Mining laser Mk I', 'Gas siphon Mk I'], 'a laser for rock, a siphon for gas');
   assert.strictEqual(s.weaponSlots, 2);
   assert(s.shield > 0 && s.firepower > 0, 'starter gear includes a shield and a weapon');
 });
@@ -1775,6 +1780,66 @@ test('real-time combat is deterministic for a seed', () => {
   assert.deepStrictEqual(run(), run());
 });
 
+// Mining: a rock is a passive target in a real-time fight (game/combat.js extract).
+function mine(stats, target, pilot, maxTime = 60) {
+  const me = RealtimeCombat.ship('player', 'Me', stats, { x: 0, y: 0, angle: 0 });
+  const rock = RealtimeCombat.ship(target.key, 'Rock', Mining.stats(target), { x: target.x, y: target.y, radius: target.radius }, undefined, { passive: true, material: Mining.material(target) });
+  return RealtimeCombat.simulate(mulberry32(7), me, [rock], pilot, { focus: target.key, maxTime });
+}
+
+test('mining is real-time combat against a rock that never fights back', () => {
+  const rock = { kind: 'asteroid', key: 'r', x: 300, y: 0, radius: 24, ast: { type: 'stony' } };
+  assert.strictEqual(Mining.integrity(rock), 144);
+  const still = mine(COURIER, rock);
+  assert.strictEqual(still.over, 'won', 'broken up');
+  assert(still.t > 5 && still.t < 12, `a medium rock in ${still.t.toFixed(1)} s`);
+  assert.strictEqual(still.player.hull, COURIER.hull, 'it never fires back');
+  assert.strictEqual(still.player.shield, COURIER.shield);
+  // Drifting across the rock while mining misses more: slower.
+  const drifting = mine(COURIER, rock, (s, dt) => { s.player.vy = 350; s.player.y = 200 * Math.sin(s.t); });
+  assert(drifting.t > still.t, `drifting ${drifting.t.toFixed(1)} s, still ${still.t.toFixed(1)} s`);
+  // Out past lock range, the session ends.
+  const away = mine(COURIER, rock, (s) => { s.player.x = -3000; });
+  assert.strictEqual(away.over, 'fled');
+});
+
+test('mining tools: each bites by the material, and a tool that does nothing to it holds its fire', () => {
+  const gas = { kind: 'gas', key: 'g', x: 250, y: 0, radius: 70, pocket: { r: 70 } };
+  const laser = Loadout.EQUIPMENT['pulse-laser-1'].stats, drill = Loadout.EQUIPMENT['heavy-cannon-2'].stats, siphon = Loadout.EQUIPMENT['beam-turret-1'].stats;
+  assert(drill.vs.rock > laser.vs.rock && drill.range < laser.range, 'the drill bites harder, closer in');
+  const me = RealtimeCombat.ship('player', 'Me', COURIER, { x: 0, y: 0, angle: 0 });
+  const g = RealtimeCombat.ship('g', 'Gas', Mining.stats(gas), { x: 250, y: 0, radius: 70 }, undefined, { passive: true, material: 'gas' });
+  const r = RealtimeCombat.ship('r', 'Rock', Mining.stats({ ...gas, kind: 'asteroid' }), { x: 250, y: 0, radius: 24 }, undefined, { passive: true, material: 'rock' });
+  assert.strictEqual(RealtimeCombat.canFire(me, drill, g), false, 'a drill does nothing to gas');
+  assert.strictEqual(RealtimeCombat.canFire(me, siphon, r), false, 'a siphon does nothing to rock');
+  assert.strictEqual(RealtimeCombat.canFire(me, siphon, g), true);
+  // The starting Courier siphons a pocket mostly with its siphon, and faster with it than without.
+  const both = mine(COURIER, gas);
+  const laserOnly = mine(Loadout.stats({ ...Loadout.starter('courier'), fitted: { ...Loadout.starter('courier').fitted, 'weapon-2': null } }), gas);
+  assert.strictEqual(both.over, 'won');
+  assert(both.t < laserOnly.t, `with the siphon ${both.t.toFixed(1)} s, without ${laserOnly.t.toFixed(1)} s`);
+  // A siphon never fires at a ship (the fights still in the game: the opening missions).
+  const s = duel({ ...FIGHTER, weapons: [] }, [200, 0]);
+  const shots = runPinned(s, 3);
+  assert(shots.player.length > 0 && shots.player.every((ev) => ev.weapon === 0), 'only the laser fires at a ship');
+});
+
+test('collisions: a hard hit bounces the ship off and knocks it; a gentle one does nothing', () => {
+  const body = { x: 30, y: 0, vx: -300, vy: 40 };
+  const speed = Collide.resolve(body, 16, { x: 0, y: 0, radius: 20 });
+  assert.strictEqual(speed, 300, 'the speed into it');
+  assert.strictEqual(body.x, 36, 'pushed out to touching');
+  assert(Math.abs(body.vx - 300 * Collide.config.restitution) < 1e-9, 'bounced back, slower');
+  assert(Math.abs(body.vy - 40 * (1 - Collide.config.friction)) < 1e-9, 'some speed lost along it');
+  assert.strictEqual(Collide.resolve({ x: 30, y: 0, vx: 200, vy: 0 }, 16, { x: 0, y: 0, radius: 20 }), 0, 'moving away already');
+  assert.strictEqual(Collide.resolve({ x: 100, y: 0, vx: -200, vy: 0 }, 16, { x: 0, y: 0, radius: 20 }), 0, 'not touching');
+  assert.strictEqual(Collide.damage(Collide.config.safe), 0, 'docking and approach speeds never hurt');
+  const full = Collide.damage(COURIER.maxSpeed), half = Collide.damage(COURIER.maxSpeed / 2);
+  assert(full > half && half > 0, `${half} at half speed, ${full} at full`);
+  assert(full < COURIER.shield + COURIER.hull, 'one hit at full speed is not the end of the ship');
+  assert(Collide.damage(COURIER.maxSpeed * 0.4, Collide.config.surfaceSafe) > 0, 'flying into a cliff at surface speed hurts');
+});
+
 test('real-time combat: the starter Courier against pirate fighters, and getting away', () => {
   // A pilot who sits still and turns to face the target, and one who flies flat out away.
   const face = (s, dt) => {
@@ -2105,7 +2170,7 @@ test('squad: each member flies its own loadout, joining with the player\'s start
   m.loadout = { ...m.loadout, fitted: { ...m.loadout.fitted, 'weapon-1': 'pulse-laser-3' } };
   const mod = Object.keys(Mods.MODS).find((id) => Mods.fits(id, 'weapon'));
   m.loadout.mods = { 'weapon-1': [mod] };
-  assert.strictEqual(Squad.stats(m).weapons[0].name, 'Pulse laser Mk III');
+  assert.strictEqual(Squad.stats(m).weapons[0].name, 'Mining laser Mk III');
   const [back] = Squad.read(JSON.parse(JSON.stringify([m])), new Set());
   assert.deepStrictEqual(back.loadout, m.loadout);
   // A saved loadout is checked against its hull: wrong slots, gear and mods dropped.

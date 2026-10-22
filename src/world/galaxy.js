@@ -38,7 +38,7 @@ const Galaxy = (() => {
     // The system's params, over SolarSystem.params: one of each planet type (inner to outer) and
     // each moon type, no belts, one asteroid field and one nebula, and one of each station: the
     // capital, the major hub, a minor station, a mining camp (in the field) and a salvage yard,
-    // with the waystation on the outer edge across from the gate.
+    // with the waystation on the outer edge across from the gate; no pirates.
     system: {
       radius: 40000,
       kinds: { planets: ['lava', 'desert', 'terran', 'ice', 'gas', 'blue'], moons: ['grey', 'ice', 'rust', 'dark', 'sulfur'] },
@@ -48,6 +48,8 @@ const Galaxy = (() => {
       fields: { count: [1, 1], rocks: [70, 90], spread: [2000, 2400] },
       nebulae: { count: [1, 1], r: [4500, 6000] },
       stations: { capital: true, major: true, minor: [1, 1], miningCamps: [1, 1], yard: true },
+      // No pirates: the game is about gathering under hazards now (notes/hazards.md), not fighting.
+      pirates: { density: 0, lawlessAmbushes: [0, 0], nebulaAmbushes: false },
     },
     // The station cultures (SolarSystem.CULTURES ids) by station type; the waystation is android.
     cultures: { capital: 0, major: 1, minor: 2, 'mining camp': 1, 'salvage yard': SS.DRIFTER },

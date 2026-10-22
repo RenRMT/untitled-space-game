@@ -1,59 +1,40 @@
-// Mining: stop by an asteroid, mine it, collect what it leaves behind (rules/mining.js); also the
+// Mining: the Mine and Siphon actions, which start extraction (game/combat.js extract: a real-time
+// fight against the rock), what a rock leaves when it breaks up (rules/mining.js); also the
 // particle bursts and debris other parts use.
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
 import { Feedback } from '../core/feedback.js';
-import { COLORS, Theme } from '../core/theme.js';
+import { COLORS } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Mining } from '../rules/mining.js';
 import { cargo, dropEntity, saveCargo } from './cargo.js';
-import { actions, docked } from './docking.js';
+import { endExtraction, extract, extracting } from './combat.js';
+import { actions } from './docking.js';
 import { rx, ry } from './draw-world.js';
-import { worldToScreen } from './hud.js';
 import { missionCollected } from './missions.js';
-import { SHIP, TAU, autopilot, ctx, debris, inFight, mining, notify, ship, turnToward, view } from './state.js';
+import { SHIP, TAU, ctx, debris, fight, notify } from './state.js';
 import { world } from './world.js';
 
 //
-// Gas pockets in nebulae are collected the same way (Collect): the same countdown, beam and
-// range, a little slower, and they leave gas floating to pick up.
+// Gas pockets in nebulae are worked the same way (Siphon), and leave gas floating to pick up.
 
 export const MINE_COLOR = COLORS.busy;
 
-// Seconds to mine an asteroid or collect a gas pocket: the base time, sped up by the ship computer.
-export function mineTime(e = mining.target) {
-  return Mining.duration(e || { kind: 'asteroid' }) / (SHIP.miningRate || 1);
-}
 export const isGas = (e) => e.kind === 'gas';
-export const mineVerb = (e) => (isGas(e) ? ['Collect', 'Collecting'] : ['Mine', 'Mining']);
+export const mineVerb = (e) => (isGas(e) ? ['Siphon', 'Siphoning'] : ['Mine', 'Mining']);
 
-// Called on teleports, docking and when the ship drifts away. Must not touch anything declared
-// below: placeShip runs it while the system first loads.
-export function stopMining(notice) {
-  if (!mining.target) return;
-  mining.target = null;
-  mining.t = 0;
-  if (notice) notify(notice);
+// Mining ends where the ship is moved by a teleport (game/outfitting.js placeShip). Must not touch
+// anything declared below: placeShip runs it while the system first loads.
+export function stopMining() {
+  if (fight.s && fight.extract) endExtraction();
 }
 
-// While mining, the Mine button counts down on the asteroid being mined (with a progress bar),
-// and is busy on any other.
-export function miningBusy(a) {
-  if (!mining.target) return null;
-  if (mining.target.key !== a.key) return { ok: false, label: `${mineVerb(a)[0]} · busy`, inRange: true };
-  return {
-    ok: false, busy: true, inRange: true, progress: mining.t / mineTime(),
-    label: `${mineVerb(a)[1]} · ${Math.max(1, Math.ceil(mineTime() - mining.t))} sec`,
-  };
-}
-
-export function startMining(a) {
-  if (docked || inFight() || !actions.state(isGas(a) ? 'collect' : 'mine', a).ok) return;
-  mining.target = a;
-  mining.t = 0;
-  autopilot.key = null;
-  ship.targetSpeed = 0; // all stop, so the ship stays in range
+// While a rock is being worked (game/combat.js extract), its button shows how far along it is.
+function miningBusy(a) {
+  const c = extracting() && fight.s.enemies.find((e) => e.id === a.key);
+  if (!c || c.hull <= 0) return null;
+  return { ok: false, busy: true, inRange: true, progress: 1 - c.hull / c.stats.hull, label: `${mineVerb(a)[1]} · ${Math.round(100 * (1 - c.hull / c.stats.hull))}%` };
 }
 
 // A burst of debris: n bits flying out from (x, y), or from anywhere within `spread` of it, each
@@ -81,9 +62,9 @@ export function chips(a, n, speed) {
   burst(a.x, a.y, n, { spread: a.radius * 0.6, speed: [speed * 0.3, speed], life: [0.5, 1.4], size: [1.5, 1.5 + Math.min(5, a.radius / 8)], colors });
 }
 
-export function finishMining() {
-  const a = mining.target;
-  stopMining();
+// A rock worn down to nothing (game/combat.js shipDestroyed): it breaks up and stays gone, and
+// what it held floats free to collect.
+export function rockBroken(a) {
   cargo.removed.add(a.key);
   chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
   if (isGas(a)) { // the pocket used up: its gas floats free, a canister per unit
@@ -93,7 +74,7 @@ export function finishMining() {
       cargo.drops.push(dropEntity({ key: `drop:${a.key}:${i}`, kind: g.kind, seed: g.seed, x: a.x + Math.cos(ang) * d, y: a.y + Math.sin(ang) * d }));
     });
     const names = [...new Set(gas.map((g) => Goods.type(g.kind).name))].join(', ');
-    notify(`Gas pocket collected · ${gas.length} × ${names}`, 2.5);
+    notify(`Gas pocket used up · ${gas.length} × ${names}`, 2.5);
     Feedback.emit('mined');
     missionCollected('gas');
     saveCargo();
@@ -113,76 +94,6 @@ export function finishMining() {
   saveCargo();
 }
 
-// Advance mining; runs with the flight simulation, so the map and docking pause it.
-export function tickMining(dt) {
-  const a = mining.target;
-  if (!a) return;
-  if (Math.hypot(ship.x - a.x, ship.y - a.y) - a.radius > Mining.config.range + Mining.config.slack) {
-    stopMining(`${mineVerb(a)[1]} interrupted`);
-    return;
-  }
-  // Hold station facing the rock, unless the player is steering.
-  if (ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(a.y - ship.y, a.x - ship.x), SHIP.turnRate * dt);
-  mining.t += dt;
-  if (Math.random() < dt * 12) chips(a, 1, 60);
-  if (mining.t >= mineTime()) finishMining();
-}
-
-// The mining beam from the ship to the rock, and a ring filling up around it.
-export function drawMining(t) {
-  const a = mining.target;
-  if (!a) return;
-  const p = Math.min(1, mining.t / mineTime());
-  const ang = Math.atan2(a.y - ship.y, a.x - ship.x);
-  const x0 = rx(ship.x) + Math.cos(ang) * SHIP.radius * 0.7, y0 = ry(ship.y) + Math.sin(ang) * SHIP.radius * 0.7;
-  const wob = Math.sin(t * 37) * a.radius * 0.12;
-  const x1 = rx(a.x) - Math.cos(ang) * a.radius * 0.5 - Math.sin(ang) * wob;
-  const y1 = ry(a.y) - Math.sin(ang) * a.radius * 0.5 + Math.cos(ang) * wob;
-  const flicker = 0.75 + 0.25 * Math.sin(t * 53);
-  ctx.save();
-  ctx.strokeStyle = MINE_COLOR;
-  ctx.lineCap = 'round';
-  ctx.globalAlpha = 0.25 * flicker;
-  ctx.lineWidth = 7 / view.zoom;
-  ctx.beginPath();
-  ctx.moveTo(x0, y0);
-  ctx.lineTo(x1, y1);
-  ctx.stroke();
-  ctx.globalAlpha = 0.9 * flicker;
-  ctx.lineWidth = 2 / view.zoom;
-  ctx.stroke();
-  ctx.fillStyle = COLORS.flash;
-  ctx.beginPath();
-  ctx.arc(x1, y1, (3 + 2 * flicker) / view.zoom, 0, TAU);
-  ctx.fill();
-  // Progress ring.
-  const R = a.radius + 16;
-  ctx.lineWidth = 2.5 / view.zoom;
-  ctx.globalAlpha = 0.2;
-  ctx.beginPath();
-  ctx.arc(rx(a.x), ry(a.y), R, 0, TAU);
-  ctx.stroke();
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath();
-  ctx.arc(rx(a.x), ry(a.y), R, -Math.PI / 2, -Math.PI / 2 + p * TAU);
-  ctx.stroke();
-  ctx.restore();
-}
-
-// Seconds left, in screen space beside the ring.
-export function drawMiningCountdown() {
-  const a = mining.target;
-  if (!a) return;
-  const [sx, sy] = worldToScreen(a.x, a.y - a.radius - 16);
-  ctx.save();
-  ctx.font = Theme.font(13);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = MINE_COLOR;
-  ctx.globalAlpha = 0.95;
-  ctx.fillText(`${Math.max(0, mineTime() - mining.t).toFixed(1)}s`, sx, sy - 10);
-  ctx.restore();
-}
-
 export function drawDebris() {
   for (const d of debris) {
     ctx.globalAlpha = Math.min(1, (d.life / d.max) * 1.5);
@@ -192,14 +103,10 @@ export function drawDebris() {
   ctx.globalAlpha = 1;
 }
 
-// Wiring, run once every module has loaded (src/main.js).
+// Wiring, run once every module has loaded (src/main.js). Mine (or Siphon) locks the ship's tools
+// on the rock, from as far as a lock reaches; tapping another while working adds it.
 export function init() {
-  actions.add({
-    id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
-    busy: miningBusy, hold: true, run: startMining,
-  });
-  actions.add({
-    id: 'collect', kind: 'gas', verb: 'Collect', key: 'e', range: () => Mining.config.range, maxSpeed: () => Mining.config.maxSpeed,
-    busy: miningBusy, hold: true, run: startMining,
-  });
+  const range = () => Math.max(0, SHIP.lockRange - 200);
+  actions.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range, busy: miningBusy, hold: true, run: extract });
+  actions.add({ id: 'collect', kind: 'gas', verb: 'Siphon', key: 'e', range, busy: miningBusy, hold: true, run: extract });
 }

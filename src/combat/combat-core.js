@@ -13,7 +13,8 @@
 //   CombatCore.allies(s)               the squad members (rules/squad.js) still flying beside the player
 //   CombatCore.aim(rng, s) -> id       whom an enemy shoots at: the player, or now and then an ally
 //   CombatCore.aimAt(s, e)             that combatant while it flies, else the player
-//   CombatCore.intents(s) -> [{ id, target, lock }]   each enemy's target and lock (0..1; 1 in rounds)
+//   CombatCore.intents(s) -> [{ id, target, lock }]   each enemy's target and lock (0..1; 1 in rounds);
+//                                      passive targets (rocks) have none
 //   CombatCore.loot(galaxySeed, key, role, tier) -> [{ kind, seed }]   what a destroyed ship leaves
 //   CombatCore.schematic(galaxySeed, key, role, tier) -> equipment id | null   a schematic recovered
 //                                      from a pirate's computer: the gear it unlocks for purchase
@@ -93,7 +94,7 @@ const CombatCore = (() => {
   const aimAt = (s, e) => (e.aim !== 'player' && allies(s).find((a) => a.id === e.aim)) || s.player;
   // What each enemy is about to do: whom it aims at and how far its lock has come (1 where a mode
   // has no locking: rounds), for the flight view to telegraph.
-  const intents = (s) => alive(s).map((e) => ({
+  const intents = (s) => alive(s).filter((e) => !e.passive).map((e) => ({
     id: e.id, target: aimAt(s, e).id,
     lock: e.lockT === undefined ? 1 : Math.min(1, e.lockT / Math.max(1e-6, e.stats.lockTime)),
   }));

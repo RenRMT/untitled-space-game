@@ -3,14 +3,15 @@
 // Listeners get (event, detail); nothing listening is fine.
 //
 //   Feedback.emit(event, detail?)   events:
-//     'hit'         the player's ship is hit ({ hull: true when it reached the hull })
+//     'hit'         the player's ship is hit, or knocked in a collision ({ hull: true when it reached the hull })
+//     'bump'        a collision too gentle to do harm
 //     'shields-down' the player's shields just failed
 //     'low-hull'    the hull fell below a third
 //     'locked'      the player's guns locked on
 //     'targeted'    an enemy began locking on the player
 //     'destroyed'   the player's ship is lost
 //     'won'         a fight won
-//     'mined'       an asteroid broken up or a gas pocket collected
+//     'mined'       an asteroid broken up or a gas pocket used up
 //     'docked', 'launched'
 //     'done'        research or production finished
 //   Feedback.on(fn) -> off()        listen to every event: fn(event, detail)

@@ -347,3 +347,19 @@ see exactly what was taken out.
   start station with every station service open, and the jump gates are online from the start.
   `?missions` plays them anyway, with the gates offline until the third is handed in.
 
+## Pirates and fighting (October 2026)
+
+**What changed.** The game moved off combat (`notes/hazards.md`). The showcase system has no
+pirate packs and no ambushes (`pirates` in the system params, `src/world/galaxy.js`), the Combat
+setting is out of the menu (real time is the default; `?combat=rounds` still picks rounds) and the
+starting Courier carries a gas siphon in its second mount. Mining is a real-time fight against a
+passive rock (`game/combat.js` extract). The code for ship fights is all still there: both combat
+modes, pirate AI, loot, schematics, threat, aggro and the regard pirates hold. The opening missions
+(`?missions`) still fight their androids, and `?pirates` brings the packs back for testing. The last
+commit with pirates on by default is `b30865d`.
+
+**To bring it back.** Remove the `pirates` override in `src/world/galaxy.js` and put the Combat
+setting back in `game/options.js`. To remove it instead (phase 7 of `notes/hazards.md`): the rounds
+mode, enemy steering and fleeing in `combat-realtime.js`, engage/aggro/threat/foe markers in
+`game/combat.js`, pirate packs in `world/solar-system.js` and `world/security.js`, schematics in
+`combat-core.js`, and the pirate passage in `rules/reputation.js`.

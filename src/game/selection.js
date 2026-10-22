@@ -12,7 +12,6 @@ import { actions, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
-import { stopMining } from './mining.js';
 import { SHIP, autopilot, cam, ctx, inFight, ship, view } from './state.js';
 import { world } from './world.js';
 
@@ -131,7 +130,6 @@ export function approach(e, then = null) {
   const follow = KINDS[e.kind].follow, a = then || actions.of(e)[0];
   const reach = follow || (a ? actions.range(a) : 600);
   Object.assign(autopilot, { key: entityKey(e), e, stop: e.radius + reach * 0.5, follow: !!follow, then: then ? then.id : null });
-  stopMining();
 }
 
 // Steer toward the target, braking so the ship comes to rest at the stop distance. Any drag

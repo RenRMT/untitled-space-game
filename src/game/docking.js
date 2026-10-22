@@ -15,7 +15,6 @@ import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
 import { cargo, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
 import { drag } from './input.js';
-import { stopMining } from './mining.js';
 import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
 import { artStyle } from './options.js';
 import { lab } from './lab.js';
@@ -83,7 +82,6 @@ export function marketAt(station) {
 export function dock(station) {
   if (docked || inFight() || !actions.state('dock', station).ok) return;
   Feedback.emit('docked');
-  stopMining();
   select(null);
   autopilot.key = null;
   docked = { station };

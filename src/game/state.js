@@ -60,7 +60,6 @@ export const debris = []; // rock fragments thrown off by mining, in world units
 // The squad's ships flying with yours (see Squad below), by member id: { kind: 'wingman', key,
 // member, art, name, color, stats, radius, x, y, vx, vy, angle, a, thrust }.
 export const wings = new Map();
-export const mining = { target: null, t: 0 }; // the asteroid being mined, and seconds mined so far
 // Approach: fly to the selected object and stop beside it (or keep station with a moving ship).
 // key: entityKey of the target; e: that entity this frame; stop: distance to stop at; follow: never finishes;
 // then: the id of the action to do once there (game/selection.js act), or null.
