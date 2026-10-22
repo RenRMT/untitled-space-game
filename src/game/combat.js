@@ -26,6 +26,7 @@ import { Factions } from '../world/factions.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rescued } from './hazards.js';
+import { lostOnSurface } from './surface-run.js';
 import { landing } from './landing.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
@@ -70,9 +71,13 @@ export const SHOT_COLOR = { player: COLORS.cyan, ally: '#5ad8ff', enemy: COLORS.
 Theme.onPalette(() => { SHOT_COLOR.enemy = COLORS.hostile; });
 export const LETTERS = 'ABCDEFGHIJKL'; // tell same-role ships apart, on the panel and above the ships
 
+// The ship as it's flown now: in space, or over a planet's surface (game/landing.js craft, in the
+// surface's units: mining a deposit there, game/surface-run.js).
+export const pilot = () => (landing.phase === 'surface' ? landing.craft : ship);
+
 // Where a combatant is: the player ship, a wingman, or an enemy's pose.
 export function fighterPos(id) {
-  if (id === 'player') return { x: ship.x, y: ship.y, radius: SHIP.radius, player: true };
+  if (id === 'player') { const P = pilot(); return { x: P.x, y: P.y, radius: SHIP.radius, player: true }; }
   return fight.ships.get(id) || wings.get(id) || fight.lastShips.get(id) || null;
 }
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
@@ -140,7 +145,7 @@ export function threat(target) {
 // ---------- Extraction ----------
 
 // A rock (an asteroid or a gas pocket) as the real-time mode takes it, and its pose for the effects.
-export const rockName = (e) => Entities.KINDS[e.kind].card(e, null).title;
+export const rockName = (e) => (e.surface ? e.name : Entities.KINDS[e.kind].card(e, null).title);
 export function rockSpec(e) {
   return { id: e.key, name: rockName(e), stats: Mining.stats(e), passive: true, material: Mining.material(e), body: { x: e.x, y: e.y, vx: 0, vy: 0, angle: 0, radius: e.radius } };
 }
@@ -148,9 +153,12 @@ const rockPose = (e) => ({ x: e.x, y: e.y, a: 0, thrust: 0, radius: e.radius, na
 // Whether a fight is mining (only rocks in it).
 export const extracting = () => !!fight.s && fight.extract;
 
-// Start mining a rock, or add it to the session under way and turn the tools on it.
+// Start mining a rock, or add it to the session under way and turn the tools on it. On a surface
+// (game/surface-run.js), a deposit there, without the squad (it stays in orbit).
 export function extract(rock) {
-  if (docked || landing.on || fight.wreckT > 0 || cargo.removed.has(rock.key) || fight.dying.has(rock.key)) return;
+  const onGround = landing.phase === 'surface';
+  if (docked || (landing.on && !onGround) || !!rock.surface !== onGround || landing.wrecked) return;
+  if (fight.wreckT > 0 || cargo.removed.has(rock.key) || fight.dying.has(rock.key)) return;
   const s = fight.s;
   if (s) {
     if (!fight.extract) return;
@@ -164,7 +172,7 @@ export function extract(rock) {
   fight.mode = 'realtime';
   fight.extract = true;
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  fight.s = fightMode().start(rng, playerSpec(), [rockSpec(rock)], { target: rock.key, ambushed: false, allies: allySpecs() });
+  fight.s = fightMode().start(rng, playerSpec(), [rockSpec(rock)], { target: rock.key, ambushed: false, allies: onGround ? [] : allySpecs() });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
   fight.ships = new Map([[rock.key, rockPose(rock)]]);
   fight.log = [`${Mining.material(rock) === 'gas' ? 'Siphoning' : 'Mining'} the ${rockName(rock).toLowerCase()}`];
@@ -186,9 +194,10 @@ export function endExtraction() {
 
 // The player's ship as a fight takes it: its hull and the shields it has now.
 function playerSpec() {
+  const P = pilot();
   return {
     id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull, shield: shieldNow(),
-    body: { x: ship.x, y: ship.y, vx: ship.vx, vy: ship.vy, angle: ship.angle, radius: SHIP.radius },
+    body: { x: P.x, y: P.y, vx: P.vx, vy: P.vy, angle: P.angle, radius: SHIP.radius },
   };
 }
 
@@ -206,8 +215,9 @@ export function tickShield(dt) {
   if (guard.quiet >= SHIELD_DELAY) guard.shield = Math.min(SHIP.shield, guard.shield + SHIP.shieldRecharge * dt);
 }
 
-// The ship takes a knock (a collision, flight/collide.js): shields first, then the hull, shown like
-// a hit in a fight. Returns what it took; a hull knocked to nothing loses the ship (wreck).
+// The ship takes a knock (a collision, flight/collide.js; a storm pocket on a gas giant): shields
+// first, then the hull, shown like a hit in a fight. Returns what it took; a hull knocked to nothing
+// loses the ship (wreck; on a surface, lostOnSurface: the hold stays there). Mining, the session ends.
 export function hurtShip(amount, at = null) {
   if (amount <= 0 || fight.wrecked || fight.wreckT > 0 || landing.wrecked) return { shieldDamage: 0, hullDamage: 0 };
   const target = fight.s ? fight.s.player : { hull: cargo.hull, shield: shieldNow(), invulnerable: godMode };
@@ -216,11 +226,13 @@ export function hurtShip(amount, at = null) {
   else { guard.shield = target.shield; guard.quiet = 0; cargo.hull = target.hull; }
   if (d.shieldDamage + d.hullDamage <= 0) return d;
   if (d.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: 0, t: 0.3, max: 0.3, at: 'player' });
-  if (d.hullDamage > 0) burst(at ? at.x : ship.x, at ? at.y : ship.y, 6, { speed: [40, 180], life: [0.3, 0.8], size: [1.5, 3.5], colors: [COLORS.flash, COLORS.flame] });
+  const P = pilot();
+  if (d.hullDamage > 0) burst(at ? at.x : P.x, at ? at.y : P.y, 6, { speed: [40, 180], life: [0.3, 0.8], size: [1.5, 3.5], colors: [COLORS.flash, COLORS.flame] });
   addDamage('player', d.shieldDamage + d.hullDamage, d.hullDamage > 0);
   Feedback.emit('hit', { hull: d.hullDamage > 0 });
-  if (!fight.s && target.hull <= 0) {
-    if (landing.on) landing.wrecked = true; // game/landing.js takes off, and the ship is lost in orbit
+  if (target.hull <= 0 && (!fight.s || fight.extract)) {
+    if (fight.s) { cargo.hull = 0; endExtraction(); }
+    if (landing.on) lostOnSurface('Hull breached'); // game/landing.js takes off, and the ship is lost in orbit
     else wreck();
   }
   return d;
@@ -492,10 +504,10 @@ export function tickFight(dt) {
   const m = fightMode();
   if (!m.flying) ship.targetSpeed = 0; // held in place
   // When it isn't steering, the ship turns to face its target.
-  const target = fight.ships.get(s.focus);
-  if (target && ship.targetSpeed === 0) ship.angle = turnToward(ship.angle, Math.atan2(target.y - ship.y, target.x - ship.x), SHIP.turnRate * dt);
+  const target = fight.ships.get(s.focus), P = pilot();
+  if (target && ship.targetSpeed === 0) P.angle = turnToward(P.angle, Math.atan2(target.y - P.y, target.x - P.x), SHIP.turnRate * dt);
   orderSquad(s);
-  const events = m.step(s, dt, ship); // the player's ship has already flown this frame (update)
+  const events = m.step(s, dt, P); // the player's ship has already flown this frame (update; on a surface, game/landing.js fly)
   syncAllies(s);
   if (m.flying) {
     for (const e of s.enemies) {

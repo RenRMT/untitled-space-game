@@ -99,11 +99,11 @@ const Scene = (() => {
     let itemCount = 0;
     const LOOT_KINDS = Goods.categories('salvage'), TRADE_KINDS = Goods.categories('trade');
     // An item of one of these categories, from the wreck's own random stream (rarer trade goods
-    // less likely: rules/goods.js).
+    // less likely: rules/goods.js; none of those found only on surfaces).
     function item(r, categories, x, y) {
       const category = categories[Math.floor(r() * categories.length)], seed = nextSeed(r);
       const rng = mulberry32(seed ^ 0x6e7);
-      const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category) : Goods.pick(rng, category);
+      const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category) : Goods.pick(rng, category, (t) => !t.surface);
       const angle = r() * TAU, tumble = (r() - 0.5) * 0.3;
       return add(Entities.item({ key: `i${itemCount++}`, kind, seed, angle, tumble, x, y }));
     }

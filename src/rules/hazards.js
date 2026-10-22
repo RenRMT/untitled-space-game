@@ -28,6 +28,26 @@
 //     heat, rad: what comes in, per second; o: { thrust (0..1), blockers, nebula (the one there) };
 //     place.stations (if given) shelter their approaches
 //   Hazards.travelFuel(distance) -> fuel       map travel's cost
+//
+// On a surface (game/landing.js, game/surface-run.js) each kind of body has its own hazard, and
+// something worth landing for (notes/hazards.md §4, §6):
+// - the day side: the surface turns, and for part of each day the landing site is in sunlight, where
+//   heat climbs (fast on the lava and desert planets and on the airless moons; harmless on the
+//   Terran, ice and gas worlds). The countdown to sunrise is on the HUD;
+// - lava: hot vents (the glowing holes) heat the ship over them; desert: dust storms darken the view
+//   and push the ship about; moons: steady radiation (more round a giant); ice: the cold makes the
+//   engine burn fuel twice as fast; gas giants: the storm pockets burn the ship that touches one;
+// - taking off costs fuel, by the body's gravity and how full the hold is.
+//
+//   Hazards.surface(kind, type, seed, parentType?) -> site   kind: 'planet' | 'moon'; a moon's
+//     parentType: its planet's type. site: { id, label, tag (the hazard in a word or two), hazard, gravity, heat, day, rad, fuelBurn,
+//     dust, vents, pockets, deposits: [[good, weight]], material, seed }
+//   Hazards.daylight(site, t) -> { day, in, left }   day: in sunlight; in: seconds to sunrise (0 by
+//     day); left: seconds of daylight left
+//   Hazards.dust(site, t) -> { wind: [x, y] } | null   a dust storm at t (desert)
+//   Hazards.surfaceExposure(site, t, o?) -> { heat, rad, day, dust }   per second; o: { thrust (0..1),
+//     vent (0..1: how close over a vent) }
+//   Hazards.takeoffFuel(gravity, holdFill) -> fuel   holdFill: 0 (empty) .. 1 (full)
 // ES module (`Hazards`); also runs in Node (the tests).
 
 import { hashInt, seedToInt } from '../core/rng.js';
@@ -60,7 +80,31 @@ const Hazards = (() => {
     },
     storm: { period: 150, length: 30, wind: 140 }, // ion storms: one per stretch per nebula, this long, pushing this hard (units/s²)
     fuel: { burn: 0.5, travel: 2500 }, // per second at full thrust; map travel: one per this many units
+    surface: {
+      day: { period: 240, length: 80 }, // a day on every surface: this long, this much of it in sunlight
+      vent: 30, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
+      dust: { period: 100, length: 25, wind: 60 }, // dust storms on the desert: the ship drifts with the wind at this (surface units/s)
+      pocket: 12, pocketReach: 12, // hull per second touching a gas giant's storm pocket (within this of it)
+      takeoff: { base: 3, hold: 7 }, // fuel to take off: (base + hold × how full the hold is) × gravity
+    },
   };
+  // The bodies' surfaces: heat (per second, always) and day (more in sunlight), radiation, gravity,
+  // fuel burned for thrust (×), and the deposits there, by weight. A ship sheds heat.cool a second,
+  // so heat below that never builds. Moons by their type; a giant's moons are twice as radioactive.
+  const body = (o) => ({ heat: 0, day: 0, rad: 0, gravity: 1, fuelBurn: 1, dust: false, vents: false, pockets: false, material: 'rock', ...o });
+  const SURFACES = {
+    lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; hot vents', heat: 7, day: 14, gravity: 0.9, vents: true, deposits: [['tungsten', 3], ['iron', 1]] }),
+    desert: body({ label: 'Desert planet', tag: 'Dust storms', hazard: 'Dust storms; hot by day', heat: 3, day: 12, gravity: 0.8, dust: true, deposits: [['rare-earths', 3], ['silicates', 1]] }),
+    terran: body({ label: 'Terran planet', tag: 'Mild', hazard: 'Mild', day: 4, deposits: [['iron', 1], ['silicates', 1]] }),
+    ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: fuel burns twice as fast', day: 3, gravity: 0.7, fuelBurn: 2, deposits: [['deuterium', 1]] }),
+    gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull', day: 5, gravity: 1.6, pockets: true, material: 'gas', deposits: [['deuterium', 1]] }),
+    moon: body({ label: 'Moon', tag: 'Radiation', hazard: 'Radiation; hot by day', day: 10, rad: 0.8, gravity: 0.3 }),
+  };
+  const MOON_DEPOSITS = {
+    grey: [['titanium-ore', 1]], rust: [['titanium-ore', 2], ['iron', 1]], dark: [['silicates', 1]],
+    sulfur: [['sulfur', 1]], ice: [['deuterium', 1]],
+  };
+  const PLANET_SURFACE = { lava: 'lava', desert: 'desert', terran: 'terran', blue: 'gas', gas: 'gas', ice: 'ice' };
   const GIANTS = ['gas', 'blue'];
 
   const stretchSeed = (seed, i, salt) => hashInt(i, salt, seedToInt(seed)) / 4294967296;
@@ -153,7 +197,42 @@ const Hazards = (() => {
 
   const travelFuel = (distance) => distance / config.fuel.travel;
 
-  return { config, GIANTS, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel };
+  // ---------- Surfaces ----------
+
+  function surface(kind, type, seed, parentType) {
+    if (kind === 'moon') {
+      const giant = GIANTS.includes(parentType), base = SURFACES.moon;
+      return { ...base, id: `moon-${type}`, seed, rad: base.rad * (giant ? 2 : 1), hazard: giant ? 'Strong radiation (a giant\'s moon); hot by day' : base.hazard, deposits: MOON_DEPOSITS[type] || [['silicates', 1]] };
+    }
+    const id = PLANET_SURFACE[type] || 'terran';
+    return { ...SURFACES[id], id, seed };
+  }
+  // Each body's day starts at its own moment (by its seed); sunlight comes in the last `length` of it.
+  function daylight(site, t) {
+    const D = config.surface.day, at = ((t + (hashInt(seedToInt(site.seed), 0xda7) / 4294967296) * D.period) % D.period + D.period) % D.period;
+    const dawn = D.period - D.length;
+    return at >= dawn ? { day: true, in: 0, left: D.period - at } : { day: false, in: dawn - at, left: 0 };
+  }
+  // A dust storm, as an ion storm in a nebula (storm), on the desert only.
+  function dust(site, t) {
+    if (!site.dust) return null;
+    const S2 = config.surface.dust, i = Math.floor(t / S2.period), salt = 0xd057;
+    const start = i * S2.period + stretchSeed(site.seed, i, salt) * (S2.period - S2.length);
+    if (t < start || t >= start + S2.length) return null;
+    const a = stretchSeed(site.seed, i, salt + 0x100) * Math.PI * 2;
+    return { wind: [Math.cos(a) * S2.wind, Math.sin(a) * S2.wind] };
+  }
+  function surfaceExposure(site, t, o = {}) {
+    const d = daylight(site, t);
+    const heat = site.heat + (d.day ? site.day : 0) + config.heat.thrust * (o.thrust || 0) + config.surface.vent * (o.vent || 0);
+    return { heat, rad: site.rad, day: d, dust: dust(site, t) };
+  }
+  const takeoffFuel = (gravity, holdFill) => {
+    const T = config.surface.takeoff;
+    return Math.round((T.base + T.hold * clamp(holdFill, 0, 1)) * gravity * 10) / 10;
+  };
+
+  return { config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel };
 })();
 
 export { Hazards };

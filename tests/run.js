@@ -427,7 +427,8 @@ test('every station has a dockable market with sane prices', () => {
         assert(Number.isInteger(x.sell) && x.sell > 0, `${st.name}: bad sell price for ${x.kind}`);
         // Buying and selling back at the same station never makes money.
         if (x.buy !== null) assert(x.buy > x.sell, `${st.name}: ${x.kind} buy ${x.buy} <= sell ${x.sell}`);
-        if (x.produced && x.rarity <= 2) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
+        if (x.produced && x.rarity <= 2 && !Goods.type(x.kind).surface) assert(x.buy !== null, `${st.name}: produces ${x.kind} but doesn't sell it`);
+        if (Goods.type(x.kind).surface) assert.strictEqual(x.buy, null, `${st.name} sells ${x.kind}, found only on surfaces`);
         if (x.rarity === 5) assert.strictEqual(x.buy, null, `${st.name} sells exotic ${x.kind}`);
       }
       assert.strictEqual(JSON.stringify(Economy.market(s.seed, st)), JSON.stringify(m), 'market is not deterministic');
@@ -758,19 +759,23 @@ test('security falls with the distance to the nearest station, a level lower in 
   }
 });
 
-test('the item catalogue: one type per category, each with its rarity, price and stage', () => {
+test('the item catalogue: one type per category, and raw goods found only on surfaces; each with its rarity, price and stage', () => {
   const ids = new Set();
   for (const [cat, info] of Object.entries(Goods.CATEGORIES)) {
     const list = Goods.ofCategory(cat);
-    assert.strictEqual(list.length, 1, `${cat}: ${list.length} types`);
-    const [t] = list;
-    assert(t.rarity >= 1 && t.rarity <= 5 && t.price > 0, `${t.id}: rarity ${t.rarity}, price ${t.price}`);
-    assert.strictEqual(t.stage === 'salvage', info.group === 'salvage', `${t.id}: stage ${t.stage}`);
-    assert(Goods.STAGES.includes(t.stage), `${t.id}: stage ${t.stage}`);
-    assert(!ids.has(t.id), `duplicate type ${t.id}`);
-    ids.add(t.id);
-    assert.strictEqual(Goods.type(t.id), t);
+    assert.strictEqual(list.filter((t) => !t.surface).length, 1, `${cat}: ${list.length} types`);
+    assert(!list[0].surface, `${cat}: its first type is the one from space`);
+    for (const t of list) {
+      assert(t.rarity >= 1 && t.rarity <= 5 && t.price > 0, `${t.id}: rarity ${t.rarity}, price ${t.price}`);
+      assert.strictEqual(t.stage === 'salvage', info.group === 'salvage', `${t.id}: stage ${t.stage}`);
+      assert(Goods.STAGES.includes(t.stage), `${t.id}: stage ${t.stage}`);
+      if (t.surface) assert.strictEqual(t.stage, 'raw', `${t.id}: a surface good is raw`);
+      assert(!ids.has(t.id), `duplicate type ${t.id}`);
+      ids.add(t.id);
+      assert.strictEqual(Goods.type(t.id), t);
+    }
   }
+  assert.deepStrictEqual(Object.values(Goods.TYPES).filter((t) => t.surface).map((t) => t.id).sort(), [...Goods.SURFACE_RAW].sort());
   assert.strictEqual(ids.size, Object.keys(Goods.TYPES).length);
   // Prices rise along the chain: refined goods over raw ones, parts over refined.
   const priceOf = (stage) => Object.values(Goods.TYPES).filter((t) => t.stage === stage).map((t) => t.price);
@@ -961,13 +966,16 @@ test('a blueprint can be granted (a schematic): done at once, refunded in full i
 });
 
 test('every trade good has a source and a use beyond selling', () => {
-  // Sources: mined, collected or made.
+  // Sources: mined, collected or made; mined on a surface (a deposit of the body's goods).
   const mined = new Set();
   for (const seed of [1, 2, 3, 4, 5, 6]) {
     const s = systems.get(seed);
     for (const e of thingsOf(seed, 'asteroid')) { const y = Mining.yieldOf(s.seed, e); if (y) mined.add(y.kind); }
     for (const e of thingsOf(seed, 'gas')) for (const y of Mining.gasOf(s.seed, e)) mined.add(y.kind);
   }
+  const g = galaxies.get(1);
+  for (const p of g.planets) for (const [kind] of Hazards.surface('planet', p.type, p.seed).deposits) mined.add(kind);
+  for (const m of g.moons) for (const [kind] of Hazards.surface('moon', m.type, m.seed, g.planets[m.parent].type).deposits) mined.add(kind);
   const research = new Set(Object.values(Research.PACKAGES).flatMap((p) => Object.keys(p.cost)));
   for (const cat of Goods.categories('trade')) {
     for (const t of Goods.ofCategory(cat)) {
@@ -991,6 +999,7 @@ test('markets: raw and refined goods are stocked, parts less often, the rarest p
   for (const seed of STATION_SEEDS) {
     for (const st of stationsOf(seed)) {
       for (const g of Economy.market(seed, st).goods) {
+        if (Goods.type(g.kind).surface) continue; // never stocked (the test above)
         const stage = Goods.type(g.kind).stage;
         offered[stage] = (offered[stage] || 0) + 1;
         if (g.buy !== null) stocked[stage] = (stocked[stage] || 0) + 1;
@@ -1894,6 +1903,83 @@ test('hazards: ion storms in a nebula push the ship, and fuel: thrust and map tr
   assert.strictEqual(courier.fuel, 100);
   assert(courier.fuel / Hazards.config.fuel.burn > 120, 'a tank lasts minutes of full thrust');
   assert(Hazards.travelFuel(2 * 40000) < courier.fuel / 2, 'crossing the system by map travel takes less than half a tank');
+});
+
+test('surfaces: each body has its hazard and goods; the day comes round, hot on lava, desert and moons', () => {
+  const H = Hazards.config, cool = H.heat.cool;
+  const lava = Hazards.surface('planet', 'lava', 5), desert = Hazards.surface('planet', 'desert', 5), terran = Hazards.surface('planet', 'terran', 5);
+  const ice = Hazards.surface('planet', 'ice', 5), gas = Hazards.surface('planet', 'blue', 5);
+  const moon = Hazards.surface('moon', 'grey', 5, 'terran'), giantMoon = Hazards.surface('moon', 'sulfur', 5, 'gas');
+  assert.deepStrictEqual([lava.id, desert.id, terran.id, ice.id, gas.id, moon.id], ['lava', 'desert', 'terran', 'ice', 'gas', 'moon-grey']);
+  assert(lava.vents && desert.dust && gas.pockets && ice.fuelBurn > 1, 'each its own hazard');
+  assert.strictEqual(giantMoon.rad, 2 * moon.rad, 'a giant\'s moon is twice as radioactive');
+  assert.deepStrictEqual(lava.deposits.map(([k]) => k), ['tungsten', 'iron']);
+  assert.deepStrictEqual(desert.deposits.map(([k]) => k), ['rare-earths', 'silicates']);
+  assert.deepStrictEqual(giantMoon.deposits.map(([k]) => k), ['sulfur']);
+  assert.strictEqual(gas.material, 'gas', 'a gas giant\'s deposits are siphoned');
+  for (const site of [lava, desert, terran, ice, gas, moon, giantMoon]) for (const [kind] of site.deposits) assert(Goods.type(kind), kind);
+  // The day: once a period, for its length, the same every time; seeded per body.
+  const D = H.surface.day;
+  const days = (site) => Array.from({ length: D.period }, (_, t) => Hazards.daylight(site, t).day).filter(Boolean).length;
+  assert.strictEqual(days(lava), D.length);
+  let t = 0;
+  while (Hazards.daylight(lava, t).day) t++;
+  const night = Hazards.daylight(lava, t);
+  assert(night.in > 0 && night.in <= D.period - D.length && Hazards.daylight(lava, t + night.in).day, 'the countdown to sunrise');
+  assert.notStrictEqual(Hazards.daylight(lava, 0).in, Hazards.daylight(Hazards.surface('planet', 'lava', 6), 0).in, 'another body, another day');
+  // Heat by day builds on the lava and desert planets and the moons, not on the Terran, ice or gas worlds.
+  const dayHeat = (site) => site.heat + site.day;
+  for (const site of [lava, desert, moon]) assert(dayHeat(site) > cool, `${site.id} is hot by day`);
+  for (const site of [terran, ice, gas]) assert(dayHeat(site) < cool, `${site.id} is mild by day`);
+  assert(lava.heat > cool && desert.heat < cool, 'the lava planet is hot even by night');
+  const noon = Hazards.surfaceExposure(lava, t + night.in + 1), midnight = Hazards.surfaceExposure(lava, t);
+  assert.strictEqual(noon.heat - midnight.heat, lava.day);
+  assert.strictEqual(Hazards.surfaceExposure(lava, t, { vent: 1 }).heat - midnight.heat, H.surface.vent, 'a vent heats the ship over it');
+  assert.strictEqual(Hazards.surfaceExposure(giantMoon, t).rad, giantMoon.rad);
+  // Dust storms on the desert, as ion storms: one a stretch, pushing the ship.
+  const storms = Array.from({ length: 10 * H.surface.dust.period }, (_, k) => Hazards.dust(desert, k)).filter(Boolean);
+  assert.strictEqual(storms.length, 10 * H.surface.dust.length);
+  assert(Math.abs(Math.hypot(...storms[0].wind) - H.surface.dust.wind) < 1e-9);
+  assert(Array.from({ length: H.surface.dust.period }, (_, k) => Hazards.dust(lava, k)).every((x) => x === null), 'no dust off the desert');
+});
+
+test('surfaces: taking off costs fuel by gravity and how full the hold is', () => {
+  const fuel = (type, fill, kind = 'planet') => Hazards.takeoffFuel(Hazards.surface(kind, type, 1, 'terran').gravity, fill);
+  assert(fuel('terran', 1) > fuel('terran', 0), 'a full hold costs more');
+  assert(fuel('gas', 0) > fuel('terran', 0) && fuel('terran', 0) > fuel('grey', 0, 'moon'), 'more on a heavier world');
+  const courier = Loadout.stats(Loadout.starter('courier'));
+  assert(fuel('gas', 1) < courier.fuel / 4, 'a full hold off a gas giant: a quarter of a tank at most');
+  assert(fuel('grey', 1, 'moon') < 4, 'off a moon: little');
+  assert.strictEqual(Hazards.takeoffFuel(1, 2), Hazards.takeoffFuel(1, 1), 'kept within an empty and a full hold');
+});
+
+test('deposits: on open ground, apart and clear of the landing spot, the same every time; each leaves its good', () => {
+  const site = Hazards.surface('planet', 'lava', 42), D = Mining.config.deposits;
+  const area = { x0: 0, y0: 0, x1: 3000, y1: 3000, start: [1500, 1500] };
+  const ok = (x, y) => !(x > 1000 && x < 1400); // a band that's blocked
+  const list = Mining.deposits(42, site, { ...area, ok });
+  assert.strictEqual(list.length, D.n);
+  assert.deepStrictEqual(Mining.deposits(42, site, { ...area, ok }), list, 'the same every time');
+  assert.notDeepStrictEqual(Mining.deposits(43, site, { ...area, ok }), list, 'another body, other spots');
+  for (const d of list) {
+    assert(ok(d.x, d.y) && d.x >= 0 && d.x <= 3000 && d.y >= 0 && d.y <= 3000, 'in the area, on open ground');
+    assert(Math.hypot(d.x - 1500, d.y - 1500) >= D.clear, 'clear of the landing spot');
+    assert(d.r >= D.r[0] && d.r <= D.r[1] && ['tungsten', 'iron'].includes(d.kind) && d.material === 'rock');
+    for (const o of list) if (o !== d) assert(Math.hypot(o.x - d.x, o.y - d.y) >= D.gap, 'apart');
+  }
+  assert(list.filter((d) => d.kind === 'tungsten').length > list.length / 2, 'mostly the body\'s own good');
+  // Worked as an asteroid is: a passive target with integrity by its size.
+  const e = { kind: 'deposit', radius: list[0].r, material: 'rock' };
+  assert.strictEqual(Mining.stats(e).hull, Mining.integrity(e));
+  assert.strictEqual(Mining.stats(e).name, 'Deposit');
+  assert.strictEqual(Mining.material({ kind: 'deposit', material: 'gas' }), 'gas');
+  for (const d of list) {
+    const got = Mining.depositYield(42, d);
+    assert(got.length >= 2 && got.length <= 4 && got.every((g) => g.kind === d.kind), `${d.kind} × ${got.length}`);
+    assert.deepStrictEqual(Mining.depositYield(42, d), got);
+  }
+  // A rock from space never yields a surface good.
+  assert(Goods.SURFACE_RAW.every((id) => Goods.type(id).surface && Goods.type(id).stage === 'raw'));
 });
 
 test('collisions: a hard hit bounces the ship off and knocks it; a gentle one does nothing', () => {

@@ -28,6 +28,8 @@
 //   ArtSurface.drawLive(ctx, w, style, t, { lw, all })             // lightning in storms
 //   ArtSurface.blocked(w, x, y, r), overlay(w, style) -> { fill, edge } at flight altitude
 //   ArtSurface.siteDist(w, x, y)   // how far (x, y) is outside the landing site's edge (< 0: inside)
+//   ArtSurface.propsNear(w, x, y) -> [{ type, x, y, r, emit }]   holes and tall props close by
+//   ArtSurface.open(w, x, y, r)    // open ground: not blocked, above the sea, clear of holes and tall props
 //   A layer: { canvas, x0, y0, sx, sy }: canvas px = (x − x0)·sx across, (projected y − y0)·sy down.
 //   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
 //     storm fronts) with gaps to fly through, or open sea on worlds with a sea. W.site.leave: how far
@@ -1213,7 +1215,27 @@ const ArtSurface = (() => {
     return false;
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
+  // The holes and tall props in the tiles round (x, y): [{ type, x, y, r, emit }] (a hole's r: its rim).
+  function propsNear(W, x, y) {
+    const out = [], i = Math.floor(x / T), j = Math.floor(y / T), bi = B[W.type];
+    for (let a = i - 1; a <= i + 1; a++) for (let b = j - 1; b <= j + 1; b++) {
+      const pr = a >= 0 && b >= 0 && a < W.w && b < W.h && W.props[tkey(a, b)];
+      if (!pr || pr.type === 'small') continue;
+      const v = bi[pr.type][pr.v];
+      out.push({ type: pr.type, x: pr.x, y: pr.y, r: pr.type === 'hole' ? v.r : pr.r, emit: !!v.emit });
+    }
+    return out;
+  }
+  // Open ground for something of radius r at (x, y): nothing blocks it, it's above the sea, and no
+  // hole or tall prop is within r of it.
+  function open(W, x, y, r = 0) {
+    if (blocked(W, x, y, r)) return false;
+    const sea = B[W.type].sea;
+    if (sea && rawHeight(W, x, y) < sea.level + 0.5) return false;
+    return !propsNear(W, x, y).some((p) => Math.hypot(x - p.x, y - p.y) < p.r + r);
+  }
+
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, open, propsNear, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
 })();
 
 export { ArtSurface };

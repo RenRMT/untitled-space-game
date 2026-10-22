@@ -59,7 +59,8 @@ const Recipes = (() => {
 
   // Gear, per line, Mk I to Mk V (from the line's first Mk): what goes into each. Mk I takes refined
   // goods, Mk II and up electronics too; Mk IV and V take salvaged components of the gear's kind
-  // (SALVAGE_COUNT). The gear is worth more than its inputs (rules/loadout.js prices).
+  // (SALVAGE_COUNT). From Mk III, some take raw goods found only on planets and moons: tungsten for
+  // the drill, titanium for shields, rare earths for scanners (and sulfur goes into charges). The gear is worth more than its inputs (rules/loadout.js prices).
   const SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer' };
   const SALVAGE_COUNT = [0, 0, 0, 0, 8, 13];
   const GEAR = {
@@ -72,9 +73,9 @@ const Recipes = (() => {
     ],
     'heavy-cannon': [null,
       { 'carbon-fibre': 2, electronics: 1 },
-      { 'carbon-fibre': 4, electronics: 2 },
-      { 'carbon-fibre': 4, electronics: 3 },
-      { 'carbon-fibre': 6, electronics: 4 },
+      { 'carbon-fibre': 4, electronics: 2, tungsten: 2 },
+      { 'carbon-fibre': 4, electronics: 3, tungsten: 3 },
+      { 'carbon-fibre': 6, electronics: 4, tungsten: 4 },
     ],
     'beam-turret': [
       { 'steel-pipe': 2 },
@@ -86,9 +87,9 @@ const Recipes = (() => {
     deflector: [
       { 'steel-pipe': 1, hydrazine: 1 },
       { electronics: 1, hydrazine: 1 },
-      { electronics: 2, 'carbon-fibre': 2 },
-      { electronics: 3, 'carbon-fibre': 3 },
-      { electronics: 3, hydrazine: 3, 'carbon-fibre': 3 },
+      { electronics: 2, 'carbon-fibre': 2, 'titanium-ore': 2 },
+      { electronics: 3, 'carbon-fibre': 3, 'titanium-ore': 3 },
+      { electronics: 3, hydrazine: 3, 'carbon-fibre': 3, 'titanium-ore': 4 },
     ],
     'flight-computer': [
       { electronics: 1 },
@@ -107,9 +108,9 @@ const Recipes = (() => {
     'survey-scanner': [
       { 'steel-pipe': 1 },
       { electronics: 1, 'steel-pipe': 1 },
-      { electronics: 3, 'carbon-fibre': 2 },
-      { electronics: 3, 'carbon-fibre': 4 },
-      { electronics: 6, 'carbon-fibre': 4 },
+      { electronics: 3, 'carbon-fibre': 2, 'rare-earths': 1 },
+      { electronics: 3, 'carbon-fibre': 4, 'rare-earths': 2 },
+      { electronics: 6, 'carbon-fibre': 4, 'rare-earths': 3 },
     ],
   };
   const GEAR_TIME = [0, 120, 300, 900, 2700, 7200];
@@ -150,7 +151,7 @@ const Recipes = (() => {
   const CONSUMABLES = [
     ['repair-nanites', { hydrazine: 3 }, 2],
     ['shield-cell', { electronics: 2 }, 1],
-    ['emp-charge', { electronics: 1, 'steel-pipe': 2 }, 1],
+    ['emp-charge', { electronics: 1, 'steel-pipe': 1, sulfur: 2 }, 1],
     ['jammer-pod', { electronics: 2, 'carbon-fibre': 1 }, 2],
   ];
   for (const [id, input, n] of CONSUMABLES) RECIPES[`make.${id}`] = { id: `make.${id}`, bay: 'assembler', in: input, out: { [id]: n }, time: 300, unlock: null };

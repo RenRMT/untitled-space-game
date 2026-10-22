@@ -6,7 +6,8 @@
 // is lost and towed home (game/combat.js wreck), its hold left where it was, to go back for.
 // Also what's drawn of them: the belts (with their gaps), the shadows while a flare comes, a glow
 // over the screen in a flare's wave, and the HUD's warning line.
-// Only in open flight: not docked, landing, jumping, in the introduction or wrecked.
+// Only in open flight: not docked, landing, jumping, in the introduction or wrecked. On a planet's
+// surface game/surface-run.js does the same with that surface's hazards.
 // Part of the flight view; src/main.js starts it.
 
 import { Feedback } from '../core/feedback.js';
@@ -61,14 +62,7 @@ export function tickHazards(dt) {
   if (f.phase === 'wave' && was === 'warning') { notify(exp.shadow ? `Solar flare · sheltered by ${exp.shadow.name || 'a rock'}` : 'Solar flare · exposed!', 3, { tone: exp.shadow ? 'info' : 'hostile' }); Feedback.emit('hazard'); }
   if (exp.storm && !before?.storm) notify('Ion storm · sensors dark, the ship is pushed off course', 3, { tone: 'warn' });
 
-  warn('heat', (100 * hazard.heat) / H.max, (p) => `Heat ${p}% · ${p >= 85 ? 'get away from the star!' : 'move out of the heat'}`);
-  warn('rad', (100 * cargo.rad) / H.max, (p) => `Radiation ${p}% · ${p >= 90 ? 'dock to decontaminate now!' : 'it stays until you dock'}`);
-  const fuelPct = SHIP.fuel ? (100 * cargo.fuel) / SHIP.fuel : 0;
-  for (const step of WARN.fuel) { // fuel warns as it falls
-    const key = `fuel:${step}`;
-    if (fuelPct <= step && !hazard.said.has(key)) { hazard.said.add(key); notify(`Fuel ${step}% · refuel at a station`, 3, { tone: step <= 10 ? 'hostile' : 'warn' }); Feedback.emit('hazard'); }
-    else if (fuelPct > step + 5) hazard.said.delete(key);
-  }
+  meterWarnings();
 
   if (hazard.heat >= H.max) disable('Overheated');
   else if (cargo.rad >= H.max) disable('Radiation overload');
@@ -77,6 +71,19 @@ export function tickHazards(dt) {
     hazard.stranded += dt;
     if (hazard.stranded >= STRANDED_TOW) disable('Out of fuel');
   } else hazard.stranded = 0;
+}
+
+// Warnings as the meters fill (and fuel as it falls); also on a surface (game/surface-run.js).
+export function meterWarnings() {
+  const H = Hazards.config;
+  warn('heat', (100 * hazard.heat) / H.max, (p) => `Heat ${p}% · ${p >= 85 ? (landing.on ? 'take off, or out of the sun!' : 'get away from the star!') : 'move out of the heat'}`);
+  warn('rad', (100 * cargo.rad) / H.max, (p) => `Radiation ${p}% · ${p >= 90 ? 'dock to decontaminate now!' : 'it stays until you dock'}`);
+  const fuelPct = SHIP.fuel ? (100 * cargo.fuel) / SHIP.fuel : 0;
+  for (const step of WARN.fuel) { // fuel warns as it falls
+    const key = `fuel:${step}`;
+    if (fuelPct <= step && !hazard.said.has(key)) { hazard.said.add(key); notify(`Fuel ${step}% · refuel at a station`, 3, { tone: step <= 10 ? 'hostile' : 'warn' }); Feedback.emit('hazard'); }
+    else if (fuelPct > step + 5) hazard.said.delete(key);
+  }
 }
 
 // A meter full, or the tank empty: the ship is lost (in a fight with ships, that fight decides).

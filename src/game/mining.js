@@ -13,6 +13,7 @@ import { endExtraction, extract, extracting } from './combat.js';
 import { actions } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { missionCollected } from './missions.js';
+import { depositBroken } from './surface-run.js';
 import { SHIP, TAU, ctx, debris, fight, notify } from './state.js';
 import { world } from './world.js';
 
@@ -51,20 +52,21 @@ export function burst(x, y, n, { spread = 0, speed, life, size, colors }) {
   }
 }
 
-// Rock chips thrown off an asteroid: a few while mining, a burst when it breaks up. From a gas
-// pocket, slow puffs of its gas instead.
+// Rock chips thrown off an asteroid (or a deposit on a surface, in its good's colour): a few while
+// mining, a burst when it breaks up. From a gas pocket, slow puffs of its gas instead.
 export function chips(a, n, speed) {
-  if (isGas(a)) {
+  if (isGas(a) || a.material === 'gas') {
     burst(a.x, a.y, n, { spread: a.radius * 0.7, speed: [speed * 0.1, speed * 0.4], life: [0.8, 2], size: [2, 2 + Math.min(6, a.radius / 10)], colors: [a.color, COLORS.flash] });
     return;
   }
-  const colors = (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
+  const colors = a.surface ? [a.color, COLORS.flash] : (Art.ASTEROIDS[a.ast.type] || Art.ASTEROIDS.stony).c;
   burst(a.x, a.y, n, { spread: a.radius * 0.6, speed: [speed * 0.3, speed], life: [0.5, 1.4], size: [1.5, 1.5 + Math.min(5, a.radius / 8)], colors });
 }
 
 // A rock worn down to nothing (game/combat.js shipDestroyed): it breaks up and stays gone, and
-// what it held floats free to collect.
+// what it held floats free to collect. A deposit on a surface: game/surface-run.js.
 export function rockBroken(a) {
+  if (a.surface) { depositBroken(a); return; }
   cargo.removed.add(a.key);
   chips(a, 14 + Math.round(a.radius * 0.6), 120 + a.radius * 3);
   if (isGas(a)) { // the pocket used up: its gas floats free, a canister per unit
