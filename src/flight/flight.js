@@ -8,8 +8,8 @@
 // Either way the ship turns toward the set heading at its turn rate, and only while the set
 // speed is above zero.
 // - A dash (the player's flick, game/dash.js): a burst the way it points at DASH.speed × top
-//   speed; the ship coasts on it for DASH.time, then flies as before, slowing at the engine's
-//   acceleration, so it's a sidestep, not a new course.
+//   speed; the ship coasts on it for DASH.time (game/dash.js then gives it back the velocity it
+//   had), so it's a sidestep, not a new course.
 //
 //   Flight.step(body, stats, { targetAngle, targetSpeed, mode, coast }, dt)
 //   body: { x, y, vx, vy, angle, thrust } (thrust 0..1, for the engine flame), updated in place.
@@ -31,7 +31,7 @@ const Flight = (() => {
   // Change v toward target by at most by.
   const approach = (v, target, by) => (v < target ? Math.min(target, v + by) : Math.max(target, v - by));
 
-  const DASH = { speed: 2.5, time: 0.25, cooldown: 2 };
+  const DASH = { speed: 2.5, time: 0.12, cooldown: 2 };
   function dash(body, angle, topSpeed) {
     const v = topSpeed * DASH.speed;
     body.vx = Math.cos(angle) * v;

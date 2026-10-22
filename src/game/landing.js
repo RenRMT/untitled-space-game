@@ -43,7 +43,7 @@ import { Collide } from '../flight/collide.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { hurtShip, wreck } from './combat.js';
-import { dashSafe, dashing, drawDashRing } from './dash.js';
+import { dashHit, dashSafe, dashing, drawDashRing } from './dash.js';
 import { actions, docked } from './docking.js';
 import { drawEventLog, drawStatus, minimapBox } from './hud.js';
 import { drag } from './input.js';
@@ -290,6 +290,7 @@ function fly(W, dt, climbing = false) {
   let hit = 0;
   if (ArtSurface.blocked(W, C.x, y0, r)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
   if (ArtSurface.blocked(W, C.x, C.y, r)) { C.y = y0; hit = Math.max(hit, Collide.bounce(C, 0, -Math.sign(C.vy))); }
+  if (hit > 0) dashHit(stats.maxSpeed); // a hit ends a dash (game/dash.js)
   const knock = dashSafe() ? 0 : Collide.damage(hit, Collide.config.surfaceSafe); // mid-dash: a bounce, no harm
   if (knock > 0) {
     const d = hurtShip(knock);

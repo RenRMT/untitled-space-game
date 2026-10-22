@@ -222,8 +222,11 @@ The steps, each playable on its own:
   went. The drag's own steering is undone: the ship keeps its course, and in Direct mode letting go
   still stops it. Space dashes the way the ship points.
 - **The burst** (`flight/flight.js` `dash`, `DASH`): 2.5 × top speed (on a surface, of its surface
-  speed), coasting for 0.25 s, then slowing by the engine, so it's a sidestep. 2 s to come back,
-  drawn as a ring round the ship.
+  speed), coasting for 0.12 s (about 195 units in space, 100 on a surface), then on at the velocity
+  it had before, so it's a sidestep. A hit mid-dash ends it at once, the bounce kept (at most half
+  the top speed), so steering comes straight back. 2 s to come back, drawn as a ring round the
+  ship. (First built at 0.25 s and slowing by the engine afterwards: far too long a slide; and on a
+  surface it never ended, since the dash ticked only in space's update.)
 - **Its cost** (`game/dash.js`, `Hazards.config.fuel.dash`): 2 fuel, × the site's fuel burn (twice
   on the ice planet). Not docked, landing, jumping, wrecked, in the introduction or in a fight with
   ships.

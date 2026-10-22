@@ -21,10 +21,11 @@ const { Store } = await import('../src/core/store.js');
 const { Theme } = await import('../src/core/theme.js');
 const { Kit } = await import('../src/ui/kit.js');
 const { JobTexts } = await import('../src/story/job-texts.js');
+const { ArtSurface } = await import('../src/art/surface.js');
 
 // game(src): run a snippet as if inside the game, its names (G, src/main.js) in scope. A sloppy-mode
 // function, for `with`.
-const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG });
+const scope = Object.assign(Object.create(G), { ItemIcons, SYSTEM_CONFIG, ArtSurface });
 const { ArtBodies, Galaxy } = G; // the tests use them too
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
 const game = (src) => inGame(scope, src);
@@ -2212,7 +2213,7 @@ function swipe(id, dx, dy, ms) {
 test('a flick dashes the way it went, for fuel, keeping the course; not again until it cools; a slow drag only steers', () => {
   calmSky();
   game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 4000, __st.y, 0);
-    cargo.fuel = SHIP.fuel; dashState.t = 0; dashState.cool = 0; select(null)`);
+    cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0; select(null)`);
   browser.frames(2);
   const fuel = game('cargo.fuel');
   swipe(21, 0, 60, 100); // a flick down the screen
@@ -2221,21 +2222,30 @@ test('a flick dashes the way it went, for fuel, keeping the course; not again un
   assert.ok(Math.abs(game('cargo.fuel') - (fuel - game('Hazards.config.fuel.dash'))) < 0.05, 'it cost fuel');
   assert.strictEqual(game('ship.targetSpeed'), 0, 'the course it had (stopped) kept');
   swipe(22, 60, 0, 100);
-  assert.ok(game('ship.vx') < game('SHIP.maxSpeed'), 'no second dash while it cools');
-  browser.frames(130);
-  assert.ok(!game('dashing()') && game('dashState.cool') === 0, 'cooled');
-  assert.ok(game('Math.hypot(ship.vx, ship.vy)') < game('SHIP.maxSpeed'), 'slowing after the burst');
+  assert.ok(game('ship.vx') < game('SHIP.maxSpeed') && game('ship.targetSpeed') === 0, 'no second dash while it cools, and the flick doesn\'t steer');
+  browser.frames(12);
+  assert.ok(!game('dashing()'), 'the burst is short');
+  assert.ok(game('Math.hypot(ship.vx, ship.vy)') < 1, 'then the speed it had (none), no long slide');
+  browser.frames(120);
+  assert.ok(game('dashState.cool') === 0, 'cooled');
   swipe(23, 60, 0, 400); // held too long: a drag
   assert.ok(game('dashState.cool') === 0, 'a slow drag does not dash');
   assert.ok(game('ship.targetSpeed') > 0 && Math.abs(game('ship.targetAngle')) < 1e-9, 'it steers');
   game('ship.targetSpeed = 0; cargo.fuel = 1; dashState.cool = 0');
   swipe(24, 0, 60, 100);
   assert.ok(!game('dashing()'), 'too little fuel: no dash');
-  game('cargo.fuel = SHIP.fuel');
+  // Into an asteroid: the hit ends the dash at once, the bounce no faster than half the top speed.
+  game(`cargo.fuel = SHIP.fuel; globalThis.__rock = __find((e) => e.kind === 'asteroid' && !e.shard); placeShip(__rock.x - __rock.radius - 60, __rock.y, 0)`);
+  swipe(28, 60, 0, 100);
+  assert.ok(game('dashing()'), 'dashing at the rock');
+  browser.frames(6);
+  assert.ok(!game('dashing()'), 'the hit ended the dash');
+  assert.ok(game('Math.hypot(ship.vx, ship.vy)') <= game('SHIP.maxSpeed * 0.5') + 1, 'bounced, not flung');
+  game('dashState.cool = 0; ship.targetSpeed = 0');
 });
 
 test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pocket does no harm', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = 0; dashState.cool = 0`);
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
   landOn('Zantal IV'); // the ice planet
   game('Object.assign(landing.craft, { vx: 0, vy: 0 }); ship.targetSpeed = 0; while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1)');
   const fuel = game('cargo.fuel');
@@ -2243,6 +2253,25 @@ test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pock
   assert.ok(game('dashing()'), 'dashing on the surface');
   assert.ok(game('landing.craft.vx') > game('SHIP.maxSpeed * SURFACE_SPEED * 2'), 'thrown across the ground');
   assert.ok(Math.abs(fuel - game('cargo.fuel') - 2 * game('Hazards.config.fuel.dash')) < 0.05, 'twice the fuel in the cold');
+  browser.frames(12);
+  assert.ok(!game('dashing()') && game('Math.hypot(landing.craft.vx, landing.craft.vy)') < 1, 'the dash ends on a surface too, back to the speed it had');
+  browser.frames(120);
+  assert.strictEqual(game('dashState.cool'), 0, 'and comes back');
+  // Into a cliff: the hit ends the dash at once, and a drag steers again.
+  game(`{ const C = landing.craft; let x = C.x; while (!ArtSurface.blocked(surfaceRun.W, x, C.y, 12) && x < C.x + 3000) x += 4;
+    Object.assign(C, { x: x - 60, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
+  swipe(26, 60, 0, 100);
+  assert.ok(game('dashing()'), 'dashing at the cliff');
+  browser.frames(6);
+  assert.ok(!game('dashing()'), 'the hit ended the dash');
+  assert.ok(game('Math.hypot(landing.craft.vx, landing.craft.vy)') <= game('SHIP.maxSpeed * SURFACE_SPEED * 0.5') + 1, 'bounced, not flung');
+  const canvas = browser.document.getElementById('game'), at = { pointerId: 27, pointerType: 'touch', button: 0 };
+  canvas.dispatch('pointerdown', { ...at, clientX: 600, clientY: 400, timeStamp: 9000 });
+  canvas.dispatch('pointermove', { ...at, clientX: 600, clientY: 250, timeStamp: 9300 });
+  browser.frames(30);
+  canvas.dispatch('pointerup', { ...at, clientX: 600, clientY: 250, timeStamp: 9600 });
+  assert.ok(game('landing.craft.vy') < -50, `it steers again: ${game('landing.craft.vy')}`);
+  game('ship.targetSpeed = 0; dashState.cool = 0');
   takeOffTo();
   landOn('Zantal V');
   game(`{ const W = surfaceRun.W, p = Object.values(W.props).filter((q) => q.type === 'tall').sort((a, b) => Math.hypot(a.x - landing.craft.x, a.y - landing.craft.y) - Math.hypot(b.x - landing.craft.x, b.y - landing.craft.y))[0];
@@ -2250,7 +2279,7 @@ test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pock
   const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
   browser.frames(30);
   assert.strictEqual(hp(), h0, 'no burn mid-dash');
-  game('dashState.t = 0; dashState.cool = 0');
+  game('dashState.t = -1; dashState.cool = 0');
   takeOffTo();
 });
 

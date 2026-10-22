@@ -18,6 +18,7 @@ import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawN
 import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
 import { drawDebris } from './mining.js';
+import { tickDash } from './dash.js';
 import { drawFlareGlow, drawHazards } from './hazards.js';
 import { drawGateWork, objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
@@ -193,7 +194,7 @@ export function frame(now) {
   tickTravel(dt);
   if (onSurface()) { // on a planet's surface (game/landing.js) space is left as it was
     if (!SystemMap.isOpen) { // the map covers it, and pauses it
-      if (!(Settings.isOpen || FactionsMenu.isOpen)) tickLanding(dt);
+      if (!(Settings.isOpen || FactionsMenu.isOpen)) { tickDash(dt); tickLanding(dt); } // (update, which ticks the dash in space, doesn't run here)
       drawLanding(simTime);
       recordFrame(performance.now() - t0, gap);
       if (SystemMap.perf) drawPerf(surfacePerf());
