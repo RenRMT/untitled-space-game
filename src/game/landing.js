@@ -17,7 +17,8 @@
 //   LANDABLE, landable(e)       the planet and moon types that have a surface, and whether e does
 //   land(e), takeOff()
 //   landing                     { on, phase ('landing' | 'surface' | 'takeoff'), t, e, craft, wrecked }:
-//                               t runs 0 (in space) .. 1 (down) along the zoom
+//                               t runs 0 (in space) .. 1 (down) along the zoom; wrecked: why the
+//                               ship was lost on the surface (it climbs out to be towed home)
 //   tickLanding(dt)             a step: from update() while the view is space (it then steers the
 //                               ship and returns true), from the frame loop once it's the surface
 //   landingCamera()             in space: the camera and zoom closing in on the planet, or pulling back
@@ -26,6 +27,8 @@
 //                               out over the planet, in space
 //   landingShipScale()          the ship's size in space as it dives in or comes out (0..1)
 //   surfacePerf()               lines about the surface for the performance overlay (game/loop.js)
+//   surfaceAt(sx, sy) -> [x, y] the point of the ground under a point of the screen (CSS px)
+// What there is to do down there (deposits, hazards, take-off fuel): game/surface-run.js.
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
@@ -50,6 +53,9 @@ import { drawStarfield } from './starfield.js';
 import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles, setMode, ship, view } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
+import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceWind, tickSurface } from './surface-run.js';
+import { updateCombatPanel } from './combat.js';
+import { outOfFuel } from './hazards.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
 // surface (art/surface.js), moons on their type's (moonSurface: 'moon-' and the type).
@@ -73,7 +79,7 @@ const COVER = 0.6, DEPTH = 8, SPEED = 0.85, EASE = 0.8, FADE = 0.3;
 const ALTITUDE = 420; // the ship's height above the ground as it comes into view (surface units)
 
 export const landing = {
-  on: false, phase: null, t: 0, e: null, path: null, wrecked: false, // wrecked: the hull gave out on the surface
+  on: false, phase: null, t: 0, e: null, path: null, wrecked: false, // wrecked: lost on the surface (why)
   craft: { x: 0, y: 0, vx: 0, vy: 0, angle: -Math.PI / 2, thrust: 0 }, // the ship on the surface (surface units)
 };
 
@@ -156,9 +162,13 @@ export function land(e) {
   notify(`Landing on ${e.name}`, 2.5);
 }
 
+// Taking off from the surface costs fuel (game/surface-run.js payTakeoff): short of it, it's refused
+// (unless the ship is lost there, and only climbs out to be towed).
 export function takeOff() {
   const L = landing;
   if (L.phase !== 'surface' && L.phase !== 'landing') return;
+  if (L.phase === 'surface' && !L.wrecked && !payTakeoff()) return false;
+  if (L.phase === 'surface') leaveSurface();
   // Back out the way it came, to the side of the planet facing its star, at the usual zoom.
   const e = L.e, star = world.galaxy.nearestSystem(e.x, e.y).star, a = Math.atan2(star.y - e.y, star.x - e.x), d = e.body.r * (e.body.ring ? 2.1 : 1.3) + 260;
   L.out = { x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, a };
@@ -171,7 +181,8 @@ export function takeOff() {
   L.phase = 'takeoff';
   setMode('landed', false);
   setMode('landing', true);
-  notify(`Taking off from ${L.e.name}`, 2.5);
+  if (!L.wrecked) notify(`Taking off from ${L.e.name}`, 2.5);
+  return true;
 }
 
 // While a planet or moon with a surface is selected (its menu offering Land), its surface is made
@@ -215,7 +226,7 @@ export function tickLanding(dt) {
     L.t = Math.min(1, L.t + (dt / P.time) * rate);
     // The ship is set down on the surface's landing spot as the surface comes into view.
     if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) setDown();
-    if (L.t >= 1) { L.phase = 'surface'; setMode('landing', false); setMode('landed', true); Feedback.emit('docked'); }
+    if (L.t >= 1) { L.phase = 'surface'; setMode('landing', false); setMode('landed', true); Feedback.emit('docked'); enterSurface(e, surface().W); }
   } else {
     L.t = Math.max(0, L.t - dt / P.time);
     if (fadeAt(L.t) > 0) fly(surface().W, dt, true);
@@ -248,7 +259,7 @@ function finish() {
   setMode('landing', false);
   setMode('landed', false);
   placeShip(out.x, out.y, out.a);
-  if (wrecked) { wreck(); return; } // the hull gave out on the surface: lost here, the hold spilled beside the planet
+  if (wrecked) { wreck(wrecked === true ? undefined : wrecked); return; } // lost on the surface: its hold left there (game/surface-run.js), towed home from here
   notify(`Back in orbit round ${e.name}`, 2.5);
   Feedback.emit('launched');
 }
@@ -261,15 +272,19 @@ function warmTiles(s, budgetMs) {
 
 // Flying on the surface: the drag sets heading and speed as in space (game/input.js), slower; cliffs,
 // storm fronts and tall rocks stop the ship, bouncing it back, and a hard hit knocks its shields and
-// hull (flight/collide.js, game/combat.js hurtShip). Out past the rim, it takes off; so does a ship
-// whose hull gives out (landing.wrecked), to be lost in orbit. climbing: lifting off, the ship keeps
-// drifting the way it was going, above everything.
+// hull (flight/collide.js, game/combat.js hurtShip). Then the surface's own step (game/surface-run.js:
+// hazards, deposits, what lies about). Out past the rim, it takes off, if it has the fuel for it
+// (else it's held at the rim); so does a ship lost there (landing.wrecked), to be towed home. With
+// an empty tank the engine is dead. climbing: lifting off, the ship keeps drifting the way it was
+// going, above everything.
 function fly(W, dt, climbing = false) {
   const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * 0.6 };
-  const set = climbing ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
+  const set = climbing || outOfFuel() ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
   const x0 = C.x, y0 = C.y, r = SHIP.radius * SURFACE_SCALE;
   Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value }, dt);
   if (climbing) return;
+  const wind = surfaceWind(); // a dust storm carries the ship along, into the cliffs too
+  if (wind) { C.x += wind[0] * dt; C.y += wind[1] * dt; }
   let hit = 0;
   if (ArtSurface.blocked(W, C.x, y0, r)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
   if (ArtSurface.blocked(W, C.x, C.y, r)) { C.y = y0; hit = Math.max(hit, Collide.bounce(C, 0, -Math.sign(C.vy))); }
@@ -278,7 +293,11 @@ function fly(W, dt, climbing = false) {
     const d = hurtShip(knock);
     if (d.hullDamage > 0) notify(`Hit the ground · hull −${Math.round(d.hullDamage)}`, 2, { tone: 'warn' });
   } else if (hit > Collide.config.surfaceSafe * 0.5) Feedback.emit('bump');
-  if (landing.wrecked || ArtSurface.siteDist(W, C.x, C.y) > W.site.leave) takeOff();
+  tickSurface(dt);
+  if (landing.wrecked) takeOff();
+  else if (landing.phase === 'surface' && ArtSurface.siteDist(W, C.x, C.y) > W.site.leave && takeOff() === false) {
+    C.x = x0; C.y = y0; C.vx = C.vy = 0; ship.targetSpeed = 0; // held at the rim
+  }
 }
 
 // ---------- The camera in space ----------
@@ -302,6 +321,13 @@ export function landingShipScale() {
 }
 
 // ---------- Drawing the surface ----------
+
+// The point of the ground under a point of the screen (CSS px), on the landed view (flat: the
+// inverse of SurfaceGlobe.toScreen there).
+export function surfaceAt(sx, sy) {
+  const { v, zoom } = viewAt(1);
+  return [v.fx + sx / zoom - v.ox, v.fy + (sy / zoom - v.oy) / v.ct];
+}
 
 // The surface's view at t: its zoom along the path; the landing spot where the planet's middle was
 // (the screen's) as it fades in, coming to rest a little below the middle (to see more ahead).
@@ -394,10 +420,17 @@ export function drawLanding(time) {
     ctx.ellipse(sh[0], sh[1], SHIP.radius * SURFACE_SCALE * 1.3, SHIP.radius * SURFACE_SCALE * 1.3 * v.ct, 0, 0, TAU);
     ctx.fill();
   }
+  ctx.restore();
+  // Deposits, what lies about, the tools' beams and the lock (game/surface-run.js), under the ship.
+  if (L.phase === 'surface') drawSurfaceRun(v, zoom, view.dpr, time);
+  ctx.save();
+  ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
+  ctx.globalAlpha = smoothstep(0.4, 0.6, g);
   ctx.translate(v.ox, v.oy - z * st);
   ctx.scale(k, k);
   Art.drawAsset(ctx, ship.art, style, { angle: C.angle, t: time, thrust: C.thrust });
   ctx.restore();
+  if (L.phase === 'surface') { drawSurfaceWeather(view.w, view.h, time); updateCombatPanel(); }
   drawSurfaceMinimap();
   drawSurfaceHud();
   buildAhead();
@@ -433,6 +466,13 @@ function drawSurfaceMinimap() {
   ctx.setLineDash([4, 3]);
   ctx.strokeRect(rx0, ry0, side, side);
   ctx.setLineDash([]);
+  // Deposits and what lies about, in the site.
+  for (const m of surfaceMarks()) {
+    const mx = rx0 + (m.x - i0 * T) * f, my = ry0 + (m.y - j0 * T) * f;
+    if (mx < x0 || mx > x0 + size || my < y0 || my > y0 + size) continue;
+    ctx.fillStyle = m.color;
+    ctx.fillRect(mx - m.r, my - m.r, m.r * 2, m.r * 2);
+  }
   // Where the ship is in it (past the edge, out on the rim, it shows outside the square).
   const C = L.craft, px = clamp(rx0 + (C.x - i0 * T) * f, x0 + 4, x0 + size - 4), py = clamp(ry0 + (C.y - j0 * T) * f, y0 + 4, y0 + size - 4);
   ctx.translate(px, py);
@@ -455,6 +495,7 @@ function drawSurfaceHud() {
   const L = landing, W = surface().W, I = view.inset, pad = 12, left = pad + I.l, lh = Math.round(19 * Theme.scale);
   const box = minimapBox(), room = box.x - 12 - left;
   const lines = [[`${L.e.name.toUpperCase()} · LANDING SITE`, COLORS.planet]];
+  if (L.phase === 'surface') lines.push(...surfaceLines());
   if (L.phase === 'surface' && ArtSurface.siteDist(W, L.craft.x, L.craft.y) > W.site.leave - 2 * ArtSurface.T) lines.push(['Past the rim: fly on to take off', COLORS.amber]);
   ctx.save();
   ctx.font = Theme.font(14);

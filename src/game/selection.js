@@ -12,6 +12,8 @@ import { actions, gapTo } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
+import { landable } from './landing.js';
+import { siteScan } from './surface-run.js';
 import { SHIP, autopilot, cam, ctx, inFight, ship, view } from './state.js';
 import { world } from './world.js';
 
@@ -100,9 +102,13 @@ export function describe(e) {
   // A pirate's card says in one word how a fight would go (Weak, Even, Outmatched); its pack and
   // gear are a tap away, in the card's detail line.
   const t = isHostile(e) ? threat(e) : null;
+  // A planet's or moon's: the scan of its surface (game/surface-run.js): its hazard, and in the
+  // detail line what's down there.
+  const scan = !t && (e.kind === 'planet' || e.kind === 'moon') && landable(e) ? siteScan(e) : null;
+  const top = t ? { tag: t.word, tone: t.tone, detail: t.detail } : scan || { tag: card.tag || '', tone: card.tone || '', detail: '' };
   return {
     title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
-    tag: t ? t.word : card.tag || '', tone: t ? t.tone : card.tone || '', detail: t ? t.detail : '',
+    tag: top.tag, tone: top.tone, detail: top.detail,
     actions: [...states.map(([a, s]) => primary(a.id, s, e)), ...approachActions(e, states.length > 0)],
   };
 }

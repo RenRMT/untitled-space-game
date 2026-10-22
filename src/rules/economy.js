@@ -113,11 +113,11 @@ const Economy = (() => {
       const produced = P.produces.includes(category), consumed = P.consumes.includes(category);
       const base = produced ? config.produced : consumed ? config.consumed : 1;
       for (const t of G.ofCategory(category)) {
-        const factor = base * jitter();
+        const factor = t.surface ? base : base * jitter();
         // The commonest type of a category on sale is always stocked, unless it's a part (made
         // goods are worth making); the rest by rarity and stage.
         const chance = produced ? config.stockProduced[t.rarity] : config.stock[t.rarity] * (config.stockStage[t.stage] ?? 1);
-        const madeOnly = t.stage === 'part' && t.rarity >= config.madeOnly;
+        const madeOnly = (t.stage === 'part' && t.rarity >= config.madeOnly) || t.surface; // (surface goods: brought in, never stocked)
         const stocked = forSale.has(category) && !madeOnly && (r() < chance || (t === G.ofCategory(category)[0] && t.stage !== 'part'));
         goods.push({ kind: t.id, category, rarity: t.rarity, produced, consumed, stocked, factor });
       }

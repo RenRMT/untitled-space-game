@@ -1,5 +1,5 @@
 // Touch and mouse input on the flight view: a drag sets the heading and its length the speed; a
-// tap selects (or, in a fight, focuses fire); a long press on something does what you'd most
+// tap selects (or, in a fight, focuses fire; on a planet's surface, mines the deposit under it); a long press on something does what you'd most
 // likely do there (dock at a station, mine an asteroid, collect a gas pocket), flying there first.
 // Part of the flight view; src/main.js starts it.
 
@@ -9,7 +9,8 @@ import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
 import { act, pickAt, select } from './selection.js';
 import { SHIP, autopilot, canvas, fight, flyingFight, inFight, intro, ship, view } from './state.js';
-import { landing, onSurface } from './landing.js';
+import { landing, onSurface, surfaceAt } from './landing.js';
+import { depositAt, mineDeposit } from './surface-run.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
@@ -69,7 +70,9 @@ export function endDrag(e) {
   if (drag.long) return; // the long press did its action
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
-  if (landing.on) { // nothing to select on the surface (game/landing.js): only flying
+  if (landing.on) { // on the surface (game/landing.js): a tap on a deposit mines it; nothing else to select
+    const dep = tap && landing.phase === 'surface' ? depositAt(surfaceAt(e.clientX, e.clientY)) : null;
+    if (dep) { mineDeposit(dep); return; }
     if (onSurface() && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
     return;
   }

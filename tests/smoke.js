@@ -1,8 +1,9 @@
 // Smoke test for the whole game in Node: `node tests/smoke.js`. Starts the game (src/main.js and
 // everything it imports) in a stand-in browser (tests/browser-stub.js), then plays: flying in
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
-// flying into a nebula and to the system's edge, map travel, a fight in each combat mode and the
-// settings. It opens on the introduction (switched off in the game for now, so the test asks for it
+// flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
+// settings, and landing: on every kind of planet and moon, and the surface run (deposits mined,
+// the day side, take-off fuel, jettisoning, losses and caches left on a surface). It opens on the introduction (switched off in the game for now, so the test asks for it
 // with ?intro) and the waystation's three missions, which the first four tests play through. Each step checks its effect; at the end nothing may have been drawn at a
 // non-finite position. The steps share one game, in order, as a player would play them.
 
@@ -1908,6 +1909,10 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   assert.ok(removed > 0, 'something was taken out of the world earlier');
   game('loadCargo(world.galaxy)'); // writes the pending save first
   assert.deepStrictEqual(game('[cargo.items.length, cargo.credits, cargo.removed.size]'), [items, credits, removed]);
+  // What was mined on a surface and what lies there are kept (anything unknown dropped).
+  game(`cargo.mined = { 'Zantal I': [2, 5] }; cargo.surfaceDrops = { 'Zantal I': [{ key: 'k', kind: 'tungsten', x: 10, y: 20 }, { key: 'bad', kind: 'nope', x: 1, y: 1 }] };
+    saveCargoNow(); loadCargo(world.galaxy)`);
+  assert.deepStrictEqual(JSON.parse(game('JSON.stringify([cargo.mined, cargo.surfaceDrops])')), [{ 'Zantal I': [2, 5] }, { 'Zantal I': [{ key: 'k', kind: 'tungsten', x: 10, y: 20 }] }]);
   // A save from before the removed list: its three lists are merged. And from before components
   // had their own store: those in the hold move to it.
   const old = JSON.parse(saved());
@@ -1921,6 +1926,8 @@ test('cargo saves once after a burst of changes, and survives a reload', () => {
   game('loadCargo(world.galaxy)');
 
   assert.strictEqual(game('cargo.removed.size'), removed, 'an older save loads');
+  assert.strictEqual(game('JSON.stringify(cargo.mined)'), '{}', 'its old list of mined asteroids is not taken for deposits');
+  game('cargo.surfaceDrops = {}');
   assert.strictEqual(game(`cargo.components['weapon-components']`), comps + 1, 'components in an old hold move to their store (tiered ones as their kind)');
   assert.strictEqual(game('cargo.items.length'), items);
   game('cargo.credits += 1; saveCargo()');
@@ -1943,7 +1950,9 @@ test('landing on each kind of planet and a moon: down to the surface, flying rou
     assert.ok(game('modes.has("landing") && MAP_BLOCKERS.includes("landing")'), 'no map while landing');
     assert.ok(until('landing.phase === "surface"'), `${name}: down on the surface`);
     assert.ok(game('modes.has("landed")'), 'Take off shows');
-    // Flying: a drag's heading and speed (here set directly) move the ship over the ground.
+    // Flying: a drag's heading and speed (here set directly) move the ship over the ground (out of a
+    // dust storm's wind, game/surface-run.js).
+    game('while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1)');
     const x0 = game('landing.craft.x');
     game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
     browser.frames(30);
@@ -1955,6 +1964,158 @@ test('landing on each kind of planet and a moon: down to the surface, flying rou
     assert.ok(!game('modes.has("landing") || modes.has("landed")'), 'the modes are cleared');
     assert.ok(game('Math.hypot(ship.x - __body.x, ship.y - __body.y) < __body.body.r * 2.1 + 400'), `${name}: the ship is beside it`);
   }
+});
+
+// Down on a planet or moon by name (the Land action on its card), and back up.
+function landOn(name) {
+  game(`globalThis.__body = __find((e) => e.name === '${name}'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
+  clickCard('land');
+  assert.ok(until('landing.phase === "surface"', 1500), `down on ${name}`);
+}
+function takeOffTo() {
+  game('takeOff()');
+  assert.ok(until('!landing.on', 1500), 'back in space');
+}
+const button = (id) => browser.document.getElementById(id);
+// The ship over each thing lying on the body's surface in turn, a frame at each: it picks them up.
+function flyOver(name) {
+  for (let i = 0; i < 40 && game(`!!cargo.surfaceDrops['${name}']`); i++) {
+    game(`{ const d = cargo.surfaceDrops['${name}'][0]; Object.assign(landing.craft, { x: d.x, y: d.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
+    browser.frames(1);
+  }
+}
+
+test('the surface run: the scan before landing; a deposit mined by the tools, its goods picked up, worked out for good', () => {
+  game(`fight.grace = 1e9; cargo.items = []; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; hazard.heat = 0; cargo.rad = 0; artStyle.set('line')`);
+  // The scan: the lava planet's card names its hazard, and its detail what's down there.
+  game(`globalThis.__body = __find((e) => e.name === 'Zantal I'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
+  const card = game('describe(__body)');
+  assert.strictEqual(card.tag, 'Heat');
+  assert.match(card.detail, /Heat, worst by day; hot vents · Deposits: Tungsten, Iron · (Sunrise in \d+:\d\d|Day side now) · Take-off [\d.]+ fuel/);
+  // Down at night, with time before the sun comes up.
+  game(`while (Hazards.daylight(bodySite(__body), simTime).in < 140) skipTime(5)`);
+  clickCard('land');
+  assert.ok(until('landing.phase === "surface"', 1500), 'down');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Lava planet · Heat, worst by day; hot vents · \d deposits found/);
+  assert.ok(game('surfaceRun.deposits.length') >= 5, 'deposits round the landing site');
+  browser.frames(1);
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /SUNRISE IN \d+:\d\d.*\d deposits · take-off [\d.]+ fuel/);
+  // Close to one, E locks the tools on it, and they work it down; it leaves its goods lying there.
+  game(`globalThis.__dep = surfaceRun.deposits[0]; Object.assign(landing.craft, { x: __dep.x - 200, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
+  browser.key('e');
+  assert.ok(game('extracting() && fight.s.focus === __dep.key'), 'mining it');
+  assert.match(game('fight.log.join("|")'), /Mining the (tungsten|iron) deposit/);
+  assert.ok(until('!surfaceRun.deposits.includes(__dep)', 60 * 30), 'worked out');
+  assert.ok(game('cargo.mined["Zantal I"].includes(__dep.i)'), 'saved as worked out');
+  const lying = game('cargo.surfaceDrops["Zantal I"].filter((d) => d.key.startsWith("deposit:")).length');
+  assert.ok(lying >= 2, `its goods lie there: ${lying}`);
+  assert.ok(until('!fight.s', 60 * 5), 'the session ends with nothing left to mine');
+  // Flying over them picks them up.
+  flyOver('Zantal I');
+  assert.strictEqual(game('cargo.items.filter((it) => it.kind === __dep.good).length'), lying, 'into the hold');
+  assert.strictEqual(game('cargo.surfaceDrops["Zantal I"]'), undefined, 'nothing left lying there');
+  // Back again later: that deposit stays worked out.
+  takeOffTo();
+  landOn('Zantal I');
+  assert.ok(game('!surfaceRun.deposits.some((d) => d.i === __dep.i)'), 'not there again');
+  takeOffTo();
+});
+
+test('the surface run: the day side heats the ship; lost there, its hold stays on the surface, and the ship is towed', () => {
+  game(`cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }]; cargo.fuel = SHIP.fuel; hazard.heat = 0;
+    while (Hazards.daylight(bodySite(__find((e) => e.name === 'Zantal I')), simTime).in < 100) skipTime(5)`);
+  const inOrbit = () => game('cargo.drops.filter((d) => d.key.startsWith("lost:") && Math.hypot(d.x - __body.x, d.y - __body.y) < 3000).length');
+  landOn('Zantal I');
+  const before = inOrbit();
+  game('skipTime(Hazards.daylight(surfaceRun.site, simTime).in + 1)');
+  const h0 = game('hazard.heat');
+  browser.frames(60);
+  assert.ok(game('hazard.heat') > h0 + 8, `heat climbs fast by day: ${h0} → ${game('hazard.heat')}`);
+  assert.match(game('surfaceLines()[0][0]'), /^DAY SIDE · HEAT CLIMBING/);
+  game('hazard.heat = 99.5');
+  assert.ok(until('fight.wreckT > 0', 60 * 8), 'overheated: lost');
+  assert.match(game('toast.text'), /^Overheated · calling a tow/);
+  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
+  assert.strictEqual(game('cargo.items.length'), 0);
+  assert.ok(game('cargo.surfaceDrops["Zantal I"].some((d) => d.key.startsWith("lost:") && d.kind === "iron")'), 'the iron waits on the surface');
+  assert.strictEqual(inOrbit(), before, 'not in orbit');
+  assert.deepStrictEqual(game('[hazard.heat, landing.on]'), [0, false]);
+});
+
+test('the surface run: take-off costs fuel; short of it, Jettison leaves cargo as a cache, and with too little even for that, a tow', () => {
+  game(`cargo.hull = SHIP.hull; hazard.heat = 0; cargo.fuel = SHIP.fuel;
+    cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }))`);
+  landOn('Zantal III');
+  const g = game('surfaceRun.site.gravity'), full = game(`Hazards.takeoffFuel(${g}, 1)`), empty = game(`Hazards.takeoffFuel(${g}, 0)`);
+  game(`cargo.fuel = ${empty} + 0.5`);
+  browser.frames(2);
+  assert.ok(game('modes.has("short-fuel") && !modes.has("stranded")'), 'Jettison shows');
+  assert.strictEqual(game('takeOff()'), false, 'refused');
+  assert.strictEqual(game('landing.phase'), 'surface');
+  assert.match(game('toast.text'), /^Not enough fuel to take off · [\d.]+ needed, [\d.]+ aboard · jettison cargo/);
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /NOT ENOUGH FUEL TO TAKE OFF/);
+  button('jettison-btn').dispatch('click', {});
+  const kept = game('cargo.items.length');
+  assert.ok(kept < game('SHIP.cargo') && kept > 0, `only what it must: ${kept} kept`);
+  assert.strictEqual(game('cargo.surfaceDrops["Zantal III"].length'), game('SHIP.cargo') - kept, 'left lying there');
+  browser.frames(20);
+  assert.strictEqual(game('cargo.items.length'), kept, 'not picked straight back up');
+  const fuel = game('cargo.fuel'), need = game(`Hazards.takeoffFuel(${g}, cargo.items.length / SHIP.cargo)`);
+  assert.ok(need < full);
+  takeOffTo();
+  assert.ok(Math.abs(game('cargo.fuel') - (fuel - need)) < 0.01, 'the take-off burned its fuel');
+  // Back for the cache: flying over it picks it up.
+  game('cargo.fuel = SHIP.fuel');
+  landOn('Zantal III');
+  flyOver('Zantal III');
+  assert.strictEqual(game('cargo.items.length'), game('SHIP.cargo'), 'all of it back');
+  // Not even enough for an empty hold: a tow, and the hold stays.
+  game('cargo.fuel = 0.5');
+  browser.frames(2);
+  assert.ok(game('modes.has("stranded")'), 'Call a tow shows');
+  button('tow-btn').dispatch('click', {});
+  assert.ok(until('fight.wreckT > 0', 60 * 8), 'given up');
+  assert.match(game('toast.text'), /^Stranded · calling a tow/);
+  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
+  assert.strictEqual(game('cargo.surfaceDrops["Zantal III"].length'), game('SHIP.cargo'), 'the hold left on the surface');
+  assert.ok(!game('modes.has("stranded") || modes.has("short-fuel")'), 'the buttons gone');
+  game('cargo.surfaceDrops = {}; cargo.fuel = SHIP.fuel');
+});
+
+test('the surface run: a giant\'s moon irradiates the ship; a dust storm on the desert pushes it', () => {
+  game('cargo.rad = 0; cargo.items = []; hazard.heat = 0');
+  const moon = game(`world.galaxy.moons.find((m) => Hazards.GIANTS.includes(world.galaxy.planets[m.parent].type)).name`);
+  landOn(moon);
+  assert.strictEqual(game('describe(__body).tag'), 'Radiation');
+  browser.frames(120);
+  assert.ok(game('cargo.rad') > 2.5, `radiation taken in: ${game('cargo.rad')}`);
+  takeOffTo();
+  game('cargo.rad = 0');
+  landOn('Zantal II');
+  game('while (!Hazards.dust(surfaceRun.site, simTime)) skipTime(1); Object.assign(landing.craft, { vx: 0, vy: 0 }); ship.targetSpeed = 0');
+  const [x0, y0] = game('[landing.craft.x, landing.craft.y]');
+  browser.frames(30);
+  assert.ok(game(`Math.hypot(landing.craft.x - ${x0}, landing.craft.y - ${y0})`) > 5, 'pushed by the wind');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST STORM/);
+  takeOffTo();
+});
+
+test('the surface run: a gas giant\'s storm pocket burns the ship touching it, down to a loss', () => {
+  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }]`);
+  landOn('Zantal V');
+  // Beside a storm pocket, held there.
+  game(`{ const W = surfaceRun.W, p = Object.values(W.props).filter((q) => q.type === 'tall').sort((a, b) => Math.hypot(a.x - landing.craft.x, a.y - landing.craft.y) - Math.hypot(b.x - landing.craft.x, b.y - landing.craft.y))[0];
+    globalThis.__pocket = p; Object.assign(landing.craft, { x: p.x + p.r + SHIP.radius * 0.85 + 4, y: p.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
+  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
+  browser.frames(60);
+  assert.ok(hp() < h0 - 5, `burned: ${h0} → ${hp()}`);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Storm pocket · it burns the hull/);
+  game('guard.shield = 0; cargo.hull = 3');
+  assert.ok(until('fight.wreckT > 0', 60 * 8), 'the hull gave out: lost');
+  assert.match(game('toast.text'), /^Hull breached · calling a tow/);
+  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
+  assert.ok(game('cargo.surfaceDrops["Zantal V"].some((d) => d.kind === "iron")'), 'the hold left on the gas giant');
+  game('cargo.surfaceDrops = {}');
 });
 
 test('nothing was drawn at a non-finite position', () => {

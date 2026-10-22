@@ -77,6 +77,47 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   radiation, fuel) that appear as each needs watching. Warnings sound off as meters pass 60/85%
   heat, 50/75/90% radiation and 25/10% fuel, with the 'hazard' vibration.
 
+## Phase 3, as built
+
+- **The scan:** a planet's or moon's card (`game/selection.js` describe, `game/surface-run.js`
+  `siteScan`) names its hazard in a word (Heat, Dust storms, Mild, Cold, Storm pockets, Radiation),
+  and its detail line says the hazard, the deposit goods, the time to sunrise and the take-off fuel.
+- **Rules** (`rules/hazards.js` `surface`, pure, on flight time, which now runs on while landed):
+  each body type's heat (always, and more by day), radiation, gravity, fuel burn and deposits. The
+  day: 240 s, the last 80 of it in sunlight, seeded per body. Heat by day outpaces the 6 a second a
+  ship sheds on the lava planet (+15 net), the desert (+9) and the moons (+4); the Terran, ice and
+  gas worlds stay mild. The lava planet is a little hot even by night (+1).
+  - lava: vents (the glowing `hole` props) add up to 30 heat a second over them;
+  - desert: a 25 s dust storm in each 100 s stretch: the ship drifts with a 60 a second wind
+    (whatever the engine does, into cliffs too) and the view darkens away from the ship;
+  - moons: 0.8 radiation a second, 1.6 round a giant;
+  - ice: thrust burns fuel twice as fast;
+  - gas giants: touching a storm pocket burns 12 hull a second (shields first).
+- **Deposits** (`rules/mining.js` `deposits`, `depositYield`): 7 per site, on open ground
+  (`ArtSurface.open`: not blocked, above the sea, clear of holes and tall props), apart and clear of
+  the landing spot, seeded by the body. Each holds 2–4 units of one of the body's goods. They're
+  passive targets in the same extraction session as asteroids (`game/combat.js` `extract`, with
+  `pilot()` the surface craft while landed), without the squad. A tap or E locks them; the gas
+  giants' are siphoned. Worked out, a deposit stays so (`cargo.mined[bodyKey]`) and leaves its goods
+  lying beside it.
+- **New raw goods,** found only on surfaces (`Goods.SURFACE_RAW`: never stocked by markets or found
+  in wrecks): tungsten (lava; the Fracture drill from Mk III), rare earths (desert; the survey
+  scanner from Mk III), titanium ore (grey and rust moons; the deflector from Mk III) and sulfur (the
+  volcanic moon; EMP charges). The other bodies hold the space goods: iron and silicates on the
+  Terran planet, deuterium on the ice planet, the ice moon and (siphoned) the gas giants.
+- **Surface caches** (`cargo.surfaceDrops[bodyKey]`): what deposits leave, what's jettisoned and the
+  hold of a ship lost there, drawn on the surface and its minimap, picked up by flying over them.
+- **Taking off** costs `Hazards.takeoffFuel(gravity, holdFill)`: (3 + 7 × how full the hold is) ×
+  gravity (0.3 on a moon, 1.6 on a gas giant). Short of it, Take off (and flying out past the rim) is
+  refused with its reason; Jettison drops the cheapest cargo until it's enough, and with not even
+  enough for an empty hold, Call a tow gives the ship up.
+- **Lost on a surface** (heat or radiation full, the hull gone, a tow called): the hold stays there,
+  the ship climbs out and is towed home as in space.
+- **Shown:** deposits as crystal clusters (swirls on gas giants) in their good's colour, the tools'
+  field of fire and beams, the lock's brackets and the deposit's integrity, the day side's glare,
+  the dust, and HUD lines for sunrise or the day side, a storm, the take-off fuel and deposits left.
+- Drones stay in orbit for now.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -308,8 +349,9 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 2. **Hazards in space.** *(done: see Phase 2, as built)* `rules/hazards.js` with star heat, flares and shadows, radiation belts and
    moons; heat, radiation and fuel meters (fuel from hydrazine); disabled ship → tow home with its
    cargo cached.
-3. **Surface run.** Deposits as targets, the surface clock, biome hazards (lava, moons, desert first),
-   takeoff fuel, surface caches, the scan before landing. 3–4 new raw goods with recipes.
+3. **Surface run.** *(done: see Phase 3, as built)* Deposits as targets, the surface clock, biome
+   hazards (lava, moons, desert first), takeoff fuel, surface caches, the scan before landing. 3–4
+   new raw goods with recipes.
 4. **Gear and consumables for hazards.** Siphon line, radiator, shielding, tank and cargo pod; field
    consumables on the HUD.
 5. **Stations per process and the waystation as home.** Station roles, restoration projects,

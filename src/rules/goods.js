@@ -13,7 +13,8 @@
 // Each trade good also has a stage in the production chain (notes/industry.md): raw (mined or
 // collected), refined or part (fabricated); components are salvage.
 //
-//   Goods.type(id)              -> { id, name, category, rarity, price, stage, color: [h, s, l], shape? }
+//   Goods.type(id)              -> { id, name, category, rarity, price, stage, color: [h, s, l], shape?, surface? }
+//                                  surface: a raw good found only on planets and moons
 //   Goods.STAGES                -> the stages in chain order, salvage beside raw
 //   Goods.component(cat)        -> the component type id of a salvage category
 //   Goods.ofCategory(cat)       -> types of a category, commonest first
@@ -51,11 +52,12 @@ const Goods = (() => {
   };
 
   // Trade goods: [id, name, rarity, price, [hue, saturation, lightness]] per category. (Components
-  // are added below.) A made good is worth more than what it's made of (rules/recipes.js), so
+  // are added below.) Iron, silicates and deuterium come from asteroids and gas pockets in space; the
+  // rest of the raw goods only from deposits on planets and moons (rules/hazards.js surface). A made good is worth more than what it's made of (rules/recipes.js), so
   // prices rise along the chain.
   const TABLE = {
-    metal: [['iron', 'Iron', 1, 35, [212, 0.12, 0.42]]],
-    mineral: [['silicates', 'Silicates', 1, 30, [45, 0.3, 0.7]]],
+    metal: [['iron', 'Iron', 1, 35, [212, 0.12, 0.42]], ['titanium-ore', 'Titanium ore', 2, 60, [190, 0.18, 0.66]], ['tungsten', 'Tungsten', 3, 90, [30, 0.3, 0.3]]],
+    mineral: [['silicates', 'Silicates', 1, 30, [45, 0.3, 0.7]], ['sulfur', 'Sulfur', 2, 40, [56, 0.85, 0.55]], ['rare-earths', 'Rare earths', 3, 100, [300, 0.35, 0.6]]],
     gas: [['deuterium', 'Deuterium', 1, 50, [28, 0.85, 0.55]]],
     synthetic: [['carbon-fibre', 'Carbon fibre', 2, 110, [220, 0.12, 0.3]]],
     crates: [['electronics', 'Electronics', 2, 225, [160, 0.6, 0.42]]],
@@ -76,10 +78,12 @@ const Goods = (() => {
   // Production stages, in chain order (rules/recipes.js makes each from earlier ones).
   const STAGES = ['raw', 'salvage', 'refined', 'part'];
   const STAGE_OF = {
-    raw: ['iron', 'silicates', 'deuterium'],
+    raw: ['iron', 'silicates', 'deuterium', 'titanium-ore', 'tungsten', 'sulfur', 'rare-earths'],
     refined: ['steel-pipe', 'carbon-fibre', 'hydrazine'],
     part: ['electronics'],
   };
+  // Raw goods found only on planets and moons: never stocked at a market or found in a wreck.
+  const SURFACE_RAW = ['titanium-ore', 'tungsten', 'sulfur', 'rare-earths'];
   const stageOf = (id, category) => (CATEGORIES[category].group === 'salvage' ? 'salvage'
     : Object.keys(STAGE_OF).find((st) => STAGE_OF[st].includes(id)));
 
@@ -87,7 +91,7 @@ const Goods = (() => {
   const BY_CATEGORY = {};
   for (const [category, rows] of Object.entries(TABLE)) {
     BY_CATEGORY[category] = rows.map(([id, name, rarity, price, color, shape]) => {
-      const t = { id, name, category, rarity, price, stage: stageOf(id, category), color, ...(shape !== undefined ? { shape } : {}) };
+      const t = { id, name, category, rarity, price, stage: stageOf(id, category), color, ...(shape !== undefined ? { shape } : {}), ...(SURFACE_RAW.includes(id) ? { surface: true } : {}) };
       TYPES[id] = t;
       return t;
     });
@@ -142,7 +146,7 @@ const Goods = (() => {
     return cat && ofCategory(cat).length ? ofCategory(cat)[0].id : null;
   }
 
-  return { RARITY, CATEGORIES, STAGES, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
+  return { RARITY, CATEGORIES, STAGES, SURFACE_RAW, TYPES, type, ofCategory, categories, isSalvage, component, pick, resolve };
 })();
 
 export { Goods };

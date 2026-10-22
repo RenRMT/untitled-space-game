@@ -122,7 +122,7 @@ const CombatCore = (() => {
     };
     // A trade good; well-armed pirates keep the better of two.
     const good = () => {
-      const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)]);
+      const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)], (t) => !t.surface);
       let kind = pick();
       if (tier >= 3) { const other = pick(); if (G.type(other).price > G.type(kind).price) kind = other; }
       return { kind, seed: seed() };
