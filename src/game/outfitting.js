@@ -15,14 +15,18 @@ import { world } from './world.js';
 
 // Fitting gear and mods to a loadout, from the spare gear and mods: what was in the slot goes to the
 // spare gear; mods go in as far as the gear in their slot has room. on: the ship fitted, { get(), set(loadout),
-// upgrades(), takes(id) (whether this ship can take that gear), changed() (after every change) }.
+// upgrades(), takes(id) (whether this ship can take that gear), changed() (after every change),
+// refuses?(loadout) (why the ship can't be left like that, or null) }.
+// blocked(slot, id | null): why fitting that gear there (null: emptying the slot) can't be done, or null.
 function fitter(on) {
   const slotOf = (slot) => Loadout.slotsOf(on.get().hull, on.upgrades()).find((x) => x.id === slot);
   const put = (patch) => { on.set({ ...on.get(), ...patch }); return on.changed(); };
+  const blocked = (slot, id) => on.refuses?.({ ...on.get(), fitted: { ...on.get().fitted, [slot]: id } }) || null;
   return {
+    blocked,
     fit(slot, id) {
       const item = Loadout.EQUIPMENT[id], s = slotOf(slot);
-      if (!item || !s || item.slot !== s.type || !cargo.gear[id] || !on.takes(id)) return false;
+      if (!item || !s || item.slot !== s.type || !cargo.gear[id] || !on.takes(id) || blocked(slot, id)) return false;
       addTo(cargo.gear, id, -1);
       const old = on.get().fitted[slot];
       if (old) addTo(cargo.gear, old);
@@ -30,7 +34,7 @@ function fitter(on) {
     },
     unfit(slot) {
       const old = on.get().fitted[slot];
-      if (!old) return false;
+      if (!old || blocked(slot, null)) return false;
       addTo(cargo.gear, old);
       return put({ fitted: { ...on.get().fitted, [slot]: null } });
     },
@@ -68,6 +72,8 @@ export const SELL_BACK = 0.5;
 const playerFit = fitter({
   get: () => cargo.loadout, set: (l) => { cargo.loadout = l; }, upgrades: () => outfitting.upgrades,
   takes: (id) => !Loadout.EQUIPMENT[id].npc, changed: () => changedShip(),
+  // A cargo pod can't come out while the hold needs its room.
+  refuses: (l) => { const room = Loadout.stats(l, outfitting.upgrades).cargo; return room < SHIP.cargo && cargo.items.length > room ? `Hold too full · ${room} units` : null; },
 });
 export const outfitting = {
   get loadout() { return cargo.loadout; },

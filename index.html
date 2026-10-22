@@ -232,6 +232,25 @@
   .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
   body.in-combat #context, body.in-combat #factions-btn, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
+  /* Consumables in the field (ui/field-bar.js): a column of buttons up the right-hand side, above the
+     corner buttons, each its icon over the charges left. */
+  #field {
+    position: absolute; z-index: 3; right: calc(12px + env(safe-area-inset-right, 0px));
+    bottom: calc(12px + var(--hit) + 12px + env(safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column-reverse; flex-wrap: wrap-reverse; gap: 6px; /* a short screen: a second column, to the left */
+    max-height: calc(100dvh - 2 * var(--hit) - 200px);
+  }
+  #field[hidden] { display: none; }
+  .fb-ab {
+    width: var(--hit); min-height: var(--hit); padding: 4px 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    border: 1px solid var(--good); border-radius: 6px; background: var(--panel); color: var(--good); cursor: pointer; touch-action: manipulation;
+  }
+  .fb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
+  .fb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+  .fb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+  body.docked #field, body.intro #field, body.in-combat #field, body.warping #field, body.talking #field { display: none; }
+  /* Mining (game/combat.js extract) has no panel: only the context menu and the map wait for it. */
+  body.mining #context, body.mining #map-btn { display: none; }
 
   /* Station screen: header, the tab's content, then the icon tab bar and Launch in thumb reach.
      Sheets (#st-layer) slide up over it. */
@@ -722,6 +741,8 @@
   #map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
   #settings-btn { right: calc((12px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
   #context { zoom: var(--ui-scale); }
+  #field { zoom: var(--ui-scale); right: calc((12px + env(safe-area-inset-right, 0px)) / var(--ui-scale));
+    bottom: calc((12px + var(--hit) * var(--ui-scale) + 12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #map-overlay .bar { zoom: var(--ui-scale); right: auto; width: calc(100vw / var(--ui-scale)); box-sizing: border-box; }
   #map-overlay .bottom { bottom: 0; }
   #map-prompt { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((80px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); width: min(340px, calc((100vw - 24px) / var(--ui-scale))); }
@@ -815,6 +836,7 @@
   <div class="cb-log"></div>
 </div>
 
+<div id="field" role="toolbar" aria-label="Consumables" hidden></div>
 <div id="comms" role="region" aria-label="Comms" aria-live="polite" hidden></div>
 <!-- Back from another app mid-fight: paused until tapped (game/loop.js). -->
 <button id="resume" type="button" hidden><span class="t">Paused</span><span class="s">Tap to resume the fight</span></button>

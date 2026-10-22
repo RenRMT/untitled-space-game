@@ -166,8 +166,8 @@ export function tickSurface(dt) {
   // The meters: heat (the day side, vents, thrust), radiation, fuel (the cold burns more).
   const vent = ventNear(C), before = surfaceRun.exp;
   const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: outOfFuel() ? 0 : C.thrust, vent });
-  hazard.heat = clamp(hazard.heat + (exp.heat - H.heat.cool) * dt, 0, H.max);
-  cargo.rad = Math.min(H.max, cargo.rad + exp.rad * dt);
+  hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
+  cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
   if (!outOfFuel()) cargo.fuel = Math.max(0, cargo.fuel - H.fuel.burn * site.fuelBurn * C.thrust * dt);
   if (inPocket(C)) {
     surfaceRun.burn += H.surface.pocket * dt;

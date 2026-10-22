@@ -156,6 +156,40 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   a second while the hold has room, and picked up within 30.
 - **Faster on the ground:** the surface top speed is up from 0.4 to 0.5 of the ship's.
 
+## Phase 5, as built
+
+- **Utility slots** (`rules/loadout.js`): a new slot type beside the tool mounts and systems, two on
+  the Courier, Corvette and Gunship, three on the Hauler, none on NPC hulls. They start empty. Four
+  lines go in them, Mk I–V, each doing one thing, so filling the slots is a choice about the run:
+  - **Radiator** (`cool`): +3 to +9 heat shed a second, on top of the ship's 6 (`Hazards.shed`), so
+    the day side of a hot world and the inner system take longer to cook the ship;
+  - **Radiation shielding** (`radGuard`): stops 30–62% of the radiation coming in
+    (`Hazards.radTaken`); two stack, each stopping its share of what the other lets through;
+  - **Auxiliary tank** (`fuel`): +40 to +130 fuel;
+  - **Cargo pod** (`cargo`): +6 to +18 hold. A pod can't come out while the hold needs its room.
+  Mk I is assembled from steel pipe and carbon fibre; from Mk III the radiator takes titanium and
+  the shielding tungsten (so the surface goods feed the gear that lets you stay down longer). Mk II
+  and up by blueprint, with refinements, under a new **Utility** research group. No mods fit them.
+- **The siphon line** was already in from phase 1 (the Gas siphon, Mk I–V).
+- **Field consumables** (`rules/abilities.js` `FIELD`, `fieldReady`, `fieldUse`; `game/field.js`;
+  `ui/field-bar.js`): a column of buttons up the right of the HUD, one per consumable in the kit,
+  its charges under its icon, dimmed while it's cooling down or wouldn't help; keys 1–6 too. Out
+  flying, mining, and on a surface; not docked, in a fight with ships (its panel has the fight's
+  abilities) or waiting for a tow.
+  - repair nanites (+30% hull) and shield cells (shields full), as in a fight;
+  - **coolant flush** (−50 heat; from deuterium and steel pipe);
+  - **radiation purge** (−35 radiation; carbon fibre and hydrazine);
+  - **fuel canister** (+30 fuel; hydrazine and steel pipe);
+  - **seismic charge** (40 damage to the rock the tools are on, not gas; sulfur and steel pipe).
+  The four new ones are `on: 'self'`: never used in a fight, nor offered to a squad `use` line.
+- **EMP charges and jammer pods stay** as they were, parked with the pirates (the fights the
+  `?pirates` tests still play use them), so the seismic charge and coolant flush are new rather than
+  renamed, and there's no save migration: a loadout without utility slots reads them as empty.
+- **No panel while mining:** the combat panel no longer pops up for a mining session (in space or on
+  a surface). The rock shows its own lock and integrity, the HUD the hull and shield gauges and the
+  field bar. Mining sets its own `mining` mode instead of `in-combat`: the context menu and the map
+  wait for it, but the settings and factions buttons stay.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -410,8 +444,9 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 4. **Active mining.** *(done: see Phase 4, as built)* Many small surface nodes, a fresh field each landing, richer by hazard (the
    site, near vents and pockets, the day side); tools that target on their own; magnet pickup on
    surfaces; quicker locks on rocks; asteroids that break into shards, chained through.
-5. **Gear and consumables for hazards.** Siphon line, radiator, shielding, tank and cargo pod; field
-   consumables on the HUD. With active mining, the cargo pod and the tank directly lengthen a run.
+5. **Gear and consumables for hazards.** *(done: see Phase 5, as built; EMP and jammer stay with
+   the pirates)* Siphon line, radiator, shielding, tank and cargo pod; field consumables on the HUD.
+   With active mining, the cargo pod and the tank directly lengthen a run.
 6. **Stations per process and the waystation as home.** Station roles, restoration projects,
    research per station, the mission board at the waystation (job steps land and sample in place of
    fight).

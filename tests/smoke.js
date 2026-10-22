@@ -975,6 +975,9 @@ test('mines an asteroid, chains on through its shards, and collects what they le
   clickCard('mine');
   assert.ok(game('extracting() && fight.ships.has(__rock.key)'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
   browser.frames(120); // the lock, then some work
+  // No combat panel pops up: the rock shows its own lock and integrity; the settings stay to hand.
+  assert.ok(!game('CombatPanel.isOpen') && browser.document.getElementById('combat').hidden, 'no panel while mining');
+  assert.ok(game('modes.has("mining") && !modes.has("in-combat")'), 'mining, not a fight');
   assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+%$/);
   assert.ok(game('fight.s.enemies[0].hull < fight.s.enemies[0].stats.hull'), 'worn down');
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a rock never fires back');
@@ -1125,6 +1128,63 @@ test('hazards: an empty tank leaves the ship adrift until a tow; refuelling take
   assert.strictEqual(game('cargo.credits'), 10000 - 25 * game('FUEL_PRICE'), 'credits for the rest');
   assert.match(onStation(), /Fuel100\/100.*Full/);
   game('launch()');
+});
+
+test('hazard gear: a radiator sheds more heat, shielding stops radiation, a tank and a pod lengthen a run', () => {
+  calmSky();
+  game(`fight.grace = 1e9; cargo.items = []; cargo.gear = { 'radiator-1': 1, 'rad-shielding-1': 1, 'aux-tank-1': 1, 'cargo-pod-1': 1 };`);
+  const [hold0, fuel0, shed0] = game('[SHIP.cargo, SHIP.fuel, Hazards.shed(SHIP)]');
+  assert.deepStrictEqual(game('Loadout.slots(cargo.loadout).filter((s) => s.type === "utility").map((s) => [s.id, s.item])'), [['utility-1', null], ['utility-2', null]], 'two empty utility slots');
+  assert.ok(game(`outfitting.fit('utility-1', 'cargo-pod-1') && outfitting.fit('utility-2', 'aux-tank-1')`));
+  assert.deepStrictEqual(game('[SHIP.cargo, SHIP.fuel]'), [hold0 + 6, fuel0 + 40], 'more hold, a bigger tank');
+  // The pod stays in while the hold needs its room.
+  game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }))`);
+  assert.match(game(`outfitting.blocked('utility-1', null)`), /^Hold too full/);
+  assert.ok(!game(`outfitting.unfit('utility-1')`) && game('SHIP.cargo') === hold0 + 6, 'refused');
+  game('cargo.items = []');
+  // A radiator sheds heat faster; shielding lets less radiation through.
+  assert.ok(game(`outfitting.fit('utility-1', 'radiator-1') && outfitting.fit('utility-2', 'rad-shielding-1')`));
+  assert.deepStrictEqual(game('[Hazards.shed(SHIP), Math.round(SHIP.radGuard * 100), SHIP.fuel]'), [shed0 + 3, 30, fuel0]);
+  game(`globalThis.__moon = world.galaxy.moons.find((m) => ['gas', 'blue'].includes(world.galaxy.planets[m.parent].type)
+    && !world.galaxy.stations.some((st) => Math.hypot(st.x - m.x, st.y - m.y) < Hazards.config.rad.shelter + 400));`);
+  const soak = () => { game('placeShip(__moon.x, __moon.y + __moon.r + 60, 0); cargo.rad = 0; hazard.heat = 0'); browser.frames(60); return game('cargo.rad'); };
+  const shielded = soak();
+  game(`outfitting.unfit('utility-2')`);
+  const bare = soak();
+  assert.ok(shielded > 0 && Math.abs(shielded / bare - 0.7) < 0.05, `radiation taken: ${shielded} shielded, ${bare} bare`);
+  game(`outfitting.unfit('utility-1'); cargo.gear = {}; cargo.rad = 0`);
+});
+
+test('consumables in the field: a button each on the HUD, used on the ship, mining or not', () => {
+  calmSky();
+  game(`fight.grace = 1e9; cargo.items = []; field.cool = {};
+    cargo.kit = { 'coolant-flush': 2, 'rad-purge': 1, 'fuel-canister': 1, 'repair-nanites': 1, 'shield-cell': 1, 'seismic-charge': 2, 'emp-charge': 1 };
+    hazard.heat = 0; cargo.rad = 0; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; guard.shield = SHIP.shield;
+    { const st = __find((e) => e.kind === 'station'); placeShip(st.x + 2500, st.y); }`);
+  browser.frames(1);
+  const bar = browser.document.getElementById('field');
+  assert.ok(!bar.hidden, 'the bar is up');
+  assert.deepStrictEqual(game('fieldItems().map((a) => a.id)'), ['repair-nanites', 'shield-cell', 'coolant-flush', 'rad-purge', 'fuel-canister', 'seismic-charge'], 'the field ones, not the EMP');
+  assert.ok(game('fieldItems().every((a) => !a.enabled)'), 'nothing to use them on yet');
+  game('hazard.heat = 70; cargo.rad = 50; cargo.fuel = 10; cargo.hull = SHIP.hull / 2; guard.shield = 0; guard.quiet = 0');
+  const press = (id) => bar.dispatch('click', { target: { closest: () => ({ disabled: false, dataset: { id } }) } });
+  press('coolant-flush');
+  assert.deepStrictEqual(game('[hazard.heat, cargo.kit["coolant-flush"]]'), [20, 1], 'heat shed, a charge spent');
+  assert.ok(!game('useField("coolant-flush")') && !game('fieldItems().find((a) => a.id === "coolant-flush").enabled'), 'cooling down');
+  assert.ok(game('useField("rad-purge") && useField("fuel-canister") && useField("repair-nanites") && useField("shield-cell")'));
+  assert.deepStrictEqual(game('[cargo.rad, cargo.fuel, cargo.hull, shieldNow()]'), game('[15, 40, Math.min(SHIP.hull, SHIP.hull / 2 + SHIP.hull * 0.3), SHIP.shield]'));
+  assert.ok(!game('"rad-purge" in cargo.kit'), 'the last purge used');
+  // A seismic charge needs a rock the tools are on, and hits it hard.
+  assert.ok(!game('useField("seismic-charge")'), 'no rock');
+  game(`globalThis.__rock = __find((e) => e.kind === 'asteroid' && e.radius >= 15 && !cargo.removed.has(e.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); extract(__rock)`);
+  browser.frames(1);
+  const before = game('fight.s.enemies[0].hull');
+  assert.ok(game('useField("seismic-charge")'), 'a blast');
+  assert.ok(game('fight.s.enemies[0].hull') <= before - 40 || game('cargo.removed.has(__rock.key)'), 'the rock took it');
+  assert.ok(!game('CombatPanel.isOpen'), 'still no panel');
+  game('endExtraction(); cargo.kit = {}');
+  browser.frames(1);
+  assert.ok(bar.hidden, 'an empty kit: no bar');
 });
 
 test('sensors find a hidden derelict, and the radar shows it once found', () => {

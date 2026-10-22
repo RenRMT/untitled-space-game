@@ -16,7 +16,7 @@ import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
 import { CONTROLS, moveMode } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inFight, intro, notify, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inShipFight, intro, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -438,7 +438,7 @@ export function drawStatus(speed, set, fontSize = 14) {
   const items = [];
   if (cargo.items.length) items.push({ text: `HOLD ${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
   const lowFirst = (f) => (f < 0.35 ? COLORS.hostile : COLORS.flame), highFirst = (f) => (f > 0.75 ? COLORS.hostile : COLORS.flame);
-  if (!inFight()) { // in a fight the panel shows these
+  if (!inShipFight()) { // in a fight with ships the panel shows these
     if (cargo.hull < SHIP.hull) items.push({ label: 'HULL', f: cargo.hull / SHIP.hull, color: lowFirst(cargo.hull / SHIP.hull) }); // until it's repaired at a station
     if (SHIP.shield && shieldNow() < SHIP.shield - 0.5) items.push({ label: 'SHD', f: shieldNow() / SHIP.shield, color: COLORS.cyan });
   }

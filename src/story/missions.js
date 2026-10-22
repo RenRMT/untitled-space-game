@@ -64,7 +64,7 @@ const Missions = (() => {
         'Bring back the regulator and {ship}, and your balance will be reduced accordingly.',
       ],
       provided: 'A Courier, with two salvaged Pulse laser Mk I fitted',
-      provides: { loadout: { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1' } } },
+      provides: { loadout: { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1', 'utility-1': null, 'utility-2': null } } },
       reward: 'Your balance with {station} halved, to 6 bars of gold',
       objectives: [
         { id: 'field', label: 'Fly to the asteroid field' },
