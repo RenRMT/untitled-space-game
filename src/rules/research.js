@@ -66,17 +66,20 @@ const Research = (() => {
     { id: 'logic', label: 'Logic' },
     { id: 'weapons', label: 'Weapons' },
     { id: 'systems', label: 'Systems' },
+    { id: 'utility', label: 'Utility' },
     { id: 'hull', label: 'Hull' },
     { id: 'industry', label: 'Production' },
   ];
-  // Blueprints: a category per gear line (its name labels the row), weapons apart from the rest.
+  // Blueprints: a category per gear line (its name labels the row), weapons and utility gear apart
+  // from the rest.
   const GEAR_LINES = Object.entries(Loadout.LINES).filter(([, L]) => !L.npc);
+  const GROUP_OF_SLOT = { weapon: 'weapons', utility: 'utility' };
   const CATEGORIES = [
     { id: 'core', group: 'logic', label: 'Core', note: 'the language itself: keywords and memory' },
     { id: 'combat', group: 'logic', label: 'Combat', note: 'who to target and how to engage' },
     { id: 'tactics', group: 'logic', label: 'Tactics', note: 'reading the fight' },
     { id: 'maint', group: 'logic', label: 'Maintenance', note: 'keeping self and the squad flying' },
-    ...GEAR_LINES.map(([line, spec]) => ({ id: `bp.${line}`, group: spec.slot === 'weapon' ? 'weapons' : 'systems', label: spec.name, note: `blueprints for ${spec.name.toLowerCase()} gear` })),
+    ...GEAR_LINES.map(([line, spec]) => ({ id: `bp.${line}`, group: GROUP_OF_SLOT[spec.slot] || 'systems', label: spec.name, note: `blueprints for ${spec.name.toLowerCase()} gear` })),
     { id: 'mods.weapons', group: 'weapons', label: 'Mods', note: 'mods for weapons' },
     { id: 'mods.systems', group: 'systems', label: 'Mods', note: 'mods for shields, computers, engines and scanners' },
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
@@ -174,7 +177,7 @@ const Research = (() => {
   const BP_CREDITS = [0, 0, 500, 1500, 4000, 10000];
   const BP_SALVAGE_COUNT = [0, 0, 4, 6, 8, 13];
   const BP_PART = 'electronics';
-  const BP_SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer' };
+  const BP_SALVAGE = { weapon: 'weapon', shield: 'hull', computer: 'computer', engine: 'drive', scanner: 'computer', utility: 'hull' };
   for (const [line, spec] of GEAR_LINES) {
     for (let t = Math.max(2, spec.from || 1); t <= 5; t++) {
       const gear = `${line}-${t}`, id = `bp.${gear}`, prev = `bp.${line}-${t - 1}`, cat = BP_SALVAGE[spec.slot];
@@ -194,8 +197,9 @@ const Research = (() => {
     'pulse-laser': { damage: 0.04 }, 'heavy-cannon': { damage: 0.04 }, 'beam-turret': { damage: 0.04 },
     deflector: { strength: 0.04, recharge: 0.04 }, 'flight-computer': { accuracy: 0.04 },
     'courier-drive': { maxSpeed: 0.04, accel: 0.04 }, 'survey-scanner': { sensorRange: 0.04, pingRange: 0.04 },
+    radiator: { cool: 0.04 }, 'rad-shielding': { radGuard: 0.04 }, 'aux-tank': { fuel: 0.04 }, 'cargo-pod': { cargo: 0.04 },
   };
-  const STAT_NAMES = { damage: 'damage', strength: 'shield strength', recharge: 'recharge', accuracy: 'accuracy', maxSpeed: 'top speed', accel: 'acceleration', sensorRange: 'identify range', pingRange: 'ping range' };
+  const STAT_NAMES = { damage: 'damage', strength: 'shield strength', recharge: 'recharge', accuracy: 'accuracy', maxSpeed: 'top speed', accel: 'acceleration', sensorRange: 'identify range', pingRange: 'ping range', cool: 'heat shed', radGuard: 'radiation stopped', fuel: 'fuel', cargo: 'hold' };
   const REF_TIME = [0, 30 * M, 2 * H, 6 * H], REF_CREDITS = [0, 800, 2500, 6000];
   for (const [line, spec] of GEAR_LINES) {
     const first = Math.max(2, spec.from || 1), cat = BP_SALVAGE[spec.slot];

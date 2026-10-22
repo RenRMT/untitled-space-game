@@ -177,7 +177,7 @@ export function extract(rock) {
   fight.lockers = new Set();
   fight.result = null;
   autopilot.key = null;
-  setMode('in-combat', true);
+  setMode('mining', true); // no combat panel: the lock and the rock's integrity show on the rock itself
 }
 
 // A rock added to the mining session under way without turning the tools on it (game/mining.js
@@ -443,11 +443,10 @@ export function endFight(result) {
   fight.resultT = 4;
   const mined = fight.extract;
   fight.extract = false;
+  if (mined) setMode('mining', false);
   if (mined && result !== 'lost') {
     // Mining over: every rock broken up, or the ship flown off. No outcome to show.
     fight.result = null;
-    CombatPanel.hide();
-    setMode('in-combat', false);
     saveCargo();
     return;
   }
@@ -553,6 +552,16 @@ export function useAbility(s, user, id, targetId) {
   fightLog(`${who} used ${a.name}${on}`);
   return true;
 }
+// A seismic charge (game/field.js): a burst of damage on the rock the tools are on, played as a hit
+// from the ship (chips, the number, and the rock breaking if it was enough).
+export function blastRock(amount) {
+  const s = fight.s, t = extracting() && s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+  if (!t) return false;
+  const d = CombatCore.applyDamage(t, amount);
+  playEvents(s, [{ type: 'shot', from: 'player', to: t.id, weapon: 0, shots: 1, hits: 1, damage: amount, ...d, destroyed: t.hull <= 0 }]);
+  return true;
+}
+
 // The player's ability buttons: what each would be used on (yourself, or the enemy you're targeting).
 const playerTarget = (s, id) => (Abilities.ABILITIES[id].on === 'friend' ? s.player.id : s.focus);
 export function abilityButtons(s) {
@@ -572,8 +581,10 @@ export function focusOn(id, manual = true) {
 
 export const OUTCOME_TITLE = { won: 'Victory', fled: 'Escaped', lost: 'Ship destroyed' };
 
-// The panel: live during the fight, then the outcome for a few seconds.
+// The panel: live during the fight, then the outcome for a few seconds. Not while mining: the rocks
+// show their own lock and integrity, and the HUD the ship's meters and consumables (game/field.js).
 export function updateCombatPanel() {
+  if (extracting()) { CombatPanel.hide(); return; }
   const s = fight.s || (fight.result ? fight.final : null);
   if (!s) return;
   const over = !fight.s;
@@ -591,7 +602,6 @@ export function updateCombatPanel() {
     };
   });
   const live = over ? { title: OUTCOME_TITLE[fight.result], button: { id: 'close', label: 'Close', enabled: true }, progress: 0 } : fightMode().panel(s);
-  if (!over && fight.extract) live.title = s.away ? 'Moving off' : live.title.replace(/^Locking on/, 'Locking tools on').replace(/^Locked on/, 'Working');
   CombatPanel.show({ ...live, tone: over ? fight.result : '', rows, log: fight.log.slice(-1), abilities: over ? [] : abilityButtons(s) });
 }
 

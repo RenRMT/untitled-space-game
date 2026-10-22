@@ -75,6 +75,16 @@ const Glyphs = (() => {
     SHC: `<path d="${SHIELD}"/><path d="M13 7.5L10.5 12h3L11 16.5"/>`,
     EMP: '<path d="M13.5 2.5L6 13.5h5.5l-1 8 7.5-11h-5.5z"/><path d="M3 6.5a10 10 0 0 0 0 11M21 6.5a10 10 0 0 1 0 11"/>',
     JAM: '<path d="M3 12c1.5-3.5 3-3.5 4.5 0s3 3.5 4.5 0 3-3.5 4.5 0 3 3.5 4.5 0"/><path d="M5 20L19 4"/>',
+    // Field consumables (rules/abilities.js FIELD): a snowflake, a trefoil crossed out, a jerrycan, a
+    // charge going off.
+    CLF: '<path d="M12 2.5v19M3.8 7.2l16.4 9.6M3.8 16.8l16.4-9.6M9.5 4l2.5 2 2.5-2M9.5 20l2.5-2 2.5 2"/>',
+    PRG: '<circle cx="12" cy="12" r="1.8"/><path d="M12 10.2L9.2 5.4a7 7 0 0 1 5.6 0zM13.6 12.9l5.5.1a7 7 0 0 1-2.8 4.9zM10.4 12.9l-2.7 4.8a7 7 0 0 1-2.8-4.9z"/><path d="M4 4l16 16"/>',
+    CAN: '<path d="M6 6.5h9l3 3v11H6z"/><path d="M8.5 6.5V4h4v2.5M9 12l5.5 5.5M14.5 12L9 17.5"/>',
+    SEI: '<path d="M12 4.5v3M6.7 6.7l2.1 2.1M17.3 6.7l-2.1 2.1M4.5 12h3M16.5 12h3"/><path d="M3 20.5l4-5 3 2.5 3-5 3 4 2-2 3 5.5z"/>',
+    // Utility gear: a box on a rail; a radiator's fins; a trefoil (radiation shielding).
+    UTL: '<path d="M6 7.5h12v9H6z"/><path d="M3 12h3M18 12h3M9 7.5v9M15 7.5v9"/>',
+    COL: '<path d="M4 4.5v15M20 4.5v15M4 12h16"/><path d="M8 7.5v9M12 7.5v9M16 7.5v9"/>',
+    RAD: '<circle cx="12" cy="12" r="1.8"/><path d="M12 10.2L9.2 5.4a7 7 0 0 1 5.6 0zM13.6 12.9l5.5.1a7 7 0 0 1-2.8 4.9zM10.4 12.9l-2.7 4.8a7 7 0 0 1-2.8-4.9z"/>',
     '+': '<path d="M12 6v12M6 12h12"/>',
     // The context menu's actions in space (game/selection.js).
     dock: '<path d="M12 3v10M8 9.5l4 4 4-4"/><path d="M4 14.5V20h16v-5.5"/>',

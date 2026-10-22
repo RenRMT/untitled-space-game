@@ -12,6 +12,7 @@ import { Settings } from '../ui/settings.js';
 import { collectItems } from './cargo.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
+import { updateFieldBar } from './field.js';
 import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
 import { tickHold } from './input.js';
@@ -212,6 +213,7 @@ export function frame(now) {
       recordFrame(performance.now() - t0, gap);
     }
   }
+  updateFieldBar(); // the consumables on the HUD (game/field.js)
   requestAnimationFrame(frame);
 }
 

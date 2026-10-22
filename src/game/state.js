@@ -82,6 +82,8 @@ export const fight = {
 // arrive: the pod drifting in at the start, before anyone speaks ({ t, from, to, a0, a1 }).
 export const intro = { on: false, run: null, station: null, face: null, flying: false, beam: null, arrive: null };
 export const inFight = () => !!fight.s || fight.wreckT > 0;
+// The same, but for mining (a session against rocks, game/combat.js extract): a fight with ships, or the ship being lost.
+export const inShipFight = () => inFight() && !(fight.s && fight.extract);
 export const fightMode = () => COMBAT[fight.mode];
 export const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
 export let flash = 0; // white-out when the wrecked ship is towed home or jumps through a gate, fading from 1
@@ -99,12 +101,12 @@ export const notify = (text, t = 2, { once = false, tone = 'info' } = {}) => {
   toast.t = t;
   Messages.push(text, { tone });
 };
-// What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'settings', 'landing'
+// What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'mining', 'settings', 'landing'
 // (from the descent to a planet until back in space) and 'landed' (on its surface). Each sets the
 // body class of the same name (index.html hides controls by it); the map can't open during any of
 // those in MAP_BLOCKERS. Several can hold at once, so each is switched on and off by name.
 export const modes = new Set();
-export const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'settings', 'factions', 'warping', 'landing'];
+export const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'mining', 'settings', 'factions', 'warping', 'landing'];
 export function setMode(name, on) {
   if (on) modes.add(name); else modes.delete(name);
   document.body.classList.toggle(name, on);

@@ -710,12 +710,12 @@ test('the starter Courier flies, senses and mines as before', () => {
   assert(s.shield > 0 && s.firepower > 0, 'starter gear includes a shield and a weapon');
 });
 
-test('every ship class has 1–4 weapon slots and one of each system, with starter gear that fits', () => {
+test('every ship class has 1–4 weapon slots, one of each system and its utility slots, with starter gear that fits', () => {
   for (const [id, hull] of Object.entries(Loadout.HULLS)) {
     assert(hull.weapons >= 1 && hull.weapons <= Loadout.MAX_WEAPONS, `${id}: ${hull.weapons} weapon slots`);
     const slots = Loadout.slotsOf(id);
     for (const type of Object.keys(Loadout.SLOT_TYPES)) {
-      assert.strictEqual(slots.filter((s) => s.type === type).length, type === 'weapon' ? hull.weapons : 1, `${id}: ${type} slots`);
+      assert.strictEqual(slots.filter((s) => s.type === type).length, type === 'weapon' ? hull.weapons : type === 'utility' ? hull.utility || 0 : 1, `${id}: ${type} slots`);
     }
     assert.strictEqual(new Set(slots.map((s) => s.id)).size, slots.length, `${id}: duplicate slot ids`);
     // Player hulls list their starter gear (the Courier) or come bare; NPC hulls name their lines.
@@ -1491,7 +1491,7 @@ test('equipment lines run Mk I–V and each Mk is better than the last', () => {
   const lines = {};
   for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) (lines[e.line] ||= []).push([e.tier, e, id]);
   const score = (e) => (e.slot === 'weapon' ? e.stats.damage * e.stats.fireRate : e.slot === 'shield' ? e.stats.strength
-    : e.slot === 'computer' ? e.stats.accuracy : e.slot === 'engine' ? e.stats.maxSpeed : e.stats.lockRange);
+    : e.slot === 'computer' ? e.stats.accuracy : e.slot === 'engine' ? e.stats.maxSpeed : e.slot === 'utility' ? Object.values(e.stats)[0] : e.stats.lockRange);
   for (const [line, list] of Object.entries(lines)) {
     list.sort((a, b) => a[0] - b[0]);
     assert.strictEqual(list[list.length - 1][0], 5, `${line} ends at Mk V`);
@@ -1506,6 +1506,54 @@ test('equipment lines run Mk I–V and each Mk is better than the last', () => {
   const t1 = Loadout.stats(Loadout.npc('fighter', 1)), t4 = Loadout.stats(Loadout.npc('fighter', 4));
   assert(t4.firepower > t1.firepower && t4.hull > t1.hull && t4.shield > t1.shield && t4.accuracy > t1.accuracy);
   assert.deepStrictEqual(Loadout.stats(Loadout.npc('fighter', 1)), Loadout.stats(Loadout.starter('fighter')));
+});
+
+test('utility gear: radiators, shielding, tanks and pods add up, take no mods, and change what hazards do', () => {
+  assert.deepStrictEqual(Loadout.slotsOf('courier').filter((s) => s.type === 'utility').map((s) => s.id), ['utility-1', 'utility-2']);
+  assert.strictEqual(Loadout.slotsOf('hauler').filter((s) => s.type === 'utility').length, 3);
+  assert.strictEqual(Loadout.slotsOf('fighter').filter((s) => s.type === 'utility').length, 0, 'NPC hulls have none');
+  const bare = Loadout.starter('courier');
+  const fit = (a, b) => ({ ...bare, fitted: { ...bare.fitted, 'utility-1': a, 'utility-2': b } });
+  const base = Loadout.stats(bare);
+  assert.deepStrictEqual([base.cool, base.radGuard], [0, 0], 'nothing without utility gear');
+  const pods = Loadout.stats(fit('cargo-pod-1', 'cargo-pod-3')), tanks = Loadout.stats(fit('aux-tank-2', 'aux-tank-1'));
+  assert.strictEqual(pods.cargo, base.cargo + 6 + 11);
+  assert.strictEqual(tanks.fuel, base.fuel + 55 + 40);
+  const two = Loadout.stats(fit('rad-shielding-1', 'rad-shielding-1'));
+  assert(Math.abs(two.radGuard - (1 - 0.7 * 0.7)) < 1e-9, 'two shields: each stops its share of what gets through');
+  const hot = Loadout.stats(fit('radiator-5', 'radiator-1'));
+  assert.strictEqual(Hazards.shed(hot), Hazards.config.heat.cool + 12);
+  assert.strictEqual(Hazards.shed(base), Hazards.config.heat.cool);
+  assert(Math.abs(Hazards.radTaken(10, two) - 4.9) < 1e-9 && Hazards.radTaken(10, base) === 10);
+  // Refinements stay whole units of hold and fuel.
+  const tuned = Loadout.stats(fit('cargo-pod-1', null), { lines: { 'cargo-pod': { cargo: 0.12 } } });
+  assert(Number.isInteger(tuned.cargo) && tuned.cargo === base.cargo + 7);
+  // No mod fits utility gear, so it has no room for one, whatever its Mk.
+  assert.strictEqual(Loadout.modRoom(fit('radiator-4', null), 'utility-1'), 0);
+  assert.strictEqual(Loadout.modRoom({ ...bare, fitted: { ...bare.fitted, shield: 'deflector-4' } }, 'shield'), 2);
+  for (const id of Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === 'utility')) {
+    assert(Recipes.gearRecipe(id), `${id} is assembled`);
+    if (Loadout.EQUIPMENT[id].tier > 1) assert(Research.PACKAGES[`bp.${id}`], `${id} has a blueprint`);
+  }
+  assert(Research.LIST.some((p) => p.kind === 'blueprint' && Research.CATEGORIES.find((c) => c.id === p.cat).group === 'utility'), 'blueprints under Utility');
+});
+
+test('consumables in the field: each helps only when it would, and changes only its meter', () => {
+  const m = { heat: 70, rad: 20, fuel: 90, fuelMax: 100, hull: 60, hullMax: 120, shield: 0, shieldMax: 80, rock: { hull: 30, material: 'rock' } };
+  assert.deepStrictEqual(Abilities.FIELD.map((a) => a.id), ['repair-nanites', 'shield-cell', 'coolant-flush', 'rad-purge', 'fuel-canister', 'seismic-charge']);
+  assert.deepStrictEqual(Abilities.fieldUse('coolant-flush', m), { heat: 20, amount: 50 });
+  assert.deepStrictEqual(Abilities.fieldUse('rad-purge', m), { rad: 0, amount: 20 });
+  assert.deepStrictEqual(Abilities.fieldUse('fuel-canister', m), { fuel: 100, amount: 10 }, 'up to a full tank');
+  assert.deepStrictEqual(Abilities.fieldUse('repair-nanites', m), { hull: 96, amount: 36 });
+  assert.deepStrictEqual(Abilities.fieldUse('shield-cell', m), { shield: 80, amount: 80 });
+  assert.deepStrictEqual(Abilities.fieldUse('seismic-charge', m), { rockDamage: 40, amount: 40 });
+  const fine = { heat: 0, rad: 0, fuel: 100, fuelMax: 100, hull: 120, hullMax: 120, shield: 80, shieldMax: 80, rock: null };
+  for (const a of Abilities.FIELD) assert(!Abilities.fieldReady(a.id, fine), `${a.id}: nothing to do`);
+  assert(!Abilities.fieldReady('seismic-charge', { ...m, rock: { hull: 30, material: 'gas' } }), 'not on gas');
+  assert(!Abilities.fieldReady('emp-charge', m), 'the EMP is for fights');
+  // The field-only ones never go off in a fight (a squad member's use line).
+  const me = { id: 'p', hull: 50, shield: 0, stats: { hull: 100, shield: 50 } };
+  for (const a of Abilities.LIST.filter((x) => x.on === 'self')) assert(!Abilities.ready(me, a.id, me, 0), `${a.id} in a fight`);
 });
 
 test('hulls: handling, hull upgrades and moving gear to another hull', () => {

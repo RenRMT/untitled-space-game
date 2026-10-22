@@ -6,7 +6,9 @@ hazardous places. There's no fighting: mining runs on the real-time combat rules
 that never fire back, and the danger comes from flying: collisions, the star's heat, radiation
 round the gas giants and the moons, solar flares to shelter from, ion storms, and running out of
 fuel. Planets and moons can be landed on, to mine deposits of goods found nowhere else before the
-sun comes up, each with a hazard of its own. `notes/hazards.md` is the plan.
+sun comes up, each with a hazard of its own. Utility gear (radiators, radiation shielding, tanks,
+cargo pods) and consumables used from the HUD (coolant, purges, fuel canisters, seismic charges)
+let a run last longer. `notes/hazards.md` is the plan.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The game is pared back to its core mechanics for now: the galaxy is one showcase system (one of
@@ -46,8 +48,8 @@ URL parameters:
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel), HUD, the frame loop |
-| `src/ui/` | the DOM panels (station menu, context menu, combat panel, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel), HUD, the frame loop |
+| `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |

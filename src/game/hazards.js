@@ -50,8 +50,8 @@ export function tickHazards(dt) {
   const blockers = frameList.filter((e) => e.kind === 'asteroid' && e.radius >= BIG_ROCK).map((e) => ({ x: e.x, y: e.y, r: e.radius }));
   const before = hazard.exp;
   const exp = hazard.exp = Hazards.exposure(G, G.seed, ship.x, ship.y, simTime, { thrust: outOfFuel() ? 0 : ship.thrust, blockers, nebula: here.region?.nebula });
-  hazard.heat = clamp(hazard.heat + (exp.heat - H.heat.cool) * dt, 0, H.max);
-  cargo.rad = Math.min(H.max, cargo.rad + exp.rad * dt);
+  hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
+  cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
   if (!outOfFuel()) cargo.fuel = Math.max(0, cargo.fuel - H.fuel.burn * ship.thrust * dt);
   // An ion storm pushes the ship about.
   if (exp.storm) { ship.vx += exp.storm.wind[0] * dt; ship.vy += exp.storm.wind[1] * dt; }

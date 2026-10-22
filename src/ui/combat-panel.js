@@ -1,4 +1,4 @@
-// The combat panel: shown above the speed bar while a fight runs, in place of the context menu.
+// The combat panel: shown above the speed bar while a fight with ships runs (not while mining), in place of the context menu.
 // One row per ship (you first, then your squad) with hull and shield bars (numbers on your own
 // row only); an enemy's row says whom it is after (→ you), faint until it has locked on. Tap an
 // enemy row to focus your fire on it. Below, the latest of what happened, and a button: Flee in round-based fights, none while a

@@ -27,9 +27,10 @@ import { UI } from './ui.js';
 const ResearchView = {
   create(env) {
     const { h } = UI;
-    const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
+    const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN', utility: 'UTL' };
+    const LINE_CODE = { radiator: 'COL', 'rad-shielding': 'RAD', 'aux-tank': 'FUL', 'cargo-pod': 'CRG' }; // utility gear, by what it does
     const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
-    for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = SLOT_CODE[L.slot];
+    for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = LINE_CODE[line] || SLOT_CODE[L.slot];
     Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
     const STATE = {
       done: { tag: 'Done', tone: 'var(--good)' },

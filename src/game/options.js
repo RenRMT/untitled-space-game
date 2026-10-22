@@ -21,7 +21,7 @@ import { drag, showHints } from './input.js';
 import { landing } from './landing.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
-import { autopilot, inFight, intro, notify, setMode, ship } from './state.js';
+import { autopilot, inShipFight, intro, notify, setMode, ship } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
 
@@ -141,7 +141,7 @@ export const settingsBtn = document.getElementById('settings-btn');
 export const factionsBtn = document.getElementById('factions-btn');
 export function toggleFactions() {
   if (FactionsMenu.isOpen) { FactionsMenu.close(); return; }
-  if (inFight() || docked || intro.on) return;
+  if (inShipFight() || docked || intro.on) return;
   SystemMap.close();
   Settings.close();
   FactionsMenu.open(cargo.rep, new Set(world.galaxy.stations.map((st) => st.owner)));
@@ -231,7 +231,7 @@ export function init() {
   // what the first opened, and each one swaps the others' menus for its own.
   settingsBtn.addEventListener('click', () => {
     if (Settings.isOpen) { Settings.close(); return; }
-    if (inFight() || docked || intro.on) return;
+    if (inShipFight() || docked || intro.on) return;
     SystemMap.close();
     FactionsMenu.close();
     Settings.open();

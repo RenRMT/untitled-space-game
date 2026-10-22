@@ -295,7 +295,7 @@ const StationMenu = (() => {
 
   // ---------- Ship ----------
 
-  const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
+  const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN', utility: 'UTL' };
   const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Tool mount' };
   const SHORT = { computer: 'Computer' }; // slot labels on the schematic
   const lineName = (item) => Loadout.LINES[item.line].name; // the name without its Mk
@@ -330,18 +330,30 @@ const StationMenu = (() => {
       { code: 'PNG', label: 'Ping', get: (i) => i.stats.pingRange, fmt: k1, fmtDiff: k1 },
       { code: 'LCK', label: 'Lock range', get: (i) => i.stats.lockRange, fmt: k1, fmtDiff: k1, none: Loadout.stats({ hull: 'courier', fitted: {} }).lockRange },
     ],
+    // Utility gear does one thing each: only what it does is shown (sparse).
+    utility: [
+      { code: 'COL', label: 'Heat shed', get: (i) => i.stats.cool || 0, fmt: (v) => `+${r2(v)}/s`, fmtDiff: (v) => `${r2(v)}` },
+      { code: 'RAD', label: 'Radiation stopped', get: (i) => i.stats.radGuard || 0, fmt: pct, fmtDiff: pct },
+      { code: 'FUL', label: 'Fuel', get: (i) => i.stats.fuel || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
+      { code: 'CRG', label: 'Hold', get: (i) => i.stats.cargo || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
+    ],
   };
-  const valuesOf = (item) => METRICS[item.slot].map((m) => [m.code, m.fmt(m.get(item))]);
+  const SPARSE = new Set(['utility']);
+  const valuesOf = (item) => METRICS[item.slot].filter((m) => !SPARSE.has(item.slot) || m.get(item)).map((m) => [m.code, m.fmt(m.get(item))]);
 
   // Where the slot buttons sit on the 358 × 330 schematic (left, top), and where each one's leader
   // line meets the outline. Hulls with three or four hardpoints put the shield and computer in the
-  // bottom corners.
+  // bottom corners. The utility slots are a row under it all, without leader lines.
   const NODE = { w: 76, h: 84 };
+  const UTILITY_ROW = 346;
   function layout(slots) {
     const many = slots.filter((s) => s.type === 'weapon').length > 2;
-    return many
+    const pos = many
       ? { scanner: [141, 0], 'weapon-1': [6, 0], 'weapon-2': [276, 0], 'weapon-3': [6, 123], 'weapon-4': [276, 123], shield: [6, 246], computer: [276, 246], engine: [141, 246] }
       : { scanner: [141, 0], 'weapon-1': [6, 60], 'weapon-2': [276, 60], shield: [6, 186], computer: [276, 186], engine: [141, 246] };
+    const utility = slots.filter((s) => s.type === 'utility'), gap = 95;
+    utility.forEach((s, i) => { pos[s.id] = [Math.round(141 + (i - (utility.length - 1) / 2) * gap), UTILITY_ROW]; });
+    return pos;
   }
   const ANCHOR = {
     scanner: [179, 100], 'weapon-1': [160, 150], 'weapon-2': [198, 150], 'weapon-3': [128, 198], 'weapon-4': [230, 198],
@@ -353,16 +365,18 @@ const StationMenu = (() => {
     const pos = layout(slots);
     const lines = [], dots = [];
     for (const s of slots) {
-      const [x, y] = pos[s.id] || [0, 0], [ax, ay] = ANCHOR[s.id] || [179, 160];
+      if (!ANCHOR[s.id]) continue; // utility slots
+      const [x, y] = pos[s.id] || [0, 0], [ax, ay] = ANCHOR[s.id];
       const from = x < 100 ? [x + NODE.w, y + NODE.h / 2] : x > 200 ? [x, y + NODE.h / 2] : [x + NODE.w / 2, y < 100 ? y + NODE.h : y];
       lines.push(`<line x1="${from[0]}" y1="${from[1]}" x2="${ax}" y2="${ay}"/>`);
       dots.push(`<circle cx="${ax}" cy="${ay}" r="2.5"/>`);
     }
     const art = h('div', { class: 'st-outline', 'aria-hidden': 'true' });
-    art.innerHTML = '<svg viewBox="0 0 358 330">'
+    art.innerHTML = '<svg viewBox="0 0 358 330" style="height: 330px">' // the hull's height, with a utility row below it
       + `<g class="leaders">${lines.join('')}</g><g class="anchors">${dots.join('')}</g>`
       + `<polygon class="hull" points="${OUTLINE}"/><line class="spine" x1="179" y1="120" x2="179" y2="206"/></svg>`;
-    return h('section', { class: 'ui-schematic', 'aria-label': 'Loadout' }, art, slots.map((s) => {
+    const tall = slots.some((s) => s.type === 'utility');
+    return h('section', { class: 'ui-schematic', 'aria-label': 'Loadout', style: tall ? { height: `${UTILITY_ROW + NODE.h}px` } : {} }, art, slots.map((s) => {
       const [x, y] = pos[s.id] || [0, 0];
       const label = s.type === 'weapon' ? s.label : SHORT[s.type] || s.label;
       return Kit.slotNode({ x, y, label, code: SLOT_CODE[s.type], item: s.item, open: openSlot === s.id, onclick: () => showSlot(s.id) });
@@ -433,7 +447,7 @@ const StationMenu = (() => {
           refresh();
         };
         return Kit.optionRow({
-          code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]),
+          code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]).filter((r) => !SPARSE.has(s.type) || r.diff),
           tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In storage' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
           tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
           locked: kind === 'locked',
@@ -441,7 +455,7 @@ const StationMenu = (() => {
             : [stored ? 'Made, and waiting in storage: take it out from the Production tab at any station.' : '',
               kind === 'make' ? 'Assembled by a production order at a shipyard (Production tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
-          action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', aria: `Fit ${item.name}` }) : null,
+          action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', disabled: !!o.blocked?.(s.id, e), title: o.blocked?.(s.id, e) || undefined, aria: `Fit ${item.name}` }) : null,
           lockLabel: null,
         });
       });
@@ -451,7 +465,7 @@ const StationMenu = (() => {
         h('span', { class: 'ui-label' }, 'Fitted'),
         cur ? Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(cur), tier: cur.tier, vals: valuesOf(cur), current: true,
-          action: Kit.button('Remove', act(() => o.unfit(s.id)), { kind: 'ghost', aria: `Remove ${cur.name}` }),
+          action: Kit.button('Remove', act(() => o.unfit(s.id)), { kind: 'ghost', disabled: !!o.blocked?.(s.id, null), title: o.blocked?.(s.id, null) || undefined, aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open mount' : 'Nothing fitted'),
         modSection(s),
         h('span', { class: 'ui-label' }, 'Options'),
@@ -497,13 +511,13 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Full'));
   }
 
-  // The kit: consumables for abilities in a fight (rules/abilities.js), made by industry.
+  // The kit: consumables (rules/abilities.js), made by industry: used from the HUD (game/field.js) or in a fight.
   function renderKit() {
     const kit = ctx.kit || {};
     const items = Abilities.LIST.filter((a) => kit[a.id] > 0).map((a) => ({ id: a.id, icon: Kit.icon(a.code, 32, { code: a.code }), name: a.name, count: kit[a.id], units: a.note }));
-    return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used in a fight')),
+    return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used from the HUD, or in a fight')),
       items.length ? Kit.itemTiles(items, openKit, (id) => { openKit = id; refresh(); })
-        : h('p', { class: 'ui-empty' }, 'Empty. Repair nanites, shield cells, EMP charges and jammer pods are made at an assembler.'));
+        : h('p', { class: 'ui-empty' }, 'Empty. Coolant flushes, radiation purges, fuel canisters, seismic charges, repair nanites and shield cells are made at an assembler.'));
   }
 
   // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half. Android
@@ -939,7 +953,7 @@ const StationMenu = (() => {
     return null;
   }
   // The abilities a line can use on its subject: on enemies, or on friends (self, the leader, an ally).
-  const abilitiesFor = (subject) => Abilities.LIST.filter((a) => (a.on === 'enemy') === (subject === 'enemy'));
+  const abilitiesFor = (subject) => Abilities.LIST.filter((a) => a.on !== 'self' && (a.on === 'enemy') === (subject === 'enemy'));
   // After the subject changes: a pick and an action it can take (and, for use, an ability that fits).
   function fitDraft(d, known) {
     if (!Logic.SUBJECTS[d.subject].many) d.pick = 'any';

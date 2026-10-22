@@ -49,6 +49,11 @@
 //   Hazards.surfaceExposure(site, t, o?) -> { heat, rad, day, dust }   per second; o: { thrust (0..1),
 //     vent (0..1: how close over a vent) }
 //   Hazards.takeoffFuel(gravity, holdFill) -> fuel   holdFill: 0 (empty) .. 1 (full)
+//
+// What a ship's utility gear (rules/loadout.js stats: cool, radGuard) does to that, in space and on
+// a surface alike:
+//   Hazards.shed(stats) -> heat per second the ship sheds (config.heat.cool, more with radiators)
+//   Hazards.radTaken(rate, stats) -> the radiation per second that gets through its shielding
 // ES module (`Hazards`); also runs in Node (the tests).
 
 import { hashInt, seedToInt } from '../core/rng.js';
@@ -60,7 +65,7 @@ const Hazards = (() => {
     heat: {
       star: 20, ref: 4000, // heat per second from the star at `ref` from its centre, by (ref / distance)²
       cap: 120, // ... at most (right by the star)
-      cool: 6, // what a ship sheds per second (more with radiators, later)
+      cool: 6, // what a ship sheds per second (more with radiators: shed)
       thrust: 1.5, // per second at full thrust
       flare: 10, // per second in a flare's wave, at flare.ref from the star
     },
@@ -234,7 +239,10 @@ const Hazards = (() => {
     return Math.round((T.base + T.hold * clamp(holdFill, 0, 1)) * gravity * 10) / 10;
   };
 
-  return { config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel };
+  const shed = (stats = {}) => config.heat.cool + (stats.cool || 0);
+  const radTaken = (rate, stats = {}) => rate * (1 - clamp(stats.radGuard || 0, 0, 1));
+
+  return { shed, radTaken, config, GIANTS, SURFACES, flare, storm, shadowed, belt, beltGaps, exposure, travelFuel, surface, daylight, dust, surfaceExposure, takeoffFuel };
 })();
 
 export { Hazards };
