@@ -162,10 +162,7 @@ export function extract(rock) {
   const s = fight.s;
   if (s) {
     if (!fight.extract) return;
-    if (!fight.ships.has(rock.key)) {
-      fightMode().join(s, rockSpec(rock));
-      fight.ships.set(rock.key, rockPose(rock));
-    }
+    joinRock(rock);
     focusOn(rock.key);
     return;
   }
@@ -181,6 +178,14 @@ export function extract(rock) {
   fight.result = null;
   autopilot.key = null;
   setMode('in-combat', true);
+}
+
+// A rock added to the mining session under way without turning the tools on it (game/mining.js
+// autoMine: the next one, ready for when the target breaks).
+export function joinRock(rock) {
+  if (!extracting() || fight.ships.has(rock.key) || fight.dying.has(rock.key) || cargo.removed.has(rock.key)) return;
+  fightMode().join(fight.s, rockSpec(rock));
+  fight.ships.set(rock.key, rockPose(rock));
 }
 
 // Mining stopped without the rocks broken (the ship moved by a teleport, or something else
@@ -557,11 +562,12 @@ export function abilityButtons(s) {
   });
 }
 
-// Target an enemy (a tap on it, its marker or its row).
-export function focusOn(id) {
+// Target an enemy (a tap on it, its marker or its row; manual: false, picked by the tools on their
+// own, game/mining.js autoMine).
+export function focusOn(id, manual = true) {
   const s = fight.s;
   if (!s) return;
-  fightMode().setFocus(s, id);
+  fightMode().setFocus(s, id, manual);
 }
 
 export const OUTCOME_TITLE = { won: 'Victory', fled: 'Escaped', lost: 'Ship destroyed' };

@@ -1799,10 +1799,10 @@ function mine(stats, target, pilot, maxTime = 60) {
 
 test('mining is real-time combat against a rock that never fights back', () => {
   const rock = { kind: 'asteroid', key: 'r', x: 300, y: 0, radius: 24, ast: { type: 'stony' } };
-  assert.strictEqual(Mining.integrity(rock), 144);
+  assert.strictEqual(Mining.integrity(rock), 96);
   const still = mine(COURIER, rock);
   assert.strictEqual(still.over, 'won', 'broken up');
-  assert(still.t > 5 && still.t < 12, `a medium rock in ${still.t.toFixed(1)} s`);
+  assert(still.t > 3 && still.t < 8, `a medium rock in ${still.t.toFixed(1)} s`);
   assert.strictEqual(still.player.hull, COURIER.hull, 'it never fires back');
   assert.strictEqual(still.player.shield, COURIER.shield);
   // Drifting across the rock while mining misses more: slower.
@@ -1953,33 +1953,92 @@ test('surfaces: taking off costs fuel by gravity and how full the hold is', () =
   assert.strictEqual(Hazards.takeoffFuel(1, 2), Hazards.takeoffFuel(1, 1), 'kept within an empty and a full hold');
 });
 
-test('deposits: on open ground, apart and clear of the landing spot, the same every time; each leaves its good', () => {
+test('deposits: small nodes on open ground, apart and clear of the landing spot; a fresh field each landing, more on a riskier site', () => {
   const site = Hazards.surface('planet', 'lava', 42), D = Mining.config.deposits;
   const area = { x0: 0, y0: 0, x1: 3000, y1: 3000, start: [1500, 1500] };
   const ok = (x, y) => !(x > 1000 && x < 1400); // a band that's blocked
   const list = Mining.deposits(42, site, { ...area, ok });
-  assert.strictEqual(list.length, D.n);
+  assert.strictEqual(site.rich, 2);
+  assert.strictEqual(list.length, D.n * 2, 'the lava planet: twice the nodes');
+  assert.strictEqual(Mining.deposits(42, Hazards.surface('planet', 'terran', 42), { ...area, ok }).length, D.n, 'the mild Terran planet: the base count');
   assert.deepStrictEqual(Mining.deposits(42, site, { ...area, ok }), list, 'the same every time');
+  assert.deepStrictEqual(Mining.deposits(42, site, { ...area, ok, field: 0 }), list, 'the same field');
+  assert.notDeepStrictEqual(Mining.deposits(42, site, { ...area, ok, field: 1 }), list, 'another landing, a fresh field');
   assert.notDeepStrictEqual(Mining.deposits(43, site, { ...area, ok }), list, 'another body, other spots');
   for (const d of list) {
     assert(ok(d.x, d.y) && d.x >= 0 && d.x <= 3000 && d.y >= 0 && d.y <= 3000, 'in the area, on open ground');
     assert(Math.hypot(d.x - 1500, d.y - 1500) >= D.clear, 'clear of the landing spot');
-    assert(d.r >= D.r[0] && d.r <= D.r[1] && ['tungsten', 'iron'].includes(d.kind) && d.material === 'rock');
+    assert(d.r >= D.r[0] && d.r <= D.r[1] && ['tungsten', 'iron'].includes(d.kind) && d.material === 'rock' && d.rich === false);
     for (const o of list) if (o !== d) assert(Math.hypot(o.x - d.x, o.y - d.y) >= D.gap, 'apart');
   }
   assert(list.filter((d) => d.kind === 'tungsten').length > list.length / 2, 'mostly the body\'s own good');
-  // Worked as an asteroid is: a passive target with integrity by its size.
-  const e = { kind: 'deposit', radius: list[0].r, material: 'rock' };
+  // Near a hazard (a vent at the middle of the top-left quarter), the nodes gather and are rich.
+  const near = (x, y) => Math.max(0, 1 - Math.hypot(x - 700, y - 700) / 400);
+  const by = Mining.deposits(42, site, { ...area, ok, near });
+  const close = (l) => l.filter((d) => Math.hypot(d.x - 700, d.y - 700) < 400).length / l.length;
+  assert(close(by) > close(list) * 1.5, `near the hazard: ${(close(by) * 100).toFixed(0)}% of the nodes, ${(close(list) * 100).toFixed(0)}% without`);
+  assert(by.some((d) => d.rich) && by.every((d) => d.rich === near(d.x, d.y) >= 0.5), 'rich within half its reach');
+  // Worked as an asteroid is, but small: about a second's work for the starting laser.
+  const e = { kind: 'deposit', surface: true, radius: list[0].r, material: 'rock' };
   assert.strictEqual(Mining.stats(e).hull, Mining.integrity(e));
   assert.strictEqual(Mining.stats(e).name, 'Deposit');
   assert.strictEqual(Mining.material({ kind: 'deposit', material: 'gas' }), 'gas');
+  for (const r of D.r) assert(Mining.integrity({ ...e, radius: r }) >= 10 && Mining.integrity({ ...e, radius: r }) <= 17, `a node of radius ${r}: ${Mining.integrity({ ...e, radius: r })}`);
+  const node = mine(COURIER, { ...e, key: 'n', x: 200, y: 0, radius: D.r[1] });
+  assert(node.over === 'won' && node.t < 2, `the biggest node broken in ${node.t.toFixed(1)} s`);
+  // What a node leaves: a unit of its good, one more rich, one more broken on a hot day side.
   for (const d of list) {
     const got = Mining.depositYield(42, d);
-    assert(got.length >= 2 && got.length <= 4 && got.every((g) => g.kind === d.kind), `${d.kind} × ${got.length}`);
+    assert(got.length === 1 && got[0].kind === d.kind);
     assert.deepStrictEqual(Mining.depositYield(42, d), got);
+    assert.strictEqual(Mining.depositYield(42, { ...d, rich: true }).length, 2);
+    assert.strictEqual(Mining.depositYield(42, { ...d, rich: true }, { exposed: true }).length, 3);
   }
   // A rock from space never yields a surface good.
   assert(Goods.SURFACE_RAW.every((id) => Goods.type(id).surface && Goods.type(id).stage === 'raw'));
+});
+
+test('surface richness: what a site pays for its danger', () => {
+  const rich = (kind, type, parent) => Hazards.surface(kind, type, 1, parent).rich;
+  assert.deepStrictEqual([rich('planet', 'terran'), rich('planet', 'ice'), rich('planet', 'desert'), rich('planet', 'gas'), rich('planet', 'lava')], [1, 1.25, 1.5, 1.5, 2]);
+  assert.strictEqual(rich('moon', 'grey', 'terran'), 1.5);
+  assert.strictEqual(rich('moon', 'grey', 'gas'), 2, 'a giant\'s moon, twice as radioactive, pays more');
+});
+
+test('a rock locks in a quarter of the computer\'s lock time', () => {
+  const me = RealtimeCombat.ship('player', 'Me', COURIER, { x: 0, y: 0, angle: 0 });
+  const rock = { kind: 'asteroid', key: 'r', x: 300, y: 0, radius: 24, ast: { type: 'stony' } };
+  const r = RealtimeCombat.ship('r', 'Rock', Mining.stats(rock), { x: 300, y: 0, radius: 24 }, undefined, { passive: true, material: 'rock' });
+  const s = RealtimeCombat.create(mulberry32(1), me, [r], { focus: 'r' });
+  assert.strictEqual(RealtimeCombat.lockTime(s), COURIER.lockTime * RealtimeCombat.config.rockLock);
+  let t = 0;
+  while (!s.locked && t < 5) { RealtimeCombat.step(s, 0.05); t += 0.05; }
+  assert(s.locked && t <= COURIER.lockTime * RealtimeCombat.config.rockLock + 0.06, `locked in ${t.toFixed(2)} s`);
+});
+
+test('shards: a big asteroid breaks into a few, small and quick to mine, the same every time', () => {
+  const S = Mining.config.shards;
+  const big = { kind: 'asteroid', key: 'a7', radius: 40, ast: { type: 'metal' } };
+  assert.deepStrictEqual(Mining.shards(1, { ...big, radius: S.from - 1 }), [], 'none from a small rock');
+  assert.deepStrictEqual(Mining.shards(1, { ...big, ast: { type: 'nope' } }), [], 'none from a rock that yields nothing');
+  const list = Mining.shards(1, big);
+  assert(list.length >= S.n[0] && list.length <= S.n[1], `${list.length} shards`);
+  assert.deepStrictEqual(Mining.shards(1, big), list);
+  for (const sh of list) {
+    assert(sh.r >= S.r[0] && sh.r <= S.r[1] && sh.d >= S.fly[0] && sh.d <= S.fly[1]);
+    const e = { kind: 'asteroid', shard: true, radius: sh.r, ast: big.ast };
+    assert(Mining.integrity(e) < 15, `a shard's integrity: ${Mining.integrity(e)}`);
+    assert.strictEqual(Mining.stats(e).name, 'Shard');
+  }
+  // Drops: less often than the asteroid's own, of its kinds.
+  let n = 0, got = 0;
+  for (let k = 0; k < 400; k++) {
+    const a = { ...big, key: `a${k}` };
+    for (let i = 0; i < 4; i++) { n++; const y = Mining.shardYield(1, a, i); if (y) { got++; assert(Goods.type(y.kind).category === 'metal' || Goods.type(y.kind).category === 'mineral'); } }
+  }
+  const want = Mining.YIELD.metal.chance * S.chance;
+  assert(Math.abs(got / n - want) < 0.06, `${(got / n * 100).toFixed(0)}% of shards drop, ${(want * 100).toFixed(0)}% wanted`);
+  assert.deepStrictEqual(Mining.shardYield(1, big, 2), Mining.shardYield(1, big, 2));
 });
 
 test('collisions: a hard hit bounces the ship off and knocks it; a gentle one does nothing', () => {

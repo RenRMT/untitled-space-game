@@ -19,7 +19,8 @@
 // - Passive targets (`passive` in their spec: rocks and gas pockets, game/combat.js extraction)
 //   don't move, lock on or fire. A weapon's `vs` factor for the target's `material` scales its
 //   damage (a tool that does nothing to it doesn't fire at it), and so does the firer's computer
-//   (miningRate). Leaving them is flying out past lock range.
+//   (miningRate), and the player locks onto one in a share of its lock time (rockLock). Leaving them
+//   is flying out past lock range.
 // - Abilities (rules/abilities.js) wear off on fight time (s.t); a ship an EMP has silenced holds fire.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
@@ -44,6 +45,7 @@ const RealtimeCombat = (() => {
     escapeTime: 3, // seconds clear of every enemy's guns to get away ...
     escapeMargin: 250, // ... clear by this much beyond their range (or beyond escapeMin, if longer)
     escapeMin: 600,
+    rockLock: 0.25, // the player's lock time on a passive target (a rock), as a share of its computer's
     leash: 2400, // pirates stop chasing a ship this far from where the fight started
     chaseSpeed: 0.85, // share of top speed for pursuers well out of gun range
     hold: 0.5, // fighters brake to arrive at this share of their gun range ...
@@ -182,12 +184,17 @@ const RealtimeCombat = (() => {
     if (setFocus(s, pick.id, false)) events.push({ type: 'target', id: pick.id, auto: true });
   }
 
+  // Seconds the player's lock on a target takes (its focus by default): a rock's is quicker.
+  function lockTime(s, t = byId(s, s.focus)) {
+    return s.player.stats.lockTime * (t && t.passive ? config.rockLock : 1);
+  }
+
   function updateLocks(s, dt, events) {
     const p = s.player;
     const t = byId(s, s.focus);
     if (t && dist(p, t) - t.radius <= p.stats.lockRange) {
       s.lockT += dt;
-      if (!s.locked && s.lockT >= p.stats.lockTime) { s.locked = true; events.push({ type: 'locked', id: t.id }); }
+      if (!s.locked && s.lockT >= lockTime(s, t)) { s.locked = true; events.push({ type: 'locked', id: t.id }); }
     } else {
       if (s.locked && t) events.push({ type: 'lost-lock', id: t.id });
       s.lockT = 0;
@@ -357,7 +364,7 @@ const RealtimeCombat = (() => {
   // ---------- As a combat mode (combat/combat-core.js) ----------
 
   const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull, c);
-  const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / s.player.stats.lockTime));
+  const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / lockTime(s)));
 
   // The panel's last two lines: what the guns are locking onto, shields going down, kills, and an
   // ally shot down.
@@ -403,7 +410,7 @@ const RealtimeCombat = (() => {
     log,
   };
 
-  return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, step, simulate, alive, reach, mode };
+  return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, lockTime, step, simulate, alive, reach, mode };
 })();
 
 export { RealtimeCombat };

@@ -41,7 +41,8 @@
 //
 //   Hazards.surface(kind, type, seed, parentType?) -> site   kind: 'planet' | 'moon'; a moon's
 //     parentType: its planet's type. site: { id, label, tag (the hazard in a word or two), hazard, gravity, heat, day, rad, fuelBurn,
-//     dust, vents, pockets, deposits: [[good, weight]], material, seed }
+//     dust, vents, pockets, deposits: [[good, weight]], material, rich, seed }   rich: what the site's
+//     danger pays (×: how many nodes its field holds, rules/mining.js deposits)
 //   Hazards.daylight(site, t) -> { day, in, left }   day: in sunlight; in: seconds to sunrise (0 by
 //     day); left: seconds of daylight left
 //   Hazards.dust(site, t) -> { wind: [x, y] } | null   a dust storm at t (desert)
@@ -89,16 +90,17 @@ const Hazards = (() => {
     },
   };
   // The bodies' surfaces: heat (per second, always) and day (more in sunlight), radiation, gravity,
-  // fuel burned for thrust (×), and the deposits there, by weight. A ship sheds heat.cool a second,
+  // fuel burned for thrust (×), the deposits there, by weight, and how rich the ground is for its
+  // danger (rich ×: the mild Terran planet 1, the lava planet 2). A ship sheds heat.cool a second,
   // so heat below that never builds. Moons by their type; a giant's moons are twice as radioactive.
-  const body = (o) => ({ heat: 0, day: 0, rad: 0, gravity: 1, fuelBurn: 1, dust: false, vents: false, pockets: false, material: 'rock', ...o });
+  const body = (o) => ({ heat: 0, day: 0, rad: 0, gravity: 1, fuelBurn: 1, dust: false, vents: false, pockets: false, material: 'rock', rich: 1, ...o });
   const SURFACES = {
-    lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; hot vents', heat: 7, day: 14, gravity: 0.9, vents: true, deposits: [['tungsten', 3], ['iron', 1]] }),
-    desert: body({ label: 'Desert planet', tag: 'Dust storms', hazard: 'Dust storms; hot by day', heat: 3, day: 12, gravity: 0.8, dust: true, deposits: [['rare-earths', 3], ['silicates', 1]] }),
+    lava: body({ label: 'Lava planet', tag: 'Heat', hazard: 'Heat, worst by day; hot vents', heat: 7, day: 14, gravity: 0.9, vents: true, rich: 2, deposits: [['tungsten', 3], ['iron', 1]] }),
+    desert: body({ label: 'Desert planet', tag: 'Dust storms', hazard: 'Dust storms; hot by day', heat: 3, day: 12, gravity: 0.8, dust: true, rich: 1.5, deposits: [['rare-earths', 3], ['silicates', 1]] }),
     terran: body({ label: 'Terran planet', tag: 'Mild', hazard: 'Mild', day: 4, deposits: [['iron', 1], ['silicates', 1]] }),
-    ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: fuel burns twice as fast', day: 3, gravity: 0.7, fuelBurn: 2, deposits: [['deuterium', 1]] }),
-    gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull', day: 5, gravity: 1.6, pockets: true, material: 'gas', deposits: [['deuterium', 1]] }),
-    moon: body({ label: 'Moon', tag: 'Radiation', hazard: 'Radiation; hot by day', day: 10, rad: 0.8, gravity: 0.3 }),
+    ice: body({ label: 'Ice planet', tag: 'Cold', hazard: 'Cold: fuel burns twice as fast', day: 3, gravity: 0.7, fuelBurn: 2, rich: 1.25, deposits: [['deuterium', 1]] }),
+    gas: body({ label: 'Gas giant', tag: 'Storm pockets', hazard: 'Storm pockets burn the hull', day: 5, gravity: 1.6, pockets: true, material: 'gas', rich: 1.5, deposits: [['deuterium', 1]] }),
+    moon: body({ label: 'Moon', tag: 'Radiation', hazard: 'Radiation; hot by day', day: 10, rad: 0.8, gravity: 0.3, rich: 1.5 }),
   };
   const MOON_DEPOSITS = {
     grey: [['titanium-ore', 1]], rust: [['titanium-ore', 2], ['iron', 1]], dark: [['silicates', 1]],
@@ -202,7 +204,7 @@ const Hazards = (() => {
   function surface(kind, type, seed, parentType) {
     if (kind === 'moon') {
       const giant = GIANTS.includes(parentType), base = SURFACES.moon;
-      return { ...base, id: `moon-${type}`, seed, rad: base.rad * (giant ? 2 : 1), hazard: giant ? 'Strong radiation (a giant\'s moon); hot by day' : base.hazard, deposits: MOON_DEPOSITS[type] || [['silicates', 1]] };
+      return { ...base, id: `moon-${type}`, seed, rad: base.rad * (giant ? 2 : 1), rich: giant ? 2 : base.rich, hazard: giant ? 'Strong radiation (a giant\'s moon); hot by day' : base.hazard, deposits: MOON_DEPOSITS[type] || [['silicates', 1]] };
     }
     const id = PLANET_SURFACE[type] || 'terran';
     return { ...SURFACES[id], id, seed };

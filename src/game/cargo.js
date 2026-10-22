@@ -50,11 +50,10 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // map follow (an id, or null for the first under way). market: station stockpiles the player's
 // trading has moved away from rest (rules/economy.js), drifting back on the real-world clock.
 // rep: how each faction regards the player (rules/reputation.js), moved by the jobs handed in.
-// mined: the deposits worked out on each planet and moon ({ [body key]: [deposit index] });
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
 export const cargo = {
-  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, mined: {}, surfaceDrops: {},
+  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
 };
@@ -147,7 +146,6 @@ export function loadCargo(galaxy) {
   cargo.hull = Infinity; // full, once applyShip knows the maximum
   cargo.fuel = Infinity; // the same
   cargo.rad = 0;
-  cargo.mined = {}; // body key -> the indexes of its deposits mined (game/surface-run.js)
   cargo.surfaceDrops = {}; // body key -> [{ key, kind, x, y }]: what's left lying on its surface
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
@@ -320,6 +318,11 @@ export const CARGO_MIGRATIONS = [
     if (!d.mined || typeof d.mined !== 'object' || Array.isArray(d.mined)) d.mined = {};
     if (!d.surfaceDrops || typeof d.surfaceDrops !== 'object') d.surfaceDrops = {};
   },
+  // 18. Active mining (game/surface-run.js): every landing seeds a fresh field, so nothing is kept of
+  // the deposits worked out on each body.
+  (d) => {
+    delete d.mined;
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
@@ -399,9 +402,6 @@ export function readCargo(d) {
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
   if (Number.isFinite(d.fuel)) cargo.fuel = Math.max(0, d.fuel);
   if (Number.isFinite(d.rad)) cargo.rad = clamp(d.rad, 0, Hazards.config.max - 1);
-  if (d.mined && typeof d.mined === 'object' && !Array.isArray(d.mined)) {
-    for (const [body, list] of Object.entries(d.mined)) if (Array.isArray(list)) cargo.mined[body] = [...new Set(list.filter(Number.isInteger))];
-  }
   if (d.surfaceDrops && typeof d.surfaceDrops === 'object') {
     for (const [body, list] of Object.entries(d.surfaceDrops)) {
       const ok = (Array.isArray(list) ? list : []).filter((x) => x && typeof x.key === 'string' && Number.isFinite(x.x) && Number.isFinite(x.y) && Goods.resolve(x.kind))
@@ -418,7 +418,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
-  mined: cargo.mined, surfaceDrops: cargo.surfaceDrops,
+  surfaceDrops: cargo.surfaceDrops,
   loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track,
 }), 1000);

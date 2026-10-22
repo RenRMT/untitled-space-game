@@ -20,6 +20,11 @@ What was decided:
 - **The squad becomes drones.** The gambit programs stay; `attack` now means mine.
 - **Failure:** when a meter runs out, the ship is towed home and its cargo stays where it was lost,
   as a cache to go back for.
+- **Mining is active** (decided after phase 3, built as phase 4): many small nodes that break in
+  about a second, a fresh field on every landing, and tools that pick their own next target, so a
+  run is about flying fast through the richest ground. Pickings are richer where and when it's
+  dangerous (by the site, near vents and storm pockets, on the day side), so the hazards themselves
+  set how long a run lasts: there's no run timer.
 
 The showcase system (`src/world/galaxy.js`) already has what this needs: every planet and moon
 type, all of which can be landed on, one asteroid field and one nebula, one station of each type
@@ -118,6 +123,39 @@ plus the waystation HD-1863, and a gate switched on and off by `gatesOnline()` (
   the dust, and HUD lines for sunrise or the day side, a storm, the take-off fuel and deposits left.
 - Drones stay in orbit for now.
 
+## Phase 4, as built
+
+- **Many small nodes** (`rules/mining.js` `deposits`): 18 × the site's `rich` (`rules/hazards.js`
+  `surface`: Terran 1, ice 1.25, desert, gas giants and moons 1.5, a giant's moon and lava 2), radius
+  8–13, 70 apart, 160 clear of the landing spot. A node's integrity is 1.3 per unit of radius with no
+  floor (10–17), about a second's work for the starting laser.
+- **A fresh field on every landing:** the field is seeded by the body and a number picked on landing
+  (`surfaceRun.field`; `nextField` sets it for the tests). `cargo.mined` is gone (save migration 18).
+- **Risk pays:** nodes gather by the lava's vents and the gas giants' storm pockets (fully within 30
+  units of the rim, none past 110, else 40% of the picks are kept), and those within half that are
+  rich (+1 unit, a pulsing halo). On a world whose day is hot, a node broken on the day side gives +1
+  (the HUD says `YIELD +1`). A node otherwise leaves 1 unit. The scan line and the HUD show the yield
+  (×`rich`), and the HUD the hold.
+- **The tools on their own** (`game/mining.js` `autoMine`): when the target is gone, or one they
+  picked is out of their range, the best rock in reach is next (its distance, doubled if it isn't in
+  a working tool's arc), and one more stays joined, so a session runs on when a rock breaks
+  (`game/combat.js` `joinRock`; `focusOn(id, false)` picks without making it manual). A rock picked
+  by hand is kept. Nothing is picked with the hold full.
+  - On a surface it runs whenever landed, picking nodes within 240 units, so the ship flies from
+    cluster to cluster. E and a tap still work.
+  - In space it runs only inside a session started with Mine or Siphon, over the asteroids and gas
+    pockets posed nearby (tools' range + 120), so a session chains on through a field until the ship
+    flies off.
+- **Quicker locks:** the player locks onto a rock in a quarter of its computer's lock time
+  (`RealtimeCombat.config.rockLock`, `lockTime(s)`).
+- **Shards** (`Mining.shards`, `shardYield`; `game/mining.js` `shards`): an asteroid of radius 18 or
+  more breaks into 3–6 shards (radius 5–9) 30–70 units out from its edge. They're asteroids with
+  `shard: true`: not saved, not solid, crumbling after 120 s left alone, with a drop at 0.6 × the
+  asteroid's chance. Rock integrity is down from 6 to 4 per unit of radius.
+- **Magnet pickup on surfaces:** what lies within 120 units is pulled to the ship at its speed + 260
+  a second while the hold has room, and picked up within 30.
+- **Faster on the ground:** the surface top speed is up from 0.4 to 0.5 of the ship's.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -146,10 +184,13 @@ most of this. It changes from "ship against ships" to "ship and drones against r
   field-of-fire wedge) stay.
 - **Breaking a rock** works as destroying a ship does: `shipDestroyed`-style loot is left floating
   (`Mining.yieldOf` / `Mining.gasOf` decide what), and the rock stays gone (the existing `removed`
-  keys). A later step: large rocks split into two medium fragments that fly apart, which can hit the
-  ship (see collisions).
+  keys). A large rock also breaks into **shards** (phase 4): a handful of small, low-integrity
+  rocks drifting apart, each with a smaller chance of a drop, that the session chains through.
 - **A session** starts with the first lock and ends when nothing locked remains in range. More rocks
-  join as they are locked (`join`). There is no escape timer and no leash.
+  join as they are locked (`join`). There is no escape timer and no leash. Locking a rock takes a
+  quarter of the computer's lock time, and a session started by hand chains on its own: when the
+  target breaks or drifts out of the tools' reach, the next rock in reach (ahead of the tools first,
+  then the nearest) joins and is locked. Flying past rocks never starts a session by itself in space.
 - **Hazards during mining:** you sit near a rock while hazards build up. Mining in a gas giant's
   belt or on a moon means radiation climbs the whole time, so tool choice and Mk are about time spent
   exposed.
@@ -222,6 +263,12 @@ strongest round the gas giants.
 | Gas / blue giant | storm pockets (the existing `tall` props) to collide with; radiation belts around them | helium-3* (siphoned from the cloud deck) |
 | Moons (grey, rust, dark, ice, sulfur) | radiation | one each: regolith titanium*, iron oxide*, carbon*, water ice*, sulfur* (start with 2–3 of them) |
 
+**Yield by place** (phase 4): each surface has a richness, `rich`, that sets how many nodes its
+field holds (18 × `rich`) and what it's worth going there: Terran ×1, ice ×1.25, desert, gas giants
+and moons ×1.5, a giant's moon ×2, lava ×2. Inside a field, nodes gather near the hazard props (the
+lava's vents, the gas giants' storm pockets) and those are rich (+1 unit). On a world whose day is
+hot, every node broken on the day side gives +1 unit.
+
 Every new good needs a recipe that uses it, so it is never a dead end. The rule from
 `notes/industry.md` ("every good has a source and a sink") stays, and the test that checks it covers
 the new goods.
@@ -264,7 +311,12 @@ spend.
   as in space, with the session's ship pose taken from `landing.craft`.
   - **The tool in the hard slot:** the drill is short-ranged, so you hover close among obstacles,
     and collisions matter there.
-  - Mined deposits are saved per body (`cargo.mined[bodyKey]`).
+  - **Active mining** (phase 4): many small nodes (18–36 by the site's richness, about a second
+    each to break), a fresh field seeded on every landing (nothing is saved per body). While landed
+    the tools target on their own: the next node in reach, ahead of them first, then the nearest.
+    A tap or E still picks one by hand. What a node leaves is pulled in to the ship as it passes
+    (a magnet, as for drops in space). A run ends when the hazards push the ship off (the day side,
+    vents, radiation, fuel) or the hold is full.
 - **The surface clock:** the day side moves across the site. Inside it, heat climbs fast. The
   countdown to it is on the HUD.
 - **Biome hazards:**
@@ -295,7 +347,8 @@ The logic barely changes, because mining is now "attack":
 - **Drones' own meters:** a drone left in a belt overheats and is disabled until the next dock.
 - **Packages:** Combat and Tactics become Gathering and Hazards; Core and Maintenance stay.
   `Logic.read` already keeps old lines that no longer check, switched off, so old saves still load.
-- **Phase one is drones in space;** drones on surfaces come later.
+- **Phase one is drones in space;** drones on surfaces come later. With active mining (phase 4)
+  their `attack` works the same small nodes and shards, so a few drones keep pace with the ship.
 
 ## 8. New modules and changes
 
@@ -335,6 +388,8 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 - `cargo.shield` and the new meters start full or empty;
 - the starting set of stations online: the waystation and the ore works;
 - the gate starts offline, and a save that had the gates online gets the gate project as done.
+- active mining (phase 4): `cargo.mined` (deposits worked out per body) is dropped, since every
+  landing seeds a fresh field.
 
 ---
 
@@ -352,12 +407,15 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 3. **Surface run.** *(done: see Phase 3, as built)* Deposits as targets, the surface clock, biome
    hazards (lava, moons, desert first), takeoff fuel, surface caches, the scan before landing. 3–4
    new raw goods with recipes.
-4. **Gear and consumables for hazards.** Siphon line, radiator, shielding, tank and cargo pod; field
-   consumables on the HUD.
-5. **Stations per process and the waystation as home.** Station roles, restoration projects,
+4. **Active mining.** *(done: see Phase 4, as built)* Many small surface nodes, a fresh field each landing, richer by hazard (the
+   site, near vents and pockets, the day side); tools that target on their own; magnet pickup on
+   surfaces; quicker locks on rocks; asteroids that break into shards, chained through.
+5. **Gear and consumables for hazards.** Siphon line, radiator, shielding, tank and cargo pod; field
+   consumables on the HUD. With active mining, the cargo pod and the tank directly lengthen a run.
+6. **Stations per process and the waystation as home.** Station roles, restoration projects,
    research per station, the mission board at the waystation (job steps land and sample in place of
    fight).
-6. **Drones.** New subjects, actions and packages; `logicContext` from the world; drone meters.
-7. **The gate.** The staged gate project at the waystation that turns on `gatesOnline()`. A second
+7. **Drones.** New subjects, actions and packages; `logicContext` from the world; drone meters.
+8. **The gate.** The staged gate project at the waystation that turns on `gatesOnline()`. A second
    system for the gate to lead to (`Galaxy.generate` already has the multi-system shape: `systems`,
    `links`).

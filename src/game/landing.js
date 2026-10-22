@@ -69,7 +69,7 @@ const SITE = 48, FRINGE = Math.ceil(3200 / ArtSurface.T), SIZE = SITE + 2 * FRIN
 // seen from closer than space is: the whole view (ship, ground and all) is zoomed in SURFACE_ZOOM
 // times, and its chunks are drawn at that resolution (up to 2 device px per world unit; 1.5 on
 // touch screens, which keep less in memory).
-const SURFACE_SPEED = 0.4, SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
+const SURFACE_SPEED = 0.5, SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
 const surfaceZoom = () => view.base * SURFACE_ZOOM;
 // The zoom: in space, until the planet is COVER times as wide as the screen's diagonal; then on the
 // surface, from DEPTH times further out than the landed view down to it. Each factor of e (2.7)
