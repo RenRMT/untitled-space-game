@@ -373,6 +373,25 @@ logistics screens, 6f research per station and market specialties.
 - Migration 21: a game under way counts every project done up to the last station type it was
   using (an order there, or trust), so nothing it had stops (`restoredByUse`).
 
+### Step 6d, as built: shuttles and routes, settled with the runs
+
+- **Routes** (`rules/logistics.js`, pure): a loop of stops, each with what a hauler unloads there,
+  what it loads (`'all'`, `'made'`: what the station's orders make, or kinds with a count a visit)
+  and what the stop keeps (never loaded below it), and the travel time to the next stop. A hauler
+  carries 12 at 300 units a second (a leg at least 20 s). At a stop it unloads what fits, loads, and
+  flies on; having moved nothing, it still flies on if another stop has something for it, else it
+  waits there until the stocks change. A full stock makes it wait with its load; nothing is lost.
+- **A station's shuttle** is a two-stop route (`Industry.setShuttle`): load what its orders make,
+  unload all of it at the station it's sent to.
+- **In the settle** (`rules/industry.js`): hauler arrivals are events beside order runs (runs first
+  on a tie), and `kick` starts runs and wakes waiting haulers until nothing changes, so settling in
+  one step or many still comes out the same (tested, with a shuttle). A delivery goes in the log
+  (`Industry.delivered`), shown as "Delivered ·" news and, while away, "Delivered while away".
+- **Lineage** knows routes: an input made at another station and brought by a route is `route`, not
+  `away`; pipeline links carried by a route are `routed`.
+- Removing a route puts what its haulers carry into the stock where each is, or is flying to.
+- Routes are saved with the industry (`Logistics.read` checks them; one shuttle per station).
+
 ## Later
 
 - **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →

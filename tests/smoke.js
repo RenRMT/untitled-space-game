@@ -938,7 +938,7 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   assert.deepStrictEqual(lab, { lab: { done: ['core.bool', 'hull.armour-1'], doneAt: { 'hull.armour-1': 0 }, active: null, queue: [] } });
   assert.deepStrictEqual(game(`readLab(${JSON.stringify(lab.lab)}).doneAt`), { 'core.bool': 0, 'hull.armour-1': 0 });
   // Industry starts empty; a damaged one keeps what makes sense.
-  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { stock: {}, orders: [], seq: 1 });
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { stock: {}, orders: [], routes: [], seq: 1 });
   const ind = game(`readIndustry({ stock: { st1: { iron: 3.7, nope: 2, titanium: -1 }, st2: 'x', '*home': { iron: 1 } }, seq: 2, orders: [
     { id: 1, station: 'st1', name: 'A', type: 'major', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: 0 },
     { id: 4, station: 'st2', name: 'B', type: 'minor', recipe: 'make.steel-pipe', left: 1, made: 0, at: null, next: null },
@@ -949,7 +949,7 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
     gear: { 'survey-scanner-2': 1 }, lab: { done: [], active: { id: 'bp.pulse-laser-3', start: 1, end: 2 }, queue: ['bp.deflector-4', 'core.bool'] } }; CARGO_MIGRATIONS[8](d); return d; })()`);
   assert.deepStrictEqual(bps.lab, { done: ['bp.deflector-4', 'bp.pulse-laser-3', 'bp.survey-scanner-2'], doneAt: { 'bp.deflector-4': 0, 'bp.pulse-laser-3': 0, 'bp.survey-scanner-2': 0 }, active: null, queue: ['core.bool'] });
   assert.strictEqual(bps.schematics, undefined);
-  assert.deepStrictEqual(ind, { stock: { st1: { iron: 3 } }, seq: 6, orders: [
+  assert.deepStrictEqual(ind, { stock: { st1: { iron: 3 } }, routes: [], seq: 6, orders: [
     { id: 1, station: 'st1', name: 'A', type: 'major', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: false },
     { id: 5, station: 'st4', name: 'D', type: 'mining camp', recipe: 'make.steel-pipe', left: 2, made: 1, at: null, next: null, paused: true }] },
   'a recipe the station type does not make, a repeated id and a broken run are dropped; the old storage only with a waystation');

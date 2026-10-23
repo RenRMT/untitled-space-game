@@ -2,8 +2,9 @@
 // real-world clock, while the game is closed too, like research. Each station keeps its own stock
 // (notes/hazards.md phase 6): an order takes its inputs from its station's stock and puts what it
 // makes back there, so steel pipe made at the ore works has to be carried to the fabricator (in
-// the hold, by a shuttle or on a route) before an order there can use it. The chain of orders is
-// the production pipeline.
+// the hold, by a shuttle or on a route: rules/logistics.js) before an order there can use it. The
+// chain of orders is the production pipeline. Haulers on routes are events in the same settle as
+// runs, so whatever moves goods, settling comes out the same however it's split.
 // Each station type works one process (PROCESS, notes/hazards.md phase 6): the mining camp is the
 // ore works, the minor station the volatiles works, the salvage yard recycles, the major hub is the
 // fabricator, the waystation's bench assembles Mk I gear and consumables and the capital is the
@@ -15,7 +16,8 @@
 // the first in the list (the priority the player sets) goes first. Industry research
 // (rules/research.js bonusAt) adds speed and room from the moment it finished.
 //
-//   Industry.empty() -> state                { stock: { [station key]: { [kind (Recipes.item)]: n } }, orders: [order], seq }
+//   Industry.empty() -> state                { stock: { [station key]: { [kind (Recipes.item)]: n } }, orders: [order], routes: [route], seq }
+//     route: rules/logistics.js; a station's shuttle is the route whose `shuttle` is its key
 //   order: { id, station (key), name (the station's), type (its market type), recipe, left: n | null
 //            (null: while inputs last), made, at, next, paused }
 //     at / next: when the run under way started and finishes (ms), or null between runs
@@ -35,21 +37,28 @@
 //   Industry.change(state, id, recipe, count, env, now), pause(state, id, paused, env, now),
 //     cancel(state, id), move(state, i, j)   by order id, except move (positions in the list)
 //   Industry.deposit(state, key, kind, n, env, now) -> n taken; withdraw(state, key, kind, n) -> n given
-//   Industry.kick(state, env, now)           start every order that can start
-//   Industry.settle(state, now, env, max?) -> { log: [{ id, key, name, recipe, at, out }], truncated }
+//   Industry.kick(state, env, now)           start every order that can start, and wake every waiting hauler
+//   Industry.settle(state, now, env, max?) -> { log, truncated }   log: runs { id, key, name, recipe, at, out }
+//                                            and deliveries { route, key, name, at, delivered }
 //   Industry.summary(state, log) -> [text]   what was made, per station and good
+//   Industry.delivered(log) -> [text]        what haulers delivered, per station and good
+//   Industry.addRoute(state, stops, opts, env, now) -> route   a route (Logistics.make), its id from seq
+//   Industry.removeRoute(state, id) -> bool  its haulers' goods go into the stock where each is (or flies to)
+//   Industry.shuttle(state, key) -> route | null, setShuttle(state, from { key, name }, to { key, name } | null, travel, env, now)
 //   Industry.recipeFor(kind, known?) -> recipe | null   what makes a kind (recycling only if nothing else does)
 //   Industry.lineage(state, recipe id, known, key) -> [{ kind, need, have, raw, makers: [order], stage, source }]
 //     where each input of an order at station key comes from; source: 'storage' (enough here) |
-//     'order' (an order here makes it) | 'away' (an order at another station makes it: bring it) |
+//     'order' (an order here makes it) | 'route' (an order at another station makes it, and a route
+//     brings it here) | 'away' (an order at another station makes it, and nothing brings it: carry it) |
 //     'raw' | 'stage' (an order of that process needed: stage is the process that makes it)
-//   Industry.pipelines(state) -> [{ end: [kind], orders, links: [{ from, to, kind, away }], gaps: [{ order, kind, stage }], standalone }]
+//   Industry.pipelines(state) -> [{ end: [kind], orders, links: [{ from, to, kind, away, routed }], gaps: [{ order, kind, stage }], standalone }]
 //     orders linked by what they make (an output of one is an input of another), in groups; away:
-//     the two are at different stations, so the good has to be carried; a gap is an input that
+//     the two are at different stations, so the good has to be moved (routed: a route does); a gap is an input that
 //     isn't raw and no order makes; standalone: an order linked to nothing
 // Times are milliseconds since the epoch (core/clock.js). ES module (`Industry`); also runs in Node.
 
 import { Goods } from './goods.js';
+import { Logistics } from './logistics.js';
 import { Recipes } from './recipes.js';
 import { Research } from './research.js';
 
@@ -64,7 +73,7 @@ const Industry = (() => {
   const LOYALTY = { required: 1, start: 0 };
   const MAX_EVENTS = 20000; // runs settled per call; the rest wait for the next call
 
-  const empty = () => ({ stock: {}, orders: [], seq: 1 });
+  const empty = () => ({ stock: {}, orders: [], routes: [], seq: 1 });
   const NONE = Object.freeze({});
   const stockAt = (state, key) => state.stock[key] || NONE;
   // Into a station's stock (a negative n takes out); a stock left empty goes.
@@ -121,24 +130,86 @@ const Industry = (() => {
     o.next = t + runTime(o, e, t);
     return true;
   }
-  const kick = (state, e, t) => { for (const o of state.orders) start(state, o, e, t); };
+  // What haulers see of the stocks at time t (rules/logistics.js io).
+  const io = (state, e, t) => ({
+    stock: (key) => stockAt(state, key),
+    free: (key) => free(state, key, e, t),
+    put: (key, kind, n) => put(state, key, kind, n),
+    made: (key) => new Set(at(state, key).flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].out))),
+  });
+  // A hauler at its stop: unload, load, then fly on or wait; what it unloaded goes in the log.
+  function visit(state, r, h, e, t, log) {
+    const x = io(state, e, t), v = Logistics.visit(r, h, t, x), moved = v.moved;
+    if (log && Object.keys(v.delivered).length) {
+      const s = r.stops[h.stop];
+      log.push({ route: r.id, key: s.station, name: s.name, at: t, delivered: v.delivered });
+    }
+    const went = Logistics.decide(r, h, t, x, moved);
+    return moved || went;
+  }
+  // Every order that can start, then every waiting hauler that has something to do, until nothing
+  // changes (a run started makes room for a hauler to unload, a delivery lets a run start).
+  function kick(state, e, t, log = null) {
+    for (let pass = 0; pass < 50; pass++) {
+      let changed = false;
+      for (const o of state.orders) changed = start(state, o, e, t) || changed;
+      for (const r of state.routes) for (const h of r.haulers) if (h.next == null) changed = visit(state, r, h, e, t, log) || changed;
+      if (!changed) return;
+    }
+  }
 
   function settle(state, now, e, max = MAX_EVENTS) {
     const log = [];
     for (let n = 0; ; n++) {
-      // The run that finishes first (the first in the list on a tie).
-      let o = null;
+      // The run that finishes first (the first in the list on a tie), or the hauler that arrives
+      // first (runs before haulers on a tie; then by route, then hauler).
+      let o = null, hr = null, hh = null;
       for (const x of state.orders) if (x.next != null && x.next <= now && (!o || x.next < o.next)) o = x;
-      if (!o) break;
+      for (const r of state.routes) for (const h of r.haulers) if (h.next != null && h.next <= now && (!hh || h.next < hh.next)) { hr = r; hh = h; }
+      if (!o && !hh) break;
       if (n >= max) return { log, truncated: true };
-      const t = o.next, R = e.recipe(o.recipe);
-      for (const [k, c] of Object.entries(R.out)) put(state, o.station, k, c);
-      o.made++;
-      o.at = o.next = null;
-      log.push({ id: o.id, key: o.station, name: o.name, recipe: R.id, at: t, out: R.out });
-      kick(state, e, t); // every order that can starts now: the next run, or one starved of what was just made
+      if (o && (!hh || o.next <= hh.next)) {
+        const t = o.next, R = e.recipe(o.recipe);
+        for (const [k, c] of Object.entries(R.out)) put(state, o.station, k, c);
+        o.made++;
+        o.at = o.next = null;
+        log.push({ id: o.id, key: o.station, name: o.name, recipe: R.id, at: t, out: R.out });
+        kick(state, e, t, log); // every order that can starts now (the next run, or one starved of what was just made), and haulers wake
+      } else {
+        const t = hh.next;
+        visit(state, hr, hh, e, t, log);
+        kick(state, e, t, log);
+      }
     }
     return { log, truncated: false };
+  }
+
+  // ---------- Routes ----------
+
+  function addRoute(state, stops, opts, e, now) {
+    const r = Logistics.make(state.seq++, stops, opts, now);
+    state.routes.push(r);
+    kick(state, e, now);
+    return r;
+  }
+  function removeRoute(state, id) {
+    const r = state.routes.find((x) => x.id === id);
+    if (!r) return false;
+    for (const h of r.haulers) for (const [kind, n] of Object.entries(h.load)) put(state, r.stops[h.stop].station, kind, n);
+    state.routes.splice(state.routes.indexOf(r), 1);
+    return true;
+  }
+  const shuttle = (state, key) => state.routes.find((r) => r.shuttle === key) || null;
+  // A station's shuttle: what its orders make, from its stock to another station's (and back,
+  // empty); to null, none. travel: ms each way.
+  function setShuttle(state, from, to, travel, e, now) {
+    const old = shuttle(state, from.key);
+    if (old) removeRoute(state, old.id);
+    if (!to) return null;
+    return addRoute(state, [
+      { station: from.key, name: from.name, load: 'made', travel },
+      { station: to.key, name: to.name, unload: 'all', travel },
+    ], { name: `${from.name} shuttle`, shuttle: from.key }, e, now);
   }
 
   const runs = (count) => (count === null ? null : Math.max(1, Math.floor(count)));
@@ -201,12 +272,27 @@ const Industry = (() => {
   function summary(state, log) {
     const made = new Map();
     for (const x of log) {
+      if (!x.out) continue;
       for (const [kind, n] of Object.entries(x.out)) {
         const id = `${x.name}\u0000${kind}`;
         made.set(id, (made.get(id) || 0) + n);
       }
     }
     return [...made].map(([id, n]) => {
+      const [name, kind] = id.split('\u0000');
+      return `${name}: ${n} × ${Recipes.item(kind).name}`;
+    });
+  }
+
+  function delivered(log) {
+    const by = new Map();
+    for (const x of log) {
+      for (const [kind, n] of Object.entries(x.delivered || {})) {
+        const id = `${x.name}\u0000${kind}`;
+        by.set(id, (by.get(id) || 0) + n);
+      }
+    }
+    return [...by].map(([id, n]) => {
       const [name, kind] = id.split('\u0000');
       return `${name}: ${n} × ${Recipes.item(kind).name}`;
     });
@@ -224,10 +310,20 @@ const Industry = (() => {
   }
   const stageFor = (kind, known) => recipeFor(kind, known)?.bay || null;
 
+  // Whether a route carries a kind from one station's stock to another's: it loads it at a stop
+  // there and unloads it at a stop here.
+  const takes = (spec, kind, made) => spec === 'all' || (spec === 'made' ? made.has(kind) : !!spec?.[kind]);
+  function routed(state, kind, from, to) {
+    const made = (key) => new Set(at(state, key).flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].out)));
+    return state.routes.some((r) => r.stops.some((a) => a.station === from && takes(a.load, kind, made(from)))
+      && r.stops.some((b) => b.station === to && takes(b.unload, kind, made(to))));
+  }
+
   function lineage(state, recipe, known, key) {
     return Object.entries(Recipes.RECIPES[recipe].in).map(([kind, need]) => {
       const have = stockAt(state, key)[kind] || 0, by = makers(state, kind), raw = isRaw(kind);
-      const source = have >= need ? 'storage' : by.some((o) => o.station === key) ? 'order' : by.length ? 'away' : raw ? 'raw' : 'stage';
+      const source = have >= need ? 'storage' : by.some((o) => o.station === key) ? 'order'
+        : by.some((o) => routed(state, kind, o.station, key)) ? 'route' : by.length ? 'away' : raw ? 'raw' : 'stage';
       return { kind, need, have, raw, makers: by, stage: raw ? null : stageFor(kind, known), source };
     });
   }
@@ -237,7 +333,7 @@ const Industry = (() => {
     for (const a of orders) {
       for (const b of orders) {
         if (a === b) continue;
-        for (const kind of Object.keys(Recipes.RECIPES[a.recipe].out)) if (kind in Recipes.RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind, away: a.station !== b.station });
+        for (const kind of Object.keys(Recipes.RECIPES[a.recipe].out)) if (kind in Recipes.RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind, away: a.station !== b.station, routed: a.station !== b.station && routed(state, kind, a.station, b.station) });
       }
     }
     // Groups: orders joined by links (union-find on ids).
@@ -267,7 +363,8 @@ const Industry = (() => {
 
   return {
     PROCESS, STATIONS, processes, STORAGE, SLOTS, LOYALTY, MAX_EVENTS, empty, recipeFor, env, canMake, slots, at, trusted, capacity, stockAt, used, reserved, free,
-    runTime, status, place, change, pause, cancel, move, deposit, withdraw, kick, settle, summary, isRaw, lineage, pipelines,
+    runTime, status, place, change, pause, cancel, move, deposit, withdraw, kick, settle, summary, delivered, addRoute, removeRoute, shuttle, setShuttle,
+    isRaw, routed, lineage, pipelines,
   };
 })();
 

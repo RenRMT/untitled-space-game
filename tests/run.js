@@ -35,6 +35,7 @@ import { Research } from '../src/rules/research.js';
 import { Recipes } from '../src/rules/recipes.js';
 import { Industry } from '../src/rules/industry.js';
 import { Restoration } from '../src/rules/restoration.js';
+import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { CombatCore } from '../src/combat/combat-core.js';
@@ -1195,6 +1196,90 @@ test('production: processes by station type, room in each stock, counts, pausing
   Industry.deposit(two, CAMP2.key, 'iron', 2, env2, T + run);
   const w = Industry.place(two, CAMP2, 'make.steel-pipe', null, env2, T + run);
   assert.strictEqual(statusOf(two, w), 'running');
+});
+
+// The ore works and the fabricator of pipeWorks, with the ore works' shuttle sending its pipe to
+// the fabricator (a minute each way).
+function shuttled(T, opts) {
+  const w = pipeWorks(T, opts);
+  w.route = Industry.setShuttle(w.state, CAMP, HUB, 60e3, w.env, T);
+  return w;
+}
+
+test('logistics: a shuttle carries what a station makes to another, which makes from it, while away too', () => {
+  const T = 1e12, { state, env, a, b, route } = shuttled(T);
+  assert.strictEqual(Industry.shuttle(state, CAMP.key), route);
+  assert.deepStrictEqual(route.stops.map((s) => [s.station, s.load, s.unload]), [[CAMP.key, 'made', {}], [HUB.key, {}, 'all']]);
+  assert.strictEqual(route.haulers[0].next, null, 'nothing made yet: it waits');
+  // The first pipe made (20 s): loaded at once, and flown over.
+  let { log } = Industry.settle(state, T + 20e3, env);
+  const h = route.haulers[0];
+  assert.deepStrictEqual([h.stop, h.next, h.load], [1, T + 80e3, { 'steel-pipe': 1 }], 'loaded, on its way');
+  // Delivered a minute later: the hub's order starts on it; the shuttle goes back for more.
+  ({ log } = Industry.settle(state, T + 80e3, env));
+  assert.deepStrictEqual(log.filter((x) => x.delivered).map((x) => [x.key, x.delivered]), [[HUB.key, { 'steel-pipe': 1 }]]);
+  assert.deepStrictEqual(Industry.delivered(log), ['Corlital Hub: 1 × Steel pipe']);
+  assert.strictEqual(statusOf(state, b), 'running');
+  assert.deepStrictEqual([h.stop, h.next], [0, T + 140e3], 'back for more, as there is some');
+  // An hour away: all 40 iron become 20 pipes, and all of those electronics at the hub.
+  Industry.settle(state, T + 3600e3, env);
+  assert.deepStrictEqual(state.stock, { [HUB.key]: { electronics: 20 } });
+  assert.deepStrictEqual([statusOf(state, a), statusOf(state, b), h.next, h.load], ['starved', 'starved', null, {}], 'all done: the shuttle waits');
+  // Lineage and the pipeline know the route.
+  assert.deepStrictEqual(Industry.lineage(state, 'make.electronics', Recipes.known(), HUB.key).map((x) => [x.kind, x.source]), [['steel-pipe', 'route'], ['carbon-fibre', 'stage']]);
+  assert(Industry.pipelines(state)[0].links.every((l) => l.away && l.routed));
+  // More iron at the camp, and the shuttle (waiting there) takes the pipe as soon as it's made.
+  assert.strictEqual(h.stop, 0, 'it waits where it last had something to do');
+  Industry.deposit(state, CAMP.key, 'iron', 2, env, T + 3600e3);
+  Industry.settle(state, T + 3600e3 + 20e3, env);
+  assert.deepStrictEqual([h.stop, h.load, h.next], [1, { 'steel-pipe': 1 }, T + 3600e3 + 80e3]);
+});
+
+test('logistics: settling with haulers in many steps comes out the same as in one', () => {
+  const T = 1e12, end = T + 40 * 60e3;
+  const once = shuttled(T);
+  Industry.settle(once.state, end, once.env);
+  const r = mulberry32(9);
+  for (let trial = 0; trial < 20; trial++) {
+    const many = shuttled(T);
+    const times = Array.from({ length: 12 }, () => T + r() * (end - T)).sort((x, y) => x - y);
+    for (const t of times) Industry.settle(many.state, t, many.env);
+    Industry.settle(many.state, end, many.env);
+    assert.deepStrictEqual(many.state, once.state);
+  }
+  const capped = shuttled(T);
+  while (Industry.settle(capped.state, end, capped.env, 3).truncated);
+  assert.deepStrictEqual(capped.state, once.state);
+});
+
+test('logistics: a route keeps what a stop keeps, waits when the next stock is full, and gives back its load when removed', () => {
+  const T = 1e12, env = Industry.env(Research.empty()), state = Industry.empty();
+  Industry.deposit(state, CAMP.key, 'iron', 30, env, T);
+  const r = Industry.addRoute(state, [
+    { station: CAMP.key, name: CAMP.name, load: { iron: 'all' }, keep: { iron: 10 }, travel: 30e3 },
+    { station: HUB.key, name: HUB.name, unload: 'all', travel: 30e3 },
+  ], { cap: 12 }, env, T);
+  const h = r.haulers[0];
+  assert.deepStrictEqual([h.load, Industry.stockAt(state, CAMP.key).iron], [{ iron: 12 }, 18], 'as much as it carries');
+  Industry.settle(state, T + 60e3, env);
+  assert.deepStrictEqual([Industry.stockAt(state, HUB.key).iron, Industry.stockAt(state, CAMP.key).iron, h.load], [12, 10, { iron: 8 }], 'never below the 10 kept');
+  // The hub full: the hauler waits there with its load, losing none of it.
+  Industry.deposit(state, HUB.key, 'carbon-fibre', 1000, env, T + 60e3);
+  Industry.settle(state, T + 200e3, env);
+  assert.deepStrictEqual([h.stop, h.next, h.load], [1, null, { iron: 8 }], 'waiting at the full hub');
+  // Room again: it unloads at once.
+  Industry.withdraw(state, HUB.key, 'carbon-fibre', 5);
+  Industry.kick(state, env, T + 200e3);
+  assert.deepStrictEqual([h.load, Industry.stockAt(state, HUB.key).iron], [{ iron: 3 }, 17]);
+  // Removed: what's aboard goes into the stock it's flying to (it moved something, so it flew on).
+  assert.strictEqual(h.stop, 0);
+  assert(Industry.removeRoute(state, r.id) && !state.routes.length);
+  assert.deepStrictEqual([Industry.stockAt(state, HUB.key).iron, Industry.stockAt(state, CAMP.key).iron], [17, 13]);
+  // A saved route reads back; a broken one is dropped.
+  const r2 = Industry.addRoute(state, [{ station: 'a', load: 'all', travel: 5 }, { station: 'b', unload: { iron: 'all', nope: 2 } }], {}, env, T);
+  assert.deepStrictEqual(Logistics.read(JSON.parse(JSON.stringify(r2)), (k) => !!Goods.type(k)), { ...r2, stops: r2.stops.map((s) => (s.station === 'b' ? { ...s, unload: { iron: 'all' } } : s)) });
+  assert.strictEqual(Logistics.read({ id: 1, stops: [{ station: 'a' }], haulers: [{}] }), null, 'one stop is no route');
+  assert.strictEqual(Logistics.legTime(0), Logistics.HAULER.minLeg);
 });
 
 test('restoration: stations come online in order, each paid with goods and credits', () => {

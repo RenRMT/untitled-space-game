@@ -52,11 +52,15 @@ export const industry = {
     const st = stationOf(key);
     return st ? world.galaxy.systems[st.station.system]?.name || '' : '';
   },
-  // Runs finished by now, each station's output announced together.
+  // Runs finished by now, each station's output announced together (and what haulers delivered,
+  // kept for the next dock's news).
   settle({ quiet = false } = {}) {
     const { log } = Industry.settle(cargo.industry, Clock.now(), industry.env());
     if (!log.length) return log;
-    if (!quiet) for (const line of Industry.summary(cargo.industry, log)) { notify(`Made · ${line}`, 3.5); addNews(`Made · ${line}`, 'industry'); }
+    if (!quiet) {
+      for (const line of Industry.summary(cargo.industry, log)) { notify(`Made · ${line}`, 3.5); addNews(`Made · ${line}`, 'industry'); }
+      for (const line of Industry.delivered(log)) addNews(`Delivered · ${line}`, 'industry');
+    }
     saveCargo();
     return log;
   },

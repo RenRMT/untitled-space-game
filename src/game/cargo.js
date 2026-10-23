@@ -13,6 +13,7 @@ import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
+import { Logistics } from '../rules/logistics.js';
 import { HullMods } from '../rules/hullmods.js';
 import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
@@ -162,6 +163,7 @@ export function loadCargo(galaxy) {
   for (const id of Research.settle(cargo.lab, Clock.now())) addNews(buildDone(id), 'research');
   const { log } = Industry.settle(cargo.industry, Clock.now(), Industry.env(cargo.lab));
   for (const line of Industry.summary(cargo.industry, log)) addNews(`Made while away · ${line}`, 'industry');
+  for (const line of Industry.delivered(log)) addNews(`Delivered while away · ${line}`, 'industry');
   if (news.length) notify(`${news.length === 1 ? news[0].text : `${news.length} things finished while you were away`} · dock to see`, 4, { tone: 'good' });
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
@@ -399,7 +401,11 @@ export function readIndustry(d, home = null) {
       made: whole(o.made), at: running ? o.at : null, next: running ? o.next : null, paused: !!o.paused,
     });
   }
-  out.seq = Math.max(whole(d.seq), ...out.orders.map((o) => o.id + 1), 1);
+  for (const r of Array.isArray(d.routes) ? d.routes : []) {
+    const route = Logistics.read(r, (kind) => !!Recipes.item(kind));
+    if (route && !out.routes.some((x) => x.id === route.id) && !(route.shuttle && out.routes.some((x) => x.shuttle === route.shuttle))) out.routes.push(route);
+  }
+  out.seq = Math.max(whole(d.seq), ...out.orders.map((o) => o.id + 1), ...out.routes.map((r) => r.id + 1), 1);
   return out;
 }
 // The projects a game from before restoration counts as done: every one up to (and with) the last

@@ -1175,7 +1175,10 @@ const StationMenu = (() => {
     if (done.length) {
       const logic = done.every((id) => Research.PACKAGES[id].kind === 'logic');
       Messages.push(`${logic ? 'Build ok · import' : 'Research done ·'} ${done.map(Research.title).join(', ')}`, { tone: 'good' });
-    } else if (made.length) Messages.push(`Made · ${Industry.summary(ctx.industry.state, made).join(' · ')}`, { tone: 'good' });
+    } else if (made.length) {
+      const lines = [...Industry.summary(ctx.industry.state, made).map((l) => `Made · ${l}`), ...Industry.delivered(made).map((l) => `Delivered · ${l}`)];
+      Messages.push(lines.join(' · '), { tone: 'good' });
+    }
     else if (tab === 'research') research.tick();
     else if (tab === 'industry') industryView.tick();
   }
