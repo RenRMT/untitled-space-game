@@ -85,14 +85,16 @@ export function update(dt) {
     sense();
   }
 
-  // Camera leads in the direction of travel. In a fight it frames the ship and its target in
-  // the space above the combat panel (held as it was while a drag goes on: steady); in real time
-  // it leans only so far, keeping your own ship well on screen when the target is far off.
+  // Camera leads in the direction of travel. In a fight with ships it frames the ship and its
+  // target in the space above the combat panel (held as it was while a drag goes on: steady); in
+  // real time it leans only so far, keeping your own ship well on screen when the target is far
+  // off. Mining is a fight too (game/combat.js extract), but with no panel and the tools picking
+  // their own rocks, so it leads as plain flight does.
   const lead = 0.45;
   const k = 1 - Math.exp(-4 * dt);
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
   if (warp.on) { tx = ship.x; ty = ship.y; } // a gate jump's speed would throw the lead far ahead
-  const focus = fight.s && fight.ships.get(fight.s.focus);
+  const focus = fight.s && !fight.extract && fight.ships.get(fight.s.focus);
   if (focus) {
     const top = CombatPanel.top;
     const covered = steady('fight', top === null ? 0 : Math.max(0, view.h - top));

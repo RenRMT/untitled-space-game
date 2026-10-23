@@ -7,14 +7,17 @@ import { ContextCard } from '../ui/context.js';
 import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
 import { Hazards } from '../rules/hazards.js';
+import { Status } from '../rules/status.js';
+import { Glyphs } from '../ui/glyphs.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { shieldNow } from './combat.js';
 import { visible } from './draw-world.js';
-import { hazard, hazardLine } from './hazards.js';
+import { dashFuel } from './dash.js';
+import { hazard, hazardLine, warnSteps } from './hazards.js';
 import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
-import { CONTROLS, moveMode } from './options.js';
+import { CONTROLS, moveMode, reducedMotion } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
 import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inShipFight, intro, notify, ship, view } from './state.js';
 import { world } from './world.js';
@@ -415,11 +418,30 @@ export function drawHud() {
 }
 
 // Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),
-// and above it the hold and the meters that need watching: a damaged hull, shields down, heat,
-// radiation and fuel (game/hazards.js), each a small gauge, in rows going up as they fill one.
+// and above it the hold and the meters that need watching, each an icon with a small gauge, in rows
+// going up as they fill one (notes/hazards.md):
+// - heat and radiation (game/hazards.js) are timers: the gauge, and arrows for which way they're
+//   going and how fast (rules/status.js), or once the limit is near, the seconds left;
+// - fuel is a budget: what it buys. Pips for the dashes left when few are; on a surface the take-off
+//   cost marked on its gauge (o.takeoff), red when the tank is short of it;
+// - a damaged hull, and the shields while down or recharging.
+// Each is calm, then amber past its first warning step, then red and pulsing at the last.
 // Also on a planet's surface (game/landing.js).
-export function drawStatus(speed, set, fontSize = 14) {
+const glyphImages = new Map();
+function glyph(name, color) {
+  const key = `${name}|${color}`;
+  let img = glyphImages.get(key);
+  if (!img) {
+    img = new Image();
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(Glyphs.standalone(name, color, 48))}`;
+    glyphImages.set(key, img);
+  }
+  return img.complete && img.naturalWidth ? img : null;
+}
+
+export function drawStatus(speed, set, fontSize = 14, o = {}) {
   const k = Theme.scale, I = view.inset, pad = 12, left = pad + I.l;
+  const now = performance.now() / 1000;
   ctx.save();
   ctx.font = Theme.font(fontSize);
   ctx.textBaseline = 'alphabetic';
@@ -433,36 +455,85 @@ export function drawStatus(speed, set, fontSize = 14) {
   ctx.fillRect(left, by, barW * Math.min(1, speed), 6);
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(left + barW * set - 1, by - 3, 2, 12);
-  const H = Hazards.config.max, gw = 56 * k, gh = Math.round(5 * k), lh = Math.round(fontSize * 1.45 * k);
-  // Each: [label, fill 0..1, colour], or a plain text.
+  const H = Hazards.config.max, is = Math.round(15 * k), gw = Math.round(40 * k), gh = Math.round(5 * k), lh = Math.round(Math.max(fontSize * 1.45, 19) * k);
+  // Each: { icon, color, f (the gauge, 0..1), tail (text after it), trend, pips: [left, of], mark, critical }.
   const items = [];
-  if (cargo.items.length) items.push({ text: `HOLD ${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
-  const lowFirst = (f) => (f < 0.35 ? COLORS.hostile : COLORS.flame), highFirst = (f) => (f > 0.75 ? COLORS.hostile : COLORS.flame);
+  const level = (f, steps) => (f >= steps[steps.length - 1] ? 2 : f >= steps[0] ? 1 : 0);
+  const LEVEL_COLOR = [COLORS.hud, COLORS.flame, COLORS.hostile];
+  if (cargo.items.length) items.push({ icon: 'HLD', tail: `${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
   if (!inShipFight()) { // in a fight with ships the panel shows these
-    if (cargo.hull < SHIP.hull) items.push({ label: 'HULL', f: cargo.hull / SHIP.hull, color: lowFirst(cargo.hull / SHIP.hull) }); // until it's repaired at a station
-    if (SHIP.shield && shieldNow() < SHIP.shield - 0.5) items.push({ label: 'SHD', f: shieldNow() / SHIP.shield, color: COLORS.cyan });
-  }
-  if (hazard.heat >= 1) items.push({ label: 'HEAT', f: hazard.heat / H, color: highFirst(hazard.heat / H) });
-  if (cargo.rad >= 1) items.push({ label: 'RAD', f: cargo.rad / H, color: highFirst(cargo.rad / H) });
-  if (SHIP.fuel && cargo.fuel < SHIP.fuel - 0.5) items.push({ label: 'FUEL', f: cargo.fuel / SHIP.fuel, color: cargo.fuel / SHIP.fuel < 0.25 ? COLORS.hostile : COLORS.hud });
-  const room = Math.max(barW, Math.min(view.w * 0.6, 420 * k));
-  let x = left, ty = by - 10;
-  ctx.globalAlpha = 0.9;
-  for (const it of items) {
-    const w = it.text ? ctx.measureText(it.text).width : ctx.measureText(it.label).width + 6 + gw;
-    if (x > left && x + w > left + room) { x = left; ty -= lh; } // a new row above
-    ctx.fillStyle = it.color;
-    ctx.globalAlpha = 0.9;
-    if (it.text) ctx.fillText(it.text, x, ty);
-    else {
-      ctx.fillText(it.label, x, ty);
-      const gx = x + ctx.measureText(it.label).width + 6;
-      ctx.globalAlpha = 0.3;
-      ctx.fillRect(gx, ty - gh - 2, gw, gh);
-      ctx.globalAlpha = 0.95;
-      ctx.fillRect(gx, ty - gh - 2, gw * clamp(it.f, 0, 1), gh);
+    if (cargo.hull < SHIP.hull) { // until it's repaired at a station
+      const f = cargo.hull / SHIP.hull;
+      items.push({ icon: 'HUL', f, color: f < 0.25 ? COLORS.hostile : f < 0.5 ? COLORS.flame : COLORS.hud, critical: f < 0.25 });
     }
-    x += w + 16;
+    if (SHIP.shield && shieldNow() < SHIP.shield - 0.5) items.push({ icon: 'SHD', f: shieldNow() / SHIP.shield, color: COLORS.cyan });
+  }
+  for (const [meter, icon, v] of [['heat', 'HEAT', hazard.heat], ['rad', 'RAD', cargo.rad]]) {
+    if (v < 1) continue;
+    const f = v / H, lv = level(f, warnSteps(meter)), rate = hazard.rate[meter], eta = Status.eta(v, H, rate);
+    items.push({ icon, f, color: LEVEL_COLOR[lv], critical: lv === 2, ...(Status.timerShown(eta) ? { tail: `${Math.ceil(eta)}s` } : { trend: Status.trend(rate, H) }) });
+  }
+  if (SHIP.fuel && (o.takeoff !== undefined || cargo.fuel < SHIP.fuel - 0.5)) {
+    const f = cargo.fuel / SHIP.fuel, short = o.takeoff !== undefined && cargo.fuel + 1e-6 < o.takeoff;
+    const low = f <= warnSteps('fuel')[0] || short, it = { icon: 'FUEL', color: low ? COLORS.hostile : COLORS.hud, critical: short || f <= warnSteps('fuel').at(-1) };
+    const dashes = Status.dashesLeft(cargo.fuel, dashFuel());
+    if (o.takeoff !== undefined) Object.assign(it, { f, mark: clamp(o.takeoff / SHIP.fuel, 0, 1) });
+    else if (dashes <= 5) it.pips = [dashes, 5];
+    else Object.assign(it, { f, tail: `×${dashes}` });
+    items.push(it);
+  }
+  const room = Math.max(barW, Math.min(view.w * 0.6, 420 * k));
+  const pipW = Math.round(6 * k), triW = Math.round(7 * k);
+  const widthOf = (it) => is + 5 * k
+    + (it.f !== undefined ? gw + 5 * k : 0)
+    + (it.pips ? it.pips[1] * (pipW + 3 * k) : 0)
+    + (it.tail ? ctx.measureText(it.tail).width + 3 * k : 0)
+    + (it.trend === 'up2' ? 2 * triW + 3 * k : it.trend === 'up' || it.trend === 'down' ? triW + 3 * k : 0);
+  let x = left, ty = by - 10;
+  for (const it of items) {
+    const w = widthOf(it);
+    if (x > left && x + w > left + room) { x = left; ty -= lh; } // a new row above
+    const pulse = it.critical && !reducedMotion() ? 0.6 + 0.4 * Math.sin(now * 6) : 1;
+    const mid = ty - gh / 2 - 2;
+    ctx.fillStyle = it.color;
+    ctx.globalAlpha = 0.95 * pulse;
+    const img = glyph(it.icon, it.color);
+    if (img) ctx.drawImage(img, x, mid - is / 2, is, is);
+    let cx = x + is + 5 * k;
+    if (it.f !== undefined) {
+      ctx.globalAlpha = 0.3 * pulse;
+      ctx.fillRect(cx, mid - gh / 2, gw, gh);
+      ctx.globalAlpha = 0.95 * pulse;
+      ctx.fillRect(cx, mid - gh / 2, gw * clamp(it.f, 0, 1), gh);
+      if (it.mark !== undefined) { // the take-off cost
+        ctx.fillStyle = COLORS.bright;
+        ctx.fillRect(cx + gw * it.mark - 1, mid - gh / 2 - 3, 2, gh + 6);
+        ctx.fillStyle = it.color;
+      }
+      cx += gw + 5 * k;
+    }
+    if (it.pips) {
+      for (let i = 0; i < it.pips[1]; i++) {
+        ctx.globalAlpha = (i < it.pips[0] ? 0.95 : 0.25) * pulse;
+        ctx.fillRect(cx, mid - pipW / 2, pipW, pipW);
+        cx += pipW + 3 * k;
+      }
+      ctx.globalAlpha = 0.95 * pulse;
+    }
+    if (it.trend && it.trend !== 'flat') {
+      const n = it.trend === 'up2' ? 2 : 1, up = it.trend !== 'down', hh = triW * 0.8;
+      for (let i = 0; i < n; i++) {
+        ctx.beginPath();
+        ctx.moveTo(cx, mid + (up ? hh / 2 : -hh / 2));
+        ctx.lineTo(cx + triW, mid + (up ? hh / 2 : -hh / 2));
+        ctx.lineTo(cx + triW / 2, mid + (up ? -hh / 2 : hh / 2));
+        ctx.closePath();
+        ctx.fill();
+        cx += triW + 2 * k;
+      }
+    }
+    if (it.tail) ctx.fillText(it.tail, cx, mid + fontSize * k * 0.35);
+    x += w + 14 * k;
   }
   ctx.restore();
 }

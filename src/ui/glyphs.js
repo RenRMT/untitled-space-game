@@ -5,6 +5,8 @@
 //
 //   Glyphs.has(name)          whether there is a glyph for that code or name
 //   Glyphs.svg(name, size)    its <svg> markup, sized in px (aria-hidden: the label says it)
+//   Glyphs.standalone(name, color, size)   a whole SVG document with its strokes set, for an image
+//                             drawn on a canvas (the HUD's status icons, game/hud.js)
 // ES module (`Glyphs`); also runs in Node (the tests).
 
 const Glyphs = (() => {
@@ -89,6 +91,10 @@ const Glyphs = (() => {
     UTL: '<path d="M6 7.5h12v9H6z"/><path d="M3 12h3M18 12h3M9 7.5v9M15 7.5v9"/>',
     COL: '<path d="M4 4.5v15M20 4.5v15M4 12h16"/><path d="M8 7.5v9M12 7.5v9M16 7.5v9"/>',
     RAD: '<circle cx="12" cy="12" r="1.8"/><path d="M12 10.2L9.2 5.4a7 7 0 0 1 5.6 0zM13.6 12.9l5.5.1a7 7 0 0 1-2.8 4.9zM10.4 12.9l-2.7 4.8a7 7 0 0 1-2.8-4.9z"/>',
+    // The HUD's status icons (game/hud.js drawStatus): heat, a thermometer; fuel, a jerrycan (RAD,
+    // SHD, HUL and HLD are the others).
+    HEAT: '<path d="M10 14.5V5a2 2 0 0 1 4 0v9.5a4 4 0 1 1-4 0z"/><path d="M12 9v8M17.5 6h2.5M17.5 10h2.5"/>',
+    FUEL: '<path d="M6 6.5h9l3 3v11H6z"/><path d="M8.5 6.5V4h4v2.5M9 15h6"/>',
     '+': '<path d="M12 6v12M6 12h12"/>',
     // The context menu's actions in space (game/selection.js).
     dock: '<path d="M12 3v10M8 9.5l4 4 4-4"/><path d="M4 14.5V20h16v-5.5"/>',
@@ -109,6 +115,7 @@ const Glyphs = (() => {
   return {
     has: (name) => find(name) !== null,
     svg: (name, size = 24) => `<svg viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true" focusable="false">${find(name)}</svg>`,
+    standalone: (name, color, size = 24) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${find(name)}</svg>`,
     get names() { return Object.keys(ICONS); },
   };
 })();

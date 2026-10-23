@@ -193,8 +193,10 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
   let queue = [];
   let clock = 0;
   const href = `http://localhost/index.html${search}`;
+  // An image (the HUD's status icons, drawn from SVG): loaded at once, so drawing it is checked.
+  class Image { constructor() { Object.assign(this, { complete: true, naturalWidth: 48, width: 48, height: 48, src: '' }); } }
   const globals = {
-    document, localStorage, Path2D, DOMMatrix,
+    document, localStorage, Path2D, DOMMatrix, Image,
     innerWidth: width, innerHeight: height, devicePixelRatio: dpr,
     location: { search, href, pathname: '/index.html' },
     history: { replaceState() {} },

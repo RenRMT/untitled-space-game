@@ -32,7 +32,7 @@ import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
-import { hazard, meterWarnings } from './hazards.js';
+import { hazard, meterWarnings, trackMeters } from './hazards.js';
 import { SURFACE_SPEED, landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
 import { dashSafe } from './dash.js';
@@ -84,7 +84,7 @@ export function siteScan(e) {
 }
 
 const holdFill = () => (SHIP.cargo ? cargo.items.length / SHIP.cargo : 0);
-const takeoffNeed = (site = surfaceRun.site) => Hazards.takeoffFuel(site.gravity, holdFill());
+export const takeoffNeed = (site = surfaceRun.site) => Hazards.takeoffFuel(site.gravity, holdFill());
 
 // How close (x, y) is to the site's hazards, the vents or storm pockets: 1 by one, 0 away from them.
 function hazardNear(W, site, x, y) {
@@ -228,6 +228,7 @@ export function tickSurface(dt) {
   }
   if (exp.dust && !before?.dust) { notify('Dust storm · the wind pushes the ship, and you can see less', 3, { tone: 'warn' }); Feedback.emit('hazard'); }
   if (vent > 0.5) once('vent', 'Over a hot vent · it heats the ship');
+  trackMeters(dt);
   meterWarnings();
   pickUp(C, dt);
   autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
