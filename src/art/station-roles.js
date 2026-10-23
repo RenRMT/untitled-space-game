@@ -1,6 +1,7 @@
 // Station roles: refinery, factory, shipyard, research station and command center, each built in a
 // culture's design language (module shapes, tanks, arrays, palette). Where a culture's existing
-// major station already fits a role (EXISTING), create() returns that station instead.
+// major station already fits a role (EXISTING), create() returns that station instead. A size
+// ('major' or 'minor', as world/solar-system.js sizes stations) scales a build to match.
 // Blueprints draw in both styles like any other (art/render.js treats them as stations).
 // ES module (`ArtStationRoles`).
 
@@ -16,6 +17,7 @@ const ArtStationRoles = (() => {
   // The role each culture's existing major station takes: the wheel and the hive are seats of
   // power, the lattice is industry, the crystal star and the monolith are instruments.
   const EXISTING = { wedge: 'command', block: 'factory', shard: 'research', alien: 'command', android: 'research', kitbash: 'command' };
+  const SCALE = { major: 1.2, minor: 0.75 };
 
   const P = (pts, x, y, a) => pts.map((p) => U.add(U.rot(p, a), [x, y]));
   const NEUTRAL = new Set(['glass', 'accent', 'dark', 'panel', 'strut', 'flame']);
@@ -374,10 +376,10 @@ const ArtStationRoles = (() => {
   const BUILD = { refinery, factory, shipyard, research, command };
 
   // A role in the culture's language, always newly built.
-  function build(role, culture, seed = 1) {
+  function build(role, culture, seed = 1, size = 'major') {
     const s = seed >>> 0, r = mulberry32(hashInt(s, 20 + ROLES.indexOf(role), culture.seed));
-    const b = B.builder('station-' + role, culture, s);
-    const R = 110 * (0.92 + r() * 0.16);
+    const b = B.builder(`station-${role}-${size}`, culture, s);
+    const R = 110 * (SCALE[size] || 1) * (0.92 + r() * 0.16);
     BUILD[role](b, culture, r, R);
     if (culture.lineage === 'kitbash') {
       B.addPatches(b, culture, r, U.circle(0, 0, R * 0.6, 12), R * 0.1, 5);
@@ -390,10 +392,10 @@ const ArtStationRoles = (() => {
   }
 
   const existingRole = (culture) => EXISTING[culture.lineage] || null;
-  // The culture's existing major station where it fits the role, else a new build.
-  function create(role, culture, seed = 1) {
-    if (existingRole(culture) === role) { const bp = B.create('station-major', culture, seed); bp.role = role; return bp; }
-    return build(role, culture, seed);
+  // The culture's existing station (of that size) where it fits the role, else a new build.
+  function create(role, culture, seed = 1, size = 'major') {
+    if (existingRole(culture) === role) { const bp = B.create(`station-${size}`, culture, seed); bp.role = role; return bp; }
+    return build(role, culture, seed, size);
   }
 
   return { ROLES, LABEL, DESC, EXISTING, existingRole, create, build };

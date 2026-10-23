@@ -1,7 +1,8 @@
 // The flight view's things in space, built once from a generated galaxy (world/galaxy.js: every solar
 // system in one space) and its cultures (art/culture.js):
 // - the stars, planets, moons, and the nebulae (drawn under everything),
-// - stations in their culture, with their markets (rules/economy.js), and jump gates,
+// - stations in their culture, with their markets (rules/economy.js), each drawn as what it does
+//   (art/station-roles.js), and jump gates,
 // - asteroids, each with the stable key the system gave it, so a mined one can stay gone,
 // - gas pockets in the nebulae (drawn as small clouds of their nebula's type, art/bodies.js), keyed the same way,
 // - wrecks: hidden derelicts, ambush victims and the salvage yard's, each with things floating
@@ -13,6 +14,7 @@
 // Positions are world units. ES module (`Scene`); also runs in Node (the tests).
 
 import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtStationRoles } from '../art/station-roles.js';
 import { ArtUtil } from '../art/util.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { Entities } from './entities.js';
@@ -22,6 +24,11 @@ const Scene = (() => {
   const { TAU } = ArtUtil;
   const CELL = 5000; // grid cell size, in world units
   const MARGIN = 1200; // how far a gridded thing reaches from where it is filed (rings, pirate orbits)
+  // The art role (art/station-roles.js) of each station type, by what it does (rules/industry.js
+  // PROCESS): the capital builds ships, the hub fabricates parts, minor stations refine volatiles,
+  // the waystation runs the labs and the transport hub directs the routes. Mining camps and the
+  // salvage yard keep the plain minor station.
+  const STATION_ROLE = { capital: 'shipyard', major: 'factory', minor: 'refinery', waystation: 'research', 'transport hub': 'command' };
 
 
   function create(galaxy, cultures) {
@@ -68,7 +75,9 @@ const Scene = (() => {
     // market: { kind: 'system' | 'outpost', type } for rules/economy.js; key identifies the station.
     // culture: the culture it's built in (solar-galaxy.js CULTURES), which also sets its colour.
     const stations = galaxy.stations.map((s) => {
-      const art = ArtBlueprints.create(s.size === 'major' ? 'station-major' : 'station-minor', cultures.of(s.culture), s.seed);
+      const role = STATION_ROLE[s.market?.type];
+      const art = role ? ArtStationRoles.create(role, cultures.of(s.culture), s.seed, s.size)
+        : ArtBlueprints.create(s.size === 'major' ? 'station-major' : 'station-minor', cultures.of(s.culture), s.seed);
       return add({
         kind: 'station', art, name: s.name, culture: s.culture, color: galaxy.cultureColor(s.culture),
         spin: mulberry32(s.seed)() * TAU, radius: art.radius, key: s.key, market: s.market, station: s, x: s.x, y: s.y,
