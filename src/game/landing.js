@@ -50,11 +50,12 @@ import { drag } from './input.js';
 import { artStyle, moveMode } from './options.js';
 import { placeShip } from './outfitting.js';
 import { select, selected } from './selection.js';
+import { drawHazardScreen, flameThrust } from './screen-fx.js';
 import { drawStarfield } from './starfield.js';
 import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles, setMode, ship, view } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
-import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceWind, tickSurface } from './surface-run.js';
+import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
 import { updateCombatPanel } from './combat.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
@@ -431,9 +432,13 @@ export function drawLanding(time) {
   ctx.translate(v.ox, v.oy - z * st);
   if (L.phase === 'surface') drawDashRing(0, 0, SHIP.radius * SURFACE_SCALE * 1.9, 1.5); // the dash coming back (game/dash.js)
   ctx.scale(k, k);
-  Art.drawAsset(ctx, ship.art, style, { angle: C.angle, t: time, thrust: C.thrust });
+  Art.drawAsset(ctx, ship.art, style, { angle: C.angle, t: time, thrust: flameThrust(C.thrust, time) }); // sputtering on a low tank
   ctx.restore();
-  if (L.phase === 'surface') { drawSurfaceWeather(view.w, view.h, time); updateCombatPanel(); }
+  if (L.phase === 'surface') {
+    drawSurfaceWeather(view.w, view.h, time);
+    if (!L.wrecked) drawHazardScreen(view.w, view.h, time); // heat, radiation, cracks, the shields (game/screen-fx.js)
+    updateCombatPanel();
+  }
   drawSurfaceMinimap();
   drawSurfaceHud();
   buildAhead();
@@ -511,9 +516,10 @@ function drawSurfaceHud() {
   for (const [text, color] of lines) { ctx.fillStyle = color; ctx.fillText(text, left, y); y += lh; }
   ctx.restore();
   drawEventLog(left, y + 6, room);
-  // The speed bar, hold and hull, as in space; the speed a share of the surface's top speed.
+  // The speed bar and the status icons, as in space; the speed a share of the surface's top speed,
+  // and the take-off cost marked on the fuel gauge.
   const C = L.craft;
-  drawStatus(Math.hypot(C.vx, C.vy) / (SHIP.maxSpeed * SURFACE_SPEED || 1), ship.targetSpeed / (SHIP.maxSpeed || 1));
+  drawStatus(Math.hypot(C.vx, C.vy) / (SHIP.maxSpeed * SURFACE_SPEED || 1), ship.targetSpeed / (SHIP.maxSpeed || 1), undefined, L.phase === 'surface' && surfaceRun.site ? { takeoff: takeoffNeed() } : {});
 }
 
 // For the performance overlay: the chunks (how many are kept, built a second, the time spent on

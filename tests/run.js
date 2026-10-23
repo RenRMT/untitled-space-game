@@ -46,6 +46,8 @@ import { JobTexts } from '../src/story/job-texts.js';
 import { Jobs } from '../src/story/jobs.js';
 import { Missions } from '../src/story/missions.js';
 import { Glyphs } from '../src/ui/glyphs.js';
+import { Status } from '../src/rules/status.js';
+import { ScreenFx } from '../src/rules/screen-fx.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -3114,10 +3116,66 @@ test('every icon code the UI uses has a line icon', () => {
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
   for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
-    'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach']) codes.add(c);
+    'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach',
+    'HLD', 'HUL', 'SHD', 'HEAT', 'RAD', 'FUEL']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
   const missing = [...codes].filter((c) => !Glyphs.has(c));
   assert.deepStrictEqual(missing, [], 'codes with no icon');
   for (const n of Glyphs.names) assert.match(Glyphs.svg(n, 20), /^<svg viewBox="0 0 24 24" width="20" height="20"[^>]*>.+<\/svg>$/);
+});
+
+test('status icons: a meter\'s trend, the seconds left near its limit, and the dashes a tank holds', () => {
+  // The rate eases toward what the meter did, a second.
+  let rate = 0;
+  for (let i = 0; i < 180; i++) rate = Status.smooth(rate, 15 / 60, 1 / 60); // +15 a second for 3 s
+  assert(Math.abs(rate - 15) < 0.1, `rate ${rate}`);
+  assert.strictEqual(Status.smooth(3, 1, 0), 3, 'no time, no change');
+  assert.strictEqual(Status.trend(15, 100), 'up2'); // the lava's day side
+  assert.strictEqual(Status.trend(0.8, 100), 'up'); // a moon's radiation
+  assert.strictEqual(Status.trend(0, 100), 'flat');
+  assert.strictEqual(Status.trend(-6, 100), 'down'); // shedding
+  assert.strictEqual(Status.eta(70, 100, 15), 2);
+  assert.strictEqual(Status.eta(70, 100, -6), null, 'falling: never full');
+  assert.strictEqual(Status.eta(100, 100, 5), null);
+  assert(Status.timerShown(12) && Status.timerShown(20) && !Status.timerShown(21) && !Status.timerShown(null));
+  assert.strictEqual(Status.dashesLeft(9, 2), 4);
+  assert.strictEqual(Status.dashesLeft(8, 4), 2, 'the ice planet: dashes cost twice');
+  assert.strictEqual(Status.dashesLeft(1.9, 2), 0);
+  assert.strictEqual(Status.dashesLeft(6, 2), 3, 'a whole dash despite rounding');
+});
+
+test('screen effects: nothing below a meter\'s first warning, full at its top; cracks by stage; a sputtering flame only on a low tank', () => {
+  const C = ScreenFx.config;
+  for (const m of ['heat', 'rad']) {
+    assert.strictEqual(ScreenFx.levels({ [m]: C[m][0] - 0.01 })[m], 0, m);
+    assert.strictEqual(ScreenFx.levels({ [m]: C[m][1] })[m], 1, m);
+    const mid = ScreenFx.levels({ [m]: (C[m][0] + C[m][1]) / 2 })[m];
+    assert(mid > 0 && mid < 1, `${m} ${mid}`);
+  }
+  assert.deepStrictEqual(ScreenFx.levels({}), { heat: 0, rad: 0, fuel: 0 });
+  assert.strictEqual(ScreenFx.levels({ fuel: 0.5 }).fuel, 0);
+  assert.strictEqual(ScreenFx.levels({ fuel: 0 }).fuel, 1);
+  assert.deepStrictEqual([1, 0.5, 0.49, 0.25, 0.2, 0.1, 0.05].map(ScreenFx.crackStage), [0, 0, 1, 1, 2, 2, 3]);
+  // Seeded and stable: the same cracks for a seed, and each stage keeps the ones before.
+  assert.deepStrictEqual(ScreenFx.cracks(7, 2), ScreenFx.cracks(7, 2));
+  assert.notDeepStrictEqual(ScreenFx.cracks(7, 2), ScreenFx.cracks(8, 2));
+  assert.deepStrictEqual(ScreenFx.cracks(7, 0), []);
+  const one = ScreenFx.cracks(7, 1), three = ScreenFx.cracks(7, 3);
+  assert.deepStrictEqual(three.slice(0, one.length), one);
+  assert(three.length > one.length);
+  for (const c of three) {
+    assert(c.corner >= 0 && c.corner <= 3 && c.pts.length >= 2);
+    for (const [x, y] of c.pts) assert(x >= 0 && y >= 0 && x < 0.6 && y < 0.6, `in from the corner: ${x}, ${y}`);
+  }
+  // The flame: as is on a healthy tank; on a low one it chokes now and then, never flaring.
+  for (let t = 0; t < 5; t += 0.05) assert.strictEqual(ScreenFx.sputter(0.8, 0.5, t), 0.8);
+  let gaps = 0;
+  for (let t = 0; t < 30; t += 0.09) {
+    const v = ScreenFx.sputter(1, 0.05, t, 3);
+    assert(v > 0 && v <= 1);
+    if (v < 0.2) gaps++;
+  }
+  assert(gaps > 30 && gaps < 250, `gaps ${gaps}`);
+  assert.strictEqual(ScreenFx.sputter(0, 0.05, 1), 0, 'no thrust, no flame');
 });
 
 if (failed) {

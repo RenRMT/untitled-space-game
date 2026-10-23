@@ -422,15 +422,45 @@ logistics screens, 6f research per station and market specialties.
   hydrazine cheap, the fabricator electronics (and stocks every category), the transport hub a
   little of everything; the ore works, salvage yard, shipyard and waystation as before.
 
-## Later
+## Hazards at a glance, as built (October 2026)
 
-- **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →
-  `fightMode().start`), so `game/update.js` frames the ship and the rock (its `fight.s.focus`
-  branch) and shifts the frame for the old combat panel, instead of leading the ship as in plain
-  flight. Skip that branch in `mining` mode.
-- **Hazards seen on the screen, not only in the gauges:** static and grain rising with radiation,
-  cracks at the screen's edge as the hull runs low, a red vignette with heat; still to think of
-  something for low fuel and a dropped shield.
+What a meter says, and how urgent it is, had been text and gauges: heat at 60% came as a gauge, a log
+notice and a HUD line, and never said what you act on, which is how fast it's changing. A look at
+how other games show this (No Man's Sky's hazard bar with drain arrows and no number, Subnautica's
+oxygen and voice warnings, Dredge's one eye icon, Elite's heat % and fogged canopy, Dead Space's
+spine, Lethal Company's near-empty HUD, S.T.A.L.K.E.R.'s grain) found three layers, and no game in
+the genre with every meter as a number all the time:
+- **a glance:** a small icon, only while it matters, giving the state and the direction;
+- **urgency near the limit:** the screen, the sound and the vibration change;
+- **events once:** text when something happens, not as a level passes a step.
+The kinds of meter want different things: the hazards (heat, radiation) are timers, so the trend
+and the seconds left; fuel is a budget, so what it buys; hull and shield are buffers.
+
+- **Status icons** (`game/hud.js` `drawStatus`, `rules/status.js`): bottom left, in place of the
+  gauges, each a line icon (`ui/glyphs.js`: HEAT, RAD, FUEL, HUL, SHD, HLD, drawn on the canvas from
+  `Glyphs.standalone`) with a small gauge:
+  - heat and radiation: ▲, ▲▲ (past 4% of the max a second) or ▼, from the meter's own rate smoothed
+    over half a second (`trackMeters`, in space and on a surface alike); once the limit is 20 s off
+    or less, the seconds left take the arrows' place;
+  - fuel: five pips for the dashes left once five or fewer are (`dashFuel`: twice on the ice
+    planet), else the gauge and ×n; on a surface the gauge with the take-off cost marked, red when
+    the tank is short of it;
+  - calm, then amber past a meter's first warning step, then red and pulsing at the last.
+- **The log carries events:** the steps between (heat 60%, radiation 50 and 75%, fuel 25%) only
+  vibrate; the last (heat 85%, radiation 90%, fuel 10%) still gets a notice. The shields breaking is
+  a new event (a notice and a vibration).
+- **On the screen** (`game/screen-fx.js`, `rules/screen-fx.js`), each its own look, so they're told
+  apart without colour, growing from the first warning step to the limit:
+  - heat: a warm glow in from the edges, breathing, turning red;
+  - radiation: grain over everything (noise tiles made once), with lines of static near the limit;
+  - the hull below 50, 25 and 10%: cracks in the corners, a few more at each step, seeded and kept
+    until a repair;
+  - the shields breaking: a crackle along the edges for a moment, then a faint flicker every few
+    seconds while they're down;
+  - low fuel on the ship: below 25% the engine flame sputters, choking more often as it empties.
+  With reduced motion nothing breathes, flickers or crawls.
+- **The camera while mining** leads the ship as in plain flight (`game/update.js`: the fight's
+  framing only in a fight with ships).
 
 ## 1. Extraction: real-time combat pointed at rocks
 

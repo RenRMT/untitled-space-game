@@ -13,6 +13,7 @@ import { drawDashRing } from './dash.js';
 import { industry } from './industry.js';
 import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
+import { flameThrust } from './screen-fx.js';
 import { warpShipScale } from './warp.js';
 import { world } from './world.js';
 
@@ -112,7 +113,7 @@ export function drawShip(t) {
   ctx.save();
   ctx.translate(rx(ship.x), ry(ship.y));
   if (k !== 1) ctx.scale(k, k);
-  Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
+  Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: flameThrust(ship.thrust, t) }); // sputtering on a low tank
   ctx.restore();
   drawDashRing(rx(ship.x), ry(ship.y), SHIP.radius * 1.9, 1.5 / view.zoom); // the dash coming back (game/dash.js)
 }

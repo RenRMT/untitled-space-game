@@ -6,7 +6,9 @@
 // vibration as a meter fills (or fuel falls); a full meter disables the ship, which is lost and
 // towed home (game/combat.js wreck), its hold left where it was, to go back for.
 // Also what's drawn of them: the belts (with their gaps), the shadows while a flare comes, a glow
-// over the screen in a flare's wave, and the HUD's warning line.
+// over the screen in a flare's wave, and the HUD's warning line. Each step (here and on a surface)
+// also tracks how fast heat and radiation are changing, for the HUD's status icons
+// (rules/status.js), and notes the moment the shields break (game/screen-fx.js draws it).
 // Only in open flight: not docked, landing, jumping, in the introduction or wrecked. On a planet's
 // surface game/surface-run.js does the same with that surface's hazards.
 // Part of the flight view; src/main.js starts it.
@@ -14,8 +16,9 @@
 import { Feedback } from '../core/feedback.js';
 import { COLORS } from '../core/theme.js';
 import { Hazards } from '../rules/hazards.js';
+import { Status } from '../rules/status.js';
 import { cargo, saveCargo } from './cargo.js';
-import { endExtraction, wreck } from './combat.js';
+import { endExtraction, shieldNow, wreck } from './combat.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { landing } from './landing.js';
@@ -26,21 +29,47 @@ import { warp } from './warp.js';
 import { world } from './world.js';
 
 // heat: the ship's heat now (not saved: it sheds); exp: the last step's exposure (rules/hazards.js);
-// said: the warnings given, so each is said once until its meter falls back.
-export const hazard = { heat: 0, exp: null, said: new Set() };
+// said: the warnings given, so each is said once until its meter falls back; rate: how fast heat
+// and radiation are changing (a second, smoothed: rules/status.js); seen: the meters last step;
+// broke: when the shields last broke (performance.now, s).
+export const hazard = { heat: 0, exp: null, said: new Set(), rate: { heat: 0, rad: 0 }, seen: null, broke: -Infinity };
 const WARN = { heat: [60, 85], rad: [50, 75, 90], fuel: [25, 10] }; // % at which each meter warns
 const BIG_ROCK = 24; // asteroids at least this big cast a shadow
 
 export const outOfFuel = () => cargo.fuel <= 0;
-const active = () => !docked && !intro.on && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0);
+export const active = () => !docked && !intro.on && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0);
 
-// A warning as a meter passes a step up (said again only once it has fallen below it).
-function warn(meter, pct, text, tone = 'warn') {
-  for (const step of WARN[meter]) {
+// A warning as a meter passes a step up (again only once it has fallen below it): a vibration and
+// the status icon's pulse (game/hud.js), and at the last step a notice too. The steps between are
+// levels, not events: the icons and the screen show them.
+function warn(meter, pct, text) {
+  const steps = WARN[meter], last = steps[steps.length - 1];
+  for (const step of steps) {
     const key = `${meter}:${step}`;
-    if (pct >= step && !hazard.said.has(key)) { hazard.said.add(key); notify(text(step), 3, { tone: step === WARN[meter][WARN[meter].length - 1] ? 'hostile' : tone }); Feedback.emit('hazard'); }
-    else if (pct < step - 5) hazard.said.delete(key);
+    if (pct >= step && !hazard.said.has(key)) {
+      hazard.said.add(key);
+      if (step === last) notify(text(step), 3, { tone: 'hostile' });
+      Feedback.emit('hazard');
+    } else if (pct < step - 5) hazard.said.delete(key);
   }
+}
+// The meters' warning steps, as shares (the HUD colours its icons by them).
+export const warnSteps = (meter) => WARN[meter].map((p) => p / 100);
+
+// Each step, in space or on a surface: how fast heat and radiation are changing, and the shields
+// breaking (a notice, a vibration, and the crackle game/screen-fx.js draws).
+export function trackMeters(dt) {
+  const shield = shieldNow(), was = hazard.seen;
+  if (was && dt > 0) {
+    hazard.rate.heat = Status.smooth(hazard.rate.heat, hazard.heat - was.heat, dt);
+    hazard.rate.rad = Status.smooth(hazard.rate.rad, cargo.rad - was.rad, dt);
+    if (SHIP.shield && was.shield >= 1 && shield < 0.5) {
+      hazard.broke = performance.now() / 1000;
+      notify('Shields down · the hull takes the next hit', 2.5, { tone: 'warn' });
+      Feedback.emit('hazard');
+    }
+  }
+  hazard.seen = { heat: hazard.heat, rad: cargo.rad, shield };
 }
 
 export function tickHazards(dt) {
@@ -60,6 +89,7 @@ export function tickHazards(dt) {
   if (f.phase === 'wave' && was === 'warning') { notify(exp.shadow ? `Solar flare · sheltered by ${exp.shadow.name || 'a rock'}` : 'Solar flare · exposed!', 3, { tone: exp.shadow ? 'info' : 'hostile' }); Feedback.emit('hazard'); }
   if (exp.storm && !before?.storm) notify('Ion storm · sensors dark, the ship is pushed off course', 3, { tone: 'warn' });
 
+  trackMeters(dt);
   meterWarnings();
 
   if (hazard.heat >= H.max) disable('Overheated');
@@ -71,11 +101,14 @@ export function meterWarnings() {
   const H = Hazards.config;
   warn('heat', (100 * hazard.heat) / H.max, (p) => `Heat ${p}% · ${p >= 85 ? (landing.on ? 'take off, or out of the sun!' : 'get away from the star!') : 'move out of the heat'}`);
   warn('rad', (100 * cargo.rad) / H.max, (p) => `Radiation ${p}% · ${p >= 90 ? 'dock to decontaminate now!' : 'it stays until you dock'}`);
-  const fuelPct = SHIP.fuel ? (100 * cargo.fuel) / SHIP.fuel : 0;
+  const fuelPct = SHIP.fuel ? (100 * cargo.fuel) / SHIP.fuel : 0, lastFuel = WARN.fuel[WARN.fuel.length - 1];
   for (const step of WARN.fuel) { // fuel warns as it falls
     const key = `fuel:${step}`;
-    if (fuelPct <= step && !hazard.said.has(key)) { hazard.said.add(key); notify(`Fuel ${step}% · ${step <= 10 ? 'no dashes or cruise left soon' : 'docking refuels'}`, 3, { tone: step <= 10 ? 'hostile' : 'warn' }); Feedback.emit('hazard'); }
-    else if (fuelPct > step + 5) hazard.said.delete(key);
+    if (fuelPct <= step && !hazard.said.has(key)) {
+      hazard.said.add(key);
+      if (step === lastFuel) notify(`Fuel ${step}% · no dashes or cruise left soon · docking refuels`, 3, { tone: 'hostile' });
+      Feedback.emit('hazard');
+    } else if (fuelPct > step + 5) hazard.said.delete(key);
   }
 }
 
@@ -87,7 +120,7 @@ function disable(reason) {
 }
 
 // The tow home, or docking: heat gone; docking also decontaminates (towHome and dock call these).
-export function cooled() { hazard.heat = 0; hazard.said.clear(); }
+export function cooled() { hazard.heat = 0; hazard.said.clear(); hazard.rate.heat = 0; hazard.rate.rad = 0; hazard.seen = null; }
 export function decontaminate() {
   const had = cargo.rad >= 1;
   cargo.rad = 0;

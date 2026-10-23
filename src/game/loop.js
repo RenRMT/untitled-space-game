@@ -19,7 +19,8 @@ import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
 import { drawDebris } from './mining.js';
 import { tickDash } from './dash.js';
-import { drawFlareGlow, drawHazards } from './hazards.js';
+import { active as hazardsOn, drawFlareGlow, drawHazards } from './hazards.js';
+import { drawHazardScreen } from './screen-fx.js';
 import { drawGateWork, objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
@@ -75,6 +76,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawShip(t);
   ctx.restore();
   drawFlareGlow();
+  if (hazardsOn()) drawHazardScreen(view.w, view.h, t); // heat, radiation, cracks, the shields (game/screen-fx.js)
   drawWarpOverlay();
   drawLandingOverlay();
   placeMenu();
