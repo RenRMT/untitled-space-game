@@ -13,7 +13,7 @@ import { collectItems } from './cargo.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
 import { updateFieldBar } from './field.js';
-import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
+import { drawEntities, drawHaulers, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
 import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
@@ -64,6 +64,7 @@ export function render(list = nearbyEntities(simTime)) {
   ctx.translate(-rx(cam.x), -ry(cam.y));
   drawHazards(); // radiation belts, and shadows while a flare comes (game/hazards.js)
   drawEntities(list, t);
+  drawHaulers();
   drawSelection(t);
   drawFight();
   drawDebris();

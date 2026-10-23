@@ -10,7 +10,7 @@
 // looks again whenever the stocks change (Industry.kick).
 //
 //   route: { id, name, shuttle (station key) | null, cap, stops: [stop], haulers: [hauler] }
-//   stop: { station (key), name, load: spec, unload: spec, keep: { [kind]: n }, travel (ms to the next stop) }
+//   stop: { station (key), name, load: spec, unload: spec, keep: { [kind | '*' (every kind)]: n }, travel (ms to the next stop) }
 //     spec: 'all' (every kind) | 'made' (what the station's orders make) | { [kind]: n | 'all' } (up to n a visit)
 //   hauler: { stop (the stop it's at, or flying to), at (when it left, or arrived), next (arrival, ms) | null (waiting), load: { [kind]: n } }
 //
@@ -60,7 +60,7 @@ const Logistics = (() => {
     for (const kind of keys(stock)) {
       if (space <= 0) break;
       if (moves.some((m) => m.kind === kind)) continue; // not straight back aboard
-      const n = Math.min(stock[kind] - (s.keep[kind] || 0), amount(s.load, kind, made), space);
+      const n = Math.min(stock[kind] - (s.keep[kind] ?? s.keep['*'] ?? 0), amount(s.load, kind, made), space);
       if (n > 0) { moves.push({ kind, n, out: false }); space -= n; }
     }
     return moves;
@@ -110,7 +110,7 @@ const Logistics = (() => {
     };
     const stops = d.stops.filter((s) => s && typeof s.station === 'string').map((s) => ({
       station: s.station, name: String(s.name || s.station), load: spec(s.load), unload: spec(s.unload),
-      keep: Object.fromEntries(Object.entries(s.keep && typeof s.keep === 'object' ? s.keep : {}).filter(([k, n]) => isKind(k) && whole(n) > 0).map(([k, n]) => [k, whole(n)])),
+      keep: Object.fromEntries(Object.entries(s.keep && typeof s.keep === 'object' ? s.keep : {}).filter(([k, n]) => (k === '*' || isKind(k)) && whole(n) > 0).map(([k, n]) => [k, whole(n)])),
       travel: whole(s.travel),
     }));
     if (stops.length < 2) return null;

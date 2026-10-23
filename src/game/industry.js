@@ -11,8 +11,10 @@ import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
+import { Logistics } from '../rules/logistics.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
+import { Restoration } from '../rules/restoration.js';
 import { SystemMap } from '../ui/map.js';
 import { addNews, addTo, cargo, devUnlock, hold, saveCargo } from './cargo.js';
 import { restoration } from './restoration.js';
@@ -24,6 +26,10 @@ let lastCheck = 0;
 
 // The scene's station with this key, or null.
 const stationOf = (key) => world.scene?.stations.find((s) => s.key === key) || null;
+// A hauler's time between two stations, by the distance between them.
+const legTime = (a, b) => { const p = stationOf(a), q = stationOf(b); return Logistics.legTime(p && q ? Math.hypot(p.x - q.x, p.y - q.y) : 0); };
+// Routes from the transport hub, and haulers a route, before the hub's research.
+export const ROUTES = { routes: 2, haulers: 1 };
 
 export const industry = {
   get state() { return cargo.industry; },
@@ -81,6 +87,56 @@ export const industry = {
   pause: (id, paused = true) => industry.change((s, e, now) => Industry.pause(s, id, paused, e, now)),
   cancel: (id) => industry.change((s) => Industry.cancel(s, id)),
   move: (i, j) => industry.change((s) => Industry.move(s, i, j)),
+  // ---------- Logistics (rules/logistics.js) ----------
+  // The stations online, but the one docked at: where a shuttle can go, or a route stop.
+  stations: () => (world.scene?.stations || []).filter((s) => restoration.online(s.key)).map((s) => ({ key: s.key, name: s.name })),
+  // The station docked at: whether it has a shuttle, where it goes (a route, or null), and sending it.
+  hasShuttle: () => !!industry.here && restoration.shuttle(industry.here.key),
+  shuttleLater: () => !!industry.here && Restoration.LIST.some((p) => p.shuttle === restoration.typeOf(industry.here.key)),
+  shuttle: () => (industry.here ? Industry.shuttle(cargo.industry, industry.here.key) : null),
+  sendTo(key) {
+    if (!industry.hasShuttle() || key === industry.here.key) return false;
+    const to = key ? industry.stations().find((s) => s.key === key) : null;
+    if (key && !to) return false;
+    const from = { key: industry.here.key, name: industry.here.name };
+    return industry.change((s, e, now) => { Industry.setShuttle(s, from, to, to ? legTime(from.key, to.key) : 0, e, now); });
+  },
+  // Routes, set up at the transport hub once it's restored.
+  atHub: () => !!industry.here && industry.here.type === 'transport hub' && industry.online(),
+  routeLimit: () => ROUTES.routes,
+  haulerLimit: () => ROUTES.haulers,
+  routes: () => cargo.industry.routes.filter((r) => !r.shuttle),
+  // stops: [{ station (key), load, unload, keep }], in order.
+  addRoute(stops, haulers = 1) {
+    if (!industry.atHub() || industry.routes().length >= industry.routeLimit() || stops.length < 2) return false;
+    const names = Object.fromEntries(industry.stations().map((s) => [s.key, s.name]));
+    if (!stops.every((s) => names[s.station])) return false;
+    const full = stops.map((s, i) => ({ ...s, name: names[s.station], travel: legTime(s.station, stops[(i + 1) % stops.length].station) }));
+    const name = stops.map((s) => names[s.station]).join(' → ');
+    return industry.change((st, e, now) => { Industry.addRoute(st, full, { name, haulers: Math.min(haulers, industry.haulerLimit()) }, e, now); });
+  },
+  removeRoute: (id) => industry.atHub() && industry.change((s) => Industry.removeRoute(s, id)),
+  // Where each hauler is, for drawing (game/draw-world.js): [{ x, y, angle, loaded }], flying between
+  // its stops on the real clock, or parked beside the station it waits at.
+  haulerSpots(now = Clock.now()) {
+    const out = [];
+    for (const r of cargo.industry.routes) {
+      r.haulers.forEach((h, i) => {
+        const to = stationOf(r.stops[h.stop].station);
+        if (!to) return;
+        const loaded = Object.keys(h.load).length > 0;
+        if (h.next == null) {
+          const a = i * 1.3 + r.id;
+          out.push({ x: to.x + Math.cos(a) * (to.radius + 60), y: to.y + Math.sin(a) * (to.radius + 60), angle: a + Math.PI / 2, loaded });
+          return;
+        }
+        const from = stationOf(r.stops[(h.stop - 1 + r.stops.length) % r.stops.length].station) || to;
+        const p = Math.max(0, Math.min(1, (now - h.at) / Math.max(1, h.next - h.at)));
+        out.push({ x: from.x + (to.x - from.x) * p, y: from.y + (to.y - from.y) * p, angle: Math.atan2(to.y - from.y, to.x - from.x), loaded });
+      });
+    }
+    return out;
+  },
   // A map marker on an order's station, for the flight view to point the way.
   mark(key) {
     const st = stationOf(key);
@@ -124,3 +180,5 @@ export function tickIndustry() {
   lastCheck = now;
   industry.settle();
 }
+
+SystemMap.routes = () => cargo.industry.routes.map((r) => r.stops.map((s) => stationOf(s.station)).filter(Boolean));

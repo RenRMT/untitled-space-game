@@ -17,6 +17,7 @@
 //       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last) }: an order here, to place or change
 //       { mode: 'view', id }: an order anywhere, to pause, cancel, reorder or mark on the map
 //       { mode: 'input', id, kind, need }: an input of an order here, and its lineage
+//       { mode: 'route', stops: [{ station, load, unload, keep }], haulers }: a new route, at the transport hub
 // ES module (`IndustryView`); needs a browser.
 
 import { Goods } from '../rules/goods.js';
@@ -192,11 +193,11 @@ const IndustryView = {
         return env.section('Orders here', h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B?.code || 'IND', 28, { code: B?.code || 'IND' }),
           h('span', { class: 'go' }, 'Offline'), h('span', {}, `Restore ${here.name} at the waystation`))));
       }
-      if (!B) return env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
+      if (!B) return ind().atHub() ? null : env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       const orders = ind().orders(), max = ind().slots();
       const title = h('div', { class: 'pr-title' }, h('h2', { class: 'ui-title' }, B.label),
         h('span', { class: 'aside num' }, ind().trusted() ? `${orders.length}/${max} orders` : 'Locked'));
-      const explain = env.explain('production', 'Production orders make goods from this station\'s stock in real time, even while you\'re away. Each station works one process of the chain and keeps its own stock: what one order makes goes to the next by your hold.');
+      const explain = env.explain('production', 'Production orders make goods from this station\'s stock in real time, even while you\'re away. Each station works one process of the chain and keeps its own stock: what one order makes goes to the next in your hold, or by a shuttle or route.');
       if (!ind().trusted()) {
         return env.section('Orders here', title, explain,
           h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B.code, 28, { code: B.code }),
@@ -291,7 +292,7 @@ const IndustryView = {
             title: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1 ? 'Your hold is full' : undefined,
           }),
         })) : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
-        env.explain('storage', 'Each station keeps its own stock: what an order makes here stays here until you take it away in your hold.'),
+        env.explain('storage', 'Each station keeps its own stock: what an order makes here stays here until you take it away in your hold, or a shuttle or route moves it.'),
         held ? h('p', { class: 'ui-note' }, `${held} kept free for runs under way.`) : null);
     }
     function aboard() {
@@ -381,6 +382,80 @@ const IndustryView = {
         }))] : null]));
     }
 
+    // ---------- Logistics: the shuttle here, and routes (rules/logistics.js) ----------
+
+    const LOAD = [['none', 'Nothing'], ['made', 'What it makes'], ['all', 'Everything']];
+    const UNLOAD = [['none', 'Nothing'], ['all', 'Everything']];
+    const KEEP = [0, 5, 10, 25];
+    const specOf = (id) => (id === 'none' ? {} : id);
+    const specId = (spec) => (typeof spec === 'string' ? spec : 'none');
+    const cargoText = (load) => list(load) || 'empty';
+    // Where each of a route's haulers is: flying to a stop (and how long), or waiting at one.
+    function haulers(r) {
+      const now = ind().now();
+      return r.haulers.map((x) => {
+        const at = r.stops[x.stop].name;
+        return x.next == null ? `Waiting at ${at} · ${cargoText(x.load)}` : `To ${at} · ${duration(x.next - now)} · ${cargoText(x.load)}`;
+      });
+    }
+    function shuttleSection() {
+      if (!ind().online() || !ind().bays().length) return null;
+      if (!ind().hasShuttle()) {
+        return !ind().shuttleLater() ? null : env.section('Shuttle', Kit.head('Shuttle'),
+          h('p', { class: 'ui-empty' }, 'No shuttle here yet: restore one at the waystation, and what this station makes is flown wherever you send it.'));
+      }
+      const r = ind().shuttle(), dest = r ? r.stops[1].station : null;
+      const others = ind().stations().filter((s) => s.key !== ind().here.key);
+      return env.section('Shuttle',
+        Kit.head('Shuttle', h('span', { class: 'aside' }, r ? `to ${r.stops[1].name}` : 'Idle')),
+        env.explain('shuttle', 'The shuttle takes what the orders here make to the station you pick, and comes back for more. It flies while you\'re away too.'),
+        h('span', { class: 'ui-label' }, 'Send what\'s made here to'),
+        Kit.choices([{ id: '', label: 'Nowhere', on: !dest }, ...others.map((s) => ({ id: s.key, label: s.name, on: s.key === dest }))],
+          (id) => { ind().sendTo(id || null); env.refresh(); }, { label: 'Send to' }),
+        r ? h('p', { class: 'ui-note' }, haulers(r).join(' · ')) : null);
+    }
+    function routesSection() {
+      const routes = ind().routes(), hub = ind().atHub();
+      if (!hub && !routes.length) return null;
+      const max = ind().routeLimit();
+      return env.section('Routes',
+        Kit.head('Routes', h('span', { class: 'aside num' }, hub ? `${routes.length}/${max}` : `${routes.length}`)),
+        env.explain('routes', 'A route is a loop of stations. At each stop its haulers unload, then load, never taking a stock below what the stop keeps.'),
+        routes.length ? h('div', { class: 'ui-list' }, routes.map((r) => Kit.optionRow({
+          code: 'TRD', name: r.name || `Route ${r.id}`,
+          sub: r.stops.map((s) => `${s.name}: ${{ none: '', made: 'loads what it makes', all: 'loads all' }[specId(s.load)]}${specId(s.unload) === 'all' ? `${specId(s.load) === 'none' ? '' : ', '}unloads` : ''}${s.keep['*'] ? `, keeps ${s.keep['*']}` : ''}`).join(' → '),
+          extra: h('span', { class: 'ui-note' }, haulers(r).join(' · ')),
+          action: hub ? Kit.button('Remove', env.act(() => ind().removeRoute(r.id)), { kind: 'warn', aria: `Remove the route ${r.name}` }) : null,
+        }))) : h('p', { class: 'ui-empty' }, 'No routes yet.'),
+        hub ? Kit.button('New route', () => env.showOrder({ mode: 'route', stops: [], haulers: 1 }), { kind: 'ghost', disabled: routes.length >= max, title: routes.length >= max ? 'No more routes: research more at the transport hub' : undefined })
+          : h('p', { class: 'ui-note' }, 'Routes are set up at the transport hub.'));
+    }
+    function routeSheet(open) {
+      if (!ind().atHub()) return null;
+      const stations = ind().stations(), nameOf = (key) => stations.find((s) => s.key === key)?.name || key;
+      const set = (i, change) => env.setOrder({ stops: open.stops.map((s, j) => (j === i ? { ...s, ...change } : s)) });
+      const body = [h('span', { class: 'ui-label' }, 'Stops, in order')];
+      open.stops.forEach((s, i) => body.push(h('div', { class: 'pr-stop' },
+        h('div', { class: 'pr-status' }, h('span', { class: 'txt' }, `${i + 1}. ${nameOf(s.station)}`),
+          Kit.button('Remove', () => env.setOrder({ stops: open.stops.filter((_, j) => j !== i) }), { kind: 'ghost', aria: `Remove stop ${i + 1}` })),
+        h('span', { class: 'ui-label' }, 'Load'),
+        Kit.choices(LOAD.map(([id, label]) => ({ id, label, on: specId(s.load) === id })), (id) => set(i, { load: specOf(id) }), { label: `Load at stop ${i + 1}` }),
+        h('span', { class: 'ui-label' }, 'Unload'),
+        Kit.choices(UNLOAD.map(([id, label]) => ({ id, label, on: specId(s.unload) === id })), (id) => set(i, { unload: specOf(id) }), { label: `Unload at stop ${i + 1}` }),
+        h('span', { class: 'ui-label' }, 'Keep at least'),
+        Kit.choices(KEEP.map((n) => ({ id: String(n), label: n ? `${n}` : 'None', on: (s.keep['*'] || 0) === n })), (id) => set(i, { keep: Number(id) ? { '*': Number(id) } : {} }), { label: `Keep at stop ${i + 1}` }))));
+      body.push(h('span', { class: 'ui-label' }, 'Add a stop'),
+        Kit.choices(stations.map((s) => ({ id: s.key, label: s.name, on: false })),
+          (key) => env.setOrder({ stops: [...open.stops, { station: key, load: 'made', unload: open.stops.length ? 'all' : {}, keep: {} }] }), { label: 'Add a stop' }),
+        h('p', { class: 'ui-note' }, open.stops.length < 2 ? 'A route needs two stops or more.' : 'The haulers go round the stops in this order, and back to the first.'));
+      return {
+        title: 'New route', code: 'TRD', sub: `Transport hub · ${ind().here.name}`, tall: true, body,
+        foot: Kit.button('Set up route', env.act(() => ind().addRoute(open.stops, open.haulers), () => env.closeSheet()), {
+          kind: 'primary', lg: true, disabled: open.stops.length < 2, aria: 'Set up the route',
+        }),
+      };
+    }
+
     // ---------- Restoration (at the waystation) ----------
 
     // The projects in order: what each restores and costs, the next one with Restore. Its goods come
@@ -411,7 +486,7 @@ const IndustryView = {
     function render() {
       live = [];
       env.lead('');
-      return [ind().restoring() ? restoration() : null, ordersHere(), storage(), aboard(), pipeline()].filter(Boolean).flat();
+      return [ind().restoring() ? restoration() : null, ordersHere(), shuttleSection(), routesSection(), storage(), aboard(), pipeline()].flat().filter(Boolean);
     }
 
     // ---------- Sheets ----------
@@ -542,7 +617,7 @@ const IndustryView = {
         foot: action,
       };
     }
-    const sheet = (open) => (open.mode === 'view' ? viewSheet(open) : open.mode === 'input' ? inputSheet(open) : orderSheet(open));
+    const sheet = (open) => ({ view: viewSheet, input: inputSheet, route: routeSheet }[open.mode] || orderSheet)(open);
 
     // Every second: the running orders' meters and notes, without drawing again.
     function tick() {

@@ -392,6 +392,21 @@ logistics screens, 6f research per station and market specialties.
 - Removing a route puts what its haulers carry into the stock where each is, or is flying to.
 - Routes are saved with the industry (`Logistics.read` checks them; one shuttle per station).
 
+### Step 6e, as built: the logistics screens, and haulers in space
+
+- **Shuttle** (Production tab, at a station whose shuttle is restored): "Send what's made here to" a
+  row of the stations online (or Nowhere), set only while docked there; under it where the shuttle
+  is and what it carries. A station that will get a shuttle later says so.
+- **Routes** (Production tab): at the transport hub, once restored, the routes with their stops and
+  haulers, Remove, and New route (two at first: `ROUTES` in `game/industry.js`, more by the hub's
+  research in 6f). The New route sheet adds stops in order, each with Load (nothing, what it makes,
+  everything), Unload (nothing, everything) and Keep at least (none, 5, 10, 25 of every kind:
+  `keep['*']`). Legs are timed by the distance between the stations. Elsewhere the routes are listed
+  read-only, with "Routes are set up at the transport hub".
+- **Haulers in space** (`game/draw-world.js` `drawHaulers`, from `industry.haulerSpots`): small
+  arrowheads flying between their stops on the real clock (amber when loaded), parked beside the
+  station they wait at. Only for show. **On the map** routes are dashed loops through their stops.
+
 ## Later
 
 - **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →

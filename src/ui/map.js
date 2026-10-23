@@ -64,6 +64,7 @@ const SystemMap = (() => {
   const OBJECTIVE_COLOR = Theme.color.amber;
   let marker = null; // the player's marker: { x, y, name (null for a point) }, or null
   let offline = null; // (station key) -> whether the station is offline (drawn faded), or null
+  let routes = null; // () -> [[{ x, y }]]: each route's stops, drawn as a dashed loop, or null
   let onMarker = null; // told when the marker changes
   const MARKER_COLOR = Theme.color.marker;
   const dev = Params.has('dev');
@@ -340,6 +341,22 @@ const SystemMap = (() => {
       ctx.beginPath(); ctx.arc(mx, my, dot(m.r, 1.5), 0, Math.PI * 2); ctx.fill();
     }
 
+    // Routes and shuttles (game/industry.js): dashed loops through their stops.
+    if (routes) {
+      ctx.save();
+      ctx.strokeStyle = Theme.color.cyan;
+      ctx.globalAlpha = 0.4;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 5]);
+      for (const stops of routes()) {
+        if (stops.length < 2) continue;
+        ctx.beginPath();
+        stops.forEach((p, i) => { const [x, y] = toScreen(p.x, p.y); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        if (stops.length > 2) ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     // Stations: diamonds in their culture's colour, the capital ringed, an offline one faded. Gates: rings.
     for (const s of system.stations) {
       const [sx, sy] = toScreen(s.x, s.y), r = s.size === 'major' ? 5 : 3.5;
@@ -843,6 +860,8 @@ const SystemMap = (() => {
     set onMarker(fn) { onMarker = fn; },
     // Which stations are offline (game/restoration.js): (key) -> bool.
     set offline(fn) { offline = fn; requestDraw(); },
+    // The routes to draw (game/industry.js): () -> [[{ x, y }]].
+    set routes(fn) { routes = fn; requestDraw(); },
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,

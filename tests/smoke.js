@@ -921,6 +921,39 @@ test('restoration: at the waystation, goods from its stock and credits bring a s
   browser.frames(2);
 });
 
+test('logistics: a station\'s shuttle is sent from its Production tab; routes are set up at the transport hub', () => {
+  game(`globalThis.__T = Date.now(); Clock.now = () => __T; globalThis.__was = cargo.restored; globalThis.__loyal = { ...cargo.loyalty };
+    cargo.restored = Restoration.LIST.map((p) => p.id); trustOnline();
+    globalThis.__routesWere = cargo.industry.routes; cargo.industry.routes = [];
+    globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
+    globalThis.__hubSt = __find((e) => e.kind === 'station' && e.market.type === 'transport hub');
+    globalThis.__wayName = world.galaxy.stations[world.galaxy.waystation].name;
+    placeShip(__camp.x, __camp.y + __camp.radius + 150); dock(__camp); StationMenu.showTab('industry')`);
+  assert.match(onStation(), /ShuttleIdle.*Send what's made here to.*Nowhere/, 'the shuttle, idle');
+  pressOnStation(game('__wayName'));
+  const r = game('JSON.parse(JSON.stringify(industry.shuttle()))');
+  assert.deepStrictEqual([r.stops[0].station, r.stops[1].name, r.stops[0].load, r.stops[1].unload], [game('__camp.key'), game('__wayName'), 'made', 'all']);
+  assert.ok(r.stops[0].travel >= game('Logistics.HAULER.minLeg'), 'its legs by the distance');
+  assert.match(onStation(), new RegExp(`Shuttleto ${game('__wayName')}.*Waiting at`), 'sent, and waiting for something made');
+  // Routes: only at the transport hub. Elsewhere, none shown until there is one.
+  assert.doesNotMatch(onStation(), /Routes/);
+  game(`launch(); placeShip(__hubSt.x, __hubSt.y + __hubSt.radius + 150); dock(__hubSt); StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Routes0\/2.*No routes yet.*New route/);
+  pressOnStation('New route');
+  pressOnStation(game('__camp.name'));
+  pressOnStation(game('__wayName'));
+  assert.match(onStation(), /Stops, in order1\. .*2\. /, 'two stops');
+  game(`StationMenu.showOrder({ ...{ mode: 'route', haulers: 1 }, stops: [{ station: __camp.key, load: 'all', unload: {}, keep: { '*': 5 } }, { station: world.galaxy.stations[world.galaxy.waystation].key, load: {}, unload: 'all', keep: {} }] })`);
+  pressOnStation('Set up route');
+  assert.strictEqual(game('industry.routes().length'), 1);
+  assert.match(onStation(), /Routes1\/2.*loads all, keeps 5.*unloads.*Remove/, 'the route, listed');
+  // Haulers are drawn in space, and the routes on the map, without trouble.
+  assert.strictEqual(game('industry.haulerSpots().length'), 2, 'the shuttle and the route\'s hauler');
+  game('launch()');
+  browser.frames(3);
+  game(`cargo.industry.routes = __routesWere; cargo.restored = __was; cargo.loyalty = __loyal; Clock.now = () => Date.now()`);
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });

@@ -24,6 +24,7 @@ import { Goods } from './rules/goods.js';
 import { Hazards } from './rules/hazards.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
+import { Logistics } from './rules/logistics.js';
 import { Logic } from './rules/logic.js';
 import { Mining } from './rules/mining.js';
 import { HullMods } from './rules/hullmods.js';
@@ -89,7 +90,7 @@ requestAnimationFrame(loop.frame);
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
   Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout,
-  Logic, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {
