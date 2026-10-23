@@ -429,6 +429,7 @@
   .pr-title .aside { font: 400 12px var(--mono); color: var(--dim); white-space: nowrap; }
   .pr-order { display: flex; flex-direction: column; gap: 8px; }
   .pr-status { display: flex; align-items: center; gap: 10px; min-height: var(--hit); }
+  .pr-stop { display: flex; flex-direction: column; gap: 6px; padding: 8px 0 12px; border-top: 1px solid var(--line); }
   .pr-status .ui-tag { font-size: 13px; }
   .pr-status .txt { flex: 1; min-width: 0; font-size: 15px; color: var(--hud); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pr-board {
@@ -525,6 +526,7 @@
   .pr-lines path { fill: none; stroke: var(--cyan); stroke-opacity: 0.7; stroke-width: 1.5; }
   .pr-lines path.dim { stroke: var(--line-strong); stroke-opacity: 1; }
   .pr-lines path.gap { stroke: var(--warn); stroke-dasharray: 4 3; }
+  .pr-lines path.away { stroke-dasharray: 2 4; }
   .pr-cell { position: relative; padding: 4px 4%; min-width: 0; }
   .pr-pnode { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--line)); border-radius: var(--r-md); overflow: hidden; }
   .pr-pnode .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 0; background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }

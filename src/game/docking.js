@@ -21,6 +21,7 @@ import { artStyle } from './options.js';
 import { lab } from './lab.js';
 import { industry } from './industry.js';
 import { outfitting, placeShip } from './outfitting.js';
+import { restoration } from './restoration.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
@@ -91,6 +92,7 @@ export function dock(station) {
   missionDocked(station);
   repairSquad();
   if (decontaminate()) notify('Decontaminated · radiation cleared', 2.5, { tone: 'good' });
+  fuelling.at = station.key; // hydrazine in this station's stock goes into the tank
   refuelled();
   saveCargo();
   ship.vx = ship.vy = 0;
@@ -114,7 +116,7 @@ export function dock(station) {
     lab,
     industry,
     get kit() { return cargo.kit; },
-    shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
+    shipyard: station.market.type === 'capital' && restoration.online(station.key), // hulls: at the shipyard, restored
     repairs,
     fuelling,
     squad: programs,
@@ -142,6 +144,7 @@ export function launch() {
   Store.persist(); // a tap on Launch: a good moment to ask the browser to keep the save
   docked = null;
   industry.here = null;
+  fuelling.at = null;
   StationMenu.close();
   setMode('docked', false);
   const a = Math.atan2(ship.y - st.y, ship.x - st.x);

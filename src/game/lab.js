@@ -7,7 +7,9 @@ import { Clock } from '../core/clock.js';
 import { Params } from '../core/store.js';
 import { Goods } from '../rules/goods.js';
 import { Research } from '../rules/research.js';
-import { addNews, addTo, applyShip, buildDone, cargo, hold, saveCargo } from './cargo.js';
+import { addNews, addTo, applyShip, buildDone, cargo, devUnlock, hold, saveCargo } from './cargo.js';
+import { industry } from './industry.js';
+import { restoration } from './restoration.js';
 import { notify } from './state.js';
 
 const FLIGHT_CHECK = 5000; // ms between checks in flight
@@ -31,7 +33,13 @@ export const lab = {
   get components() { return cargo.components; },
   now: () => Clock.now(),
   have: (kind) => (Goods.isSalvage(kind) ? cargo.components[kind] || 0 : hold.count(kind)),
-  status: (id) => Research.status(id, cargo.lab, cargo.credits, lab.have),
+  // A package is queued only at the station of its kind, online (Research.stationOf): elsewhere it's
+  // shown, with away naming where.
+  status(id) {
+    const st = Research.status(id, cargo.lab, cargo.credits, lab.have), where = Research.stationOf(id);
+    const here = devUnlock || (industry.here && restoration.typeOf(industry.here.key) === where && industry.online());
+    return st.state === 'available' && !here ? { ...st, ok: false, away: where } : st;
+  },
   progress: () => Research.progress(cargo.lab, Clock.now()),
   // Pay and queue (or start) a package.
   enqueue(id) {

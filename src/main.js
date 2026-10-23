@@ -24,6 +24,7 @@ import { Goods } from './rules/goods.js';
 import { Hazards } from './rules/hazards.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
+import { Logistics } from './rules/logistics.js';
 import { Logic } from './rules/logic.js';
 import { Mining } from './rules/mining.js';
 import { HullMods } from './rules/hullmods.js';
@@ -31,6 +32,7 @@ import { Industry } from './rules/industry.js';
 import { Recipes } from './rules/recipes.js';
 import { Reputation } from './rules/reputation.js';
 import { Research } from './rules/research.js';
+import { Restoration } from './rules/restoration.js';
 import { Clock } from './core/clock.js';
 import { Squad } from './rules/squad.js';
 import { Jobs } from './story/jobs.js';
@@ -54,6 +56,7 @@ import * as cargo from './game/cargo.js';
 import * as outfitting from './game/outfitting.js';
 import * as lab from './game/lab.js';
 import * as industry from './game/industry.js';
+import * as restoration from './game/restoration.js';
 import * as intro from './game/intro.js';
 import * as missions from './game/missions.js';
 import * as jobs from './game/jobs.js';
@@ -77,7 +80,7 @@ import * as warp from './game/warp.js';
 import * as landing from './game/landing.js';
 import * as surfaceRun from './game/surface-run.js';
 
-const parts = [state, options, world, cargo, outfitting, lab, industry, intro, missions, jobs, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, lab, industry, restoration, intro, missions, jobs, docking, squad, mining, travel,
   selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
@@ -87,7 +90,7 @@ requestAnimationFrame(loop.frame);
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
   Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout,
-  Logic, Mining, Missions, Recipes, Reputation, Research, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
+  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

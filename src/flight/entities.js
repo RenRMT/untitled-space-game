@@ -82,7 +82,7 @@ const Entities = (() => {
     const whose = owner ? ` · ${owner.name}` : '';
     if (st.market.kind === 'outpost') return st.market.type[0].toUpperCase() + st.market.type.slice(1) + whose;
     const type = MARKET_LABEL[st.market.type] || 'Station';
-    return (['capital', 'major'].includes(st.market.type) ? `${type} · shipyard` : type) + whose;
+    return (st.market.type === 'capital' ? `${type} · shipyard` : type) + whose;
   }
 
   const ROLE_LABEL = { fighter: 'Fighter', freighter: 'Freighter' };

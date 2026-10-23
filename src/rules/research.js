@@ -15,7 +15,9 @@
 // rules/mods.js), 'hull' or 'industry' (`ind.*`). A schematic recovered from pirates grants its blueprint outright (grant).
 //
 //   Research.GROUPS                   [{ id, label }]: the Research tab's groups, in order
-//   Research.CATEGORIES               [{ id, group, label, note }] in display order
+//   Research.CATEGORIES               [{ id, group, label, note, station }] in display order; station: the
+//                                     station type it's queued at (notes/hazards.md phase 6)
+//   Research.stationOf(id) -> station type, stationName(type) -> 'the ore works'
 //   Research.PACKAGES[id]             { id, kind, name, ver?, cat, requires: [id], cost: { credits, [goods kind]: n },
 //                                       time (s), lines?, hidden?, note, example? (a line),
 //                                       upgrade? { cargo?, hull?, weapons? }, refine? { line, stats: { [stat]: fraction } },
@@ -30,7 +32,7 @@
 //   Research.upgrades(done)           -> { cargo, hull, weapons, lines: { [line]: { [stat]: fraction } } }:
 //                                     what's done adds to every ship (rules/loadout.js stats)
 //   Research.bonusAt(lab, t, key) -> n   an industry bonus from what was done by time t ('speed',
-//                                     'storage', 'bays', 'queue')
+//                                     'storage', 'bays', 'queue', 'routes', 'haulers')
 //   Research.queueMax(lab) -> n       how many packages can wait behind the one building
 //   Research.blueprintFor(gear id) -> package id | null   (Mk I and NPC gear have none)
 //   Research.grant(lab, id, now) -> [{ id, refund }]   done at once (a schematic): what was queued or
@@ -84,10 +86,29 @@ const Research = (() => {
     { id: 'mods.systems', group: 'systems', label: 'Mods', note: 'mods for shields, computers, engines and scanners' },
     { id: 'hull', group: 'hull', label: 'Hull refits', note: 'for every hull you fly' },
     { id: 'ind.speed', group: 'industry', label: 'Order speed', note: 'every production order runs faster' },
-    { id: 'ind.room', group: 'industry', label: 'Slots and storage', note: 'more orders per station, more room in storage' },
+    { id: 'ind.room', group: 'industry', label: 'Slots and storage', note: 'more orders and more room in stock at every station' },
     { id: 'ind.recipes', group: 'industry', label: 'Recipes', note: 'other ways to make things' },
     { id: 'ind.lab', group: 'industry', label: 'Lab', note: 'the lab itself' },
+    { id: 'log', group: 'industry', label: 'Logistics', note: 'routes and haulers, at the transport hub' },
   ];
+  // Where each category is queued (notes/hazards.md phase 6): the station type whose process it
+  // belongs to. The lab is one queue, so every hour of it is still one budget; only placing a
+  // package in it needs the right station.
+  const STATION_OF = {
+    core: 'waystation', combat: 'waystation', tactics: 'waystation', maint: 'waystation',
+    'bp.pulse-laser': 'mining camp', 'bp.heavy-cannon': 'mining camp',
+    'bp.beam-turret': 'minor', 'bp.radiator': 'minor', 'bp.aux-tank': 'minor',
+    'bp.survey-scanner': 'salvage yard',
+    'bp.deflector': 'major', 'bp.rad-shielding': 'major', 'bp.flight-computer': 'major', 'mods.weapons': 'major', 'mods.systems': 'major',
+    'bp.courier-drive': 'capital', 'bp.cargo-pod': 'capital', hull: 'capital',
+    'ind.speed': 'waystation', 'ind.room': 'waystation', 'ind.recipes': 'major', 'ind.lab': 'waystation',
+    log: 'transport hub',
+  };
+  for (const cat of CATEGORIES) cat.station = STATION_OF[cat.id] || 'waystation';
+  const STATION_NAME = {
+    waystation: 'the waystation', 'mining camp': 'the ore works', minor: 'the volatiles works', 'transport hub': 'the transport hub',
+    'salvage yard': 'the salvage yard', major: 'the fabricator', capital: 'the shipyard',
+  };
 
   const L = (o) => ({ ...Logic.blank(), ...o, when: (o.when || []).map((x) => Logic.clause(x)) });
   const PACKAGES = {
@@ -229,18 +250,24 @@ const Research = (() => {
     ['ind.speed.1', 'Order speed I', 'Speed I', 'ind.speed', [], H, 1500, { electronics: 2, [c('computer')]: 4 }, { speed: 0.15 }, '+15% speed on every order'],
     ['ind.speed.2', 'Order speed II', 'Speed II', 'ind.speed', ['ind.speed.1'], 3 * H, 4000, { electronics: 2, [c('computer')]: 6 }, { speed: 0.15 }, '+15% speed on every order'],
     ['ind.speed.3', 'Order speed III', 'Speed III', 'ind.speed', ['ind.speed.2'], 8 * H, 9000, { electronics: 4, [c('computer')]: 8 }, { speed: 0.15 }, '+15% speed on every order'],
-    ['ind.storage.1', 'Storage racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull')]: 3 }, { storage: 100 }, '+100 room in storage'],
-    ['ind.storage.2', 'Storage racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'carbon-fibre': 4, [c('hull')]: 6 }, { storage: 100 }, '+100 room in storage'],
+    ['ind.storage.1', 'Storage racks I', 'Racks I', 'ind.room', [], 30 * M, 1000, { 'steel-pipe': 5, [c('hull')]: 3 }, { storage: 100 }, '+100 room in every station\'s stock'],
+    ['ind.storage.2', 'Storage racks II', 'Racks II', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'carbon-fibre': 4, [c('hull')]: 6 }, { storage: 100 }, '+100 room in every station\'s stock'],
     ['ind.bays.1', 'Order slots I', 'Slots +1', 'ind.room', ['ind.storage.1'], 2 * H, 3000, { 'carbon-fibre': 4, [c('hull')]: 4 }, { bays: 1 }, 'one more order at every station'],
     ['ind.bays.2', 'Order slots II', 'Slots +2', 'ind.room', ['ind.bays.1'], 6 * H, 8000, { 'carbon-fibre': 8, [c('hull')]: 6 }, { bays: 1 }, 'one more order at every station'],
     ['ind.alt.electronics', 'Silicate electronics', 'Silicate', 'ind.recipes', [], H, 1200, { electronics: 1, [c('computer')]: 4 }, {}, 'electronics from silicates and steel pipe, without carbon fibre'],
     ['ind.lab.1', 'Lab queue', 'Queue +1', 'ind.lab', [], 4 * H, 5000, { electronics: 2, [c('computer')]: 9 }, { queue: 1 }, 'one more package can wait in the lab queue'],
+    ['log.routes.1', 'Route planning I', 'Routes +1', 'log', [], H, 1500, { 'steel-pipe': 6, hydrazine: 4, [c('drive')]: 2 }, { routes: 1 }, 'one more route from the transport hub'],
+    ['log.haulers.1', 'Second hauler', 'Haulers +1', 'log', ['log.routes.1'], 3 * H, 4000, { 'steel-pipe': 10, hydrazine: 6, [c('drive')]: 4 }, { haulers: 1 }, 'one more hauler on each new route'],
+    ['log.routes.2', 'Route planning II', 'Routes +2', 'log', ['log.routes.1'], 4 * H, 6000, { electronics: 2, hydrazine: 6, [c('drive')]: 6 }, { routes: 1 }, 'one more route from the transport hub'],
   ];
   for (const [id, name, short, cat, requires, time, credits, cost, industry, note] of INDUSTRY) {
     PACKAGES[id] = { id, kind: 'industry', name, short, cat, requires, time, cost: { credits, ...cost }, industry, note };
   }
   const LIST = CATEGORIES.flatMap((cat) => Object.values(PACKAGES).filter((p) => p.cat === cat.id && !p.hidden));
   const blueprintFor = (gear) => (PACKAGES[`bp.${gear}`] ? `bp.${gear}` : null);
+  // The station type a package is queued at, and its name ('the ore works').
+  const stationOf = (id) => CATEGORIES.find((k) => k.id === PACKAGES[id].cat).station;
+  const stationName = (type) => STATION_NAME[type] || type;
 
   const title = (id) => (PACKAGES[id].kind === 'logic' ? `${PACKAGES[id].name}@${PACKAGES[id].ver}` : PACKAGES[id].name);
   const timeOf = (id) => (PACKAGES[id].time * 1000) / config.speed;
@@ -384,7 +411,7 @@ const Research = (() => {
   }
 
   return {
-    QUEUE_MAX, MAX_COLS, config, queueMax, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor,
+    QUEUE_MAX, MAX_COLS, config, queueMax, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor, stationOf, stationName,
     empty, status, enqueue, cancel, grant, settle, progress, layout,
   };
 })();

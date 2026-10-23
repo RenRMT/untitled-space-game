@@ -10,6 +10,7 @@ import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS } from './selection.js';
 import { drawDashRing } from './dash.js';
+import { industry } from './industry.js';
 import { SHIP, TAU, cam, clamp, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
 import { warpShipScale } from './warp.js';
@@ -114,6 +115,25 @@ export function drawShip(t) {
   Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
   ctx.restore();
   drawDashRing(rx(ship.x), ry(ship.y), SHIP.radius * 1.9, 1.5 / view.zoom); // the dash coming back (game/dash.js)
+}
+
+// Haulers on routes and shuttles (game/industry.js haulerSpots): small arrowheads flying between
+// stations on the real clock, amber when loaded. Only for show: nothing touches them.
+export function drawHaulers() {
+  const hw = view.w / 2 / view.zoom + 40, hh = view.h / 2 / view.zoom + 40;
+  for (const h of industry.haulerSpots()) {
+    if (Math.abs(h.x - cam.x) > hw || Math.abs(h.y - cam.y) > hh) continue;
+    ctx.save();
+    ctx.translate(rx(h.x), ry(h.y));
+    ctx.rotate(h.angle);
+    ctx.fillStyle = h.loaded ? COLORS.amber : COLORS.cyan;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(14, 0); ctx.lineTo(-9, 8); ctx.lineTo(-5, 0); ctx.lineTo(-9, -8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 export function drawParticles() {

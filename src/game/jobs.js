@@ -363,7 +363,7 @@ export function jobViews(station) {
 // What a job done opened up: production at the stations it made trust you.
 function doneNote(J) {
   const keys = J.reward.loyalty.filter((l) => l.n > 0).flatMap((l) => l.keys)
-    .filter((k) => Industry.trusted(cargo.loyalty, k) && Industry.STAGE[stationType(k)]);
+    .filter((k) => Industry.trusted(cargo.loyalty, k) && Industry.processes(stationType(k)).length);
   if (!keys.length) return null;
   const st = stationByKey(keys[0]);
   return keys.length === 1 ? `${st.name} now takes your production orders.` : `${keys.length} stations now take your production orders.`;

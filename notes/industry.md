@@ -47,8 +47,10 @@ advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives c
 water ice, and nebula gas pockets the rarer gases. Markets stock goods further along the chain
 less often (except where they're made), and never the rarest parts, which have to be made.
 
-Each station type works one stage: mining camps and salvage yards refine, minor stations and the
-waystation fabricate, and capitals and major hubs (the shipyards) assemble. A crafted good is worth
+Each station type works one process (`notes/hazards.md`, Phase 6 design): the mining camp is the ore
+works, the minor station the volatiles works, the salvage yard recycles, the major hub is the
+fabricator, the waystation has a bench for Mk I gear and consumables, and the capital is the
+shipyard (with a bench too). A crafted good is worth
 1.15–4× its inputs.
 
 ## Storage and production orders
@@ -57,12 +59,13 @@ The player sets production up like a data pipeline, and the game's words map ont
 
 | Data engineering | In the game |
 |---|---|
-| data lake | storage: one store for the whole game, reached from any station |
+| data lake | each station's stock (until October 2026 phase 6, one storage reached from anywhere) |
 | job | a production order: one recipe running at one station |
 | trigger | an order starts a run as soon as its inputs are in storage |
 | backpressure | Blocked: no room in storage for what a run makes |
 | lineage | where an order's inputs come from: storage, another order, or a stage still missing |
 | pipeline | the chain of orders, linked by what one makes and the next uses |
+| data transfer | carrying goods between stations' stocks: the hold, a shuttle, a route (`notes/hazards.md` phase 6) |
 
 **Storage.** Docked anywhere, you move goods between the hold (and the components store) and the
 storage, and take out what orders make: goods into the hold, gear, mods and consumables into the

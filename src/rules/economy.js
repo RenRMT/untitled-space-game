@@ -3,7 +3,8 @@
 // Prices start from each item type's base price (rules/goods.js). Every station buys every trade good;
 // what it sells, and at what price, depends on what kind of place it is:
 // - categories it produces are cheap, categories it consumes fetch a premium,
-// - outposts follow their type (mining camps sell ore, salvage yards metal and conduits),
+// - outposts and the process stations follow their type (mining camps sell ore, salvage yards metal
+//   and conduits, the minor station's volatiles works deuterium and hydrazine),
 // - system stations get a seeded mix; capitals and major stations stock every category,
 // - within a category on sale, the commonest type is always stocked (unless it's a part) and rarer
 //   ones less often (more often where the category is produced); exotics are never sold, only found,
@@ -68,10 +69,16 @@ const Economy = (() => {
   };
 
   // Fixed profiles for outposts and special stations; system stations without one get a seeded mix.
+  // Each process station sells what it works with (notes/hazards.md phase 6): the ore works ore,
+  // the volatiles works deuterium and hydrazine, the fabricator electronics; the transport hub,
+  // where routes meet, a little of everything.
   const PROFILES = {
     capital: { produces: ['synthetic', 'crates'], consumes: ['mineral', 'gas'], sellsAll: true },
+    major: { produces: ['crates'], consumes: ['tubes', 'synthetic'], sellsAll: true },
+    minor: { produces: ['gas', 'barrels'], consumes: ['tubes', 'metal'] },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
+    'transport hub': { produces: [], consumes: [], sellsAll: true },
     // The android waystation makes its own cabling and synthetics, and runs on liquids it can't.
     waystation: { produces: ['tubes', 'synthetic'], consumes: ['barrels'] },
   };

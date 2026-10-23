@@ -31,7 +31,7 @@ const ResearchView = {
     const LINE_CODE = { radiator: 'COL', 'rad-shielding': 'RAD', 'aux-tank': 'FUL', 'cargo-pod': 'CRG' }; // utility gear, by what it does
     const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
     for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = LINE_CODE[line] || SLOT_CODE[L.slot];
-    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
+    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD' });
     const STATE = {
       done: { tag: 'Done', tone: 'var(--good)' },
       active: { tag: 'Building', tone: 'var(--cyan)' },
@@ -151,7 +151,7 @@ const ResearchView = {
         { id: 'blu', code: 'BLU', label: 'Blueprints', value: `${done.filter((id) => Research.PACKAGES[id]?.kind === 'blueprint').length}/${Research.LIST.filter((p) => p.kind === 'blueprint').length}`, detail: 'Gear an assembler can make, beyond Mk I.', from: 'Research, and schematics recovered from pirates' },
         { id: 'que', code: 'QUE', label: 'Queue', value: `${Research.queueMax(lab().state)}`, detail: 'Packages that can wait behind the one building.', from: from((p) => p.industry?.queue) },
         { id: 'spd', code: 'BAY', label: 'Order speed', value: `+${pct(Research.bonusAt(lab().state, Infinity, 'speed'))}`, detail: 'Every production order runs this much faster.', from: from((p) => p.industry?.speed) },
-        { id: 'rom', code: 'WHS', label: 'Slots, storage', value: `${Industry.SLOTS + Research.bonusAt(lab().state, Infinity, 'bays')} · +${Research.bonusAt(lab().state, Infinity, 'storage')}`, detail: 'Production orders per station, and room added to the shared storage.', from: from((p) => p.industry?.bays || p.industry?.storage) },
+        { id: 'rom', code: 'WHS', label: 'Slots, storage', value: `${Industry.SLOTS + Research.bonusAt(lab().state, Infinity, 'bays')} · +${Research.bonusAt(lab().state, Infinity, 'storage')}`, detail: 'Production orders per station, and room added to every station\'s stock.', from: from((p) => p.industry?.bays || p.industry?.storage) },
         { id: 'pkg', code: 'PKG', label: 'Researched', value: `${done.filter((id) => Research.LIST.some((p) => p.id === id)).length}/${Research.LIST.length}`, detail: 'Packages done, in every group.', from: '' },
       ];
       return Kit.statChips(stats, openStat, (id) => { openStat = id; env.refresh(); });
@@ -224,7 +224,7 @@ const ResearchView = {
       const gives = Research.gives(id).filter((g) => g.kind !== 'upgrade' && g.kind !== 'recipe').map((g) => g.label);
       const leads = Research.LIST.filter((q) => q.requires.includes(id));
       const lacking = st.cost.filter((c) => c.have < c.need).map((c) => Goods.type(c.kind).name);
-      const why = st.state !== 'available' || st.ok ? null : st.full ? 'The queue is full.'
+      const why = st.state !== 'available' || st.ok ? null : st.away ? `Queued at ${Research.stationName(st.away)}.` : st.full ? 'The queue is full.'
         : [env.ctx().hold.credits < st.credits ? `${(st.credits - env.ctx().hold.credits).toLocaleString('en-US')} cr short.` : '', lacking.length ? `Short of ${lacking.join(', ')}.` : ''].filter(Boolean).join(' ');
       const foot = st.state === 'available' ? [
         Kit.button(idle ? 'Build' : 'Queue', env.act(() => L.enqueue(id)), {

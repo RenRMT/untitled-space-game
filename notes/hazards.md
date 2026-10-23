@@ -289,6 +289,149 @@ site its own way (seeded by the body), so where the ship is matters, and it can 
 - Positions are from the landing spot (`sitePos`); `daylight` and `dust` without one are the spot
   itself, as before.
 
+## Phase 6 design: stations per process, logistics as automation
+
+Decided October 2026, after looking at how other games split services between places (Dredge's
+specialist ports, Elite's engineers and remote workshop, Death Stranding's network, Stardew's
+community centre) and how they automate transport (Factorio's and Mindustry's push, Anno's and
+OpenTTD's routes, Dyson Sphere Program's supply and demand, X4's station managers):
+
+- **Decide here, goods go where you send them.** Every dock refuels, repairs, buys and sells from the
+  hold, fits gear and kit already owned, moves goods between the hold and *its own* stock, and shows
+  every order, route and the lab. Placing or changing orders, queuing research and setting where a
+  station's output goes happen only at that station.
+- **One process per station** (`Industry.PROCESS`, `Recipes.BAYS`):
+
+  | Station (type) | Process | Makes | Research queued there |
+  |---|---|---|---|
+  | Waystation (waystation) | bench | Mk I gear, consumables | logic, the lab, restoration |
+  | Ore works (mining camp) | ore | steel pipe, carbon fibre | mining tools |
+  | Volatiles works (minor) | volatiles | hydrazine | siphon, tanks, radiators |
+  | Transport hub (new) | logistics | — | haulers, routes |
+  | Salvage yard | recycle | components into refined goods | scanners |
+  | Fabricator (major hub) | parts | electronics | shielding, shields, mods |
+  | Shipyard (capital) | shipyard + bench | Mk II+ gear, mods, gate segments | hulls, cargo, utility |
+
+- **Stock is local to each station.** Orders read and write their own station's stock, so goods have
+  to be moved: first by hand in the hold, then by a station's **shuttle** (its output pushed to a
+  destination set there), then by **routes** set up at the transport hub (stops that load and
+  unload, with "keep at least" reserves, since Anno's routes strip what they load from). Haulers
+  are drawn flying but are cosmetic: travel time is their only cost. Deliveries are events in the
+  same settle as runs, so time offline still comes out exact.
+- **Stations are restored** at the waystation with goods from its stock and credits (Stardew's
+  bundles), in order: the waystation and ore works are online at the start; then the ore works'
+  shuttle, the volatiles works, the transport hub, the salvage yard, the fabricator and the
+  shipyard. Each restored station brings its shuttle.
+
+Built in steps: 6a processes, 6b stock per station, 6c restoration, 6d shuttles and routes, 6e the
+logistics screens, 6f research per station and market specialties.
+
+### Step 6a, as built: processes instead of stages
+
+- `Recipes.BAYS` are the six processes (ore, volatiles, recycle, parts, bench, shipyard), each with a
+  `step` (refine, parts, assemble) that sets its column in the production pipeline. A recipe's
+  `bay` names its process: Mk I gear and consumables at the bench, Mk II+ gear and mods at the
+  shipyard, electronics at the fabricator, hydrazine at the volatiles works.
+- `Industry.PROCESS[type]` is a list (the capital has the shipyard and a bench); `processes(type)`
+  and `canMake` read it. Every recipe is made at some station (tested).
+- Migration 19 cancels orders a station no longer makes, putting the inputs of the run under way
+  back in storage.
+- New glyphs for the processes (ORE, VOL, RCY, FAB, BEN, SHY).
+
+### Step 6b, as built: a stock at each station
+
+- `Industry` state is `{ stock: { [station key]: counts }, orders, seq }`. An order's runs take from
+  and put into its own station's stock; `deposit`, `withdraw`, `used`, `reserved` and `free` take a
+  station key, and an emptied stock is dropped. Room is per station: 100, plus the storage racks.
+  Orders at different stations never compete for inputs.
+- `lineage(state, recipe, known, key)` adds the source `away`: an order at another station makes it,
+  so it has to be carried. Pipeline links between stations are `away` (drawn dotted, "carried to").
+- The Production tab shows **Stock here**; an input made elsewhere is ⇢ (a dashed wire), its sheet
+  saying to take it from that station's stock into the hold. Store all on the Trade tab stores into
+  this station's stock. A slot sheet names the station whose stock has the gear waiting.
+- Refuelling draws hydrazine from the stock of the station docked at (`fuelling.at`).
+- Migration 20 moves the one storage to the waystation's stock (`HOME_STOCK`, placed under the
+  waystation's key by `readIndustry`). Migrations 12 and 19 work on the old form directly.
+
+### Step 6c, as built: restoring stations, and the transport hub
+
+- **Projects** (`rules/restoration.js`, pure): the waystation and the mining camp are online from the
+  start; six projects follow, each needing the one before: the ore works' shuttle (steel pipe, carbon
+  fibre), the volatiles works (adds deuterium), the transport hub (adds hydrazine), the salvage yard
+  (titanium from the moons), the fabricator (rare earths from the desert) and the shipyard
+  (electronics, tungsten from the lava world). Each but the hub brings its station's shuttle.
+- **Restoring** (`game/restoration.js`): at the waystation, a Restoration section on top of its
+  Production tab lists the projects (Done, Ready, Short, Later) with what each still needs; Restore
+  takes the goods from the waystation's stock and the credits. `cargo.restored` holds the ids.
+  Every online station trusts the player (loyalty 1, `trustOnline`), so it takes orders at once.
+- **Offline** stations still dock, refuel, repair, trade and keep a stock, but take no orders (the
+  Production tab says to restore them at the waystation) and sell no hulls; on the map they're
+  faded (`SystemMap.offline`). Hulls are sold only at the shipyard (the capital), once restored.
+- **The transport hub** is a new station type (`'transport hub'`, an outpost named after the system,
+  "... Transit"), placed from its own stream in the middle system (0.3–0.6 of the radius) so the rest
+  of the system stays where it was. On in the showcase system (`stations.transport`).
+- Migration 21: a game under way counts every project done up to the last station type it was
+  using (an order there, or trust), so nothing it had stops (`restoredByUse`).
+
+### Step 6d, as built: shuttles and routes, settled with the runs
+
+- **Routes** (`rules/logistics.js`, pure): a loop of stops, each with what a hauler unloads there,
+  what it loads (`'all'`, `'made'`: what the station's orders make, or kinds with a count a visit)
+  and what the stop keeps (never loaded below it), and the travel time to the next stop. A hauler
+  carries 12 at 300 units a second (a leg at least 20 s). At a stop it unloads what fits, loads, and
+  flies on; having moved nothing, it still flies on if another stop has something for it, else it
+  waits there until the stocks change. A full stock makes it wait with its load; nothing is lost.
+- **A station's shuttle** is a two-stop route (`Industry.setShuttle`): load what its orders make,
+  unload all of it at the station it's sent to.
+- **In the settle** (`rules/industry.js`): hauler arrivals are events beside order runs (runs first
+  on a tie), and `kick` starts runs and wakes waiting haulers until nothing changes, so settling in
+  one step or many still comes out the same (tested, with a shuttle). A delivery goes in the log
+  (`Industry.delivered`), shown as "Delivered ·" news and, while away, "Delivered while away".
+- **Lineage** knows routes: an input made at another station and brought by a route is `route`, not
+  `away`; pipeline links carried by a route are `routed`.
+- Removing a route puts what its haulers carry into the stock where each is, or is flying to.
+- Routes are saved with the industry (`Logistics.read` checks them; one shuttle per station).
+
+### Step 6e, as built: the logistics screens, and haulers in space
+
+- **Shuttle** (Production tab, at a station whose shuttle is restored): "Send what's made here to" a
+  row of the stations online (or Nowhere), set only while docked there; under it where the shuttle
+  is and what it carries. A station that will get a shuttle later says so.
+- **Routes** (Production tab): at the transport hub, once restored, the routes with their stops and
+  haulers, Remove, and New route (two at first: `ROUTES` in `game/industry.js`, more by the hub's
+  research in 6f). The New route sheet adds stops in order, each with Load (nothing, what it makes,
+  everything), Unload (nothing, everything) and Keep at least (none, 5, 10, 25 of every kind:
+  `keep['*']`). Legs are timed by the distance between the stations. Elsewhere the routes are listed
+  read-only, with "Routes are set up at the transport hub".
+- **Haulers in space** (`game/draw-world.js` `drawHaulers`, from `industry.haulerSpots`): small
+  arrowheads flying between their stops on the real clock (amber when loaded), parked beside the
+  station they wait at. Only for show. **On the map** routes are dashed loops through their stops.
+
+### Step 6f, as built: research per station, and market specialties
+
+- **Research is queued at the station of its kind** (`Research.CATEGORIES[].station`,
+  `stationOf`): drone programs, the production upgrades and the lab at the waystation; the laser
+  and drill at the ore works; the siphon, radiator and tank at the volatiles works; the scanner at
+  the salvage yard; shields, radiation shielding, the computer, mods and other recipes at the
+  fabricator; the drive, cargo pod and hull refits at the shipyard; logistics at the transport hub.
+  The lab queue stays one, global. Elsewhere a package's sheet shows it, with "Queued at the ...".
+  (`game/lab.js` `status` adds `away`; with ?dev anywhere.)
+- **The transport hub's research** (Logistics): Route planning I and II (+1 route each) and a
+  Second hauler (+1 hauler on each new route), paid with steel pipe, hydrazine and drive components.
+- **Market specialties** (`rules/economy.js` PROFILES): the volatiles works sells deuterium and
+  hydrazine cheap, the fabricator electronics (and stocks every category), the transport hub a
+  little of everything; the ore works, salvage yard, shipyard and waystation as before.
+
+## Later
+
+- **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →
+  `fightMode().start`), so `game/update.js` frames the ship and the rock (its `fight.s.focus`
+  branch) and shifts the frame for the old combat panel, instead of leading the ship as in plain
+  flight. Skip that branch in `mining` mode.
+- **Hazards seen on the screen, not only in the gauges:** static and grain rising with radiation,
+  cracks at the screen's edge as the hull runs low, a red vignette with heat; still to think of
+  something for low fuel and a dropped shield.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -546,9 +689,9 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 5. **Gear and consumables for hazards.** *(done: see Phase 5, as built; EMP and jammer stay with
    the pirates)* Siphon line, radiator, shielding, tank and cargo pod; field consumables on the HUD.
    With active mining, the cargo pod and the tank directly lengthen a run.
-6. **Stations per process and the waystation as home.** Station roles, restoration projects,
-   research per station, the mission board at the waystation (job steps land and sample in place of
-   fight).
+6. **Stations per process and the waystation as home.** *(done: see Phase 6 design and steps 6a–6f)* Station
+   roles, local stock and logistics, restoration projects, research per station. (The mission board
+   at the waystation, with job steps that land and sample in place of fight, moves to later.)
 7. **Drones.** New subjects, actions and packages; `logicContext` from the world; drone meters.
 8. **The gate.** The staged gate project at the waystation that turns on `gatesOnline()`. A second
    system for the gate to lead to (`Galaxy.generate` already has the multi-system shape: `systems`,

@@ -1,10 +1,10 @@
-// The station screen's Production tab (ui/station.js), drawn as a production line: the stage this
-// station works (Refinery, Fabricator or Assembler) and its orders, one at a time (with more than one,
+// The station screen's Production tab (ui/station.js), drawn as a production line: the process this
+// station works (Ore works, Volatiles works, Recycler, Fabricator, Bench or Shipyard) and its orders, one at a time (with more than one,
 // the Ship tab's switcher steps through them and a free order), each a status line and a flow
-// of nodes (its inputs, wired by whether storage has them, into the stage, then what it makes);
-// the shared storage and the hold as tiles, a tile opening its detail (what uses it, Take or
-// Store); and the production pipeline: every order in the galaxy, linked by what one makes and
-// another uses, in three columns (refinery, fabricator, assembler), with the gaps no order fills.
+// of nodes (its inputs, wired by whether the station's stock has them, into the stage, then what it
+// makes); this station's stock and the hold as tiles, a tile opening its detail (what uses it, Take
+// or Store); and the production pipeline: every order in the galaxy, linked by what one makes and
+// another uses, in three columns (refining, parts, assembly), with the gaps no order fills.
 // The stage node opens the order's sheet: what to make, how many runs. An input node opens its
 // lineage: what it is made from, and whether to make it here.
 //
@@ -17,6 +17,7 @@
 //       { mode: 'new' | 'edit', id?, recipe, count (null: while inputs last) }: an order here, to place or change
 //       { mode: 'view', id }: an order anywhere, to pause, cancel, reorder or mark on the map
 //       { mode: 'input', id, kind, need }: an input of an order here, and its lineage
+//       { mode: 'route', stops: [{ station, load, unload, keep }], haulers }: a new route, at the transport hub
 // ES module (`IndustryView`); needs a browser.
 
 import { Goods } from '../rules/goods.js';
@@ -37,13 +38,16 @@ const IndustryView = {
       idle: { word: 'Idle', tone: 'var(--dim)' },
     };
     const COUNTS = [1, 5, 20, 100, null]; // runs to choose from; null: as long as inputs last
-    const COLUMNS = ['refinery', 'fabricator', 'assembler'];
+    const COLUMNS = ['refine', 'parts', 'assemble']; // by Recipes.BAYS step
+    const COLUMN_LABEL = { refine: 'Refining', parts: 'Parts', assemble: 'Assembly' };
+    const column = (bay) => Math.max(0, COLUMNS.indexOf(Recipes.BAYS[bay]?.step));
     const ROW = 84; // px per row of the pipeline's columns
     // The edge colour of a tile in storage: how far along the chain it is.
     const STAGE_TONE = { raw: 'var(--dim)', salvage: 'var(--t5)', refined: 'var(--t2)', advanced: 'var(--t2)', part: 'var(--t3)', item: 'var(--t4)' };
-    // An input's wire into the stage: in storage, made by another order, missing.
-    const WIRE = { ok: '1.5px solid rgba(182, 255, 138, 0.55)', flow: '1.5px solid rgba(125, 249, 255, 0.6)', miss: '1.5px dashed var(--warn)' };
-    const MARK_TONE = { ok: 'var(--good)', flow: 'var(--cyan)', miss: 'var(--warn)' };
+    // An input's wire into the stage: in stock here, made by another order here, made at another
+    // station (to be carried here), missing.
+    const WIRE = { ok: '1.5px solid rgba(182, 255, 138, 0.55)', flow: '1.5px solid rgba(125, 249, 255, 0.6)', away: '1.5px dashed rgba(125, 249, 255, 0.6)', miss: '1.5px dashed var(--warn)' };
+    const MARK_TONE = { ok: 'var(--good)', flow: 'var(--cyan)', away: 'var(--cyan)', miss: 'var(--warn)' };
     let live = []; // running orders' meters and notes (see tick)
     let openStored = null; // the stored good whose tile is open
     let openAboard = null; // the good aboard whose tile is open
@@ -52,6 +56,7 @@ const IndustryView = {
 
     const ind = () => env.ctx().industry;
     const state = () => ind().state;
+    const stockOf = (key) => Industry.stockAt(state(), key);
     const name = (kind) => Recipes.item(kind).name;
     const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN' };
     // A thing's icon: a good's art, or for gear its slot's code.
@@ -80,8 +85,8 @@ const IndustryView = {
       const st = Industry.status(state(), o);
       const text = {
         running: o.paused ? 'pausing after this run' : made(o),
-        starved: st.missing ? `no ${name(st.missing)} in storage` : '',
-        blocked: 'storage is full',
+        starved: st.missing ? `no ${name(st.missing)} in stock here` : '',
+        blocked: 'the stock here is full',
         done: made(o),
         paused: made(o),
       }[st.id];
@@ -89,13 +94,14 @@ const IndustryView = {
     }
     // The change sheet for an order: its recipe, and its runs as first set (a count picked from COUNTS).
     const editing = (o) => ({ mode: 'edit', id: o.id, recipe: o.recipe, count: o.left === null ? null : COUNTS.find((n) => n !== null && n >= runsOf(o)) || 100 });
-    const stationsFor = (stage) => `${Recipes.BAYS[stage].label} order (${Industry.STATIONS[stage]})`;
+    const stationsFor = (bay) => `an order at ${Industry.STATIONS[bay]}`;
     const makers = (kind, but) => state().orders.filter((x) => x !== but && kind in Recipes.RECIPES[x.recipe].out);
-    // An input as the flow shows it: ✓ in storage, ⟳ made by another order, ✗ missing.
+    // An input as the flow shows it: ✓ in stock at the order's station, ⟳ made by another order
+    // there, ⇢ made at another station (to be carried), ✗ missing.
     function supply(kind, need, o) {
-      const have = state().storage[kind] || 0, by = makers(kind, o);
-      const cls = have >= need ? 'ok' : by.length ? 'flow' : 'miss';
-      return { have, by, cls, mark: cls === 'ok' ? `✓ ${have}` : `${cls === 'flow' ? '⟳' : '✗'} ${have}/${need}` };
+      const have = stockOf(o.station)[kind] || 0, by = makers(kind, o);
+      const cls = have >= need ? 'ok' : by.some((m) => m.station === o.station) ? 'flow' : by.length ? 'away' : 'miss';
+      return { have, by, cls, mark: cls === 'ok' ? `✓ ${have}` : `${{ flow: '⟳', away: '⇢', miss: '✗' }[cls]} ${have}/${need}` };
     }
 
     // ---------- The production line ----------
@@ -129,20 +135,20 @@ const IndustryView = {
       // Input nodes, three to a row; more than three share one wire, each node saying how many it needs.
       const width = [0, 132, 128, 108][Math.min(3, ins.length)];
       const inNode = (x) => {
-        const label = `${name(x.kind)}: ${x.have} in storage, needs ${x.need}${x.by.length ? `, made at ${x.by.map((m) => m.name).join(', ')}` : ''}`;
+        const label = `${name(x.kind)}: ${x.have} in stock, needs ${x.need}${x.by.length ? `, made at ${x.by.map((m) => m.name).join(', ')}` : ''}`;
         const inner = [many && x.need > 1 ? h('span', { class: 'qn num' }, `×${x.need}`) : null, iconOf(x.kind, 32), h('span', { class: 'nm' }, name(x.kind)),
           h('span', { class: 'have num', style: { color: MARK_TONE[x.cls] } }, x.mark)];
         const attrs = { class: `pr-node in ${x.cls}`, 'aria-label': label, title: label };
         return here ? h('button', { ...attrs, type: 'button', onclick: () => env.showOrder({ mode: 'input', id: o.id, kind: x.kind, need: x.need }) }, inner) : h('div', attrs, inner);
       };
-      const worst = sup.some((x) => x.cls === 'miss') ? 'miss' : sup.some((x) => x.cls === 'flow') ? 'flow' : 'ok';
+      const worst = ['miss', 'away', 'flow'].find((c) => sup.some((x) => x.cls === c)) || 'ok';
       // The stage: its run count, a note, and a meter for the order as a whole.
       const runs = runsOf(o), p = st.id === 'running' ? progress(o, now) : 0;
       const whole = st.id === 'done' ? 1 : runs === null ? p : (o.made + p) / Math.max(1, runs);
       const note = {
         running: () => `${Math.round(p * 100)}% · ${duration(o.next - now)} left`,
         starved: () => (st.missing ? `${name(st.missing)} missing` : 'Inputs missing'),
-        blocked: () => 'No room in storage',
+        blocked: () => 'No room in the stock',
         done: () => 'Order complete',
         paused: () => 'Paused',
       }[st.id]();
@@ -157,12 +163,12 @@ const IndustryView = {
       const stage = here
         ? h('button', { class: 'pr-stage', type: 'button', onclick: () => env.showOrder(editing(o)), 'aria-label': `${B.label} order: ${recipeName(R)}, ${S.word}. Change it` }, stageInner)
         : h('div', { class: 'pr-stage' }, stageInner);
-      // What it makes, and how many of it are in storage.
+      // What it makes, and how many of it are in the station's stock.
       const outTone = st.id === 'done' ? 'var(--good)' : st.id === 'running' ? 'var(--cyan)' : 'var(--line-strong)';
       const outLine = `1.5px ${st.id === 'starved' || st.id === 'blocked' ? 'dashed' : 'solid'} ${outTone}`;
       const outNode = ([k, n]) => {
-        const inner = [iconOf(k, 36), h('span', { class: 'nm' }, n > 1 ? `${n} ${name(k)}` : name(k)), h('span', { class: 'have num' }, `${state().storage[k] || 0} in storage`)];
-        const attrs = { class: 'pr-node out', style: { '--edge': outTone }, 'aria-label': `Makes ${n > 1 ? `${n} ` : ''}${name(k)} a run: ${state().storage[k] || 0} in storage` };
+        const inner = [iconOf(k, 36), h('span', { class: 'nm' }, n > 1 ? `${n} ${name(k)}` : name(k)), h('span', { class: 'have num' }, `${stockOf(o.station)[k] || 0} in stock`)];
+        const attrs = { class: 'pr-node out', style: { '--edge': outTone }, 'aria-label': `Makes ${n > 1 ? `${n} ` : ''}${name(k)} a run: ${stockOf(o.station)[k] || 0} in stock` };
         return here ? h('button', { ...attrs, type: 'button', onclick: () => env.showOrder(editing(o)) }, inner) : h('div', attrs, inner);
       };
       return h('div', { class: `pr-line ${st.id}`, role: 'group', 'aria-label': `Production line: ${list(R.in)} into ${list(R.out)}` },
@@ -182,12 +188,16 @@ const IndustryView = {
     }
 
     function ordersHere() {
-      const here = ind().here, stage = ind().stage(), B = Recipes.BAYS[stage];
-      if (!B) return env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
+      const here = ind().here, B = Recipes.BAYS[ind().bays()[0]];
+      if (!ind().online()) {
+        return env.section('Orders here', h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B?.code || 'IND', 28, { code: B?.code || 'IND' }),
+          h('span', { class: 'go' }, 'Offline'), h('span', {}, `Restore ${here.name} at the waystation`))));
+      }
+      if (!B) return ind().atHub() ? null : env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       const orders = ind().orders(), max = ind().slots();
       const title = h('div', { class: 'pr-title' }, h('h2', { class: 'ui-title' }, B.label),
         h('span', { class: 'aside num' }, ind().trusted() ? `${orders.length}/${max} orders` : 'Locked'));
-      const explain = env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.');
+      const explain = env.explain('production', 'Production orders make goods from this station\'s stock in real time, even while you\'re away. Each station works one process of the chain and keeps its own stock: what one order makes goes to the next in your hold, or by a shuttle or route.');
       if (!ind().trusted()) {
         return env.section('Orders here', title, explain,
           h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B.code, 28, { code: B.code }),
@@ -247,7 +257,7 @@ const IndustryView = {
         if (!by.has(R.bay)) by.set(R.bay, []);
         by.get(R.bay).push(recipeName(R));
       }
-      return by.size ? `Used in ${[...by].map(([bay, names]) => `${[...new Set(names)].join(', ')} · ${Recipes.BAYS[bay].label} order`).join('; ')}`
+      return by.size ? `Used in ${[...by].map(([bay, names]) => `${[...new Set(names)].join(', ')} · ${Recipes.BAYS[bay].label}`).join('; ')}`
         : 'No recipe uses it: it\'s an end product';
     }
     // Goods as tiles; the one open shows its name, stage, a line about it and one action.
@@ -266,22 +276,23 @@ const IndustryView = {
           detail(open).action) : null,
       ];
     }
+    // This station's stock.
     function storage() {
-      const s = state(), e = ind().env(), now = ind().now();
-      const cap = Industry.capacity(s, e, now), used = Industry.used(s), held = Industry.reserved(s);
+      const s = state(), e = ind().env(), now = ind().now(), key = ind().here.key, stock = stockOf(key);
+      const cap = Industry.capacity(s, e, now), used = Industry.used(s, key), held = Industry.reserved(s, key);
       const order = (k) => [...Goods.STAGES, 'item'].indexOf(Recipes.item(k).stage);
-      const kinds = Object.keys(s.storage).filter((k) => s.storage[k] > 0).sort((a, b) => order(a) - order(b));
-      const counts = Object.fromEntries(kinds.map((k) => [k, s.storage[k]]));
-      return env.section('Storage',
-        Kit.head('Storage', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
+      const kinds = Object.keys(stock).filter((k) => stock[k] > 0).sort((a, b) => order(a) - order(b));
+      const counts = Object.fromEntries(kinds.map((k) => [k, stock[k]]));
+      return env.section('Stock here',
+        Kit.head('Stock here', Kit.meter((used + held) / cap, { thin: true }), h('span', { class: 'aside num' }, `${used + held}/${cap}`)),
         kinds.length ? tiles(counts, openStored, (k) => { openStored = k; env.refresh(); }, (k) => ({
-          text: `${s.storage[k]} in storage · ${usedIn(k)}`,
+          text: `${stock[k]} in stock · ${usedIn(k)}`,
           action: Kit.button('Take', env.act(() => ind().withdraw(k)), {
-            disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of storage`,
+            disabled: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1, aria: `Take ${name(k)} out of the stock`,
             title: Recipes.item(k).kind === 'good' && env.ctx().hold.free < 1 ? 'Your hold is full' : undefined,
           }),
         })) : h('p', { class: 'ui-empty' }, 'Empty. Store goods from your hold below.'),
-        env.explain('storage', 'One storage for every station: what an order makes here can be taken out anywhere.'),
+        env.explain('storage', 'Each station keeps its own stock: what an order makes here stays here until you take it away in your hold, or a shuttle or route moves it.'),
         held ? h('p', { class: 'ui-note' }, `${held} kept free for runs under way.`) : null);
     }
     function aboard() {
@@ -289,13 +300,13 @@ const IndustryView = {
       for (const it of hold.items) counts[it.kind] = (counts[it.kind] || 0) + 1;
       const comps = env.ctx().lab.components;
       for (const k of Object.keys(comps)) if (comps[k] > 0 && Recipes.consumers(k).length) counts[k] = comps[k];
-      const free = Industry.free(state(), ind().env(), ind().now());
+      const free = ind().free();
       const kinds = Object.keys(counts);
       return env.section('Aboard',
         Kit.head('Aboard', kinds.length ? Kit.button('Store all', env.act(() => { for (const k of kinds) ind().deposit(k); }), { kind: 'ghost', disabled: free < 1 }) : null),
         kinds.length ? tiles(counts, openAboard, (k) => { openAboard = k; env.refresh(); }, (k) => ({
           text: `${counts[k]} aboard · ${usedIn(k)}`,
-          action: Kit.button('Store', env.act(() => ind().deposit(k)), { disabled: free < 1, aria: `Store ${name(k)}`, title: free < 1 ? 'Storage is full' : undefined }),
+          action: Kit.button('Store', env.act(() => ind().deposit(k)), { disabled: free < 1, aria: `Store ${name(k)}`, title: free < 1 ? 'The stock here is full' : undefined }),
         })) : h('p', { class: 'ui-empty' }, 'Nothing aboard to store. Mine, salvage or buy goods.'));
     }
 
@@ -319,22 +330,22 @@ const IndustryView = {
     const gapNode = (g) => h('div', { class: 'pr-pnode gap' },
       h('span', { class: 'main' },
         h('span', { class: 'where' }, `No order makes ${name(g.kind)}`),
-        h('span', { class: 'what' }, g.stage ? `Needs a ${stationsFor(g.stage)}` : 'Buy it, or find it'),
+        h('span', { class: 'what' }, g.stage ? `Needs ${stationsFor(g.stage)}` : 'Buy it, or find it'),
         h('span', { class: 'pr-feeds' }, h('span', {}, `→ needed by ${g.to.map((id) => find(id)?.name).join(', ')}`))));
 
     function graph(g) {
-      const s = state(), cols = COLUMNS.map(() => []);
-      for (const o of g.orders) cols[COLUMNS.indexOf(Recipes.RECIPES[o.recipe].bay)].push({ id: o.id, o });
+      const cols = COLUMNS.map(() => []);
+      for (const o of g.orders) cols[column(Recipes.RECIPES[o.recipe].bay)].push({ id: o.id, o });
       const gaps = new Map();
       for (const x of g.gaps) {
         if (!gaps.has(x.kind)) gaps.set(x.kind, { kind: x.kind, stage: x.stage, to: [] });
         gaps.get(x.kind).to.push(x.order);
       }
-      for (const x of gaps.values()) cols[Math.max(0, COLUMNS.indexOf(x.stage))].push({ id: `gap:${x.kind}`, gap: x });
+      for (const x of gaps.values()) cols[column(x.stage)].push({ id: `gap:${x.kind}`, gap: x });
       const at = new Map();
       cols.forEach((c, ci) => c.forEach((x, ri) => at.set(x.id, { c: ci, r: ri })));
       const rows = Math.max(...cols.map((c) => c.length));
-      const links = [...g.links.map((l) => ({ ...l, dim: !s.storage[l.kind] })),
+      const links = [...g.links.map((l) => ({ ...l, dim: !stockOf(find(l.from).station)[l.kind] && !stockOf(find(l.to).station)[l.kind] })),
         ...[...gaps.values()].flatMap((x) => x.to.map((to) => ({ from: `gap:${x.kind}`, to, kind: x.kind, gap: true })))];
       // The lines: x in hundredths of a column (cells keep 4% clear each side), y in px.
       const path = (l) => {
@@ -345,12 +356,12 @@ const IndustryView = {
       };
       const art = h('div', { class: 'pr-lines', 'aria-hidden': 'true' });
       art.innerHTML = `<svg viewBox="0 0 300 ${rows * ROW}" preserveAspectRatio="none" width="100%" height="${rows * ROW}">${
-        links.map((l) => `<path class="${l.gap ? 'gap' : l.dim ? 'dim' : ''}" d="${path(l)}" vector-effect="non-scaling-stroke"/>`).join('')}</svg>`;
-      const feeds = (o) => g.links.filter((l) => l.from === o.id).map((l) => `→ ${name(l.kind)} feeds ${find(l.to)?.name}`);
+        links.map((l) => `<path class="${l.gap ? 'gap' : [l.dim && 'dim', l.away && 'away'].filter(Boolean).join(' ')}" d="${path(l)}" vector-effect="non-scaling-stroke"/>`).join('')}</svg>`;
+      const feeds = (o) => g.links.filter((l) => l.from === o.id).map((l) => `→ ${name(l.kind)} ${l.away ? 'carried to' : 'feeds'} ${find(l.to)?.name}`);
       const end = g.end.length ? g.end.map(name).join(' + ') : 'A loop';
       return h('div', { class: 'pr-pipe', role: 'group', 'aria-label': `Pipeline: ${end}` },
         h('span', { class: 'pr-end' }, `→ ${end}`),
-        h('div', { class: 'pr-cols', 'aria-hidden': 'true' }, COLUMNS.map((c) => h('span', {}, Recipes.BAYS[c].label))),
+        h('div', { class: 'pr-cols', 'aria-hidden': 'true' }, COLUMNS.map((c) => h('span', {}, COLUMN_LABEL[c]))),
         h('div', { class: 'pr-graph', style: { '--rows': rows, '--row': `${ROW}px` } }, art,
           cols.flatMap((c, ci) => c.map((x, ri) => h('div', { class: 'pr-cell', style: { gridColumn: `${ci + 1}`, gridRow: `${ri + 1}` } },
             x.o ? node(x.o, feeds(x.o)) : gapNode(x.gap))))));
@@ -363,18 +374,119 @@ const IndustryView = {
       const gaps = groups.reduce((t, g) => t + g.gaps.length, 0);
       const n = state().orders.length;
       return env.section('Production pipeline', env.fold('pipeline', `Production pipeline · ${n} order${n === 1 ? '' : 's'}${gaps ? ` · ${gaps} gap${gaps === 1 ? '' : 's'}` : ''}`, [
-        env.explain('pipeline', 'Every order you have placed, linked by what one makes and the next uses. The first in line (#1) gets inputs first.'),
+        env.explain('pipeline', 'Every order you have placed, linked by what one makes and the next uses; a dotted link crosses between stations, so the good has to be carried. The first in line (#1) at a station gets inputs first.'),
         chains.map(graph),
         lone.length ? [h('span', { class: 'ui-label' }, 'Standalone'), h('div', { class: 'pr-lone' }, lone.map((g) => {
-          const gapNotes = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs a ${stationsFor(x.stage)}` : ''}`));
+          const gapNotes = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs ${stationsFor(x.stage)}` : ''}`));
           return h('div', { class: 'pr-lone-row' }, node(g.orders[0], []), gapNotes);
         }))] : null]));
+    }
+
+    // ---------- Logistics: the shuttle here, and routes (rules/logistics.js) ----------
+
+    const LOAD = [['none', 'Nothing'], ['made', 'What it makes'], ['all', 'Everything']];
+    const UNLOAD = [['none', 'Nothing'], ['all', 'Everything']];
+    const KEEP = [0, 5, 10, 25];
+    const specOf = (id) => (id === 'none' ? {} : id);
+    const specId = (spec) => (typeof spec === 'string' ? spec : 'none');
+    const cargoText = (load) => list(load) || 'empty';
+    // Where each of a route's haulers is: flying to a stop (and how long), or waiting at one.
+    function haulers(r) {
+      const now = ind().now();
+      return r.haulers.map((x) => {
+        const at = r.stops[x.stop].name;
+        return x.next == null ? `Waiting at ${at} · ${cargoText(x.load)}` : `To ${at} · ${duration(x.next - now)} · ${cargoText(x.load)}`;
+      });
+    }
+    function shuttleSection() {
+      if (!ind().online() || !ind().bays().length) return null;
+      if (!ind().hasShuttle()) {
+        return !ind().shuttleLater() ? null : env.section('Shuttle', Kit.head('Shuttle'),
+          h('p', { class: 'ui-empty' }, 'No shuttle here yet: restore one at the waystation, and what this station makes is flown wherever you send it.'));
+      }
+      const r = ind().shuttle(), dest = r ? r.stops[1].station : null;
+      const others = ind().stations().filter((s) => s.key !== ind().here.key);
+      return env.section('Shuttle',
+        Kit.head('Shuttle', h('span', { class: 'aside' }, r ? `to ${r.stops[1].name}` : 'Idle')),
+        env.explain('shuttle', 'The shuttle takes what the orders here make to the station you pick, and comes back for more. It flies while you\'re away too.'),
+        h('span', { class: 'ui-label' }, 'Send what\'s made here to'),
+        Kit.choices([{ id: '', label: 'Nowhere', on: !dest }, ...others.map((s) => ({ id: s.key, label: s.name, on: s.key === dest }))],
+          (id) => { ind().sendTo(id || null); env.refresh(); }, { label: 'Send to' }),
+        r ? h('p', { class: 'ui-note' }, haulers(r).join(' · ')) : null);
+    }
+    function routesSection() {
+      const routes = ind().routes(), hub = ind().atHub();
+      if (!hub && !routes.length) return null;
+      const max = ind().routeLimit();
+      return env.section('Routes',
+        Kit.head('Routes', h('span', { class: 'aside num' }, hub ? `${routes.length}/${max}` : `${routes.length}`)),
+        env.explain('routes', 'A route is a loop of stations. At each stop its haulers unload, then load, never taking a stock below what the stop keeps.'),
+        routes.length ? h('div', { class: 'ui-list' }, routes.map((r) => Kit.optionRow({
+          code: 'TRD', name: r.name || `Route ${r.id}`,
+          sub: r.stops.map((s) => `${s.name}: ${{ none: '', made: 'loads what it makes', all: 'loads all' }[specId(s.load)]}${specId(s.unload) === 'all' ? `${specId(s.load) === 'none' ? '' : ', '}unloads` : ''}${s.keep['*'] ? `, keeps ${s.keep['*']}` : ''}`).join(' → '),
+          extra: h('span', { class: 'ui-note' }, haulers(r).join(' · ')),
+          action: hub ? Kit.button('Remove', env.act(() => ind().removeRoute(r.id)), { kind: 'warn', aria: `Remove the route ${r.name}` }) : null,
+        }))) : h('p', { class: 'ui-empty' }, 'No routes yet.'),
+        hub ? Kit.button('New route', () => env.showOrder({ mode: 'route', stops: [], haulers: 1 }), { kind: 'ghost', disabled: routes.length >= max, title: routes.length >= max ? 'No more routes: research more at the transport hub' : undefined })
+          : h('p', { class: 'ui-note' }, 'Routes are set up at the transport hub.'));
+    }
+    function routeSheet(open) {
+      if (!ind().atHub()) return null;
+      const stations = ind().stations(), nameOf = (key) => stations.find((s) => s.key === key)?.name || key;
+      const set = (i, change) => env.setOrder({ stops: open.stops.map((s, j) => (j === i ? { ...s, ...change } : s)) });
+      const body = [h('span', { class: 'ui-label' }, 'Stops, in order')];
+      open.stops.forEach((s, i) => body.push(h('div', { class: 'pr-stop' },
+        h('div', { class: 'pr-status' }, h('span', { class: 'txt' }, `${i + 1}. ${nameOf(s.station)}`),
+          Kit.button('Remove', () => env.setOrder({ stops: open.stops.filter((_, j) => j !== i) }), { kind: 'ghost', aria: `Remove stop ${i + 1}` })),
+        h('span', { class: 'ui-label' }, 'Load'),
+        Kit.choices(LOAD.map(([id, label]) => ({ id, label, on: specId(s.load) === id })), (id) => set(i, { load: specOf(id) }), { label: `Load at stop ${i + 1}` }),
+        h('span', { class: 'ui-label' }, 'Unload'),
+        Kit.choices(UNLOAD.map(([id, label]) => ({ id, label, on: specId(s.unload) === id })), (id) => set(i, { unload: specOf(id) }), { label: `Unload at stop ${i + 1}` }),
+        h('span', { class: 'ui-label' }, 'Keep at least'),
+        Kit.choices(KEEP.map((n) => ({ id: String(n), label: n ? `${n}` : 'None', on: (s.keep['*'] || 0) === n })), (id) => set(i, { keep: Number(id) ? { '*': Number(id) } : {} }), { label: `Keep at stop ${i + 1}` }))));
+      body.push(h('span', { class: 'ui-label' }, 'Add a stop'),
+        Kit.choices(stations.map((s) => ({ id: s.key, label: s.name, on: false })),
+          (key) => env.setOrder({ stops: [...open.stops, { station: key, load: 'made', unload: open.stops.length ? 'all' : {}, keep: {} }] }), { label: 'Add a stop' }),
+        h('p', { class: 'ui-note' }, open.stops.length < 2 ? 'A route needs two stops or more.' : 'The haulers go round the stops in this order, and back to the first.'));
+      return {
+        title: 'New route', code: 'TRD', sub: `Transport hub · ${ind().here.name}`, tall: true, body,
+        foot: Kit.button('Set up route', env.act(() => ind().addRoute(open.stops, open.haulers), () => env.closeSheet()), {
+          kind: 'primary', lg: true, disabled: open.stops.length < 2, aria: 'Set up the route',
+        }),
+      };
+    }
+
+    // ---------- Restoration (at the waystation) ----------
+
+    // The projects in order: what each restores and costs, the next one with Restore. Its goods come
+    // from the stock here.
+    const PROJECT_TONE = { done: 'var(--good)', ready: 'var(--cyan)', short: 'var(--warn)', locked: 'var(--dim)' };
+    const PROJECT_WORD = { done: 'Done', ready: 'Ready', short: 'Short', locked: 'Later' };
+    let openProject = null;
+    function restoration() {
+      const projects = ind().projects(), done = projects.filter((p) => p.state === 'done').length;
+      const cost = (p) => [...Object.entries(p.goods).map(([k, n]) => {
+        const have = Math.min(n, ind().stock()[k] || 0);
+        return p.state === 'done' ? `${n} ${name(k)}` : `${have}/${n} ${name(k)}`;
+      }), `${p.credits} cr`].join(' · ');
+      return env.section('Restoration',
+        Kit.head('Restoration', h('span', { class: 'aside num' }, `${done}/${projects.length}`)),
+        env.explain('restoration', 'Bring the other stations back online, one after another. Each takes goods from the stock here and credits; a restored station takes orders and has a shuttle for what it makes.'),
+        h('div', { class: 'ui-list' }, projects.map((p) => Kit.optionRow({
+          code: p.type ? 'IND' : 'SHP', name: p.name, sub: p.station ? `${p.station}${p.type ? '' : ' · shuttle'}` : null,
+          tag: PROJECT_WORD[p.state], tagTone: { done: 'good', ready: 'cyan', short: 'warn' }[p.state] || null,
+          vals: [], extra: h('span', { class: 'ui-note', style: { color: PROJECT_TONE[p.state] } }, cost(p)),
+          note: `${p.note}${p.state === 'short' ? ` Still needed: ${[...p.short.map((x) => `${x.need - x.have} ${name(x.kind)}`), p.poor ? 'credits' : null].filter(Boolean).join(', ')}.` : ''}${p.state === 'locked' ? ' Restore the one before it first.' : ''}`,
+          open: openProject === p.id, onToggle: () => { openProject = openProject === p.id ? null : p.id; env.refresh(); },
+          action: p.state === 'ready' ? Kit.button('Restore', env.act(() => ind().restore(p.id)), { kind: 'primary', aria: `Restore: ${p.name}` }) : null,
+          locked: p.state === 'locked', lockLabel: null,
+        }))));
     }
 
     function render() {
       live = [];
       env.lead('');
-      return [ordersHere(), storage(), aboard(), pipeline()].flat();
+      return [ind().restoring() ? restoration() : null, ordersHere(), shuttleSection(), routesSection(), storage(), aboard(), pipeline()].flat().filter(Boolean);
     }
 
     // ---------- Sheets ----------
@@ -387,7 +499,7 @@ const IndustryView = {
       const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay], i = state().orders.indexOf(o), n = state().orders.length;
       const here = ind().here?.key === o.station, { S, text } = statusLine(o);
       return {
-        title: recipeName(R), code: B.code, sub: `${B.label} order · ${where(o)}`,
+        title: recipeName(R), code: B.code, sub: `${B.label} · ${where(o)}`,
         body: [
           h('div', { class: 'pr-status' }, Kit.tag(S.word, S.tone), h('span', { class: 'txt' }, text)),
           h('div', { class: 'pr-board' }, line(o, false)),
@@ -413,14 +525,14 @@ const IndustryView = {
       const it = Recipes.item(Object.keys(R.out)[0]);
       return { gear: 'Gear', mod: 'Mods', consumable: 'Kit' }[it.kind] || { refined: 'Refined goods', advanced: 'Advanced goods', part: 'Parts' }[it.stage] || 'Parts';
     }
-    // A product to pick: its icon and name, its recipe and time a run, and whether storage has its inputs.
+    // A product to pick: its icon and name, its recipe and time a run, and whether the stock here has its inputs.
     function product(R, on, e, now) {
-      const short = Object.entries(R.in).filter(([k, n]) => (state().storage[k] || 0) < n);
+      const short = Object.entries(R.in).filter(([k, n]) => (ind().stock()[k] || 0) < n);
       const flowing = short.length && short.every(([k]) => makers(k, null).length);
       const [tag, tone] = !short.length ? ['Ready', 'var(--good)'] : flowing ? ['In the works', 'var(--cyan)'] : [`${short.length} missing`, 'var(--warn)'];
       return h('button', {
         class: 'pr-prod', type: 'button', 'aria-pressed': String(on), onclick: () => env.setOrder({ recipe: R.id }),
-        title: short.length ? `Not in storage: ${short.map(([k]) => name(k)).join(', ')}` : 'Every input is in storage',
+        title: short.length ? `Not in stock here: ${short.map(([k]) => name(k)).join(', ')}` : 'Every input is in stock here',
       },
       iconOf(Object.keys(R.out)[0], 40),
       h('span', { class: 'main' }, h('span', { class: 'nm' }, recipeName(R)),
@@ -428,11 +540,11 @@ const IndustryView = {
       Kit.tag(tag, tone));
     }
     function orderSheet(open) {
-      const stage = ind().stage(), B = Recipes.BAYS[stage], here = ind().here;
+      const bays = ind().bays(), B = Recipes.BAYS[bays[0]], here = ind().here;
       const o = open.mode === 'edit' ? find(open.id) : null;
       if (!B || !ind().trusted() || (open.mode === 'edit' && !o)) return null;
       const known = ind().known(), e = ind().env(), now = ind().now();
-      const all = Recipes.forBay(stage), recipes = all.filter((R) => known.has(R.id));
+      const all = Recipes.forBay(bays), recipes = all.filter((R) => known.has(R.id));
       const chosen = Recipes.RECIPES[open.recipe];
       const t = chosen ? Industry.runTime({ recipe: chosen.id }, e, now) : 0;
       const body = [];
@@ -446,8 +558,8 @@ const IndustryView = {
         Kit.choices(COUNTS.map((n) => ({ id: String(n), label: n === null ? 'Continuous' : `×${n}`, on: open.count === n })),
           (id) => env.setOrder({ count: id === 'null' ? null : Number(id) }), { label: 'Runs' }),
         h('p', { class: 'ui-note' }, !chosen ? 'Pick a product above.' : open.count === null
-          ? `Runs while there are inputs, ${duration(t)} each. New inputs in storage start it again.`
-          : `${open.count} run${open.count === 1 ? '' : 's'}, ${duration(t)} each: about ${duration(t * open.count)} with the inputs in storage.`));
+          ? `Runs while there are inputs, ${duration(t)} each. New inputs in the stock here start it again.`
+          : `${open.count} run${open.count === 1 ? '' : 's'}, ${duration(t)} each: about ${duration(t * open.count)} with the inputs in stock here.`));
       const go = open.mode === 'new' ? () => { if (ind().place(open.recipe, open.count)) showNewest(); } : () => ind().edit(open.id, open.recipe, open.count);
       return {
         title: open.mode === 'new' ? 'New order' : 'Change order', code: B.code, sub: `${B.label} · ${here.name}`, tall: true,
@@ -461,50 +573,51 @@ const IndustryView = {
       };
     }
 
-    // An input's lineage: it, and (where storage is short of it) what it is made from, three levels
+    // An input's lineage: it, and (where the stock is short of it) what it is made from, three levels
     // down; then what to do about it.
     function inputSheet(open) {
-      const o = find(open.id), stage = ind().stage(), B = Recipes.BAYS[stage];
+      const o = find(open.id), bays = ind().bays(), B = Recipes.BAYS[bays[0]];
       if (!o || !B) return null;
-      const known = ind().known(), have = (k) => state().storage[k] || 0;
+      const known = ind().known(), have = (k) => stockOf(o.station)[k] || 0;
       const rows = [];
       const walk = (kind, need, depth) => {
         const R = Industry.isRaw(kind) ? null : madeBy(kind), s = supply(kind, need, o);
-        const what = Goods.isSalvage(kind) ? 'Salvage' : !R ? 'Raw' : R.bay === stage ? `${Recipes.BAYS[R.bay].label} here` : `${Recipes.BAYS[R.bay].label} order`;
+        const what = Goods.isSalvage(kind) ? 'Salvage' : !R ? 'Raw' : bays.includes(R.bay) ? `${Recipes.BAYS[R.bay].label} here` : `${Recipes.BAYS[R.bay].label} order`;
         rows.push(h('div', { class: `pr-lin${depth ? ' child' : ''}`, style: { '--depth': depth } },
           depth ? h('span', { class: 'elbow', 'aria-hidden': 'true' }) : null,
           h('div', { class: 'row' }, iconOf(kind, 32),
             h('span', { class: 'main' }, h('span', { class: 'nm' }, `${need} × ${name(kind)}`), h('span', { class: 'ui-label' }, what)),
             h('span', { class: 'have num', style: { color: MARK_TONE[s.cls] } }, s.mark))));
-        // What it's made from, for an input storage is short of.
+        // What it's made from, for an input the stock is short of.
         if (R && depth < 3 && s.cls !== 'ok') for (const [k, n] of Object.entries(R.in)) walk(k, n * need, depth + 1);
       };
       walk(open.kind, open.need, 0);
       const s = supply(open.kind, open.need, o), R = Industry.isRaw(open.kind) ? null : madeBy(open.kind);
-      const here = R && R.bay === stage && known.has(R.id);
+      const here = R && bays.includes(R.bay) && known.has(R.id);
       const subShort = R ? Object.entries(R.in).filter(([k, n]) => have(k) < n).map(([k]) => name(k)) : [];
       const replaces = ind().orders().length >= ind().slots();
       const sells = env.ctx().market?.goods.some((g) => g.kind === open.kind && g.buy !== null);
       let note, action = null;
-      if (s.cls === 'ok') note = `Enough ${name(open.kind)} in storage for the next run.`;
-      else if (s.cls === 'flow') note = `Your order at ${s.by.map((m) => m.name).join(', ')} makes it; it goes into storage as it's made.`;
+      if (s.cls === 'ok') note = `Enough ${name(open.kind)} in stock here for the next run.`;
+      else if (s.cls === 'flow') note = `Another order here makes it; it goes into the stock here as it's made.`;
+      else if (s.cls === 'away') note = `Your order at ${[...new Set(s.by.map((m) => m.name))].join(', ')} makes it. Take it from the stock there into your hold, and store it here.`;
       else if (here) {
-        note = `Make it here first. ${subShort.length ? `You also need ${subShort.join(', ')}. ` : 'All of its inputs are in storage. '}${replaces
+        note = `Make it here first. ${subShort.length ? `You also need ${subShort.join(', ')}. ` : 'All of its inputs are in stock here. '}${replaces
           ? `This ${B.label.toLowerCase()} has no order free, so it replaces ${recipeName(Recipes.RECIPES[o.recipe])}.` : 'It takes a free order here.'}`;
         const make = replaces ? () => ind().edit(o.id, R.id, open.need) : () => { if (ind().place(R.id, open.need)) showNewest(); };
         action = Kit.button(`Make ${name(open.kind)} here`, env.act(make, () => env.closeSheet()), { wide: true, lg: true });
-      } else if (R) note = `Made by a ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
+      } else if (R) note = `Made by ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
       else {
         note = `${name(open.kind)} is raw: ${Goods.isSalvage(open.kind) ? 'salvage it from pirates' : 'mine, collect or buy it'}. Store it from your hold.`;
         if (sells) action = Kit.button('Buy at Trade', () => { env.closeSheet(); env.showTab('trade'); }, { kind: 'ghost', wide: true, lg: true });
       }
       return {
-        title: name(open.kind), code: R ? Recipes.BAYS[R.bay].code : 'RAW', sub: `${have(open.kind)} in storage · ${open.need} needed a run`,
+        title: name(open.kind), code: R ? Recipes.BAYS[R.bay].code : 'RAW', sub: `${have(open.kind)} in stock · ${open.need} needed a run`,
         body: [h('span', { class: 'ui-label' }, 'Lineage'), h('div', { class: 'pr-lineage' }, rows), h('p', { class: 'pr-lin-note' }, note)],
         foot: action,
       };
     }
-    const sheet = (open) => (open.mode === 'view' ? viewSheet(open) : open.mode === 'input' ? inputSheet(open) : orderSheet(open));
+    const sheet = (open) => ({ view: viewSheet, input: inputSheet, route: routeSheet }[open.mode] || orderSheet)(open);
 
     // Every second: the running orders' meters and notes, without drawing again.
     function tick() {
@@ -518,7 +631,7 @@ const IndustryView = {
         x.note.textContent = `${Math.round(p * 100)}% · ${duration(o.next - now)} left`;
       }
     }
-    const reset = () => { live = []; openStored = openAboard = viewing = null; };
+    const reset = () => { live = []; openStored = openAboard = viewing = openProject = null; };
 
     return { render, sheet, tick, reset };
   },

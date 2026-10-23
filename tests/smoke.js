@@ -673,8 +673,11 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.ok(game(`lab.grant('bp.pulse-laser-2') && !lab.grant('bp.pulse-laser-2')`), 'a blueprint, as a schematic gives one');
   game(`cargo.credits = 20000; cargo.items = [];
     for (const [k, n] of Object.entries(Recipes.gearRecipe('pulse-laser-2').in)) for (let i = 0; i < n; i++) cargo.items.push({ kind: k, label: Goods.type(k).name, category: 'trade' });`);
-  // Production orders need the station's trust: a mission done for it (the jobs' test does one).
+  // Production orders need the station online (restored at the waystation, the next test) and its
+  // trust: a mission done for it (the jobs' test does one).
   game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), new RegExp(`Offline.*Restore ${game('industry.here.name')} at the waystation`), 'offline');
+  game(`cargo.restored = Restoration.LIST.map((p) => p.id); StationMenu.refresh()`);
   assert.match(onStation(), new RegExp(`Complete a mission for ${game('industry.here.name')} first`), 'untrusted');
   game(`cargo.loyalty[industry.here.key] = 1; StationMenu.refresh()`);
   pressOnStation('Store all');
@@ -682,7 +685,7 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.match(onStation(), /New order.*Gear.*Mining laser Mk II/, 'the blueprint\'s recipe is there');
   game(`StationMenu.closeSheet(); industry.place('make.pulse-laser-2', 1)`);
   game(`__T += Industry.runTime(industry.orders()[0], industry.env(), __T); StationMenu.tick()`);
-  assert.match(onStation(), /Done.*1 of 1 made.*Mining laser Mk II1 in storage.*Storage/, 'made');
+  assert.match(onStation(), /Done.*1 of 1 made.*Mining laser Mk II1 in stock.*Stock here/, 'made');
   pressLabelled(/^Mining laser Mk II, 1$/); // its tile in storage
   pressOnStation('Take');
   game(`industry.cancel(industry.orders()[0].id)`);
@@ -757,8 +760,13 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
 });
 
 test('researches a logic package: paid up front, built on the real clock, and then usable', () => {
+  // Elsewhere a logic package can't be queued: drone programs are the waystation's.
   game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
     { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.deepStrictEqual(game(`[lab.status('core.bool').ok, lab.status('core.bool').away]`), [false, 'waystation']);
+  game(`StationMenu.showNode('core.bool')`);
+  assert.match(onStation(), /Queued at the waystation\./);
+  game(`StationMenu.closeSheet(); launch(); { const st = __find((e) => e.kind === 'station' && e.station.waystation); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
   assert.ok(game('!!docked'));
   game(`StationMenu.showTab('research')`);
   pressOnStation(/^Logic \d+\/\d+$/); // the group last looked at stays open
@@ -826,58 +834,64 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
     globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
     placeShip(__camp.x, __camp.y + __camp.radius + 150); cargo.loyalty[__camp.key] = 1; dock(__camp);`);
   game(`StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Refinery0\/1 orders.*Idle.*No order placed.*\+ New order.*Storage/, 'nothing placed yet');
+  assert.match(onStation(), /Ore works0\/1 orders.*Idle.*No order placed.*\+ New order.*Stock here/, 'nothing placed yet');
   assert.doesNotMatch(onStation(), /Production pipeline/, 'no pipeline without orders');
   game('cargo.items = []');
   // Iron aboard, stored.
   game(`for (let i = 0; i < 10; i++) cargo.items.push({ kind: 'iron', label: 'Iron', category: 'trade' }); StationMenu.refresh()`);
   pressOnStation('Store all');
-  assert.ok(game(`cargo.items.length === 0 && industry.state.storage.iron === 10`), 'from the hold into storage');
-  // A new order, product first: only what a refinery makes, then the product's lineage.
+  assert.ok(game(`cargo.items.length === 0 && industry.stock().iron === 10`), 'from the hold into the camp\'s stock');
+  // A new order, product first: only what the ore works makes, then the product's lineage.
   pressOnStation(/^\+ New order/);
   assert.match(onStation(), /New order.*Refined goods.*Steel pipe/, 'what this station can make');
-  assert.doesNotMatch(onStation(), /Actuator/, 'not parts: a mining camp refines');
+  assert.doesNotMatch(onStation(), /Actuator/, 'not parts: the ore works refines');
   assert.match(onStation(), /Steel pipe2 Iron → Steel pipe · 20sReady/, 'each product with its recipe, and whether storage has its inputs');
   pressOnStation(/^Steel pipe/); // the first: steel pipe
   assert.match(onStation(), /1 run, 20s each/, 'picked');
   pressOnStation('Continuous');
   pressOnStation('Place order');
   assert.ok(game(`industry.orders()[0].recipe === 'make.steel-pipe' && industry.orders()[0].next > __T`), 'running');
-  assert.match(onStation(), /Running0 made · while inputs last.*Iron✓ 8.*Refinery.*left.*Steel pipe/, 'its line: iron into the refinery, steel pipe out');
+  assert.match(onStation(), /Running0 made · while inputs last.*Iron✓ 8.*Ore works.*left.*Steel pipe/, 'its line: iron into the ore works, steel pipe out');
   // An input opens its lineage.
-  pressLabelled(/^Iron: 8 in storage, needs 2/);
-  assert.match(onStation(), /Lineage2 × IronRaw✓ 8.*Enough Iron in storage/);
+  pressLabelled(/^Iron: 8 in stock, needs 2/);
+  assert.match(onStation(), /Lineage2 × IronRaw✓ 8.*Enough Iron in stock here/);
   game('StationMenu.closeSheet()');
   // With room for more than one order (research), the Ship tab's switcher steps through them, a free order last.
   game(`lab.grant('ind.bays.1'); StationMenu.refresh()`);
-  assert.match(onStation(), /Steel pipe 1\/2.*Refinery1\/2 orders.*Running/, 'the order shown, one of two');
+  assert.match(onStation(), /Steel pipe 1\/2.*Ore works1\/2 orders.*Running/, 'the order shown, one of two');
   pressOnStation('›');
   assert.match(onStation(), /New order 2\/2.*Idle1 order free here.*\+ New order/, 'then the free one');
   assert.doesNotMatch(onStation(), /Running/, 'one at a time');
   pressOnStation(/^\+ New order/);
-  pressOnStation(/^Hydrazine/);
+  pressOnStation(/^Carbon fibre/);
   pressOnStation('Place order');
-  assert.match(onStation(), /Hydrazine 2\/2.*Refinery2\/2 orders.*Starved/, 'the new order, shown');
+  assert.match(onStation(), /Carbon fibre 2\/2.*Ore works2\/2 orders.*Starved/, 'the new order, shown');
   pressOnStation('›'); // round to the first
   assert.match(onStation(), /Steel pipe 1\/2.*Running/);
   game(`industry.cancel(industry.orders()[1].id); cargo.lab.done.splice(cargo.lab.done.indexOf('ind.bays.1'), 1); delete cargo.lab.doneAt['ind.bays.1']; StationMenu.refresh()`);
   assert.doesNotMatch(onStation(), /\b1\/2\b/, 'one order again: no switcher');
   pressOnStation(/^Production pipeline · 1 order/); // folded until opened
   assert.match(onStation(), /Production pipeline.*Standalone/, 'a lone order');
-  // Away for an hour: on load, everything the iron makes is made.
+  // Away for an hour: on load, everything the iron makes is made, in the camp's stock.
   game('launch(); saveCargoNow(); __T += 3600e3; loadCargo(world.galaxy)');
-  assert.ok(game(`cargo.industry.storage['steel-pipe'] === 5 && !cargo.industry.storage.iron`), 'made while away');
-  // At another station, taken out of the same storage.
-  game(`{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab('industry')`);
-  assert.match(onStation(), /Storage.*Production pipeline.*Steel pipe.*Starved/, 'the camp\'s order, seen from here');
+  assert.strictEqual(game(`Industry.stockAt(cargo.industry, __camp.key)['steel-pipe']`), 5, 'made while away');
+  assert.ok(!game(`Industry.stockAt(cargo.industry, __camp.key).iron`), 'the iron used up');
+  // Taken out at the camp, into the hold.
+  game(`dock(__camp); StationMenu.showTab('industry')`);
   pressLabelled(/^Steel pipe, 5$/); // its tile: what uses it
-  assert.match(onStation(), /Steel piperefined5 in storage · Used in Electronics.*Fabricator order/, 'what uses steel pipe');
+  assert.match(onStation(), /Steel piperefined5 in stock · Used in Electronics.*Fabricator/, 'what uses steel pipe');
   pressOnStation('Take');
   assert.strictEqual(game(`hold.count('steel-pipe')`), 5);
+  // Carried to another station and stored there: its stock, not the camp's.
+  game(`launch(); { const st = __startStation(); globalThis.__there = st; placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Stock here.*Production pipeline.*Steel pipe.*Starved/, 'the camp\'s order, seen from here');
+  const before = game(`Industry.stockAt(cargo.industry, __there.key)['steel-pipe'] || 0`);
+  pressOnStation('Store all');
+  assert.deepStrictEqual([game(`Industry.stockAt(cargo.industry, __there.key)['steel-pipe']`), game(`Industry.stockAt(cargo.industry, __camp.key)['steel-pipe']`)], [before + 5, undefined]);
   // Pausing and cancelling work from anywhere; changing only at the order's station.
   const id = game('cargo.industry.orders[0].id');
   game(`StationMenu.showOrder({ mode: 'view', id: ${id} })`);
-  assert.match(onStation(), /Steel pipe.*Refinery order.*Changed only at/);
+  assert.match(onStation(), /Steel pipe.*Ore works ·.*Changed only at/);
   pressOnStation('Pause');
   assert.ok(game('cargo.industry.orders[0].paused'));
   assert.ok(!game(`industry.edit(${id}, 'make.hydrazine', 1)`), 'not changed from here');
@@ -885,6 +899,64 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   assert.strictEqual(game('cargo.industry.orders.length'), 0);
   game('Clock.now = () => Date.now(); launch()');
   browser.frames(2);
+});
+
+test('restoration: at the waystation, goods from its stock and credits bring a station online', () => {
+  game(`globalThis.__T = Date.now(); Clock.now = () => __T; globalThis.__was = cargo.restored; cargo.restored = [];
+    globalThis.__way = world.galaxy.stations[world.galaxy.waystation];
+    globalThis.__port = world.galaxy.stations.find((s) => s.market.type === 'minor');
+    globalThis.__wayAt = __find((e) => e.kind === 'station' && e.key === __way.key);
+    placeShip(__wayAt.x, __wayAt.y + __wayAt.radius + 150); dock(__wayAt); StationMenu.showTab('industry')`);
+  assert.ok(game(`restoration.online(__way.key) && !restoration.online(__port.key)`), 'the port is offline');
+  assert.match(onStation(), /Restoration0\/6.*Ore works shuttle.*Short.*Volatiles works.*Later/, 'the projects, in order');
+  // The goods into the stock here, and credits: ready, and restored.
+  const first = game('Restoration.LIST[0]'), second = game('Restoration.LIST[1]');
+  game(`for (const [k, n] of Object.entries(Restoration.LIST[0].goods)) Industry.deposit(cargo.industry, __way.key, k, n + 1, industry.env(), __T);
+    cargo.credits = 20000; StationMenu.refresh()`);
+  pressOnStation('Restore');
+  assert.deepStrictEqual(game('cargo.restored'), [first.id]);
+  assert.strictEqual(game('cargo.credits'), 20000 - first.credits, 'paid');
+  assert.deepStrictEqual(game(`Industry.stockAt(cargo.industry, __way.key)`), Object.fromEntries(Object.keys(first.goods).map((k) => [k, 1])), 'the goods taken from the stock');
+  game(`for (const [k, n] of Object.entries(Restoration.LIST[1].goods)) Industry.deposit(cargo.industry, __way.key, k, n, industry.env(), __T); StationMenu.refresh()`);
+  pressOnStation('Restore');
+  assert.deepStrictEqual(game('cargo.restored'), [first.id, second.id]);
+  assert.ok(game(`restoration.online(__port.key) && Industry.trusted(cargo.loyalty, __port.key)`), 'the port online, and it takes orders');
+  assert.match(onStation(), /Restoration2\/6/);
+  game('cargo.restored = __was; Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
+test('logistics: a station\'s shuttle is sent from its Production tab; routes are set up at the transport hub', () => {
+  game(`globalThis.__T = Date.now(); Clock.now = () => __T; globalThis.__was = cargo.restored; globalThis.__loyal = { ...cargo.loyalty };
+    cargo.restored = Restoration.LIST.map((p) => p.id); trustOnline();
+    globalThis.__routesWere = cargo.industry.routes; cargo.industry.routes = [];
+    globalThis.__camp = __find((e) => e.kind === 'station' && e.market.type === 'mining camp');
+    globalThis.__hubSt = __find((e) => e.kind === 'station' && e.market.type === 'transport hub');
+    globalThis.__wayName = world.galaxy.stations[world.galaxy.waystation].name;
+    placeShip(__camp.x, __camp.y + __camp.radius + 150); dock(__camp); StationMenu.showTab('industry')`);
+  assert.match(onStation(), /ShuttleIdle.*Send what's made here to.*Nowhere/, 'the shuttle, idle');
+  pressOnStation(game('__wayName'));
+  const r = game('JSON.parse(JSON.stringify(industry.shuttle()))');
+  assert.deepStrictEqual([r.stops[0].station, r.stops[1].name, r.stops[0].load, r.stops[1].unload], [game('__camp.key'), game('__wayName'), 'made', 'all']);
+  assert.ok(r.stops[0].travel >= game('Logistics.HAULER.minLeg'), 'its legs by the distance');
+  assert.match(onStation(), new RegExp(`Shuttleto ${game('__wayName')}.*Waiting at`), 'sent, and waiting for something made');
+  // Routes: only at the transport hub. Elsewhere, none shown until there is one.
+  assert.doesNotMatch(onStation(), /Routes/);
+  game(`launch(); placeShip(__hubSt.x, __hubSt.y + __hubSt.radius + 150); dock(__hubSt); StationMenu.showTab('industry')`);
+  assert.match(onStation(), /Routes0\/2.*No routes yet.*New route/);
+  pressOnStation('New route');
+  pressOnStation(game('__camp.name'));
+  pressOnStation(game('__wayName'));
+  assert.match(onStation(), /Stops, in order1\. .*2\. /, 'two stops');
+  game(`StationMenu.showOrder({ ...{ mode: 'route', haulers: 1 }, stops: [{ station: __camp.key, load: 'all', unload: {}, keep: { '*': 5 } }, { station: world.galaxy.stations[world.galaxy.waystation].key, load: {}, unload: 'all', keep: {} }] })`);
+  pressOnStation('Set up route');
+  assert.strictEqual(game('industry.routes().length'), 1);
+  assert.match(onStation(), /Routes1\/2.*loads all, keeps 5.*unloads.*Remove/, 'the route, listed');
+  // Haulers are drawn in space, and the routes on the map, without trouble.
+  assert.strictEqual(game('industry.haulerSpots().length'), 2, 'the shuttle and the route\'s hauler');
+  game('launch()');
+  browser.frames(3);
+  game(`cargo.industry.routes = __routesWere; cargo.restored = __was; cargo.loyalty = __loyal; Clock.now = () => Date.now()`);
 });
 
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
@@ -904,9 +976,9 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
   assert.deepStrictEqual(lab, { lab: { done: ['core.bool', 'hull.armour-1'], doneAt: { 'hull.armour-1': 0 }, active: null, queue: [] } });
   assert.deepStrictEqual(game(`readLab(${JSON.stringify(lab.lab)}).doneAt`), { 'core.bool': 0, 'hull.armour-1': 0 });
   // Industry starts empty; a damaged one keeps what makes sense.
-  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { storage: {}, orders: [], seq: 1 });
-  const ind = game(`readIndustry({ storage: { iron: 3.7, nope: 2, titanium: -1 }, seq: 2, orders: [
-    { id: 1, station: 'st1', name: 'A', type: 'minor', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: 0 },
+  assert.deepStrictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[7](d); return d.industry; })()`), { stock: {}, orders: [], routes: [], seq: 1 });
+  const ind = game(`readIndustry({ stock: { st1: { iron: 3.7, nope: 2, titanium: -1 }, st2: 'x', '*home': { iron: 1 } }, seq: 2, orders: [
+    { id: 1, station: 'st1', name: 'A', type: 'major', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: 0 },
     { id: 4, station: 'st2', name: 'B', type: 'minor', recipe: 'make.steel-pipe', left: 1, made: 0, at: null, next: null },
     { id: 1, station: 'st3', name: 'C', type: 'capital', recipe: 'make.shield-cell', left: 1, made: 0 }, 'x',
     { id: 5, station: 'st4', name: 'D', type: 'mining camp', recipe: 'make.steel-pipe', left: 2.5, made: 1, at: 9, next: 'x', paused: true }] })`);
@@ -915,10 +987,11 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
     gear: { 'survey-scanner-2': 1 }, lab: { done: [], active: { id: 'bp.pulse-laser-3', start: 1, end: 2 }, queue: ['bp.deflector-4', 'core.bool'] } }; CARGO_MIGRATIONS[8](d); return d; })()`);
   assert.deepStrictEqual(bps.lab, { done: ['bp.deflector-4', 'bp.pulse-laser-3', 'bp.survey-scanner-2'], doneAt: { 'bp.deflector-4': 0, 'bp.pulse-laser-3': 0, 'bp.survey-scanner-2': 0 }, active: null, queue: ['core.bool'] });
   assert.strictEqual(bps.schematics, undefined);
-  assert.deepStrictEqual(ind, { storage: { iron: 3 }, seq: 6, orders: [
-    { id: 1, station: 'st1', name: 'A', type: 'minor', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: false },
+  assert.deepStrictEqual(ind, { stock: { st1: { iron: 3 } }, routes: [], seq: 6, orders: [
+    { id: 1, station: 'st1', name: 'A', type: 'major', recipe: 'make.electronics', left: null, made: 2, at: 5, next: 9, paused: false },
     { id: 5, station: 'st4', name: 'D', type: 'mining camp', recipe: 'make.steel-pipe', left: 2, made: 1, at: null, next: null, paused: true }] },
-  'a recipe the station type does not make, a repeated id and a broken run are dropped');
+  'a recipe the station type does not make, a repeated id and a broken run are dropped; the old storage only with a waystation');
+  assert.deepStrictEqual(game(`readIndustry({ stock: { '*home': { iron: 2 }, way: { iron: 1 } } }, 'way').stock`), { way: { iron: 3 } }, 'the old storage, at the waystation');
   // Leased bays become production orders: warehouses merged into one storage (with the inputs of
   // runs under way), leases refunded, each station's first job kept where its stage fits.
   const v12 = game(`(() => { const d = { credits: 100, industry: { sites: {
@@ -930,6 +1003,22 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
       { type: 'assembler', job: null }] } } } }; CARGO_MIGRATIONS[11](d); return d; })()`);
   assert.deepStrictEqual(v12, { credits: 100 + 1500 * 3 + 5000, loyalty: {}, industry: { storage: { iron: 7, electronics: 2, silicates: 3 }, seq: 2, orders: [
     { id: 1, station: 'c', name: 'Camp', type: 'mining camp', recipe: 'make.steel-pipe', left: 4, made: 1, at: null, next: null, paused: false }] } });
+  // Stations per process: an order its station no longer makes is cancelled, its run's inputs back.
+  const v19 = game(`(() => { const d = { industry: { storage: { iron: 1 }, seq: 4, orders: [
+    { id: 1, station: 'p', name: 'Port', type: 'minor', recipe: 'make.electronics', left: 2, made: 0, at: 1, next: 9, paused: false },
+    { id: 2, station: 'c', name: 'Camp', type: 'mining camp', recipe: 'make.steel-pipe', left: null, made: 3, at: 1, next: 9, paused: false },
+    { id: 3, station: 'w', name: 'Way', type: 'waystation', recipe: 'make.electronics', left: null, made: 0, at: null, next: null, paused: false }] } };
+    CARGO_MIGRATIONS[18](d); return d.industry; })()`);
+  assert.deepStrictEqual([v19.storage, v19.orders.map((o) => o.id)], [{ iron: 1, 'steel-pipe': 1, 'carbon-fibre': 1 }, [2]]);
+  // Restoration: a game under way counts every project done up to the last station it was using.
+  assert.strictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[20](d); return d.restoreFromUse; })()`), true);
+  assert.deepStrictEqual(game(`(() => { const was = [cargo.industry, cargo.loyalty];
+    cargo.industry = { stock: {}, seq: 2, orders: [{ id: 1, station: 'x', type: 'salvage yard', recipe: 'recycle.hull-components' }] }; cargo.loyalty = {};
+    try { return restoredByUse(world.galaxy); } finally { [cargo.industry, cargo.loyalty] = was; } })()`),
+  ['shuttle.ore', 'restore.volatiles', 'restore.transport', 'restore.salvage']);
+  // A stock at each station: what was in the one storage goes to the waystation's.
+  const v20 = game(`(() => { const d = { industry: { storage: { iron: 4 }, orders: [], seq: 1 } }; CARGO_MIGRATIONS[19](d); return d.industry; })()`);
+  assert.deepStrictEqual(v20, { stock: { [game('HOME_STOCK')]: { iron: 4 } }, orders: [], seq: 1 });
   assert.deepStrictEqual(game(`readLoyalty({ a: 2, b: 'x', c: null })`), { a: 2 });
   assert.deepStrictEqual(game(`readLab({ done: ['core.bool', 'nope', 'core.bool'], active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['core.bool', 'squad.link'] }).done`), ['core.bool']);
   assert.strictEqual(game(`readLab({ active: { id: 'maint.sense', start: 5, end: 'x' }, queue: ['squad.link'] }).active.id`), 'squad.link', 'a broken build is dropped, the queue moves up');
@@ -1607,7 +1696,7 @@ function installTestJobs() {
   const supply = () => ({ name: 'Iron for the hub', briefing: ['The hub is short of iron.', 'Bring some in.'], steps: [bring('iron', 4, 'Bring 4 iron')], debrief: ['Thanks.'] });
   Object.assign(JobTexts.STATION, {
     capital: [['escort', escort]], major: [['supply', supply]],
-    minor: [['hunt', hunt]], 'mining camp': [['hunt', hunt]], 'salvage yard': [['hunt', hunt]],
+    minor: [['hunt', hunt]], 'mining camp': [['hunt', hunt]], 'salvage yard': [['hunt', hunt]], 'transport hub': [['hunt', hunt]],
   });
   rebuildBoard();
 }
@@ -1622,7 +1711,7 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   assert.ok(game(`world.galaxy.stations.filter((st) => !st.waystation).every((st) => cargo.board.list.some((j) => j.tier === 'station' && j.scope === st.key))`), 'every station has a job of its own');
   // A hunt at a station that takes production orders.
   game(`globalThis.__job = cargo.board.list.find((j) => j.tier === 'station' && j.steps.length === 2 && j.steps[1].type === 'fight'
-    && Industry.STAGE[world.scene.stations.find((s) => s.key === j.scope).market.type] && !Industry.trusted(cargo.loyalty, j.scope) && cargo.missions.status(j.id) === 'offered');`);
+    && Industry.processes(world.scene.stations.find((s) => s.key === j.scope).market.type).length && !Industry.trusted(cargo.loyalty, j.scope) && cargo.missions.status(j.id) === 'offered');`);
   const id = game('__job.id'), title = game('__job.title'), key = game('__job.scope');
   dockAt(key);
   assert.ok(title.startsWith(`${game('docked.station.name')}: `), `named for its station: ${title}`);
