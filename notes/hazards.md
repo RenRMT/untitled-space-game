@@ -407,6 +407,21 @@ logistics screens, 6f research per station and market specialties.
   arrowheads flying between their stops on the real clock (amber when loaded), parked beside the
   station they wait at. Only for show. **On the map** routes are dashed loops through their stops.
 
+### Step 6f, as built: research per station, and market specialties
+
+- **Research is queued at the station of its kind** (`Research.CATEGORIES[].station`,
+  `stationOf`): drone programs, the production upgrades and the lab at the waystation; the laser
+  and drill at the ore works; the siphon, radiator and tank at the volatiles works; the scanner at
+  the salvage yard; shields, radiation shielding, the computer, mods and other recipes at the
+  fabricator; the drive, cargo pod and hull refits at the shipyard; logistics at the transport hub.
+  The lab queue stays one, global. Elsewhere a package's sheet shows it, with "Queued at the ...".
+  (`game/lab.js` `status` adds `away`; with ?dev anywhere.)
+- **The transport hub's research** (Logistics): Route planning I and II (+1 route each) and a
+  Second hauler (+1 hauler on each new route), paid with steel pipe, hydrazine and drive components.
+- **Market specialties** (`rules/economy.js` PROFILES): the volatiles works sells deuterium and
+  hydrazine cheap, the fabricator electronics (and stocks every category), the transport hub a
+  little of everything; the ore works, salvage yard, shipyard and waystation as before.
+
 ## Later
 
 - **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →
@@ -674,7 +689,7 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 5. **Gear and consumables for hazards.** *(done: see Phase 5, as built; EMP and jammer stay with
    the pirates)* Siphon line, radiator, shielding, tank and cargo pod; field consumables on the HUD.
    With active mining, the cargo pod and the tank directly lengthen a run.
-6. **Stations per process and the waystation as home.** *(under way: see Phase 6 design)* Station
+6. **Stations per process and the waystation as home.** *(done: see Phase 6 design and steps 6a–6f)* Station
    roles, local stock and logistics, restoration projects, research per station. (The mission board
    at the waystation, with job steps that land and sample in place of fight, moves to later.)
 7. **Drones.** New subjects, actions and packages; `logicContext` from the world; drone meters.

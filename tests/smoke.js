@@ -760,8 +760,13 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
 });
 
 test('researches a logic package: paid up front, built on the real clock, and then usable', () => {
+  // Elsewhere a logic package can't be queued: drone programs are the waystation's.
   game(`fight.grace = 1e9; globalThis.__T = Date.now(); Clock.now = () => __T;
     { const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
+  assert.deepStrictEqual(game(`[lab.status('core.bool').ok, lab.status('core.bool').away]`), [false, 'waystation']);
+  game(`StationMenu.showNode('core.bool')`);
+  assert.match(onStation(), /Queued at the waystation\./);
+  game(`StationMenu.closeSheet(); launch(); { const st = __find((e) => e.kind === 'station' && e.station.waystation); placeShip(st.x, st.y + st.radius + 150); dock(st); }`);
   assert.ok(game('!!docked'));
   game(`StationMenu.showTab('research')`);
   pressOnStation(/^Logic \d+\/\d+$/); // the group last looked at stays open

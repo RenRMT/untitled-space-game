@@ -955,6 +955,17 @@ test('industry research: faster orders, more order slots and room, a longer lab 
   assert.deepStrictEqual(Recipes.producers('electronics').map((r) => r.id).sort(), ['alt.electronics', 'make.electronics', 'recycle.computer-components']);
 });
 
+test('research is queued at the station of its kind; the transport hub researches routes and haulers', () => {
+  const types = new Set([...Object.keys(Industry.PROCESS), 'transport hub']);
+  for (const k of Research.CATEGORIES) assert(types.has(k.station), `${k.id}: queued at ${k.station}`);
+  assert.deepStrictEqual(['core.bool', 'bp.pulse-laser-2', 'bp.beam-turret-2', 'bp.deflector-2', 'hull.armour-1', 'log.routes.1'].map(Research.stationOf),
+    ['waystation', 'mining camp', 'minor', 'major', 'capital', 'transport hub']);
+  assert.strictEqual(Research.stationName('minor'), 'the volatiles works');
+  const lab = Research.empty(), T = 1e12;
+  for (const id of ['log.routes.1', 'log.haulers.1']) { lab.done.push(id); lab.doneAt[id] = T; }
+  assert.deepStrictEqual([Research.bonusAt(lab, T, 'routes'), Research.bonusAt(lab, T, 'haulers')], [1, 1]);
+});
+
 test('a blueprint can be granted (a schematic): done at once, refunded in full if it was queued', () => {
   const lab = Research.empty(), T = 1e12;
   Research.enqueue(lab, 'bp.pulse-laser-2', T);

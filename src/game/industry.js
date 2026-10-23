@@ -14,6 +14,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Logistics } from '../rules/logistics.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
+import { Research } from '../rules/research.js';
 import { Restoration } from '../rules/restoration.js';
 import { SystemMap } from '../ui/map.js';
 import { addNews, addTo, cargo, devUnlock, hold, saveCargo } from './cargo.js';
@@ -103,8 +104,8 @@ export const industry = {
   },
   // Routes, set up at the transport hub once it's restored.
   atHub: () => !!industry.here && industry.here.type === 'transport hub' && industry.online(),
-  routeLimit: () => ROUTES.routes,
-  haulerLimit: () => ROUTES.haulers,
+  routeLimit: () => ROUTES.routes + Research.bonusAt(cargo.lab, Infinity, 'routes'),
+  haulerLimit: () => ROUTES.haulers + Research.bonusAt(cargo.lab, Infinity, 'haulers'),
   routes: () => cargo.industry.routes.filter((r) => !r.shuttle),
   // stops: [{ station (key), load, unload, keep }], in order.
   addRoute(stops, haulers = 1) {

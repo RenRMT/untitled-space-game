@@ -31,7 +31,7 @@ const ResearchView = {
     const LINE_CODE = { radiator: 'COL', 'rad-shielding': 'RAD', 'aux-tank': 'FUL', 'cargo-pod': 'CRG' }; // utility gear, by what it does
     const CAT_CODE = { core: 'SYS', combat: 'CMB', tactics: 'TAC', maint: 'MNT', hull: 'HUL' };
     for (const [line, L] of Object.entries(Loadout.LINES)) CAT_CODE[`bp.${line}`] = LINE_CODE[line] || SLOT_CODE[L.slot];
-    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB' });
+    Object.assign(CAT_CODE, { 'mods.weapons': 'MOD', 'mods.systems': 'MOD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD' });
     const STATE = {
       done: { tag: 'Done', tone: 'var(--good)' },
       active: { tag: 'Building', tone: 'var(--cyan)' },
@@ -224,7 +224,7 @@ const ResearchView = {
       const gives = Research.gives(id).filter((g) => g.kind !== 'upgrade' && g.kind !== 'recipe').map((g) => g.label);
       const leads = Research.LIST.filter((q) => q.requires.includes(id));
       const lacking = st.cost.filter((c) => c.have < c.need).map((c) => Goods.type(c.kind).name);
-      const why = st.state !== 'available' || st.ok ? null : st.full ? 'The queue is full.'
+      const why = st.state !== 'available' || st.ok ? null : st.away ? `Queued at ${Research.stationName(st.away)}.` : st.full ? 'The queue is full.'
         : [env.ctx().hold.credits < st.credits ? `${(st.credits - env.ctx().hold.credits).toLocaleString('en-US')} cr short.` : '', lacking.length ? `Short of ${lacking.join(', ')}.` : ''].filter(Boolean).join(' ');
       const foot = st.state === 'available' ? [
         Kit.button(idle ? 'Build' : 'Queue', env.act(() => L.enqueue(id)), {
