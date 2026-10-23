@@ -30,8 +30,10 @@ const ArtAndroids = (() => {
     seed = seed >>> 0 || 1;
     const r = mulberry(seed * 13 + 5), pick = (a) => a[Math.floor(r() * a.length)];
     const cp = (culture && culture.pal) || DEFAULT_PAL;
-    const [plateName, plate, shiny] = pick(PLATES);
-    const lampBase = r() < 0.5 ? cp.accent : pick(GLOWS);
+    // The Android culture's own crew keep its machine palette: neutral plates, the culture's light.
+    const own = culture && culture.lineage === 'android';
+    const [plateName, plate, shiny] = pick(own ? PLATES.filter((p) => /chrome|ceramic|gunmetal|black/.test(p[0])) : PLATES);
+    const glow = r() < 0.5 ? cp.accent : pick(GLOWS), lampBase = own ? cp.light || cp.accent : glow;
     const shell = shiny ? 'shell' : 'plate';
     const pal = {
       plate, shell: plate, plate2: U.shade(plate, 0.74), frame: U.mix(U.shade(plate, 0.55), '#20242b', 0.4),

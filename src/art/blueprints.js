@@ -305,7 +305,7 @@ const ArtBlueprints = (() => {
         if (culture.asym < 0.2 && Math.abs(y) > s * 2) b.poly(spot.map(([px, py]) => [px, -py]), 'accent', { lvl: 3, h: 0.3 });
       }
     } else if (hc.hull === 'synth') {
-      for (let i = 0, t = 0; i < stripes + 1 && t < 40; t++) {
+      for (let i = 0, t = 0; i < Math.max(1, stripes - (fighter ? 1 : 0)) && t < 40; t++) {
         const x = lerp(-L * 0.42, L * 0.05, r()), y0 = W * (0.15 + r() * 0.5), d = L * (0.1 + r() * 0.08);
         const path = [[x, y0], [x + d, y0], [x + d, y0 * 0.25], [x + d * 2, y0 * 0.25]];
         const tr = U.strip(path, L * 0.012);
@@ -392,8 +392,8 @@ const ArtBlueprints = (() => {
         }
         break;
       case 'synth': { // a rack of identical cubes, two deep
-        const n = 5, cs = (L * 0.62) / n;
-        for (let i = 0; i < n; i++) for (const s of [1, -1]) for (let row = 0; row < 2; row++) {
+        const n = 4, cs = (L * 0.62) / n;
+        for (let i = 0; i < n; i++) for (const s of [1, -1]) for (let row = 0; row < 1 + (i % 2); row++) {
           const x = -L * 0.38 + (i + 0.5) * cs, y = s * (y0 + cs * 0.1 + row * cs);
           b.poly(U.rect(x, y, cs * 0.86, cs * 0.86), 'hull2', { lvl: 1.4 - row * 0.1, h: hullH * (0.8 - row * 0.15), bevel: cs * 0.1 });
           b.poly(U.rect(x, y, cs * 0.25, cs * 0.25), 'glass', { lvl: 1.5 - row * 0.1, h: hullH * (0.82 - row * 0.15) });
@@ -978,7 +978,7 @@ const ArtBlueprints = (() => {
     }
   }
 
-  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish, NATURAL };
+  return { TYPES, create, wreck, playerShip, SHIP_HULL, builder, finish, NATURAL, addPatches, truss };
 })();
 
 export { ArtBlueprints };
