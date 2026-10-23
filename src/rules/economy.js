@@ -72,6 +72,7 @@ const Economy = (() => {
     capital: { produces: ['synthetic', 'crates'], consumes: ['mineral', 'gas'], sellsAll: true },
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
+    'transport hub': { produces: ['crates'], consumes: ['barrels'] },
     // The android waystation makes its own cabling and synthetics, and runs on liquids it can't.
     waystation: { produces: ['tubes', 'synthetic'], consumes: ['barrels'] },
   };

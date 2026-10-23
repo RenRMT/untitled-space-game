@@ -188,6 +188,10 @@ const IndustryView = {
 
     function ordersHere() {
       const here = ind().here, B = Recipes.BAYS[ind().bays()[0]];
+      if (!ind().online()) {
+        return env.section('Orders here', h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B?.code || 'IND', 28, { code: B?.code || 'IND' }),
+          h('span', { class: 'go' }, 'Offline'), h('span', {}, `Restore ${here.name} at the waystation`))));
+      }
       if (!B) return env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       const orders = ind().orders(), max = ind().slots();
       const title = h('div', { class: 'pr-title' }, h('h2', { class: 'ui-title' }, B.label),
@@ -377,10 +381,37 @@ const IndustryView = {
         }))] : null]));
     }
 
+    // ---------- Restoration (at the waystation) ----------
+
+    // The projects in order: what each restores and costs, the next one with Restore. Its goods come
+    // from the stock here.
+    const PROJECT_TONE = { done: 'var(--good)', ready: 'var(--cyan)', short: 'var(--warn)', locked: 'var(--dim)' };
+    const PROJECT_WORD = { done: 'Done', ready: 'Ready', short: 'Short', locked: 'Later' };
+    let openProject = null;
+    function restoration() {
+      const projects = ind().projects(), done = projects.filter((p) => p.state === 'done').length;
+      const cost = (p) => [...Object.entries(p.goods).map(([k, n]) => {
+        const have = Math.min(n, ind().stock()[k] || 0);
+        return p.state === 'done' ? `${n} ${name(k)}` : `${have}/${n} ${name(k)}`;
+      }), `${p.credits} cr`].join(' · ');
+      return env.section('Restoration',
+        Kit.head('Restoration', h('span', { class: 'aside num' }, `${done}/${projects.length}`)),
+        env.explain('restoration', 'Bring the other stations back online, one after another. Each takes goods from the stock here and credits; a restored station takes orders and has a shuttle for what it makes.'),
+        h('div', { class: 'ui-list' }, projects.map((p) => Kit.optionRow({
+          code: p.type ? 'IND' : 'SHP', name: p.name, sub: p.station ? `${p.station}${p.type ? '' : ' · shuttle'}` : null,
+          tag: PROJECT_WORD[p.state], tagTone: { done: 'good', ready: 'cyan', short: 'warn' }[p.state] || null,
+          vals: [], extra: h('span', { class: 'ui-note', style: { color: PROJECT_TONE[p.state] } }, cost(p)),
+          note: `${p.note}${p.state === 'short' ? ` Still needed: ${[...p.short.map((x) => `${x.need - x.have} ${name(x.kind)}`), p.poor ? 'credits' : null].filter(Boolean).join(', ')}.` : ''}${p.state === 'locked' ? ' Restore the one before it first.' : ''}`,
+          open: openProject === p.id, onToggle: () => { openProject = openProject === p.id ? null : p.id; env.refresh(); },
+          action: p.state === 'ready' ? Kit.button('Restore', env.act(() => ind().restore(p.id)), { kind: 'primary', aria: `Restore: ${p.name}` }) : null,
+          locked: p.state === 'locked', lockLabel: null,
+        }))));
+    }
+
     function render() {
       live = [];
       env.lead('');
-      return [ordersHere(), storage(), aboard(), pipeline()].flat();
+      return [ind().restoring() ? restoration() : null, ordersHere(), storage(), aboard(), pipeline()].filter(Boolean).flat();
     }
 
     // ---------- Sheets ----------
@@ -525,7 +556,7 @@ const IndustryView = {
         x.note.textContent = `${Math.round(p * 100)}% · ${duration(o.next - now)} left`;
       }
     }
-    const reset = () => { live = []; openStored = openAboard = viewing = null; };
+    const reset = () => { live = []; openStored = openAboard = viewing = openProject = null; };
 
     return { render, sheet, tick, reset };
   },

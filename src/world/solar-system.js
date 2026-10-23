@@ -61,8 +61,9 @@ const SolarSystem = (() => {
     belts: { main: true, at: 0.3, width: [1800, 2600], outer: 0.55, clump: 2600, rocks: [6, 13], fill: { main: 0.85, outer: 0.4 } },
     fields: { count: [2, 4], rocks: [18, 32], spread: [1100, 1600] },
     nebulae: { count: [1, 3], r: [4500, 7500] },
-    // capital, major, yard: whether the system has its capital, its major hub and a salvage yard.
-    stations: { capital: true, major: true, minor: [2, 3], miningCamps: [1, 2], yard: true },
+    // capital, major, yard, transport: whether the system has its capital, its major hub, a salvage
+    // yard and a transport hub.
+    stations: { capital: true, major: true, minor: [2, 3], miningCamps: [1, 2], yard: true, transport: false },
     // Security by distance (world units) to the nearest station: at most `high` away is high
     // security, then low; further than `low` is lawless. A nebula takes a level off,
     // except right by a station.
@@ -367,6 +368,18 @@ const SolarSystem = (() => {
       }
       at = at || (waySpot ? { ...waySpot } : polar(rw() * TAU, R * 0.9));
       addStation({ name: overrides.waystation.name, size: 'minor', ...at, culture: ANDROID, waystation: true, market: { kind: 'outpost', type: 'waystation' } });
+    }
+
+    // ---------- The transport hub: in the middle system, where routes between the stations meet ----------
+    // From its own stream too, after everything else, so the rest stays where it was.
+    if (P.stations.transport) {
+      const rt = stream(0x7a45);
+      let at = null;
+      for (let tries = 0; tries < 300 && !at; tries++) {
+        const c = polar(rt() * TAU, R * between(rt, [0.3, 0.6]));
+        if (clear(c, 3000) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1500) && stations.every((o) => dist(o, c) > 6000 - tries * 10)) at = c;
+      }
+      if (at) addStation({ name: `${name} Transit`, size: 'minor', ...at, market: { kind: 'outpost', type: 'transport hub' } });
     }
 
     // ---------- Security: distance to the nearest station, lower in a nebula ----------

@@ -19,6 +19,7 @@ import { GATE_JOB, OPENING, SALVAGE, cargo, loadCargo, opening, saveCargoNow } f
 import { endIntro, introDue, startIntro, waystation } from './intro.js';
 import { buildMission, endTalk, mission, settleOpeningLoyalty, showGates, skipOpening } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
+import { trustOnline } from './restoration.js';
 import { SHIP, intro, notify, ship } from './state.js';
 import { arriveAt } from './travel.js';
 
@@ -63,6 +64,7 @@ export function loadGalaxy(galaxy) {
   if (!mission.gate) cargo.missions.finish(GATE_JOB); // (or no gate for the third)
   else if (Params.has('skipintro') && opening()) skipOpening();
   settleOpeningLoyalty();
+  trustOnline();
   showGates();
   if (introDue()) startIntro();
   else if (opening()) placeBeside(waystation()); // the opening missions start and end there

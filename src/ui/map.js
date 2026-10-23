@@ -63,6 +63,7 @@ const SystemMap = (() => {
   let objective = null; // the mission's next step: { x, y, label, station (id) | null }, or null
   const OBJECTIVE_COLOR = Theme.color.amber;
   let marker = null; // the player's marker: { x, y, name (null for a point) }, or null
+  let offline = null; // (station key) -> whether the station is offline (drawn faded), or null
   let onMarker = null; // told when the marker changes
   const MARKER_COLOR = Theme.color.marker;
   const dev = Params.has('dev');
@@ -339,9 +340,10 @@ const SystemMap = (() => {
       ctx.beginPath(); ctx.arc(mx, my, dot(m.r, 1.5), 0, Math.PI * 2); ctx.fill();
     }
 
-    // Stations: diamonds in their culture's colour, the capital ringed. Gates: rings.
+    // Stations: diamonds in their culture's colour, the capital ringed, an offline one faded. Gates: rings.
     for (const s of system.stations) {
       const [sx, sy] = toScreen(s.x, s.y), r = s.size === 'major' ? 5 : 3.5;
+      ctx.globalAlpha = offline?.(s.key) ? 0.35 : 1;
       ctx.fillStyle = galaxy.cultureColor(s.culture);
       diamond(sx, sy, r);
       if (s.market.type === 'capital') {
@@ -350,6 +352,7 @@ const SystemMap = (() => {
         ctx.beginPath(); ctx.arc(sx, sy, r + 4, 0, Math.PI * 2); ctx.stroke();
       }
     }
+    ctx.globalAlpha = 1;
     for (const g of system.gates) gateIcon(...toScreen(g.x, g.y), g.color || galaxy.cultureColor(g.culture));
 
     // Contacts: identified ones by type, pings as '?'.
@@ -838,6 +841,8 @@ const SystemMap = (() => {
     get marker() { return marker; },
     set marker(m) { if (m === marker) return; marker = m; if (isOpen) { updateCallout(); requestDraw(); } },
     set onMarker(fn) { onMarker = fn; },
+    // Which stations are offline (game/restoration.js): (key) -> bool.
+    set offline(fn) { offline = fn; requestDraw(); },
     get perf() { return perf; },
     set blocked(b) { blocked = b; if (b) close(); },
     stats,

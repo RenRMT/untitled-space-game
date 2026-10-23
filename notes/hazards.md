@@ -353,6 +353,26 @@ logistics screens, 6f research per station and market specialties.
 - Migration 20 moves the one storage to the waystation's stock (`HOME_STOCK`, placed under the
   waystation's key by `readIndustry`). Migrations 12 and 19 work on the old form directly.
 
+### Step 6c, as built: restoring stations, and the transport hub
+
+- **Projects** (`rules/restoration.js`, pure): the waystation and the mining camp are online from the
+  start; six projects follow, each needing the one before: the ore works' shuttle (steel pipe, carbon
+  fibre), the volatiles works (adds deuterium), the transport hub (adds hydrazine), the salvage yard
+  (titanium from the moons), the fabricator (rare earths from the desert) and the shipyard
+  (electronics, tungsten from the lava world). Each but the hub brings its station's shuttle.
+- **Restoring** (`game/restoration.js`): at the waystation, a Restoration section on top of its
+  Production tab lists the projects (Done, Ready, Short, Later) with what each still needs; Restore
+  takes the goods from the waystation's stock and the credits. `cargo.restored` holds the ids.
+  Every online station trusts the player (loyalty 1, `trustOnline`), so it takes orders at once.
+- **Offline** stations still dock, refuel, repair, trade and keep a stock, but take no orders (the
+  Production tab says to restore them at the waystation) and sell no hulls; on the map they're
+  faded (`SystemMap.offline`). Hulls are sold only at the shipyard (the capital), once restored.
+- **The transport hub** is a new station type (`'transport hub'`, an outpost named after the system,
+  "... Transit"), placed from its own stream in the middle system (0.3–0.6 of the radius) so the rest
+  of the system stays where it was. On in the showcase system (`stations.transport`).
+- Migration 21: a game under way counts every project done up to the last station type it was
+  using (an order there, or trust), so nothing it had stops (`restoredByUse`).
+
 ## Later
 
 - **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →

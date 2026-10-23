@@ -34,6 +34,7 @@ import { HullMods } from '../src/rules/hullmods.js';
 import { Research } from '../src/rules/research.js';
 import { Recipes } from '../src/rules/recipes.js';
 import { Industry } from '../src/rules/industry.js';
+import { Restoration } from '../src/rules/restoration.js';
 import { Mods } from '../src/rules/mods.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { CombatCore } from '../src/combat/combat-core.js';
@@ -103,7 +104,7 @@ test('the galaxy is one system: one of each planet, moon and station, a field, a
     assert.deepStrictEqual([s.belts.length, s.fields.length, s.nebulae.length], [0, 1, 1], `${where}: belts, fields, nebulae`);
     // One of each station: the capital first (the start), with the waystation on the outer edge.
     const types = s.stations.map((st) => (st.waystation ? 'waystation' : st.market.type));
-    assert.deepStrictEqual([...types].sort(), ['capital', 'major', 'minor', 'mining camp', 'salvage yard', 'waystation'].sort(), `${where}: stations`);
+    assert.deepStrictEqual([...types].sort(), ['capital', 'major', 'minor', 'mining camp', 'salvage yard', 'transport hub', 'waystation'].sort(), `${where}: stations`);
     assert.strictEqual(g.stations[g.startStation].market.type, 'capital', `${where}: the start`);
     assert.strictEqual(g.stations[g.waystation].name, Galaxy.params.waystation.name, `${where}: the waystation`);
     for (const p of s.planets) assert(dist(p, s.origin) + p.extent < s.radius, `${where}: ${p.name} reaches past the edge`);
@@ -1194,6 +1195,33 @@ test('production: processes by station type, room in each stock, counts, pausing
   Industry.deposit(two, CAMP2.key, 'iron', 2, env2, T + run);
   const w = Industry.place(two, CAMP2, 'make.steel-pipe', null, env2, T + run);
   assert.strictEqual(statusOf(two, w), 'running');
+});
+
+test('restoration: stations come online in order, each paid with goods and credits', () => {
+  // Online from the start: the waystation and the ore works; everything else waits.
+  assert(Restoration.online('waystation', []) && Restoration.online('mining camp', []));
+  for (const type of ['minor', 'transport hub', 'salvage yard', 'major', 'capital']) assert(!Restoration.online(type, []), type);
+  assert(!Restoration.shuttle('mining camp', []) && Restoration.shuttle('mining camp', ['shuttle.ore']));
+  // Every station type with a process, and the transport hub, is restored by one project; each
+  // project needs the one before it; every good it asks for has a source.
+  for (const type of [...Object.keys(Industry.PROCESS), 'transport hub']) {
+    if (!Restoration.ONLINE.includes(type)) assert.strictEqual(Restoration.LIST.filter((p) => p.type === type).length, 1, type);
+  }
+  Restoration.LIST.forEach((p, i) => {
+    assert.deepStrictEqual(p.requires, i ? [Restoration.LIST[i - 1].id] : [], p.id);
+    for (const kind of Object.keys(p.goods)) assert(Goods.type(kind), `${p.id}: ${kind}`);
+  });
+  // Status: locked until the one before is done; short of goods or credits; then ready.
+  const first = Restoration.LIST[0], second = Restoration.LIST[1];
+  assert.strictEqual(Restoration.status(second.id, [], { ...second.goods }, 1e6).id, 'locked');
+  const short = Restoration.status(first.id, [], { 'steel-pipe': 1 }, 0);
+  assert.strictEqual(short.id, 'short');
+  assert(short.credits && short.short.some((x) => x.kind === 'steel-pipe' && x.have === 1));
+  assert.strictEqual(Restoration.restore(first.id, [], { 'steel-pipe': 1 }, 0), null, 'not paid for: nothing');
+  assert.deepStrictEqual(Restoration.restore(first.id, [], { ...first.goods, iron: 5 }, first.credits), { take: first.goods, credits: first.credits });
+  assert.strictEqual(Restoration.status(first.id, [first.id], {}, 0).id, 'done');
+  assert.strictEqual(Restoration.status(second.id, [first.id], { ...second.goods }, second.credits).id, 'ready');
+  assert(Restoration.online(second.type, [first.id, second.id]));
 });
 
 test('production: slots grow with research, and a station takes orders only when it trusts the player', () => {

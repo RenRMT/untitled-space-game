@@ -673,8 +673,11 @@ test('assembles gear by blueprint, fits and sells it, researches a hull refit, a
   assert.ok(game(`lab.grant('bp.pulse-laser-2') && !lab.grant('bp.pulse-laser-2')`), 'a blueprint, as a schematic gives one');
   game(`cargo.credits = 20000; cargo.items = [];
     for (const [k, n] of Object.entries(Recipes.gearRecipe('pulse-laser-2').in)) for (let i = 0; i < n; i++) cargo.items.push({ kind: k, label: Goods.type(k).name, category: 'trade' });`);
-  // Production orders need the station's trust: a mission done for it (the jobs' test does one).
+  // Production orders need the station online (restored at the waystation, the next test) and its
+  // trust: a mission done for it (the jobs' test does one).
   game(`StationMenu.showTab('industry')`);
+  assert.match(onStation(), new RegExp(`Offline.*Restore ${game('industry.here.name')} at the waystation`), 'offline');
+  game(`cargo.restored = Restoration.LIST.map((p) => p.id); StationMenu.refresh()`);
   assert.match(onStation(), new RegExp(`Complete a mission for ${game('industry.here.name')} first`), 'untrusted');
   game(`cargo.loyalty[industry.here.key] = 1; StationMenu.refresh()`);
   pressOnStation('Store all');
@@ -893,6 +896,31 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   browser.frames(2);
 });
 
+test('restoration: at the waystation, goods from its stock and credits bring a station online', () => {
+  game(`globalThis.__T = Date.now(); Clock.now = () => __T; globalThis.__was = cargo.restored; cargo.restored = [];
+    globalThis.__way = world.galaxy.stations[world.galaxy.waystation];
+    globalThis.__port = world.galaxy.stations.find((s) => s.market.type === 'minor');
+    globalThis.__wayAt = __find((e) => e.kind === 'station' && e.key === __way.key);
+    placeShip(__wayAt.x, __wayAt.y + __wayAt.radius + 150); dock(__wayAt); StationMenu.showTab('industry')`);
+  assert.ok(game(`restoration.online(__way.key) && !restoration.online(__port.key)`), 'the port is offline');
+  assert.match(onStation(), /Restoration0\/6.*Ore works shuttle.*Short.*Volatiles works.*Later/, 'the projects, in order');
+  // The goods into the stock here, and credits: ready, and restored.
+  const first = game('Restoration.LIST[0]'), second = game('Restoration.LIST[1]');
+  game(`for (const [k, n] of Object.entries(Restoration.LIST[0].goods)) Industry.deposit(cargo.industry, __way.key, k, n + 1, industry.env(), __T);
+    cargo.credits = 20000; StationMenu.refresh()`);
+  pressOnStation('Restore');
+  assert.deepStrictEqual(game('cargo.restored'), [first.id]);
+  assert.strictEqual(game('cargo.credits'), 20000 - first.credits, 'paid');
+  assert.deepStrictEqual(game(`Industry.stockAt(cargo.industry, __way.key)`), Object.fromEntries(Object.keys(first.goods).map((k) => [k, 1])), 'the goods taken from the stock');
+  game(`for (const [k, n] of Object.entries(Restoration.LIST[1].goods)) Industry.deposit(cargo.industry, __way.key, k, n, industry.env(), __T); StationMenu.refresh()`);
+  pressOnStation('Restore');
+  assert.deepStrictEqual(game('cargo.restored'), [first.id, second.id]);
+  assert.ok(game(`restoration.online(__port.key) && Industry.trusted(cargo.loyalty, __port.key)`), 'the port online, and it takes orders');
+  assert.match(onStation(), /Restoration2\/6/);
+  game('cargo.restored = __was; Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
 test('an old save: researched gear becomes schematics, hull upgrades become refits', () => {
   const d = game(`(() => { const d = { version: 3, research: ['pulse-laser-2', 'armour-1', 'cargo-racks-1', 'nonsense'] }; CARGO_MIGRATIONS[3](d); return d; })()`);
   assert.deepStrictEqual(d, { version: 3, schematics: ['pulse-laser-2'], hullMods: ['armour-1', 'cargo-racks-1'] });
@@ -944,6 +972,12 @@ test('an old save: researched gear becomes schematics, hull upgrades become refi
     { id: 3, station: 'w', name: 'Way', type: 'waystation', recipe: 'make.electronics', left: null, made: 0, at: null, next: null, paused: false }] } };
     CARGO_MIGRATIONS[18](d); return d.industry; })()`);
   assert.deepStrictEqual([v19.storage, v19.orders.map((o) => o.id)], [{ iron: 1, 'steel-pipe': 1, 'carbon-fibre': 1 }, [2]]);
+  // Restoration: a game under way counts every project done up to the last station it was using.
+  assert.strictEqual(game(`(() => { const d = {}; CARGO_MIGRATIONS[20](d); return d.restoreFromUse; })()`), true);
+  assert.deepStrictEqual(game(`(() => { const was = [cargo.industry, cargo.loyalty];
+    cargo.industry = { stock: {}, seq: 2, orders: [{ id: 1, station: 'x', type: 'salvage yard', recipe: 'recycle.hull-components' }] }; cargo.loyalty = {};
+    try { return restoredByUse(world.galaxy); } finally { [cargo.industry, cargo.loyalty] = was; } })()`),
+  ['shuttle.ore', 'restore.volatiles', 'restore.transport', 'restore.salvage']);
   // A stock at each station: what was in the one storage goes to the waystation's.
   const v20 = game(`(() => { const d = { industry: { storage: { iron: 4 }, orders: [], seq: 1 } }; CARGO_MIGRATIONS[19](d); return d.industry; })()`);
   assert.deepStrictEqual(v20, { stock: { [game('HOME_STOCK')]: { iron: 4 } }, orders: [], seq: 1 });
@@ -1624,7 +1658,7 @@ function installTestJobs() {
   const supply = () => ({ name: 'Iron for the hub', briefing: ['The hub is short of iron.', 'Bring some in.'], steps: [bring('iron', 4, 'Bring 4 iron')], debrief: ['Thanks.'] });
   Object.assign(JobTexts.STATION, {
     capital: [['escort', escort]], major: [['supply', supply]],
-    minor: [['hunt', hunt]], 'mining camp': [['hunt', hunt]], 'salvage yard': [['hunt', hunt]],
+    minor: [['hunt', hunt]], 'mining camp': [['hunt', hunt]], 'salvage yard': [['hunt', hunt]], 'transport hub': [['hunt', hunt]],
   });
   rebuildBoard();
 }

@@ -21,6 +21,7 @@ import { artStyle } from './options.js';
 import { lab } from './lab.js';
 import { industry } from './industry.js';
 import { outfitting, placeShip } from './outfitting.js';
+import { restoration } from './restoration.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
@@ -115,7 +116,7 @@ export function dock(station) {
     lab,
     industry,
     get kit() { return cargo.kit; },
-    shipyard: station.market.kind === 'system' && ['capital', 'major'].includes(station.market.type),
+    shipyard: station.market.type === 'capital' && restoration.online(station.key), // hulls: at the shipyard, restored
     repairs,
     fuelling,
     squad: programs,

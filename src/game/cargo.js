@@ -18,6 +18,7 @@ import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { Reputation } from '../rules/reputation.js';
+import { Restoration } from '../rules/restoration.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Jobs } from '../story/jobs.js';
@@ -52,10 +53,11 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // rep: how each faction regards the player (rules/reputation.js), moved by the jobs handed in.
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
+// restored: the restoration projects done ([id], rules/restoration.js): which stations are online.
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
-  missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
+  missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online by the third opening mission (until then the first system is all there is).
@@ -136,6 +138,7 @@ export function loadCargo(galaxy) {
   cargo.lab = Research.empty();
   cargo.industry = Industry.empty();
   cargo.loyalty = {};
+  cargo.restored = [];
   cargo.market = Economy.empty();
   cargo.rep = Reputation.empty();
   cargo.squad = []; // the first member joins at the end of the first mission
@@ -343,6 +346,11 @@ export const CARGO_MIGRATIONS = [
     s.stock = s.storage && typeof s.storage === 'object' ? { [HOME_STOCK]: s.storage } : {};
     delete s.storage;
   },
+  // 21. Stations restored (rules/restoration.js): a game under way has every project done up to
+  //     the last station it was already using (orders there, or trusted): readCargo, with the galaxy.
+  (d) => {
+    if (!Array.isArray(d.restored)) d.restoreFromUse = true;
+  },
 ];
 // The stock a save from before stations kept their own had (migration 20): the waystation's.
 export const HOME_STOCK = '*home';
@@ -394,6 +402,14 @@ export function readIndustry(d, home = null) {
   out.seq = Math.max(whole(d.seq), ...out.orders.map((o) => o.id + 1), 1);
   return out;
 }
+// The projects a game from before restoration counts as done: every one up to (and with) the last
+// that restores a station type it was using (an order there, or loyalty), so nothing it had stops.
+export function restoredByUse(galaxy) {
+  const used = new Set(cargo.industry.orders.map((o) => o.type));
+  for (const st of galaxy.stations) if (Industry.trusted(cargo.loyalty, st.key)) used.add(st.waystation ? 'waystation' : st.market.type);
+  const last = Restoration.LIST.reduce((n, p, i) => (p.type && used.has(p.type) ? i : n), -1);
+  return Restoration.LIST.slice(0, last + 1).map((p) => p.id);
+}
 // Saved loyalty, checked: a number per station.
 export function readLoyalty(d) {
   const out = {};
@@ -406,6 +422,8 @@ export function readCargo(d, galaxy = null) {
   cargo.lab = readLab(d.lab); // before the squad: what its programs may use
   cargo.industry = readIndustry(d.industry, galaxy?.stations[galaxy.waystation]?.key ?? null);
   cargo.loyalty = readLoyalty(d.loyalty);
+  cargo.restored = Array.isArray(d.restored) ? [...new Set(d.restored.filter((id) => Restoration.PROJECTS[id]))] : [];
+  if (d.restoreFromUse && galaxy) cargo.restored = restoredByUse(galaxy);
   cargo.market = Economy.prune(Economy.read(d.market), Clock.now());
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
@@ -451,7 +469,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
   loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
-  market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track,
+  market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
 }), 1000);
 export const saveCargo = () => cargoSave.change();
 export const saveCargoNow = () => cargoSave.now();

@@ -15,6 +15,7 @@ import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { SystemMap } from '../ui/map.js';
 import { addNews, addTo, cargo, devUnlock, hold, saveCargo } from './cargo.js';
+import { restoration } from './restoration.js';
 import { notify } from './state.js';
 import { world } from './world.js';
 
@@ -33,7 +34,13 @@ export const industry = {
   slots: () => Industry.slots(industry.env()),
   // The processes the station docked at works (Recipes.BAYS ids), whether it takes orders, and its orders.
   bays: () => (industry.here ? Industry.processes(industry.here.type) : []),
-  trusted: () => !!industry.here && (devUnlock || Industry.trusted(cargo.loyalty, industry.here.key)),
+  // Whether the station docked at is online (rules/restoration.js), and takes orders.
+  online: () => !!industry.here && restoration.online(industry.here.key),
+  trusted: () => industry.online() && (devUnlock || Industry.trusted(cargo.loyalty, industry.here.key)),
+  // At the waystation: the restoration projects, and restoring one (settled around it).
+  restoring: () => !!industry.here && industry.here.key === restoration.home(),
+  projects: () => restoration.projects(),
+  restore: (id) => industry.restoring() && industry.change(() => restoration.restore(id)),
   orders: () => (industry.here ? Industry.at(cargo.industry, industry.here.key) : []),
   // The stock of the station docked at (empty in flight), and how much more it takes.
   stock: () => (industry.here ? Industry.stockAt(cargo.industry, industry.here.key) : {}),
@@ -61,7 +68,7 @@ export const industry = {
     return ok !== false && ok !== null && ok !== 0;
   },
   // A production order here: set up only while docked at its station.
-  place: (recipe, count) => !!industry.here && industry.change((s, e, now) => Industry.place(s, industry.here, recipe, count, e, now, devUnlock ? null : cargo.loyalty)),
+  place: (recipe, count) => industry.trusted() && industry.change((s, e, now) => Industry.place(s, industry.here, recipe, count, e, now, devUnlock ? null : cargo.loyalty)),
   edit(id, recipe, count) {
     if (!industry.orders().some((o) => o.id === id)) return false;
     return industry.change((s, e, now) => Industry.change(s, id, recipe, count, e, now));
