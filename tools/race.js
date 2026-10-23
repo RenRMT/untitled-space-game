@@ -10,7 +10,10 @@
 // (craters, vents, lava lakes) stay as slow zones (glowing ones burn). Nothing in src/ changes.
 //
 // Laps count by checkpoints along the centreline, passed in order.
-// Keys: WASD or arrows to fly (or hold the pointer where to go), R to restart, N for a new track.
+// Flying is the game's Cruise (game/input.js): drag anywhere to set a heading, the drag's length the
+// speed; the ship keeps that course when you let go, and a double-tap stops it. The drag shows as the
+// game's ring and line (game/hud.js drawDragIndicator). WASD or arrows fly at full speed while held.
+// R to restart, N for a new track.
 // Query parameters: ?biome=desert|ice|lava|terran|moon, ?style=line, ?curved, ?seed=, ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5), ?mode=direct (no drift).
 
@@ -46,7 +49,10 @@ const STATS = { ...SHIP, maxSpeed: SHIP.maxSpeed * (+q.get('speed') || 0.5), acc
 const SURFACE_SCALE = 0.85, SHIP_SCALE = 1.375, R_SHIP = SHIP.radius * SURFACE_SCALE, HULL = SHIP.hull || 120;
 const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1, keys: new Set(), ptr: null, shipAt: null };
+// The drag as game/input.js keeps it, and the course it set (the game's ship.targetAngle, targetSpeed).
+const DEADZONE = 8, DOUBLE_TAP = 0.4, maxDrag = () => Math.min(innerWidth, innerHeight) * 0.3;
+const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1, keys: new Set(), course: { angle: 0, speed: 0 } };
 let G = null; // the track and its surface: { W, tr, b, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
 const cv = document.getElementById('view'), ctx = cv.getContext('2d'), hud = document.getElementById('hud'), note = document.getElementById('note');
@@ -135,6 +141,7 @@ function restart() {
     phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: HULL, hits: 0, wrong: 0, slow: false, burn: false, flash: 0,
     craft: { x: p.x, y: p.y, vx: 0, vy: 0, angle: Math.atan2(p.ty, p.tx), thrust: 0 }, cam: { lx: 0, ly: 0, zf: 1 },
   };
+  S.course = { angle: R.craft.angle, speed: 0 };
   looks().tiles.layers(detailRect(viewNow(innerWidth, innerHeight).v), Infinity); // the start's chunks, now
 }
 
@@ -147,10 +154,12 @@ function step(dt) {
   const K = S.keys;
   if (K.has('ArrowLeft') || K.has('a')) ax--; if (K.has('ArrowRight') || K.has('d')) ax++;
   if (K.has('ArrowUp') || K.has('w')) ay--; if (K.has('ArrowDown') || K.has('s')) ay++;
-  if (S.ptr && S.shipAt) { const dx = S.ptr[0] - S.shipAt[0], dy = S.ptr[1] - S.shipAt[1]; if (Math.hypot(dx, dy) > 12) { ax = dx; ay = dy / Math.cos(ArtSurface.tiltOf(S.style)); } }
-  const go = racing && (ax || ay), stats = R.slow ? { ...STATS, maxSpeed: STATS.maxSpeed * SLOW } : STATS;
-  const x0 = C.x, y0 = C.y;
-  Flight.step(C, stats, { targetAngle: go ? Math.atan2(ay, ax) : C.angle, targetSpeed: go ? stats.maxSpeed : 0, mode: MODE }, dt);
+  const stats = R.slow ? { ...STATS, maxSpeed: STATS.maxSpeed * SLOW } : STATS;
+  // Keys held fly at full speed; otherwise the course the drag set (a fraction of top speed, so a
+  // slow zone scales it too, as game/landing.js does).
+  const keyed = ax || ay, angle = keyed ? Math.atan2(ay, ax) : S.course.angle, speed = keyed ? stats.maxSpeed : S.course.speed * stats.maxSpeed;
+  const go = racing && speed > 0, x0 = C.x, y0 = C.y;
+  Flight.step(C, stats, { targetAngle: go ? angle : C.angle, targetSpeed: go ? speed : 0, mode: MODE }, dt);
   // What blocks it bounces it off, as in game/landing.js fly; a hard hit dents the hull.
   let hit = 0;
   if (ArtSurface.blocked(W, C.x, y0, R_SHIP)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
@@ -243,6 +252,23 @@ function drawMinimap(Wc) {
   ctx.restore();
 }
 
+// The drag: a dashed ring of full-speed reach round where it began, a line to the finger (held to the
+// ring) and the speed it sets (game/hud.js drawDragIndicator).
+function drawDrag() {
+  if (!drag.active) return;
+  const md = maxDrag(), dx = drag.x - drag.x0, dy = drag.y - drag.y0, len = Math.hypot(dx, dy), k = len > md ? md / len : 1;
+  const ex = drag.x0 + dx * k, ey = drag.y0 + dy * k;
+  ctx.save();
+  ctx.strokeStyle = '#cfd8ff'; ctx.globalAlpha = 0.5; ctx.lineWidth = 1.5; ctx.setLineDash([4, 6]); // stronger than the game's: it sits on bright ground
+  ctx.beginPath(); ctx.arc(drag.x0, drag.y0, md, 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 0.8; ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(drag.x0, drag.y0); ctx.lineTo(ex, ey); ctx.stroke();
+  ctx.beginPath(); ctx.arc(drag.x0, drag.y0, 4, 0, TAU); ctx.arc(ex, ey, 10, 0, TAU); ctx.stroke();
+  if (len > DEADZONE) { ctx.fillStyle = '#7df9ff'; ctx.font = "12px 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace"; ctx.fillText(`${Math.round(Math.min(len / md, 1) * 100)}%`, ex + 14, ey - 14); }
+  ctx.restore();
+}
+
 const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
 function render(time) {
   const dpr = Math.min(2, devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
@@ -262,7 +288,6 @@ function render(time) {
   const z = ArtSurface.FLY, [shx, shy] = ArtSurface.shadowShift(z), sh = ground(v, C.x + shx, C.y + shy);
   if (sh) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(sh[0], sh[1], R_SHIP * 1.3, R_SHIP * 1.3 * v.ct, 0, 0, TAU); ctx.fill(); }
   const p = SurfaceGlobe.toScreen(v, C.x, C.y, z) || [v.ox + C.x - v.fx, v.oy + (C.y - v.fy) * v.ct - z * v.st], k = (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / ART.radius;
-  S.shipAt = [p[0] * zoom, p[1] * zoom];
   ctx.save(); ctx.translate(p[0], p[1]); ctx.scale(k, k);
   Art.drawAsset(ctx, ART, S.style, { angle: C.angle, t: time, thrust: C.thrust });
   ctx.restore();
@@ -270,6 +295,7 @@ function render(time) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   drawMinimap(Wc);
+  drawDrag();
   if (R.phase === 'race' || R.phase === 'done') buildAhead(tiles, v);
 
   const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(LAPS, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / HULL);
@@ -313,9 +339,36 @@ addEventListener('keydown', (e) => {
 });
 addEventListener('keyup', (e) => S.keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
 addEventListener('blur', () => S.keys.clear());
-cv.addEventListener('pointerdown', (e) => { S.ptr = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); });
-cv.addEventListener('pointermove', (e) => { if (S.ptr) S.ptr = [e.clientX, e.clientY]; });
-for (const ev of ['pointerup', 'pointercancel']) cv.addEventListener(ev, () => { S.ptr = null; });
+// The game's drag (game/input.js): the heading is the drag's way (its screen height stretched back
+// out of the view's tilt, so it points where it looks), the speed its length over maxDrag; dragging
+// back to where it began throttles to zero. Letting go keeps the course (Cruise), or stops (Direct);
+// in Cruise a double-tap stops, so one stray tap doesn't throw away your speed.
+let lastTap = -Infinity;
+cv.addEventListener('pointerdown', (e) => {
+  if (drag.active || (e.pointerType === 'mouse' && e.button !== 0)) return;
+  cv.setPointerCapture(e.pointerId);
+  Object.assign(drag, { active: true, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0 });
+});
+cv.addEventListener('pointermove', (e) => {
+  if (!drag.active || e.pointerId !== drag.id) return;
+  drag.x = e.clientX; drag.y = e.clientY;
+  const dx = drag.x - drag.x0, dy = drag.y - drag.y0, len = Math.hypot(dx, dy);
+  drag.moved = Math.max(drag.moved, len);
+  if (len > DEADZONE) S.course = { angle: Math.atan2(dy / Math.cos(ArtSurface.tiltOf(S.style)), dx), speed: Math.min(len / maxDrag(), 1) };
+  else if (drag.moved > DEADZONE) S.course.speed = 0;
+});
+function endDrag(e) {
+  if (!drag.active || e.pointerId !== drag.id) return;
+  drag.active = false;
+  if (MODE === 'direct') { S.course.speed = 0; return; }
+  if (e.type !== 'pointerup' || drag.moved >= DEADZONE) return;
+  const t = e.timeStamp / 1000, double = t - lastTap <= DOUBLE_TAP;
+  lastTap = double ? -Infinity : t;
+  if (double) S.course.speed = 0;
+}
+cv.addEventListener('pointerup', endDrag);
+cv.addEventListener('pointercancel', endDrag);
+cv.addEventListener('contextmenu', (e) => e.preventDefault());
 
-window.race = { S, get G() { return G; }, get R() { return R; } }; // to poke at from the console
+window.race = { S, drag, get G() { return G; }, get R() { return R; } }; // to poke at from the console
 busy(() => { build(); requestAnimationFrame(frame); });
