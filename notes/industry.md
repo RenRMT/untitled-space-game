@@ -59,12 +59,13 @@ The player sets production up like a data pipeline, and the game's words map ont
 
 | Data engineering | In the game |
 |---|---|
-| data lake | storage: one store for the whole game, reached from any station |
+| data lake | each station's stock (until October 2026 phase 6, one storage reached from anywhere) |
 | job | a production order: one recipe running at one station |
 | trigger | an order starts a run as soon as its inputs are in storage |
 | backpressure | Blocked: no room in storage for what a run makes |
 | lineage | where an order's inputs come from: storage, another order, or a stage still missing |
 | pipeline | the chain of orders, linked by what one makes and the next uses |
+| data transfer | carrying goods between stations' stocks: the hold, a shuttle, a route (`notes/hazards.md` phase 6) |
 
 **Storage.** Docked anywhere, you move goods between the hold (and the components store) and the
 storage, and take out what orders make: goods into the hold, gear, mods and consumables into the

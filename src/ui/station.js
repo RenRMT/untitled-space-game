@@ -6,7 +6,7 @@
 // the Production tab steps through a station's orders with the same switcher);
 // the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
 // sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
-// nodes (inputs, the stage, what it makes), the shared storage as tiles and the production pipeline,
+// nodes (inputs, the stage, what it makes), this station's stock as tiles and the production pipeline,
 // the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color, culture, ink }, market, hold, ship,
 //                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
@@ -25,12 +25,12 @@
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
 // lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
 //   research on the real-world clock (rules/research.js, game/lab.js).
-// industry: game/industry.js: production orders at stations and the shared storage (rules/industry.js).
+// industry: game/industry.js: production orders at stations and each station's stock (rules/industry.js).
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
 // fuelling: { fuel, max, room, hydrazine, price, cost, refuel() }: the tank (filled on docking and launch), filled with hydrazine
-//   aboard or in storage first, then fuel bought for credits.
+//   aboard or in this station's stock first, then fuel bought for credits.
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
 //   (game/squad.js programs).
@@ -234,13 +234,13 @@ const StationMenu = (() => {
       : Kit.callout(`${r.owner} · ${r.tier}: ${pct} worse prices here, buying and selling.`, 'var(--warn)');
   }
 
-  // How many of the hold's goods the shared storage can take now (game/industry.js deposit), and
-  // why none if it can't: the Industry tab still locked, or storage full.
+  // How many of the hold's goods this station's stock can take now (game/industry.js deposit), and
+  // why none if it can't: the Industry tab still locked, or the stock full.
   function storeRoom() {
     const ind = ctx.industry;
-    if (!ind || !ind.state || isLocked('industry')) return { free: 0, why: 'Storage opens with the Industry tab' };
-    const free = Industry.free(ind.state, ind.env(), ind.now());
-    return { free, why: free < 1 ? 'Storage is full' : '' };
+    if (!ind || !ind.state || isLocked('industry')) return { free: 0, why: 'The stock opens with the Industry tab' };
+    const free = ind.free();
+    return { free, why: free < 1 ? 'The stock here is full' : '' };
   }
 
   // Trade: the hold, with Sell all and Store all (always there, greyed out when there's nothing for
@@ -260,7 +260,7 @@ const StationMenu = (() => {
       for (const g of sellable) while (hold.count(g.kind) > 0 && market.sell(g.kind));
       refresh();
     };
-    // Store all: the whole hold into the shared storage (the Industry tab's), as much as fits.
+    // Store all: the whole hold into this station's stock (the Industry tab's), as much as fits.
     const room = storeRoom();
     const kinds = [...new Set(hold.items.map((it) => it.kind))];
     const storeAll = () => {
@@ -276,8 +276,8 @@ const StationMenu = (() => {
         h('span', { class: 'st-acts' },
           Kit.button('Store all', storeAll, {
             kind: 'ghost', disabled: empty || room.free < 1,
-            title: empty ? 'Nothing in the hold' : room.why || 'Move everything in the hold into storage',
-            aria: 'Move everything in the hold into storage',
+            title: empty ? 'Nothing in the hold' : room.why || 'Move everything in the hold into this station\'s stock',
+            aria: 'Move everything in the hold into this station\'s stock',
           }),
           Kit.button('Sell all', sellAll, {
             kind: 'ghost', disabled: !sellable.length,
@@ -414,8 +414,13 @@ const StationMenu = (() => {
   // The outfitting of the ship the Ship tab shows: yours, or a squad member's (game/outfitting.js).
   const outfit = () => (viewedMember() && ctx.outfitting.member?.(viewing)) || ctx.outfitting;
 
-  // Whether a piece of gear is waiting in storage (game/industry.js), for the slot sheet.
-  const inStore = (id) => !!ctx.industry?.state.storage[id];
+  // Where a piece of gear is waiting in a station's stock (game/industry.js), for the slot sheet: the
+  // station's name, or null.
+  function inStore(id) {
+    const s = ctx.industry?.state;
+    const key = s && Object.keys(s.stock).find((k) => s.stock[k][id] > 0);
+    return key ? ctx.industry.nameOf(key) : null;
+  }
 
   // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), and the next Mk of each
   // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
@@ -448,12 +453,12 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]).filter((r) => !SPARSE.has(s.type) || r.diff),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In storage' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
+          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In stock' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
           tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
           locked: kind === 'locked',
           note: kind === 'fit' ? `${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : [stored ? 'Made, and waiting in storage: take it out from the Production tab at any station.' : '',
-              kind === 'make' ? 'Assembled by a production order at a shipyard (Production tab), from parts.' : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
+            : [stored ? `Made, and waiting in the stock at ${stored}: take it out from the Production tab there.` : '',
+              kind === 'make' ? `Assembled by a production order at ${Loadout.EQUIPMENT[e].tier > 1 ? 'the shipyard' : 'the waystation\'s bench or the shipyard'} (Production tab), from parts.` : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
           action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', disabled: !!o.blocked?.(s.id, e), title: o.blocked?.(s.id, e) || undefined, aria: `Fit ${item.name}` }) : null,
           lockLabel: null,
@@ -492,7 +497,7 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
   }
 
-  // The tank: filled on docking (game/docking.js), hydrazine aboard or in storage first, then credits;
+  // The tank: filled on docking (game/docking.js), hydrazine aboard or in this station's stock first, then credits;
   // short of credits, it tops up on launch with what's been earned meanwhile.
   function fuelRow() {
     const { fuelling: f } = ctx;

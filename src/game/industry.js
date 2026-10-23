@@ -1,6 +1,6 @@
 // Production as the station menu sees it (rules/industry.js): placing production orders at the
 // station docked at, pausing, cancelling and reordering them from anywhere, moving goods between the
-// hold and the one shared storage, and orders working on the real-world clock, settled on load, on
+// hold and the stock of the station docked at, and orders working on the real-world clock, settled on load, on
 // docking, every second on the station screen and every few seconds in flight. Every change
 // settles first, then changes, then lets orders start, so what's made never depends on when it was
 // looked at.
@@ -35,6 +35,11 @@ export const industry = {
   bays: () => (industry.here ? Industry.processes(industry.here.type) : []),
   trusted: () => !!industry.here && (devUnlock || Industry.trusted(cargo.loyalty, industry.here.key)),
   orders: () => (industry.here ? Industry.at(cargo.industry, industry.here.key) : []),
+  // The stock of the station docked at (empty in flight), and how much more it takes.
+  stock: () => (industry.here ? Industry.stockAt(cargo.industry, industry.here.key) : {}),
+  free: () => (industry.here ? Industry.free(cargo.industry, industry.here.key, industry.env(), Clock.now()) : 0),
+  // A station's name (its key if it isn't in the scene).
+  nameOf: (key) => stationOf(key)?.name || key,
   // The name of the system a station is in ('' if it isn't in the scene).
   system(key) {
     const st = stationOf(key);
@@ -72,23 +77,25 @@ export const industry = {
     SystemMap.marker = { x: st.x, y: st.y, name: st.name };
     return true;
   },
-  // Goods from the hold (trade goods) or the components store into storage, as many as fit.
+  // Goods from the hold (trade goods) or the components store into the stock here, as many as fit.
   deposit(kind, n = Infinity) {
+    if (!industry.here) return false;
     return industry.change((s, e, now) => {
       const salvage = Goods.isSalvage(kind);
       const have = salvage ? cargo.components[kind] || 0 : hold.count(kind);
-      const k = Industry.deposit(s, kind, Math.min(n, have), e, now);
+      const k = Industry.deposit(s, industry.here.key, kind, Math.min(n, have), e, now);
       if (salvage) addTo(cargo.components, kind, -k);
       else for (let i = 0; i < k; i++) cargo.items.splice(cargo.items.findIndex((it) => it.kind === kind), 1);
       return k > 0;
     });
   },
-  // From storage into the hold (as far as it has room), or the components, spare gear, spare mods
-  // or the kit, which take no room.
+  // From the stock here into the hold (as far as it has room), or the components, spare gear, spare
+  // mods or the kit, which take no room.
   withdraw(kind, n = Infinity) {
+    if (!industry.here) return false;
     return industry.change((s) => {
       const apart = Goods.isSalvage(kind) || !!Loadout.EQUIPMENT[kind] || !!Mods.MODS[kind] || !!Abilities.ABILITIES[kind];
-      const k = Industry.withdraw(s, kind, apart ? n : Math.min(n, hold.free));
+      const k = Industry.withdraw(s, industry.here.key, kind, apart ? n : Math.min(n, hold.free));
       if (Loadout.EQUIPMENT[kind]) addTo(cargo.gear, kind, k);
       else if (Mods.MODS[kind]) addTo(cargo.mods, kind, k);
       else if (Abilities.ABILITIES[kind]) addTo(cargo.kit, kind, k);

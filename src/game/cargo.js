@@ -41,7 +41,7 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
 // loadout, rules/mods.js); kit: consumables for abilities in a fight ({ [ability id]: charges },
 // rules/abilities.js), which take no room in the hold; lab: research (rules/research.js: what's done, building and queued,
-// blueprints and hull refits among it); industry: the shared storage and the production orders at
+// blueprints and hull refits among it); industry: each station's stock and the production orders at
 // stations (rules/industry.js); loyalty: how far each station trusts the player ({ [station key]: n },
 // raised by missions done for it; a station not in it counts Industry.LOYALTY.start); squad: the squad members (rules/squad.js), with their loadouts and programs
 // and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
@@ -150,7 +150,7 @@ export function loadCargo(galaxy) {
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
   try {
-    if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS));
+    if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS), galaxy);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
   // Research that finished while the game was closed (before the ship: refits among it), then what
   // industry made meanwhile (after research: its bonuses count from when they finished).
@@ -269,7 +269,7 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     const LEASE = { refinery: 1500, fabricator: 3000, assembler: 5000 };
     const sites = d.industry?.sites && typeof d.industry.sites === 'object' ? d.industry.sites : {};
-    const out = Industry.empty();
+    const out = { storage: {}, orders: [], seq: 1 }; // (one storage, until migration 20)
     for (const [key, s] of Object.entries(sites)) {
       if (!s || typeof s !== 'object') continue;
       for (const [kind, n] of Object.entries(s.storage || {})) if (n > 0) addTo(out.storage, kind, n);
@@ -329,10 +329,23 @@ export const CARGO_MIGRATIONS = [
     const s = d.industry;
     if (!s || !Array.isArray(s.orders)) return;
     if (!s.storage || typeof s.storage !== 'object') s.storage = {};
-    for (const o of [...s.orders]) if (!o || !Recipes.RECIPES[o.recipe] || !Industry.canMake(o.type, o.recipe)) Industry.cancel(s, o?.id);
-    s.orders = s.orders.filter(Boolean);
+    s.orders = s.orders.filter((o) => {
+      if (o && Recipes.RECIPES[o.recipe] && Industry.canMake(o.type, o.recipe)) return true;
+      if (o?.next != null && Recipes.RECIPES[o.recipe]) for (const [kind, n] of Object.entries(Recipes.RECIPES[o.recipe].in)) addTo(s.storage, kind, n);
+      return false;
+    });
+  },
+  // 20. A stock at each station in place of one shared storage: what was stored goes to the
+  //     waystation's (HOME_STOCK, which readIndustry puts under the waystation's key).
+  (d) => {
+    const s = d.industry;
+    if (!s || typeof s !== 'object') return;
+    s.stock = s.storage && typeof s.storage === 'object' ? { [HOME_STOCK]: s.storage } : {};
+    delete s.storage;
   },
 ];
+// The stock a save from before stations kept their own had (migration 20): the waystation's.
+export const HOME_STOCK = '*home';
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
 export const logicKnown = () => Research.known(cargo.lab.done);
@@ -354,11 +367,20 @@ export function readLab(d) {
 
 // Saved production, checked: known goods in storage; an order whose recipe is gone, or isn't made
 // at its station's type, is dropped; a run under way with times that make no sense is forgotten.
-export function readIndustry(d) {
+// home: the waystation's key, for the stock of a save from before stations kept their own.
+export function readIndustry(d, home = null) {
   const out = Industry.empty();
   if (!d || typeof d !== 'object') return out;
   const whole = (n) => Math.max(0, Math.floor(n) || 0);
-  for (const [kind, n] of Object.entries(d.storage || {})) if (Recipes.item(kind) && whole(n) > 0) out.storage[kind] = whole(n);
+  for (const [key, counts] of Object.entries(d.stock && typeof d.stock === 'object' ? d.stock : {})) {
+    const at = key === HOME_STOCK ? home : key;
+    if (!at || !counts || typeof counts !== 'object') continue;
+    for (const [kind, n] of Object.entries(counts)) {
+      if (!Recipes.item(kind) || whole(n) <= 0) continue;
+      const s = out.stock[at] || (out.stock[at] = {});
+      s[kind] = (s[kind] || 0) + whole(n);
+    }
+  }
   const ids = new Set();
   for (const o of Array.isArray(d.orders) ? d.orders : []) {
     if (!o || typeof o.station !== 'string' || !Industry.canMake(o.type, o.recipe) || !Number.isInteger(o.id) || ids.has(o.id)) continue;
@@ -380,9 +402,9 @@ export function readLoyalty(d) {
 }
 
 // The parts of a save (in the current form), each checked.
-export function readCargo(d) {
+export function readCargo(d, galaxy = null) {
   cargo.lab = readLab(d.lab); // before the squad: what its programs may use
-  cargo.industry = readIndustry(d.industry);
+  cargo.industry = readIndustry(d.industry, galaxy?.stations[galaxy.waystation]?.key ?? null);
   cargo.loyalty = readLoyalty(d.loyalty);
   cargo.market = Economy.prune(Economy.read(d.market), Clock.now());
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
@@ -476,17 +498,20 @@ export const repairs = {
 };
 
 // Refuelling, on docking and again on launch (game/docking.js): hydrazine in the hold goes in first
-// (FUEL_PER_HYDRAZINE a unit, while at least half of one fits), then hydrazine in storage, then fuel
-// bought for credits, as much as there is room for and the credits cover.
+// (FUEL_PER_HYDRAZINE a unit, while at least half of one fits), then hydrazine in the stock of the
+// station docked at (fuelling.at, its key, set by docking), then fuel bought for credits, as much as
+// there is room for and the credits cover.
 //   fuelling.refuel() -> { hydrazine, credits } (what it took) | null (nothing went in)
 export const FUEL_PER_HYDRAZINE = 25;
 export const FUEL_PRICE = 6; // credits per unit (hydrazine's price over FUEL_PER_HYDRAZINE, and a little)
 export const fuelling = {
   price: FUEL_PRICE,
+  at: null,
+  get stocked() { return fuelling.at ? Industry.stockAt(cargo.industry, fuelling.at).hydrazine || 0 : 0; },
   get fuel() { return cargo.fuel; },
   get max() { return SHIP.fuel; },
   get room() { return Math.max(0, SHIP.fuel - cargo.fuel); },
-  get hydrazine() { return hold.count('hydrazine') + (cargo.industry.storage.hydrazine || 0); },
+  get hydrazine() { return hold.count('hydrazine') + fuelling.stocked; },
   // What filling up would cost in credits, after the hydrazine aboard and in storage.
   get cost() { return Math.ceil(Math.max(0, fuelling.room - fuelling.hydrazine * FUEL_PER_HYDRAZINE)) * FUEL_PRICE; },
   refuel() {
@@ -499,9 +524,8 @@ export const fuelling = {
       cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
       used++;
     }
-    while (fits() && (cargo.industry.storage.hydrazine || 0) > 0) {
-      addTo(cargo.industry.storage, 'hydrazine', -1);
-      if (!cargo.industry.storage.hydrazine) delete cargo.industry.storage.hydrazine;
+    while (fits() && fuelling.stocked > 0) {
+      Industry.withdraw(cargo.industry, fuelling.at, 'hydrazine', 1);
       cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
       used++;
     }

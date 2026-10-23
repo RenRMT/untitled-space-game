@@ -1,21 +1,21 @@
 // Production: orders placed at stations that work through recipes (rules/recipes.js) on the
-// real-world clock, while the game is closed too, like research. There's one storage for the whole
-// game, reached from any station: an order takes its inputs from it and puts what it makes back in
-// it, so a refinery order at a mining camp feeds a fabricator order at a minor station without
-// anything carried between them. The chain of orders is the production pipeline.
+// real-world clock, while the game is closed too, like research. Each station keeps its own stock
+// (notes/hazards.md phase 6): an order takes its inputs from its station's stock and puts what it
+// makes back there, so steel pipe made at the ore works has to be carried to the fabricator (in
+// the hold, by a shuttle or on a route) before an order there can use it. The chain of orders is
+// the production pipeline.
 // Each station type works one process (PROCESS, notes/hazards.md phase 6): the mining camp is the
 // ore works, the minor station the volatiles works, the salvage yard recycles, the major hub is the
 // fabricator, the waystation's bench assembles Mk I gear and consumables and the capital is the
-// shipyard (which has a bench too). A station takes
-// orders once it trusts the player (LOYALTY), one at a time (more with research); orders cost nothing.
+// shipyard (which has a bench too). A station takes orders once it trusts the player (LOYALTY), one at a time (more with research); orders cost nothing.
 // An order runs a recipe, for a count of runs or as long as inputs last. A run takes its inputs
-// when it starts and sets room aside for what it makes, so finishing never fails. Orders start runs
+// when it starts and sets room aside in its station's stock for what it makes, so finishing never fails. Orders start runs
 // only when a run finishes, or when something changes (kick): so settling in one go or in many
 // steps comes out the same, however long the game was closed. When orders want the same inputs,
 // the first in the list (the priority the player sets) goes first. Industry research
 // (rules/research.js bonusAt) adds speed and room from the moment it finished.
 //
-//   Industry.empty() -> state                { storage: { [kind (Recipes.item)]: n }, orders: [order], seq }
+//   Industry.empty() -> state                { stock: { [station key]: { [kind (Recipes.item)]: n } }, orders: [order], seq }
 //   order: { id, station (key), name (the station's), type (its market type), recipe, left: n | null
 //            (null: while inputs last), made, at, next, paused }
 //     at / next: when the run under way started and finishes (ms), or null between runs
@@ -25,24 +25,28 @@
 //   Industry.env(lab) -> env                 times, room and slots, given the research done (rules/research.js)
 //   Industry.canMake(station type, recipe id), slots(env), at(state, key) -> [order]
 //   Industry.trusted(loyalty, key)           whether a station takes orders ({ [key]: n })
-//   Industry.capacity(state, env, t), used(state), reserved(state), free(state, env, t)
+//   Industry.capacity(state, env, t)         room in each station's stock
+//   Industry.stockAt(state, key) -> counts   a station's stock (never undefined; don't write to it)
+//   Industry.used(state, key), reserved(state, key), free(state, key, env, t)
 //   Industry.runTime(order, env, t) -> ms    one run of its recipe
 //   Industry.status(state, order) -> { id: 'running' | 'starved' | 'blocked' | 'done' | 'paused', missing? }
 //   Industry.place(state, station { key, name, type }, recipe, count | null, env, now, loyalty?) -> order | null
 //     (loyalty given: only at a station that trusts the player)
 //   Industry.change(state, id, recipe, count, env, now), pause(state, id, paused, env, now),
 //     cancel(state, id), move(state, i, j)   by order id, except move (positions in the list)
-//   Industry.deposit(state, kind, n, env, now) -> n taken; withdraw(state, kind, n) -> n given
+//   Industry.deposit(state, key, kind, n, env, now) -> n taken; withdraw(state, key, kind, n) -> n given
 //   Industry.kick(state, env, now)           start every order that can start
 //   Industry.settle(state, now, env, max?) -> { log: [{ id, key, name, recipe, at, out }], truncated }
 //   Industry.summary(state, log) -> [text]   what was made, per station and good
 //   Industry.recipeFor(kind, known?) -> recipe | null   what makes a kind (recycling only if nothing else does)
-//   Industry.lineage(state, recipe id, known) -> [{ kind, need, have, raw, makers: [order], stage, source }]
-//     where each input comes from; source: 'storage' | 'order' | 'raw' | 'stage' (an order of that process
-//     needed: stage is the process that makes it)
-//   Industry.pipelines(state) -> [{ end: [kind], orders, links: [{ from, to, kind }], gaps: [{ order, kind, stage }], standalone }]
-//     orders linked by what they make (an output of one is an input of another), in groups; a gap
-//     is an input that isn't raw and no order makes; standalone: an order linked to nothing
+//   Industry.lineage(state, recipe id, known, key) -> [{ kind, need, have, raw, makers: [order], stage, source }]
+//     where each input of an order at station key comes from; source: 'storage' (enough here) |
+//     'order' (an order here makes it) | 'away' (an order at another station makes it: bring it) |
+//     'raw' | 'stage' (an order of that process needed: stage is the process that makes it)
+//   Industry.pipelines(state) -> [{ end: [kind], orders, links: [{ from, to, kind, away }], gaps: [{ order, kind, stage }], standalone }]
+//     orders linked by what they make (an output of one is an input of another), in groups; away:
+//     the two are at different stations, so the good has to be carried; a gap is an input that
+//     isn't raw and no order makes; standalone: an order linked to nothing
 // Times are milliseconds since the epoch (core/clock.js). ES module (`Industry`); also runs in Node.
 
 import { Goods } from './goods.js';
@@ -53,14 +57,22 @@ const Industry = (() => {
   const PROCESS = { 'mining camp': ['ore'], minor: ['volatiles'], 'salvage yard': ['recycle'], major: ['parts'], waystation: ['bench'], capital: ['shipyard', 'bench'] };
   const STATIONS = { ore: 'the ore works', volatiles: 'the volatiles works', recycle: 'the salvage yard', parts: 'the fabricator', bench: 'the waystation, the shipyard', shipyard: 'the shipyard' };
   const processes = (type) => PROCESS[type] || [];
-  const STORAGE = { base: 200 };
+  const STORAGE = { base: 100 }; // room in each station's stock
   const SLOTS = 1; // orders per station, before research
   // A station takes orders from loyalty `required` up; every station starts at `start`, and
   // missions done for it raise it (game/jobs.js; the waystation's own: game/missions.js).
   const LOYALTY = { required: 1, start: 0 };
   const MAX_EVENTS = 20000; // runs settled per call; the rest wait for the next call
 
-  const empty = () => ({ storage: {}, orders: [], seq: 1 });
+  const empty = () => ({ stock: {}, orders: [], seq: 1 });
+  const NONE = Object.freeze({});
+  const stockAt = (state, key) => state.stock[key] || NONE;
+  // Into a station's stock (a negative n takes out); a stock left empty goes.
+  function put(state, key, kind, n) {
+    const s = state.stock[key] || (state.stock[key] = {});
+    add(s, kind, n);
+    if (!Object.keys(s).length) delete state.stock[key];
+  }
   const add = (counts, kind, n) => { counts[kind] = (counts[kind] || 0) + n; if (counts[kind] <= 0) delete counts[kind]; };
   const total = (counts) => Object.values(counts).reduce((n, k) => n + k, 0);
   const find = (state, id) => state.orders.find((o) => o.id === id) || null;
@@ -80,21 +92,21 @@ const Industry = (() => {
   const trusted = (loyalty, key) => (loyalty?.[key] ?? LOYALTY.start) >= LOYALTY.required;
 
   const capacity = (state, e, t) => STORAGE.base + e.room(t);
-  const used = (state) => total(state.storage);
-  const reserved = (state) => state.orders.reduce((n, o) => n + (o.next != null ? total(Recipes.RECIPES[o.recipe].out) : 0), 0);
-  const free = (state, e, t) => Math.max(0, capacity(state, e, t) - used(state) - reserved(state));
+  const used = (state, key) => total(stockAt(state, key));
+  const reserved = (state, key) => at(state, key).reduce((n, o) => n + (o.next != null ? total(Recipes.RECIPES[o.recipe].out) : 0), 0);
+  const free = (state, key, e, t) => Math.max(0, capacity(state, e, t) - used(state, key) - reserved(state, key));
 
   const runTime = (o, e, t) => Math.round((e.recipe(o.recipe).time * 1000) / (e.speed(t) * Research.config.speed));
 
-  const missing = (state, R) => Object.entries(R.in).find(([k, n]) => (state.storage[k] || 0) < n)?.[0] ?? null;
-  // Whether a run would overfill storage (a run that makes no more than it takes always fits).
-  const full = (state, R, e, t) => total(R.out) > total(R.in) && used(state) - total(R.in) + reserved(state) + total(R.out) > capacity(state, e, t);
+  const missing = (state, R, key) => Object.entries(R.in).find(([k, n]) => (stockAt(state, key)[k] || 0) < n)?.[0] ?? null;
+  // Whether a run would overfill its station's stock (a run that makes no more than it takes always fits).
+  const full = (state, R, key, e, t) => total(R.out) > total(R.in) && used(state, key) - total(R.in) + reserved(state, key) + total(R.out) > capacity(state, e, t);
 
   function status(state, o) {
     if (o.next != null) return { id: 'running' };
     if (o.left === 0) return { id: 'done' };
     if (o.paused) return { id: 'paused' };
-    const R = Recipes.RECIPES[o.recipe], k = missing(state, R);
+    const R = Recipes.RECIPES[o.recipe], k = missing(state, R, o.station);
     return k ? { id: 'starved', missing: k } : { id: 'blocked' };
   }
 
@@ -102,8 +114,8 @@ const Industry = (() => {
   function start(state, o, e, t) {
     if (o.paused || o.next != null || o.left === 0) return false;
     const R = e.recipe(o.recipe);
-    if (!R || missing(state, R) || full(state, R, e, t)) return false;
-    for (const [k, n] of Object.entries(R.in)) add(state.storage, k, -n);
+    if (!R || missing(state, R, o.station) || full(state, R, o.station, e, t)) return false;
+    for (const [k, n] of Object.entries(R.in)) put(state, o.station, k, -n);
     if (o.left !== null) o.left--;
     o.at = t;
     o.next = t + runTime(o, e, t);
@@ -120,7 +132,7 @@ const Industry = (() => {
       if (!o) break;
       if (n >= max) return { log, truncated: true };
       const t = o.next, R = e.recipe(o.recipe);
-      for (const [k, c] of Object.entries(R.out)) add(state.storage, k, c);
+      for (const [k, c] of Object.entries(R.out)) put(state, o.station, k, c);
       o.made++;
       o.at = o.next = null;
       log.push({ id: o.id, key: o.station, name: o.name, recipe: R.id, at: t, out: R.out });
@@ -137,10 +149,10 @@ const Industry = (() => {
     kick(state, e, now);
     return o;
   }
-  // The run under way stops: its inputs go back to storage.
+  // The run under way stops: its inputs go back to its station's stock.
   function stop(state, o) {
     if (o.next == null) return;
-    for (const [k, n] of Object.entries(Recipes.RECIPES[o.recipe].in)) add(state.storage, k, n);
+    for (const [k, n] of Object.entries(Recipes.RECIPES[o.recipe].in)) put(state, o.station, k, n);
     o.at = o.next = null;
     if (o.left !== null) o.left++;
   }
@@ -173,16 +185,16 @@ const Industry = (() => {
     state.orders.splice(j, 0, o);
     return true;
   }
-  function deposit(state, kind, n, e, now) {
-    const k = Math.min(n, free(state, e, now));
+  function deposit(state, key, kind, n, e, now) {
+    const k = Math.min(n, free(state, key, e, now));
     if (k <= 0) return 0;
-    add(state.storage, kind, k);
+    put(state, key, kind, k);
     kick(state, e, now);
     return k;
   }
-  function withdraw(state, kind, n) {
-    const k = Math.min(n, state.storage[kind] || 0);
-    if (k > 0) add(state.storage, kind, -k);
+  function withdraw(state, key, kind, n) {
+    const k = Math.min(n, stockAt(state, key)[kind] || 0);
+    if (k > 0) put(state, key, kind, -k);
     return k;
   }
 
@@ -212,10 +224,10 @@ const Industry = (() => {
   }
   const stageFor = (kind, known) => recipeFor(kind, known)?.bay || null;
 
-  function lineage(state, recipe, known) {
+  function lineage(state, recipe, known, key) {
     return Object.entries(Recipes.RECIPES[recipe].in).map(([kind, need]) => {
-      const have = state.storage[kind] || 0, by = makers(state, kind), raw = isRaw(kind);
-      const source = have >= need ? 'storage' : by.length ? 'order' : raw ? 'raw' : 'stage';
+      const have = stockAt(state, key)[kind] || 0, by = makers(state, kind), raw = isRaw(kind);
+      const source = have >= need ? 'storage' : by.some((o) => o.station === key) ? 'order' : by.length ? 'away' : raw ? 'raw' : 'stage';
       return { kind, need, have, raw, makers: by, stage: raw ? null : stageFor(kind, known), source };
     });
   }
@@ -225,7 +237,7 @@ const Industry = (() => {
     for (const a of orders) {
       for (const b of orders) {
         if (a === b) continue;
-        for (const kind of Object.keys(Recipes.RECIPES[a.recipe].out)) if (kind in Recipes.RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind });
+        for (const kind of Object.keys(Recipes.RECIPES[a.recipe].out)) if (kind in Recipes.RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind, away: a.station !== b.station });
       }
     }
     // Groups: orders joined by links (union-find on ids).
@@ -254,7 +266,7 @@ const Industry = (() => {
   }
 
   return {
-    PROCESS, STATIONS, processes, STORAGE, SLOTS, LOYALTY, MAX_EVENTS, empty, recipeFor, env, canMake, slots, at, trusted, capacity, used, reserved, free,
+    PROCESS, STATIONS, processes, STORAGE, SLOTS, LOYALTY, MAX_EVENTS, empty, recipeFor, env, canMake, slots, at, trusted, capacity, stockAt, used, reserved, free,
     runTime, status, place, change, pause, cancel, move, deposit, withdraw, kick, settle, summary, isRaw, lineage, pipelines,
   };
 })();

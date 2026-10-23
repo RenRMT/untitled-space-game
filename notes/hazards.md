@@ -338,6 +338,21 @@ logistics screens, 6f research per station and market specialties.
   back in storage.
 - New glyphs for the processes (ORE, VOL, RCY, FAB, BEN, SHY).
 
+### Step 6b, as built: a stock at each station
+
+- `Industry` state is `{ stock: { [station key]: counts }, orders, seq }`. An order's runs take from
+  and put into its own station's stock; `deposit`, `withdraw`, `used`, `reserved` and `free` take a
+  station key, and an emptied stock is dropped. Room is per station: 100, plus the storage racks.
+  Orders at different stations never compete for inputs.
+- `lineage(state, recipe, known, key)` adds the source `away`: an order at another station makes it,
+  so it has to be carried. Pipeline links between stations are `away` (drawn dotted, "carried to").
+- The Production tab shows **Stock here**; an input made elsewhere is ⇢ (a dashed wire), its sheet
+  saying to take it from that station's stock into the hold. Store all on the Trade tab stores into
+  this station's stock. A slot sheet names the station whose stock has the gear waiting.
+- Refuelling draws hydrazine from the stock of the station docked at (`fuelling.at`).
+- Migration 20 moves the one storage to the waystation's stock (`HOME_STOCK`, placed under the
+  waystation's key by `readIndustry`). Migrations 12 and 19 work on the old form directly.
+
 ## Later
 
 - **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →
