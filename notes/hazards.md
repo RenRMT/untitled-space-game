@@ -289,6 +289,65 @@ site its own way (seeded by the body), so where the ship is matters, and it can 
 - Positions are from the landing spot (`sitePos`); `daylight` and `dust` without one are the spot
   itself, as before.
 
+## Phase 6 design: stations per process, logistics as automation
+
+Decided October 2026, after looking at how other games split services between places (Dredge's
+specialist ports, Elite's engineers and remote workshop, Death Stranding's network, Stardew's
+community centre) and how they automate transport (Factorio's and Mindustry's push, Anno's and
+OpenTTD's routes, Dyson Sphere Program's supply and demand, X4's station managers):
+
+- **Decide here, goods go where you send them.** Every dock refuels, repairs, buys and sells from the
+  hold, fits gear and kit already owned, moves goods between the hold and *its own* stock, and shows
+  every order, route and the lab. Placing or changing orders, queuing research and setting where a
+  station's output goes happen only at that station.
+- **One process per station** (`Industry.PROCESS`, `Recipes.BAYS`):
+
+  | Station (type) | Process | Makes | Research queued there |
+  |---|---|---|---|
+  | Waystation (waystation) | bench | Mk I gear, consumables | logic, the lab, restoration |
+  | Ore works (mining camp) | ore | steel pipe, carbon fibre | mining tools |
+  | Volatiles works (minor) | volatiles | hydrazine | siphon, tanks, radiators |
+  | Transport hub (new) | logistics | — | haulers, routes |
+  | Salvage yard | recycle | components into refined goods | scanners |
+  | Fabricator (major hub) | parts | electronics | shielding, shields, mods |
+  | Shipyard (capital) | shipyard + bench | Mk II+ gear, mods, gate segments | hulls, cargo, utility |
+
+- **Stock is local to each station.** Orders read and write their own station's stock, so goods have
+  to be moved: first by hand in the hold, then by a station's **shuttle** (its output pushed to a
+  destination set there), then by **routes** set up at the transport hub (stops that load and
+  unload, with "keep at least" reserves, since Anno's routes strip what they load from). Haulers
+  are drawn flying but are cosmetic: travel time is their only cost. Deliveries are events in the
+  same settle as runs, so time offline still comes out exact.
+- **Stations are restored** at the waystation with goods from its stock and credits (Stardew's
+  bundles), in order: the waystation and ore works are online at the start; then the ore works'
+  shuttle, the volatiles works, the transport hub, the salvage yard, the fabricator and the
+  shipyard. Each restored station brings its shuttle.
+
+Built in steps: 6a processes, 6b stock per station, 6c restoration, 6d shuttles and routes, 6e the
+logistics screens, 6f research per station and market specialties.
+
+### Step 6a, as built: processes instead of stages
+
+- `Recipes.BAYS` are the six processes (ore, volatiles, recycle, parts, bench, shipyard), each with a
+  `step` (refine, parts, assemble) that sets its column in the production pipeline. A recipe's
+  `bay` names its process: Mk I gear and consumables at the bench, Mk II+ gear and mods at the
+  shipyard, electronics at the fabricator, hydrazine at the volatiles works.
+- `Industry.PROCESS[type]` is a list (the capital has the shipyard and a bench); `processes(type)`
+  and `canMake` read it. Every recipe is made at some station (tested).
+- Migration 19 cancels orders a station no longer makes, putting the inputs of the run under way
+  back in storage.
+- New glyphs for the processes (ORE, VOL, RCY, FAB, BEN, SHY).
+
+## Later
+
+- **The camera while mining:** mining still starts a fight (`game/combat.js` `extract` →
+  `fightMode().start`), so `game/update.js` frames the ship and the rock (its `fight.s.focus`
+  branch) and shifts the frame for the old combat panel, instead of leading the ship as in plain
+  flight. Skip that branch in `mining` mode.
+- **Hazards seen on the screen, not only in the gauges:** static and grain rising with radiation,
+  cracks at the screen's edge as the hull runs low, a red vignette with heat; still to think of
+  something for low fuel and a dropped shield.
+
 ## 1. Extraction: real-time combat pointed at rocks
 
 The real-time mode (`src/combat/combat-realtime.js` on `src/combat/combat-core.js`) already does
@@ -546,9 +605,9 @@ A step at the end of `CARGO_MIGRATIONS` (`game/cargo.js`):
 5. **Gear and consumables for hazards.** *(done: see Phase 5, as built; EMP and jammer stay with
    the pirates)* Siphon line, radiator, shielding, tank and cargo pod; field consumables on the HUD.
    With active mining, the cargo pod and the tank directly lengthen a run.
-6. **Stations per process and the waystation as home.** Station roles, restoration projects,
-   research per station, the mission board at the waystation (job steps land and sample in place of
-   fight).
+6. **Stations per process and the waystation as home.** *(under way: see Phase 6 design)* Station
+   roles, local stock and logistics, restoration projects, research per station. (The mission board
+   at the waystation, with job steps that land and sample in place of fight, moves to later.)
 7. **Drones.** New subjects, actions and packages; `logicContext` from the world; drone meters.
 8. **The gate.** The staged gate project at the waystation that turns on `gatesOnline()`. A second
    system for the gate to lead to (`Galaxy.generate` already has the multi-system shape: `systems`,

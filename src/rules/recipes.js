@@ -1,23 +1,25 @@
 // Recipes: what production orders make (rules/industry.js), the production chain of notes/industry.md,
-// pared back to one good per category (rules/goods.js). Raw materials (mined and collected) and
-// salvaged components go into a refinery, which makes refined goods; a fabricator makes
-// electronics from those; an assembler makes gear (rules/loadout.js) from refined goods and
-// electronics, the best of it with salvaged components only pirates carry. Shared goods feed many
+// pared back to one good per category (rules/goods.js). Each station works one process (BAYS,
+// notes/hazards.md phase 6): the ore works refines iron and silicates, the volatiles works deuterium,
+// the recycler salvaged components; the fabricator makes electronics from refined goods; the
+// waystation's bench assembles Mk I gear (rules/loadout.js) and consumables, and the shipyard the rest
+// of the gear and the mods, the best of it with salvaged components only pirates carry. Shared goods feed many
 // recipes, so no good is a dead end. A recipe makes something worth more than what goes in. Mk I
 // gear and everything below gear is known from the start; gear from Mk II up needs its blueprint
 // researched (rules/research.js `bp.<gear id>`).
 //
-//   Recipes.BAYS[type]              { id, label, code, note }: the stages, in chain order; each station
-//                                   type works one of them (Industry.STAGE)
-//   Recipes.RECIPES[id]             { id, bay, in: { [kind]: n }, out: { [kind]: n }, time (s per run), unlock: research id | null }
+//   Recipes.BAYS[process]           { id, label, code, step, note }: the processes, in chain order; each
+//                                   station type works one (two at the shipyard: Industry.PROCESS); step:
+//                                   'refine' | 'parts' | 'assemble', the pipeline's column
+//   Recipes.RECIPES[id]             { id, bay (its process), in: { [kind]: n }, out: { [kind]: n }, time (s per run), unlock: research id | null }
 //   Recipes.LIST                    every recipe, in display order
-//   Recipes.forBay(type) -> [recipe]
+//   Recipes.forBay(process | [process]) -> [recipe]
 //   Recipes.known(done) -> Set      recipe ids known, given the research done (rules/research.js)
 //   Recipes.producers(kind), Recipes.consumers(kind) -> [recipe]   the recipes that make / use it
 //   Recipes.item(kind) -> { id, name, kind: 'good' | 'component' | 'gear' | 'mod' | 'consumable', stage, price, tier?, slot? } | null
 //   Recipes.value(counts) -> credits   what a set of things is worth at base prices
-//   Recipes.gearRecipe(gear id) -> recipe   the assembler's recipe for a piece of gear
-// Kinds are rules/goods.js type ids (trade goods and components) and, made by the assembler,
+//   Recipes.gearRecipe(gear id) -> recipe   the bench's or shipyard's recipe for a piece of gear
+// Kinds are rules/goods.js type ids (trade goods and components) and, made by the bench and shipyard,
 // rules/loadout.js equipment ids, rules/mods.js mod ids (each mod's kind researched first) and
 // rules/abilities.js consumables (known from the start). ES module (`Recipes`); also runs in Node (the tests).
 
@@ -28,25 +30,28 @@ import { Mods } from './mods.js';
 
 const Recipes = (() => {
   const BAYS = {
-    refinery: { id: 'refinery', label: 'Refinery', code: 'REF', note: 'raw materials and salvage into refined goods, at mining camps and salvage yards' },
-    fabricator: { id: 'fabricator', label: 'Fabricator', code: 'FAB', note: 'refined goods into electronics, at minor stations and the waystation' },
-    assembler: { id: 'assembler', label: 'Assembler', code: 'ASM', note: 'parts into gear, mods and consumables, at capitals and major hubs' },
+    ore: { id: 'ore', label: 'Ore works', code: 'ORE', step: 'refine', note: 'iron and silicates into steel pipe and carbon fibre' },
+    volatiles: { id: 'volatiles', label: 'Volatiles works', code: 'VOL', step: 'refine', note: 'deuterium into hydrazine' },
+    recycle: { id: 'recycle', label: 'Recycler', code: 'RCY', step: 'refine', note: 'salvaged components into refined goods' },
+    parts: { id: 'parts', label: 'Fabricator', code: 'FAB', step: 'parts', note: 'refined goods into electronics' },
+    bench: { id: 'bench', label: 'Bench', code: 'BEN', step: 'assemble', note: 'Mk I gear and consumables' },
+    shipyard: { id: 'shipyard', label: 'Shipyard', code: 'SHY', step: 'assemble', note: 'gear from Mk II and mods' },
   };
   const c = (category) => Goods.component(category);
 
-  // [bay, seconds per run, { in }, { out }]: the output's first kind names the recipe.
+  // [process, seconds per run, { in }, { out }]: the output's first kind names the recipe.
   const TABLE = [
     // Refining raw materials.
-    ['refinery', 20, { iron: 2 }, { 'steel-pipe': 1 }],
-    ['refinery', 20, { silicates: 3 }, { 'carbon-fibre': 1 }],
-    ['refinery', 20, { deuterium: 2 }, { hydrazine: 1 }],
+    ['ore', 20, { iron: 2 }, { 'steel-pipe': 1 }],
+    ['ore', 20, { silicates: 3 }, { 'carbon-fibre': 1 }],
+    ['volatiles', 20, { deuterium: 2 }, { hydrazine: 1 }],
     // Recycling salvage into refined goods.
-    ['refinery', 20, { [c('hull')]: 1 }, { 'steel-pipe': 2 }],
-    ['refinery', 20, { [c('weapon')]: 1 }, { 'steel-pipe': 2, 'carbon-fibre': 2 }],
-    ['refinery', 20, { [c('computer')]: 1 }, { electronics: 1, 'steel-pipe': 1 }],
-    ['refinery', 20, { [c('drive')]: 1 }, { hydrazine: 2, iron: 1 }],
+    ['recycle', 20, { [c('hull')]: 1 }, { 'steel-pipe': 2 }],
+    ['recycle', 20, { [c('weapon')]: 1 }, { 'steel-pipe': 2, 'carbon-fibre': 2 }],
+    ['recycle', 20, { [c('computer')]: 1 }, { electronics: 1, 'steel-pipe': 1 }],
+    ['recycle', 20, { [c('drive')]: 1 }, { hydrazine: 2, iron: 1 }],
     // Parts.
-    ['fabricator', 30, { 'steel-pipe': 1, 'carbon-fibre': 1 }, { electronics: 1 }],
+    ['parts', 30, { 'steel-pipe': 1, 'carbon-fibre': 1 }, { electronics: 1 }],
   ];
 
   const RECIPES = {};
@@ -150,10 +155,10 @@ const Recipes = (() => {
       const tier = i + 1, gear = `${line}-${tier}`;
       const input = { ...parts };
       if (SALVAGE_COUNT[tier]) input[c(cat)] = SALVAGE_COUNT[tier];
-      RECIPES[`make.${gear}`] = { id: `make.${gear}`, bay: 'assembler', in: input, out: { [gear]: 1 }, time: GEAR_TIME[tier], unlock: tier > 1 ? `bp.${gear}` : null };
+      RECIPES[`make.${gear}`] = { id: `make.${gear}`, bay: tier > 1 ? 'shipyard' : 'bench', in: input, out: { [gear]: 1 }, time: GEAR_TIME[tier], unlock: tier > 1 ? `bp.${gear}` : null };
     });
   }
-  // Mods, at the assembler, once their kind is researched (rules/research.js `mods.<slot>`). A mod is
+  // Mods, at the shipyard, once their kind is researched (rules/research.js `mods.<slot>`). A mod is
   // worth a little more than what goes into it.
   const MOD_PARTS = {
     'mod.extended-barrel': { 'carbon-fibre': 2, 'steel-pipe': 2 },
@@ -173,10 +178,10 @@ const Recipes = (() => {
   };
   const MOD_PRICE = {};
   for (const m of Mods.LIST) {
-    RECIPES[`make.${m.id}`] = { id: `make.${m.id}`, bay: 'assembler', in: MOD_PARTS[m.id], out: { [m.id]: 1 }, time: 600, unlock: `mods.${m.slot}` };
+    RECIPES[`make.${m.id}`] = { id: `make.${m.id}`, bay: 'shipyard', in: MOD_PARTS[m.id], out: { [m.id]: 1 }, time: 600, unlock: `mods.${m.slot}` };
     MOD_PRICE[m.id] = Math.round(Object.entries(MOD_PARTS[m.id]).reduce((sum, [kind, count]) => sum + Goods.type(kind).price * count, 0) * 1.3 / 10) * 10;
   }
-  // Consumables for abilities (rules/abilities.js), at the assembler: [id, { in }, how many a run makes].
+  // Consumables for abilities (rules/abilities.js), at the bench: [id, { in }, how many a run makes].
   const CONSUMABLES = [
     ['repair-nanites', { hydrazine: 3 }, 2],
     ['shield-cell', { electronics: 2 }, 1],
@@ -187,12 +192,12 @@ const Recipes = (() => {
     ['fuel-canister', { hydrazine: 1, 'steel-pipe': 1 }, 1],
     ['seismic-charge', { sulfur: 2, 'steel-pipe': 1 }, 2],
   ];
-  for (const [id, input, n] of CONSUMABLES) RECIPES[`make.${id}`] = { id: `make.${id}`, bay: 'assembler', in: input, out: { [id]: n }, time: 300, unlock: null };
+  for (const [id, input, n] of CONSUMABLES) RECIPES[`make.${id}`] = { id: `make.${id}`, bay: 'bench', in: input, out: { [id]: n }, time: 300, unlock: null };
   // An alternative recipe, unlocked by industry research (rules/research.js `ind.alt.*`).
-  RECIPES['alt.electronics'] = { id: 'alt.electronics', bay: 'fabricator', in: { silicates: 3, 'steel-pipe': 1 }, out: { electronics: 1 }, time: 40, unlock: 'ind.alt.electronics' };
+  RECIPES['alt.electronics'] = { id: 'alt.electronics', bay: 'parts', in: { silicates: 3, 'steel-pipe': 1 }, out: { electronics: 1 }, time: 40, unlock: 'ind.alt.electronics' };
   const LIST = Object.values(RECIPES);
 
-  const forBay = (type) => LIST.filter((r) => r.bay === type);
+  const forBay = (types) => LIST.filter((r) => [].concat(types).includes(r.bay));
   const known = (done = []) => new Set(LIST.filter((r) => !r.unlock || done.includes(r.unlock)).map((r) => r.id));
   const producers = (kind) => LIST.filter((r) => kind in r.out);
   const consumers = (kind) => LIST.filter((r) => kind in r.in);

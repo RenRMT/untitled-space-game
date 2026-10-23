@@ -3,8 +3,10 @@
 // game, reached from any station: an order takes its inputs from it and puts what it makes back in
 // it, so a refinery order at a mining camp feeds a fabricator order at a minor station without
 // anything carried between them. The chain of orders is the production pipeline.
-// Each station type does one stage (STAGE): mining camps and salvage yards refine, minor stations
-// and the waystation fabricate, capitals and major hubs (the shipyards) assemble. A station takes
+// Each station type works one process (PROCESS, notes/hazards.md phase 6): the mining camp is the
+// ore works, the minor station the volatiles works, the salvage yard recycles, the major hub is the
+// fabricator, the waystation's bench assembles Mk I gear and consumables and the capital is the
+// shipyard (which has a bench too). A station takes
 // orders once it trusts the player (LOYALTY), one at a time (more with research); orders cost nothing.
 // An order runs a recipe, for a count of runs or as long as inputs last. A run takes its inputs
 // when it starts and sets room aside for what it makes, so finishing never fails. Orders start runs
@@ -17,7 +19,8 @@
 //   order: { id, station (key), name (the station's), type (its market type), recipe, left: n | null
 //            (null: while inputs last), made, at, next, paused }
 //     at / next: when the run under way started and finishes (ms), or null between runs
-//   Industry.STAGE[station type] -> bay type (Recipes.BAYS), STATIONS[bay type] -> where that stage is done
+//   Industry.PROCESS[station type] -> [process (Recipes.BAYS id)], STATIONS[process] -> where it's done
+//   Industry.processes(station type) -> [process]
 //   Industry.STORAGE, SLOTS, LOYALTY { required, start }, MAX_EVENTS
 //   Industry.env(lab) -> env                 times, room and slots, given the research done (rules/research.js)
 //   Industry.canMake(station type, recipe id), slots(env), at(state, key) -> [order]
@@ -35,7 +38,8 @@
 //   Industry.summary(state, log) -> [text]   what was made, per station and good
 //   Industry.recipeFor(kind, known?) -> recipe | null   what makes a kind (recycling only if nothing else does)
 //   Industry.lineage(state, recipe id, known) -> [{ kind, need, have, raw, makers: [order], stage, source }]
-//     where each input comes from; source: 'storage' | 'order' | 'raw' | 'stage' (an order of that stage needed)
+//     where each input comes from; source: 'storage' | 'order' | 'raw' | 'stage' (an order of that process
+//     needed: stage is the process that makes it)
 //   Industry.pipelines(state) -> [{ end: [kind], orders, links: [{ from, to, kind }], gaps: [{ order, kind, stage }], standalone }]
 //     orders linked by what they make (an output of one is an input of another), in groups; a gap
 //     is an input that isn't raw and no order makes; standalone: an order linked to nothing
@@ -46,8 +50,9 @@ import { Recipes } from './recipes.js';
 import { Research } from './research.js';
 
 const Industry = (() => {
-  const STAGE = { 'mining camp': 'refinery', 'salvage yard': 'refinery', minor: 'fabricator', waystation: 'fabricator', capital: 'assembler', major: 'assembler' };
-  const STATIONS = { refinery: 'mining camps, salvage yards', fabricator: 'minor stations, the waystation', assembler: 'capitals, major hubs' };
+  const PROCESS = { 'mining camp': ['ore'], minor: ['volatiles'], 'salvage yard': ['recycle'], major: ['parts'], waystation: ['bench'], capital: ['shipyard', 'bench'] };
+  const STATIONS = { ore: 'the ore works', volatiles: 'the volatiles works', recycle: 'the salvage yard', parts: 'the fabricator', bench: 'the waystation, the shipyard', shipyard: 'the shipyard' };
+  const processes = (type) => PROCESS[type] || [];
   const STORAGE = { base: 200 };
   const SLOTS = 1; // orders per station, before research
   // A station takes orders from loyalty `required` up; every station starts at `start`, and
@@ -69,7 +74,7 @@ const Industry = (() => {
     };
   }
 
-  const canMake = (type, recipe) => !!STAGE[type] && Recipes.RECIPES[recipe]?.bay === STAGE[type];
+  const canMake = (type, recipe) => processes(type).includes(Recipes.RECIPES[recipe]?.bay);
   const slots = (e) => SLOTS + e.slots();
   const at = (state, key) => state.orders.filter((o) => o.station === key);
   const trusted = (loyalty, key) => (loyalty?.[key] ?? LOYALTY.start) >= LOYALTY.required;
@@ -249,7 +254,7 @@ const Industry = (() => {
   }
 
   return {
-    STAGE, STATIONS, STORAGE, SLOTS, LOYALTY, MAX_EVENTS, empty, recipeFor, env, canMake, slots, at, trusted, capacity, used, reserved, free,
+    PROCESS, STATIONS, processes, STORAGE, SLOTS, LOYALTY, MAX_EVENTS, empty, recipeFor, env, canMake, slots, at, trusted, capacity, used, reserved, free,
     runTime, status, place, change, pause, cancel, move, deposit, withdraw, kick, settle, summary, isRaw, lineage, pipelines,
   };
 })();

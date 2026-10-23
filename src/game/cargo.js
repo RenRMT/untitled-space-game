@@ -323,6 +323,15 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     delete d.mined;
   },
+  // 19. Stations per process (notes/hazards.md phase 6): an order whose station no longer makes its
+  //     recipe is cancelled, the inputs of its run under way back in storage.
+  (d) => {
+    const s = d.industry;
+    if (!s || !Array.isArray(s.orders)) return;
+    if (!s.storage || typeof s.storage !== 'object') s.storage = {};
+    for (const o of [...s.orders]) if (!o || !Recipes.RECIPES[o.recipe] || !Industry.canMake(o.type, o.recipe)) Industry.cancel(s, o?.id);
+    s.orders = s.orders.filter(Boolean);
+  },
 ];
 
 // The logic packages known (rules/research.js) and how many lines of a program run.

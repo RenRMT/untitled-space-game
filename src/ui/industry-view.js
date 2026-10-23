@@ -1,10 +1,10 @@
-// The station screen's Production tab (ui/station.js), drawn as a production line: the stage this
-// station works (Refinery, Fabricator or Assembler) and its orders, one at a time (with more than one,
+// The station screen's Production tab (ui/station.js), drawn as a production line: the process this
+// station works (Ore works, Volatiles works, Recycler, Fabricator, Bench or Shipyard) and its orders, one at a time (with more than one,
 // the Ship tab's switcher steps through them and a free order), each a status line and a flow
 // of nodes (its inputs, wired by whether storage has them, into the stage, then what it makes);
 // the shared storage and the hold as tiles, a tile opening its detail (what uses it, Take or
 // Store); and the production pipeline: every order in the galaxy, linked by what one makes and
-// another uses, in three columns (refinery, fabricator, assembler), with the gaps no order fills.
+// another uses, in three columns (refining, parts, assembly), with the gaps no order fills.
 // The stage node opens the order's sheet: what to make, how many runs. An input node opens its
 // lineage: what it is made from, and whether to make it here.
 //
@@ -37,7 +37,9 @@ const IndustryView = {
       idle: { word: 'Idle', tone: 'var(--dim)' },
     };
     const COUNTS = [1, 5, 20, 100, null]; // runs to choose from; null: as long as inputs last
-    const COLUMNS = ['refinery', 'fabricator', 'assembler'];
+    const COLUMNS = ['refine', 'parts', 'assemble']; // by Recipes.BAYS step
+    const COLUMN_LABEL = { refine: 'Refining', parts: 'Parts', assemble: 'Assembly' };
+    const column = (bay) => Math.max(0, COLUMNS.indexOf(Recipes.BAYS[bay]?.step));
     const ROW = 84; // px per row of the pipeline's columns
     // The edge colour of a tile in storage: how far along the chain it is.
     const STAGE_TONE = { raw: 'var(--dim)', salvage: 'var(--t5)', refined: 'var(--t2)', advanced: 'var(--t2)', part: 'var(--t3)', item: 'var(--t4)' };
@@ -89,7 +91,7 @@ const IndustryView = {
     }
     // The change sheet for an order: its recipe, and its runs as first set (a count picked from COUNTS).
     const editing = (o) => ({ mode: 'edit', id: o.id, recipe: o.recipe, count: o.left === null ? null : COUNTS.find((n) => n !== null && n >= runsOf(o)) || 100 });
-    const stationsFor = (stage) => `${Recipes.BAYS[stage].label} order (${Industry.STATIONS[stage]})`;
+    const stationsFor = (bay) => `an order at ${Industry.STATIONS[bay]}`;
     const makers = (kind, but) => state().orders.filter((x) => x !== but && kind in Recipes.RECIPES[x.recipe].out);
     // An input as the flow shows it: ✓ in storage, ⟳ made by another order, ✗ missing.
     function supply(kind, need, o) {
@@ -182,12 +184,12 @@ const IndustryView = {
     }
 
     function ordersHere() {
-      const here = ind().here, stage = ind().stage(), B = Recipes.BAYS[stage];
+      const here = ind().here, B = Recipes.BAYS[ind().bays()[0]];
       if (!B) return env.section('Orders here', h('p', { class: 'ui-empty' }, 'This station takes no production orders.'));
       const orders = ind().orders(), max = ind().slots();
       const title = h('div', { class: 'pr-title' }, h('h2', { class: 'ui-title' }, B.label),
         h('span', { class: 'aside num' }, ind().trusted() ? `${orders.length}/${max} orders` : 'Locked'));
-      const explain = env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one stage of the chain; what one order makes feeds the next through storage.');
+      const explain = env.explain('production', 'Production orders make goods from your storage in real time, even while you\'re away. Each station works one process of the chain; what one order makes feeds the next through storage.');
       if (!ind().trusted()) {
         return env.section('Orders here', title, explain,
           h('div', { class: 'pr-board' }, h('div', { class: 'pr-empty locked' }, Kit.icon(B.code, 28, { code: B.code }),
@@ -247,7 +249,7 @@ const IndustryView = {
         if (!by.has(R.bay)) by.set(R.bay, []);
         by.get(R.bay).push(recipeName(R));
       }
-      return by.size ? `Used in ${[...by].map(([bay, names]) => `${[...new Set(names)].join(', ')} · ${Recipes.BAYS[bay].label} order`).join('; ')}`
+      return by.size ? `Used in ${[...by].map(([bay, names]) => `${[...new Set(names)].join(', ')} · ${Recipes.BAYS[bay].label}`).join('; ')}`
         : 'No recipe uses it: it\'s an end product';
     }
     // Goods as tiles; the one open shows its name, stage, a line about it and one action.
@@ -319,18 +321,18 @@ const IndustryView = {
     const gapNode = (g) => h('div', { class: 'pr-pnode gap' },
       h('span', { class: 'main' },
         h('span', { class: 'where' }, `No order makes ${name(g.kind)}`),
-        h('span', { class: 'what' }, g.stage ? `Needs a ${stationsFor(g.stage)}` : 'Buy it, or find it'),
+        h('span', { class: 'what' }, g.stage ? `Needs ${stationsFor(g.stage)}` : 'Buy it, or find it'),
         h('span', { class: 'pr-feeds' }, h('span', {}, `→ needed by ${g.to.map((id) => find(id)?.name).join(', ')}`))));
 
     function graph(g) {
       const s = state(), cols = COLUMNS.map(() => []);
-      for (const o of g.orders) cols[COLUMNS.indexOf(Recipes.RECIPES[o.recipe].bay)].push({ id: o.id, o });
+      for (const o of g.orders) cols[column(Recipes.RECIPES[o.recipe].bay)].push({ id: o.id, o });
       const gaps = new Map();
       for (const x of g.gaps) {
         if (!gaps.has(x.kind)) gaps.set(x.kind, { kind: x.kind, stage: x.stage, to: [] });
         gaps.get(x.kind).to.push(x.order);
       }
-      for (const x of gaps.values()) cols[Math.max(0, COLUMNS.indexOf(x.stage))].push({ id: `gap:${x.kind}`, gap: x });
+      for (const x of gaps.values()) cols[column(x.stage)].push({ id: `gap:${x.kind}`, gap: x });
       const at = new Map();
       cols.forEach((c, ci) => c.forEach((x, ri) => at.set(x.id, { c: ci, r: ri })));
       const rows = Math.max(...cols.map((c) => c.length));
@@ -350,7 +352,7 @@ const IndustryView = {
       const end = g.end.length ? g.end.map(name).join(' + ') : 'A loop';
       return h('div', { class: 'pr-pipe', role: 'group', 'aria-label': `Pipeline: ${end}` },
         h('span', { class: 'pr-end' }, `→ ${end}`),
-        h('div', { class: 'pr-cols', 'aria-hidden': 'true' }, COLUMNS.map((c) => h('span', {}, Recipes.BAYS[c].label))),
+        h('div', { class: 'pr-cols', 'aria-hidden': 'true' }, COLUMNS.map((c) => h('span', {}, COLUMN_LABEL[c]))),
         h('div', { class: 'pr-graph', style: { '--rows': rows, '--row': `${ROW}px` } }, art,
           cols.flatMap((c, ci) => c.map((x, ri) => h('div', { class: 'pr-cell', style: { gridColumn: `${ci + 1}`, gridRow: `${ri + 1}` } },
             x.o ? node(x.o, feeds(x.o)) : gapNode(x.gap))))));
@@ -366,7 +368,7 @@ const IndustryView = {
         env.explain('pipeline', 'Every order you have placed, linked by what one makes and the next uses. The first in line (#1) gets inputs first.'),
         chains.map(graph),
         lone.length ? [h('span', { class: 'ui-label' }, 'Standalone'), h('div', { class: 'pr-lone' }, lone.map((g) => {
-          const gapNotes = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs a ${stationsFor(x.stage)}` : ''}`));
+          const gapNotes = g.gaps.map((x) => h('span', { class: 'pr-gap' }, `No order makes ${name(x.kind)}${x.stage ? `: needs ${stationsFor(x.stage)}` : ''}`));
           return h('div', { class: 'pr-lone-row' }, node(g.orders[0], []), gapNotes);
         }))] : null]));
     }
@@ -387,7 +389,7 @@ const IndustryView = {
       const R = Recipes.RECIPES[o.recipe], B = Recipes.BAYS[R.bay], i = state().orders.indexOf(o), n = state().orders.length;
       const here = ind().here?.key === o.station, { S, text } = statusLine(o);
       return {
-        title: recipeName(R), code: B.code, sub: `${B.label} order · ${where(o)}`,
+        title: recipeName(R), code: B.code, sub: `${B.label} · ${where(o)}`,
         body: [
           h('div', { class: 'pr-status' }, Kit.tag(S.word, S.tone), h('span', { class: 'txt' }, text)),
           h('div', { class: 'pr-board' }, line(o, false)),
@@ -428,11 +430,11 @@ const IndustryView = {
       Kit.tag(tag, tone));
     }
     function orderSheet(open) {
-      const stage = ind().stage(), B = Recipes.BAYS[stage], here = ind().here;
+      const bays = ind().bays(), B = Recipes.BAYS[bays[0]], here = ind().here;
       const o = open.mode === 'edit' ? find(open.id) : null;
       if (!B || !ind().trusted() || (open.mode === 'edit' && !o)) return null;
       const known = ind().known(), e = ind().env(), now = ind().now();
-      const all = Recipes.forBay(stage), recipes = all.filter((R) => known.has(R.id));
+      const all = Recipes.forBay(bays), recipes = all.filter((R) => known.has(R.id));
       const chosen = Recipes.RECIPES[open.recipe];
       const t = chosen ? Industry.runTime({ recipe: chosen.id }, e, now) : 0;
       const body = [];
@@ -464,13 +466,13 @@ const IndustryView = {
     // An input's lineage: it, and (where storage is short of it) what it is made from, three levels
     // down; then what to do about it.
     function inputSheet(open) {
-      const o = find(open.id), stage = ind().stage(), B = Recipes.BAYS[stage];
+      const o = find(open.id), bays = ind().bays(), B = Recipes.BAYS[bays[0]];
       if (!o || !B) return null;
       const known = ind().known(), have = (k) => state().storage[k] || 0;
       const rows = [];
       const walk = (kind, need, depth) => {
         const R = Industry.isRaw(kind) ? null : madeBy(kind), s = supply(kind, need, o);
-        const what = Goods.isSalvage(kind) ? 'Salvage' : !R ? 'Raw' : R.bay === stage ? `${Recipes.BAYS[R.bay].label} here` : `${Recipes.BAYS[R.bay].label} order`;
+        const what = Goods.isSalvage(kind) ? 'Salvage' : !R ? 'Raw' : bays.includes(R.bay) ? `${Recipes.BAYS[R.bay].label} here` : `${Recipes.BAYS[R.bay].label} order`;
         rows.push(h('div', { class: `pr-lin${depth ? ' child' : ''}`, style: { '--depth': depth } },
           depth ? h('span', { class: 'elbow', 'aria-hidden': 'true' }) : null,
           h('div', { class: 'row' }, iconOf(kind, 32),
@@ -481,7 +483,7 @@ const IndustryView = {
       };
       walk(open.kind, open.need, 0);
       const s = supply(open.kind, open.need, o), R = Industry.isRaw(open.kind) ? null : madeBy(open.kind);
-      const here = R && R.bay === stage && known.has(R.id);
+      const here = R && bays.includes(R.bay) && known.has(R.id);
       const subShort = R ? Object.entries(R.in).filter(([k, n]) => have(k) < n).map(([k]) => name(k)) : [];
       const replaces = ind().orders().length >= ind().slots();
       const sells = env.ctx().market?.goods.some((g) => g.kind === open.kind && g.buy !== null);
@@ -493,7 +495,7 @@ const IndustryView = {
           ? `This ${B.label.toLowerCase()} has no order free, so it replaces ${recipeName(Recipes.RECIPES[o.recipe])}.` : 'It takes a free order here.'}`;
         const make = replaces ? () => ind().edit(o.id, R.id, open.need) : () => { if (ind().place(R.id, open.need)) showNewest(); };
         action = Kit.button(`Make ${name(open.kind)} here`, env.act(make, () => env.closeSheet()), { wide: true, lg: true });
-      } else if (R) note = `Made by a ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
+      } else if (R) note = `Made by ${stationsFor(R.bay)}${known.has(R.id) ? '' : ', once its blueprint is researched'}.`;
       else {
         note = `${name(open.kind)} is raw: ${Goods.isSalvage(open.kind) ? 'salvage it from pirates' : 'mine, collect or buy it'}. Store it from your hold.`;
         if (sells) action = Kit.button('Buy at Trade', () => { env.closeSheet(); env.showTab('trade'); }, { kind: 'ghost', wide: true, lg: true });

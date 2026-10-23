@@ -31,8 +31,8 @@ export const industry = {
   env: () => Industry.env(cargo.lab),
   known: () => Recipes.known(cargo.lab.done),
   slots: () => Industry.slots(industry.env()),
-  // The stage the station docked at works (Recipes.BAYS id), whether it takes orders, and its orders.
-  stage: () => (industry.here ? Industry.STAGE[industry.here.type] || null : null),
+  // The processes the station docked at works (Recipes.BAYS ids), whether it takes orders, and its orders.
+  bays: () => (industry.here ? Industry.processes(industry.here.type) : []),
   trusted: () => !!industry.here && (devUnlock || Industry.trusted(cargo.loyalty, industry.here.key)),
   orders: () => (industry.here ? Industry.at(cargo.industry, industry.here.key) : []),
   // The name of the system a station is in ('' if it isn't in the scene).

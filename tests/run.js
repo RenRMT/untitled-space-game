@@ -872,7 +872,7 @@ test('mods: a trade each, made at an assembler once researched, fitted as far as
     const stats = Object.values(Loadout.EQUIPMENT).find((e) => e.slot === m.slot && !e.npc).stats;
     for (const k of Object.keys(m.effects)) assert(k in stats, `${m.id}: ${k} isn't a ${m.slot} stat`);
     const R = Recipes.RECIPES[`make.${m.id}`];
-    assert(R && R.bay === 'assembler' && R.unlock === `mods.${m.slot}` && Research.PACKAGES[R.unlock].mods.includes(m.id), m.id);
+    assert(R && R.bay === 'shipyard' && R.unlock === `mods.${m.slot}` && Research.PACKAGES[R.unlock].mods.includes(m.id), m.id);
   }
   const lo = { hull: 'courier', fitted: { 'weapon-1': 'pulse-laser-1', 'weapon-2': 'pulse-laser-4' }, mods: { 'weapon-1': ['mod.overcharger'], 'weapon-2': ['mod.overcharger', 'mod.overcharger', 'mod.overcharger'] } };
   const w = Loadout.stats(lo).weapons;
@@ -891,7 +891,7 @@ test('gear is assembled: one recipe per piece, Mk I known, the rest by blueprint
   for (const [id, e] of Object.entries(Loadout.EQUIPMENT)) {
     const R = Recipes.gearRecipe(id);
     if (e.npc) { assert.strictEqual(R, null, `${id} is NPC gear`); continue; }
-    assert(R && R.bay === 'assembler' && R.out[id] === 1 && Recipes.producers(id).length === 1, id);
+    assert(R && R.bay === (e.tier > 1 ? 'shipyard' : 'bench') && R.out[id] === 1 && Recipes.producers(id).length === 1, id);
     assert.strictEqual(R.unlock, e.tier === 1 ? null : `bp.${id}`);
     assert.strictEqual(Research.blueprintFor(id), e.tier === 1 ? null : `bp.${id}`);
     const salvage = Object.entries(R.in).filter(([k]) => Goods.isSalvage(k));
@@ -1061,20 +1061,22 @@ test('markets: stockpiles move prices, run out, and drift back to rest', () => {
 const CAMP = { key: 'st-camp', name: 'Almar Camp', type: 'mining camp' };
 const PORT = { key: 'st-port', name: 'Rito Port', type: 'minor' };
 const HUB = { key: 'st-hub', name: 'Corlital Hub', type: 'major' };
+const CAP = { key: 'st-cap', name: 'Cormar Station', type: 'capital' };
+const CAMP2 = { key: 'st-camp2', name: 'Oso Camp', type: 'mining camp' };
 const YARD = { key: 'st-yard', name: 'Kesh Yard', type: 'salvage yard' };
-// A refinery order at a mining camp making steel pipe, and a fabricator order at a minor station
+// An ore works order (a mining camp) making steel pipe, and a fabricator order (the major hub)
 // making electronics from it (and carbon fibre), through the one storage.
 function pipeWorks(T, { iron = 40, fibre = 20 } = {}) {
   const state = Industry.empty(), env = Industry.env(Research.empty());
   Industry.deposit(state, 'iron', iron, env, T);
   Industry.deposit(state, 'carbon-fibre', fibre, env, T);
   const a = Industry.place(state, CAMP, 'make.steel-pipe', null, env, T);
-  const b = Industry.place(state, PORT, 'make.electronics', null, env, T);
+  const b = Industry.place(state, HUB, 'make.electronics', null, env, T);
   return { state, env, a, b };
 }
 const statusOf = (state, o) => Industry.status(state, o).id;
 
-test('production: a refinery order feeds a fabricator order at another station through storage, while away too', () => {
+test('production: an ore works order feeds a fabricator order at another station through storage, while away too', () => {
   const T = 1e12, { state, env, a, b } = pipeWorks(T);
   assert.strictEqual(statusOf(state, a), 'running');
   assert.deepStrictEqual(Industry.status(state, b), { id: 'starved', missing: 'steel-pipe' }, 'no pipe yet: the input is named');
@@ -1086,13 +1088,13 @@ test('production: a refinery order feeds a fabricator order at another station t
   assert.strictEqual(log.length, 40);
   assert(log.every((x, i) => !i || x.at >= log[i - 1].at), 'in time order');
   assert.deepStrictEqual([statusOf(state, a), statusOf(state, b)], ['starved', 'starved'], 'out of inputs');
-  assert.deepStrictEqual(Industry.summary(state, log), ['Almar Camp: 20 × Steel pipe', 'Rito Port: 20 × Electronics']);
+  assert.deepStrictEqual(Industry.summary(state, log), ['Almar Camp: 20 × Steel pipe', 'Corlital Hub: 20 × Electronics']);
   // More iron, and the refinery takes it up at once.
   Industry.deposit(state, 'iron', 2, env, T + 3600e3);
   assert.strictEqual(statusOf(state, a), 'running');
-  // One order per station; a shipyard takes the next step.
-  assert.strictEqual(Industry.place(state, CAMP, 'make.hydrazine', null, env, T), null, 'one order per station');
-  assert(Industry.place(state, HUB, 'make.flight-computer-1', 2, env, T), 'Mk I flight computers from the electronics');
+  // One order per station; the shipyard takes the next step.
+  assert.strictEqual(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), null, 'one order per station');
+  assert(Industry.place(state, CAP, 'make.flight-computer-1', 2, env, T), 'Mk I flight computers from the electronics');
 });
 
 test('production: settling in many steps comes out the same as in one, and a clock set back undoes nothing', () => {
@@ -1115,14 +1117,18 @@ test('production: settling in many steps comes out the same as in one, and a clo
   assert.deepStrictEqual(capped.state, once.state);
 });
 
-test('production: stages by station type, room in storage, counts, pausing, cancelling and priority', () => {
+test('production: processes by station type, room in storage, counts, pausing, cancelling and priority', () => {
   const T = 1e12, env = Industry.env(Research.empty()), state = Industry.empty();
-  // Each station type does one stage.
+  // Each station type works one process; the shipyard has a bench too.
   assert(Industry.canMake('mining camp', 'make.steel-pipe') && Industry.canMake('salvage yard', 'recycle.hull-components'));
-  assert(Industry.canMake('minor', 'make.electronics') && Industry.canMake('waystation', 'make.electronics'));
-  assert(Industry.canMake('capital', 'make.pulse-laser-1') && Industry.canMake('major', 'make.shield-cell'));
-  assert(!Industry.canMake('mining camp', 'make.pulse-laser-1') && !Industry.canMake('capital', 'make.steel-pipe') && !Industry.canMake('minor', 'make.hydrazine'));
-  assert.strictEqual(Industry.place(state, HUB, 'make.steel-pipe', null, env, T), null, 'a shipyard does not refine ore');
+  assert(Industry.canMake('minor', 'make.hydrazine') && Industry.canMake('major', 'make.electronics'));
+  assert(Industry.canMake('waystation', 'make.pulse-laser-1') && Industry.canMake('waystation', 'make.shield-cell') && !Industry.canMake('waystation', 'make.pulse-laser-2'));
+  assert(Industry.canMake('capital', 'make.pulse-laser-1') && Industry.canMake('capital', 'make.pulse-laser-2') && Industry.canMake('capital', 'make.mod.overcharger'));
+  assert(!Industry.canMake('mining camp', 'make.pulse-laser-1') && !Industry.canMake('capital', 'make.steel-pipe') && !Industry.canMake('mining camp', 'make.hydrazine'));
+  assert(!Industry.canMake('salvage yard', 'make.steel-pipe') && !Industry.canMake('minor', 'make.electronics'));
+  // Every recipe is made somewhere.
+  for (const R of Recipes.LIST) assert(Object.keys(Industry.PROCESS).some((type) => Industry.canMake(type, R.id)), `${R.id}: no station makes it`);
+  assert.strictEqual(Industry.place(state, HUB, 'make.steel-pipe', null, env, T), null, 'the fabricator does not refine ore');
   // Room: only as much as fits.
   const cap = Industry.capacity(state, env, T);
   assert.strictEqual(cap, Industry.STORAGE.base);
@@ -1163,7 +1169,7 @@ test('production: stages by station type, room in storage, counts, pausing, canc
   const two = Industry.empty();
   Industry.deposit(two, 'iron', 2, env, T);
   const x = Industry.place(two, CAMP, 'make.steel-pipe', null, env, T);
-  const y = Industry.place(two, YARD, 'make.steel-pipe', null, env, T);
+  const y = Industry.place(two, CAMP2, 'make.steel-pipe', null, env, T);
   assert.deepStrictEqual([statusOf(two, x), statusOf(two, y)], ['running', 'starved']);
   Industry.cancel(two, x.id);
   Industry.place(two, CAMP, 'make.steel-pipe', null, env, T);
@@ -1172,7 +1178,7 @@ test('production: stages by station type, room in storage, counts, pausing, canc
   Industry.settle(two, T + run, env);
   assert(Industry.move(two, 1, 0) && two.orders[0].station === CAMP.key);
   Industry.deposit(two, 'iron', 2, env, T + run);
-  assert.deepStrictEqual(two.orders.map((q) => [q.station, statusOf(two, q)]), [[CAMP.key, 'running'], [YARD.key, 'starved']]);
+  assert.deepStrictEqual(two.orders.map((q) => [q.station, statusOf(two, q)]), [[CAMP.key, 'running'], [CAMP2.key, 'starved']]);
   assert.strictEqual(Industry.withdraw(two, 'iron', 5), 0);
 });
 
@@ -1180,35 +1186,35 @@ test('production: slots grow with research, and a station takes orders only when
   const T = 1e12, lab = Research.empty(), state = Industry.empty();
   const env = Industry.env(lab);
   assert(Industry.place(state, CAMP, 'make.steel-pipe', null, env, T));
-  assert.strictEqual(Industry.place(state, CAMP, 'make.hydrazine', null, env, T), null);
+  assert.strictEqual(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), null);
   lab.done.push('ind.bays.1');
   lab.doneAt['ind.bays.1'] = T;
-  assert(Industry.place(state, CAMP, 'make.hydrazine', null, env, T), 'a second slot');
-  assert.strictEqual(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), null);
+  assert(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), 'a second slot');
+  assert.strictEqual(Industry.place(state, CAMP, 'make.steel-pipe', null, env, T), null);
   // Loyalty: a station takes orders once missions done for it have raised its loyalty.
   assert(!Industry.trusted({}, HUB.key) && !Industry.trusted({ [HUB.key]: 0 }, HUB.key));
-  assert.strictEqual(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, {}), null, 'untrusted: refused');
-  assert(Industry.place(state, HUB, 'make.pulse-laser-1', null, env, T, { [HUB.key]: 1 }), 'trusted: taken');
+  assert.strictEqual(Industry.place(state, HUB, 'make.electronics', null, env, T, {}), null, 'untrusted: refused');
+  assert(Industry.place(state, HUB, 'make.electronics', null, env, T, { [HUB.key]: 1 }), 'trusted: taken');
 });
 
 test('production: the pipeline links orders by what they make, and shows the gaps', () => {
   const T = 1e12, env = Industry.env(Research.empty()), state = Industry.empty();
-  // Iron → steel pipe (camp) → electronics (port, with carbon fibre no order makes) → Mk I flight
-  // computers (hub), and the pipe into Mk I pulse lasers (capital); hydrazine at a yard, linked
-  // to nothing.
+  // Iron → steel pipe (camp) → electronics (hub, with carbon fibre no order makes) → Mk I flight
+  // computers (capital), and the pipe into Mk I pulse lasers (the waystation's bench); hydrazine at
+  // a port, linked to nothing.
   const pipe = Industry.place(state, CAMP, 'make.steel-pipe', null, env, T);
-  const elec = Industry.place(state, PORT, 'make.electronics', null, env, T);
-  const laser = Industry.place(state, { key: 'st-cap', name: 'Cormar Station', type: 'capital' }, 'make.pulse-laser-1', null, env, T);
-  const fc = Industry.place(state, HUB, 'make.flight-computer-1', null, env, T);
-  const lone = Industry.place(state, YARD, 'make.hydrazine', null, env, T);
+  const elec = Industry.place(state, HUB, 'make.electronics', null, env, T);
+  const laser = Industry.place(state, { key: 'st-way', name: 'Waystation', type: 'waystation' }, 'make.pulse-laser-1', null, env, T);
+  const fc = Industry.place(state, CAP, 'make.flight-computer-1', null, env, T);
+  const lone = Industry.place(state, PORT, 'make.hydrazine', null, env, T);
   const groups = Industry.pipelines(state);
   const chain = groups.find((g) => !g.standalone);
   assert.deepStrictEqual(chain.orders.map((o) => o.id).sort(), [pipe.id, elec.id, laser.id, fc.id].sort());
   const link = (a, b, kind) => chain.links.some((l) => l.from === a.id && l.to === b.id && l.kind === kind);
   assert(link(pipe, elec, 'steel-pipe') && link(pipe, laser, 'steel-pipe') && link(elec, fc, 'electronics'));
   assert.deepStrictEqual(chain.end.sort(), ['flight-computer-1', 'pulse-laser-1'], 'what no order uses is an end product, not a gap');
-  // Carbon fibre isn't raw and no order makes it: a gap, for a refinery. Iron is raw: not flagged.
-  assert.deepStrictEqual(chain.gaps, [{ order: elec.id, kind: 'carbon-fibre', stage: 'refinery' }]);
+  // Carbon fibre isn't raw and no order makes it: a gap, for the ore works. Iron is raw: not flagged.
+  assert.deepStrictEqual(chain.gaps, [{ order: elec.id, kind: 'carbon-fibre', stage: 'ore' }]);
   const solo = groups.find((g) => g.standalone);
   assert.deepStrictEqual([solo.orders.map((o) => o.id), solo.links, solo.gaps], [[lone.id], [], []], 'linked to nothing: standalone');
   // Lineage: where an order's inputs come from.
@@ -2966,7 +2972,7 @@ test('every icon code the UI uses has a line icon', () => {
   const src = ['station.js', 'research-view.js', 'industry-view.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
-  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'REF', 'FAB', 'ASM', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
+  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
     'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach']) codes.add(c);
   const missing = [...codes].filter((c) => !Glyphs.has(c));
   assert.deepStrictEqual(missing, [], 'codes with no icon');

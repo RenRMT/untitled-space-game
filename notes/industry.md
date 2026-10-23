@@ -47,8 +47,10 @@ advanced ones into parts. Mining picks raw goods only: carbonaceous rock gives c
 water ice, and nebula gas pockets the rarer gases. Markets stock goods further along the chain
 less often (except where they're made), and never the rarest parts, which have to be made.
 
-Each station type works one stage: mining camps and salvage yards refine, minor stations and the
-waystation fabricate, and capitals and major hubs (the shipyards) assemble. A crafted good is worth
+Each station type works one process (`notes/hazards.md`, Phase 6 design): the mining camp is the ore
+works, the minor station the volatiles works, the salvage yard recycles, the major hub is the
+fabricator, the waystation has a bench for Mk I gear and consumables, and the capital is the
+shipyard (with a bench too). A crafted good is worth
 1.15–4× its inputs.
 
 ## Storage and production orders
