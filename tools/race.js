@@ -15,7 +15,7 @@
 // game's ring and line (game/hud.js drawDragIndicator). WASD or arrows fly at full speed while held.
 // R to restart, N for a new track.
 // Query parameters: ?biome=desert|ice|lava|terran|moon, ?style=line, ?curved, ?seed=, ?laps=,
-// ?speed= (× the ship's top speed; the game flies surfaces at 0.5), ?mode=direct (no drift).
+// ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed), ?mode=direct (no drift).
 
 import { Art } from '../src/art/render.js';
 import { ArtBlueprints } from '../src/art/blueprints.js';
@@ -45,12 +45,18 @@ const BIOMES = {
 // HULL_ART), at the surface's speed and size (game/landing.js SURFACE_SPEED, SURFACE_SCALE;
 // flight/entities.js SHIP_SCALE).
 const SHIP = Loadout.stats(Loadout.starter('courier'));
-const STATS = { ...SHIP, maxSpeed: SHIP.maxSpeed * (+q.get('speed') || 0.5), accel: SHIP.accel * 0.6 };
+// Racing is faster and grippier than the game's surface flight: in Cruise the velocity eases toward
+// the heading at the engine's acceleration, so more of it makes turns bite instead of float.
+const TUNE = { speed: 0.75, accel: 1.4, turn: 1.25 }; // × the ship's top speed, acceleration, turn rate
+const STATS = { ...SHIP, maxSpeed: SHIP.maxSpeed * (+q.get('speed') || TUNE.speed), accel: SHIP.accel * TUNE.accel, turnRate: SHIP.turnRate * TUNE.turn };
+// The camera: close in (the ground's speed on screen is what reads as fast), leading the ship by
+// `lead` seconds of its velocity, and pushing in a little at top speed rather than drawing back.
+const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3 };
 const SURFACE_SCALE = 0.85, SHIP_SCALE = 1.375, R_SHIP = SHIP.radius * SURFACE_SCALE, HULL = SHIP.hull || 120;
 const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 
 // The drag as game/input.js keeps it, and the course it set (the game's ship.targetAngle, targetSpeed).
-const DEADZONE = 8, DOUBLE_TAP = 0.4, maxDrag = () => Math.min(innerWidth, innerHeight) * 0.3;
+const DEADZONE = 8, DOUBLE_TAP = 0.4, maxDrag = () => Math.min(innerWidth, innerHeight) * 0.225;
 const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 0 };
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1, keys: new Set(), course: { angle: 0, speed: 0 } };
 let G = null; // the track and its surface: { W, tr, b, talls, holes, looks: { style: { far, tiles } }, mini }
@@ -164,6 +170,7 @@ function step(dt) {
   let hit = 0;
   if (ArtSurface.blocked(W, C.x, y0, R_SHIP)) { C.x = x0; hit = Math.max(hit, Collide.bounce(C, -Math.sign(C.vx), 0)); }
   if (ArtSurface.blocked(W, C.x, C.y, R_SHIP)) { C.y = y0; hit = Math.max(hit, Collide.bounce(C, 0, -Math.sign(C.vy))); }
+  hit /= STATS.maxSpeed / (SHIP.maxSpeed * 0.5); // as hard as the same share of top speed at the game's surface speed
   if (hit > Collide.config.surfaceSafe * 0.5) { R.hits++; R.flash = Math.min(0.4, hit / 600); }
   R.hull -= Collide.damage(hit, Collide.config.surfaceSafe);
   const inHole = ArtSurface.propsNear(W, C.x, C.y).filter((p) => p.type === 'hole' && Math.hypot(C.x - p.x, C.y - p.y) < p.r);
@@ -171,9 +178,9 @@ function step(dt) {
   if (R.burn && racing) R.hull -= BURN * dt;
   R.flash = Math.max(0, R.flash - dt);
   if (R.hull <= 0 && racing) { R.hull = 0; R.phase = 'wreck'; }
-  // The camera leads the ship and draws back a little at speed.
+  // The camera leads the ship and pushes in a little at speed (CAM).
   const k = 1 - Math.exp(-3 * dt), sp = Math.hypot(C.vx, C.vy) / STATS.maxSpeed;
-  R.cam.lx += (C.vx * 0.45 - R.cam.lx) * k; R.cam.ly += (C.vy * 0.45 - R.cam.ly) * k; R.cam.zf += (1 - 0.2 * sp - R.cam.zf) * k;
+  R.cam.lx += (C.vx * CAM.lead - R.cam.lx) * k; R.cam.ly += (C.vy * CAM.lead - R.cam.ly) * k; R.cam.zf += (1 + CAM.pull * sp - R.cam.zf) * k;
   if (!racing) return;
   R.total += dt; R.lapT += dt;
   const tr = G.tr, pt = tr.pts[(R.n = edgeDist(tr, C.x, C.y, R.n, 40).n)];
@@ -187,8 +194,10 @@ function step(dt) {
 // ---------- Drawing ----------
 
 function viewNow(Wc, Hc) {
-  const C = R.craft, zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * R.cam.zf;
-  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + R.cam.lx, fy: C.y + R.cam.ly, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
+  const C = R.craft, zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * R.cam.zf;
+  // The lead, held to CAM.reach of the screen's shorter side, so the ship never runs off its edge.
+  const l = Math.hypot(R.cam.lx, R.cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
+  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + R.cam.lx * f, fy: C.y + R.cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
   return { v, zoom };
 }
 // The ground to build detailed chunks over (game/landing.js detailRect), and the same a moment
