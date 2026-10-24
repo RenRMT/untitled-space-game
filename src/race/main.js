@@ -9,7 +9,7 @@
 // Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
 // default on touch screens, the view framed above it, View), point (the game's drag; the default
 // with a mouse), or sides (it flies itself; hold a half to turn). Tap to hop, flick to dash.
-// Query parameters: ?biome=desert|ice|lava|terran|moon, ?seed=, ?laps=,
+// Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed=, ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist).
 // ES module; needs a browser.
@@ -22,6 +22,7 @@ import { SurfaceGlobe } from '../art/surface-globe.js';
 import { Feedback } from '../core/feedback.js';
 import { Config } from './config.js';
 import { Draw } from './draw.js';
+import { Dust } from './dust.js';
 import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Run } from './run.js';
@@ -37,6 +38,7 @@ const BIOMES = {
   lava: { type: 'lava', label: 'Lava' },
   terran: { type: 'terran', label: 'Terran' },
   moon: { type: 'moon-grey', label: 'Moon' },
+  gas: { type: 'gas', label: 'Gas giant' },
 };
 
 // The ship (Config): the Courier as the game fits it, drawn as the game draws it (game/options.js
@@ -66,6 +68,7 @@ Input.mode = ['pad', 'point', 'sides'].includes(q.get('steer')) ? q.get('steer')
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), size (the map's side), whole (all of it, as a rect), hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
+let dust = Dust.create(), dustCols = null; // the dust off the craft (drawn only), and its colours on this ground
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
 const cv = document.getElementById('view'), ctx = cv.getContext('2d'), note = document.getElementById('note');
@@ -92,6 +95,7 @@ function restart() {
   cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${TRACKS}.${S.biome}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}` };
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
+  dust = Dust.create(); dustCols = Dust.colours(G.b.type, Config.KINDS[S.biome]);
 }
 
 // ---------- The view ----------
@@ -183,17 +187,19 @@ function render(time, a) {
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
   Draw.marks(ctx, v, px, time, G, R, ground);
+  Draw.dust(ctx, v, px, dust.puffs, ground);
   const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
   // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
   const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
+  Draw.sparks(ctx, v, px, C, body.z, R.drift, time, ground);
   Draw.ship(ctx, v, body, C, { style: S.style, time, shadow: true, ground });
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, G.size, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
-  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH);
+  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH, R.drift, Run.DRIFT);
   else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
   // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
@@ -213,14 +219,16 @@ function render(time, a) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
-const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6] };
+const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26 };
 function frame(t) {
   if (baking) { last = t; requestAnimationFrame(frame); return; }
   if (last) paceFrame(t, t - last);
-  acc += Math.min(0.1, (t - last) / 1000 || 0); last = t;
+  const dtFrame = (t - last) / 1000 || 0;
+  acc += Math.min(0.1, dtFrame); last = t;
   cfg.steer = Input.mode;
   const ctl = Input.control();
   while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); acc -= Run.STEP; }
+  if (dustCols) Dust.step(dust, R.craft, { off: R.air ? 0 : R.off, slide: R.grip.sliding && !R.air, speed: cfg.stats.maxSpeed }, dustCols, Math.min(0.1, dtFrame));
   for (const k of R.fx) Feedback.vibrate(BUZZ[k]);
   R.fx.length = 0;
   render(t / 1000, acc / Run.STEP);
@@ -237,7 +245,7 @@ function sync() {
   for (const id of Object.keys(STYLES)) $(`track-${id}`).setAttribute('aria-pressed', S.track === id);
   $('help').innerHTML = Input.mode === 'sides'
     ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ / X brakes · Space hops · R restart · N new track'
-    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
+    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes before tight corners; hold a slide to charge a boost' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
   $('help').innerHTML += '<br>Walls bounce you and dent the hull · off the track slows you';
   place();
 }

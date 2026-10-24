@@ -1,8 +1,8 @@
 // The race's controls, in one of three ways to steer (notes/race-research.md, Part C):
 // - pad: a stick in a band along the bottom of the screen, under the thumb holding the phone
-//   (the default on touch screens). A touch anywhere in the band puts the stick's base there; past
-//   its rim the base follows the thumb. Its angle is the heading, its reach the speed (as point);
-//   brought back into its middle once out, it brakes. Letting go keeps the course.
+//   (the default on touch screens). Its base stays fixed on its home ring; a touch anywhere in the
+//   band steers from there: its angle the heading, its reach the speed (as point), anywhere past the
+//   rim full speed; brought back into its middle once out, it brakes. Letting go keeps the course.
 // - point: the game's Cruise (game/input.js): drag anywhere to set a heading (its screen height
 //   stretched back out of the view's tilt, so it points where it looks), the drag's length the
 //   speed; letting go keeps the course. WASD or arrows fly that way at full speed while held.
@@ -26,7 +26,7 @@
 //       last emptied it (angle: absolute, screen and world alike; rel: from the craft's way; neither: forward)
 //   Input.reset(angle)    a fresh course, stopped, pointing that way
 //   Input.drag            point: the drag under way, to draw: { active, x0, y0, x, y } (screen px)
-//   Input.pad             pad: { active, bx, by (its base), x, y (the thumb), brake } (screen px)
+//   Input.pad             pad: { active, bx, by (its base, at home), x, y (the thumb), brake } (screen px)
 //   Input.home()          pad: the band and the stick's place when no thumb is on it: { x, y, y0, y1 }
 //   Input.held            sides: { left, right } held, to draw
 //   Input.maxDrag()       the drag that sets full speed (screen px); the stick's radius
@@ -73,6 +73,14 @@ const Input = (() => {
   }
   // A heading from a screen offset, its height stretched back out of the view's tilt.
   const heading = (dx, dy) => Math.atan2(dy / Math.cos(tilt()), dx);
+  // The thumb on the pad at (x, y), from its fixed base: past the rim, full speed that way.
+  function padAt(x, y) {
+    const md = maxDrag(), dx = x - pad.bx, dy = y - pad.by, len = Math.hypot(dx, dy);
+    if (len >= md * PAD.inner) pad.out = true;
+    // Back in the middle, once it's been out: a brake, the course kept.
+    pad.brake = pad.out && len < md * PAD.inner;
+    if (!pad.brake && len > DEADZONE) course = { angle: heading(dx, dy), speed: Math.min(len / md, 1) };
+  }
 
   function init(cv, o) {
     tilt = o.tilt; inset = o.inset || inset;
@@ -93,7 +101,9 @@ const Input = (() => {
       const x = e.clientX, y = e.clientY, t = e.timeStamp / 1000;
       if (api.mode === 'sides') { sides.set(e.pointerId, x < innerWidth / 2 ? -1 : 1); return; }
       if (api.mode === 'pad' && !pad.active && y >= home().y0) {
-        Object.assign(pad, { active: true, id: e.pointerId, bx: x, by: y, x, y, x0: x, y0: y, moved: 0, t0: t, course: { ...course }, out: false, brake: false });
+        const h = home();
+        Object.assign(pad, { active: true, id: e.pointerId, bx: h.x, by: h.y, x, y, x0: x, y0: y, moved: 0, t0: t, course: { ...course }, out: false, brake: false });
+        padAt(x, y);
         return;
       }
       if (api.mode === 'point' && !drag.active) {
@@ -110,12 +120,7 @@ const Input = (() => {
       const md = maxDrag();
       if (pad.active && id === pad.id) {
         pad.x = x; pad.y = y; pad.moved = Math.max(pad.moved, Math.hypot(x - pad.x0, y - pad.y0));
-        let dx = x - pad.bx, dy = y - pad.by, len = Math.hypot(dx, dy);
-        if (len > md) { pad.bx += dx * (1 - md / len); pad.by += dy * (1 - md / len); dx = x - pad.bx; dy = y - pad.by; len = md; } // the base follows the thumb
-        if (len >= md * PAD.inner) pad.out = true;
-        // Back in the middle, once it's been out: a brake, the course kept.
-        pad.brake = pad.out && len < md * PAD.inner;
-        if (!pad.brake && len > DEADZONE) course = { angle: heading(dx, dy), speed: Math.min(len / md, 1) };
+        padAt(x, y);
         return;
       }
       if (!drag.active || id !== drag.id) return;
