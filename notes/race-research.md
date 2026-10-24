@@ -377,7 +377,10 @@ splits the change in velocity in two:
 **The drift.** A slide held over half of top speed, on the track and on the ground, charges level 1
 at 0.5 s and level 2 at 1.1 s. When the grip comes back it gives a boost: ×1.2 top speed for 0.3 s, or
 ×1.35 for 0.5 s. A hit or the run-off loses the charge.
-- Skid marks (the last 240 points) and dust or sparks coloured by level (dust, blue, orange).
+- Sparks off the tail coloured by level (blue, then orange). No skid marks: a hovering ship touches nothing.
+- Dust (`src/race/dust.js`): puffs off the tail, only drawn (the run never sees them, so ghosts don't
+  depend on them). Off the track, a thick cloud in the run-off's ground colour, lightened (sand in the
+  desert, cloud wisps on the gas giant). Sliding on the track, a lighter trail in the track's colour.
 - An arc over the pad's ring fills with the charge.
 - Haptics on the slide, each level and the boost.
 

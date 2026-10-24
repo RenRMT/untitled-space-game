@@ -49,6 +49,7 @@ const Config = (() => {
     lava: { track: 'c', off: 'a' }, // ash field; basalt plain (b is the lava flow)
     terran: { track: 'a', off: 'c' }, // meadow; woodland (b is the sea)
     moon: { track: 'b', off: 'c' }, // mare; ejecta
+    gas: { track: 'b', off: 'a' }, // haze; cloud deck (the walls are storm fronts)
   };
   return { T, N, SIZE, N_ADV, N_EXP, map, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
 })();

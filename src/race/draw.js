@@ -10,9 +10,9 @@
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
 //   Draw.pad(ctx, pad, home, radius, inner, dash, DASH, drift, DRIFT)   the stick (Input.pad, Input.home()),
 //     the dash's charges (Run's R.dash, Run.DASH) and the drift's charge (R.drift, Run.DRIFT)
-//   Draw.skids(ctx, v, px, skids, ground)   the slides' marks on the ground (Run's R.skids)
-//   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   dust and sparks off the tail while sliding,
-//     coloured by the drift's level (R.drift); z: the ship's height
+//   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   sparks off the tail while a slide has
+//     charged a level, coloured by it (R.drift); z: the ship's height
+//   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
 //   Draw.hud(G, R, cfg, missing) -> { lap, time, rest }   text, text, html; missing: chunks still building in view
 //   Draw.note(R, cfg) -> { msg, big }             the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
@@ -112,44 +112,36 @@ const Draw = (() => {
     ctx.restore();
   }
 
-  // The drift's colours by level: dust, then blue, then orange.
-  const DRIFT_RGB = ['226,214,190', '125,249,255', '255,176,58'];
+  // The drift's colours by level: none yet, then blue, then orange.
+  const DRIFT_RGB = ['207,216,255', '125,249,255', '255,176,58'];
 
-  // The slides' marks: two dark streaks from the tail, fading with age, in a few strokes (a stroke
-  // per alpha) rather than one a segment.
-  function skids(ctx, v, px, S, ground) {
-    if (S.length < 2) return;
-    const BUCKETS = 6, per = Math.ceil(S.length / BUCKETS);
-    ctx.save(); ctx.lineWidth = 2.5 * px; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgb(18,18,24)';
-    for (let b = 0; b < BUCKETS; b++) {
-      ctx.globalAlpha = 0.4 * (b + 1) / BUCKETS;
-      ctx.beginPath();
-      for (let i = Math.max(1, b * per); i < Math.min(S.length, (b + 1) * per + 1); i++) {
-        const p = S[i - 1], q = S[i];
-        if (!p || !q) continue;
-        for (const [x0, y0, x1, y1] of [[p.ax, p.ay, q.ax, q.ay], [p.bx, p.by, q.bx, q.by]]) {
-          const a = ground(v, x0, y0), c = ground(v, x1, y1);
-          if (a && c) { ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0], c[1]); }
-        }
-      }
-      ctx.stroke();
+  // Sparks off the tail while a slide has charged a level, in the level's colour.
+  function sparks(ctx, v, px, b, z, F, time, ground) {
+    if (!F.on || !F.level) return;
+    const back = b.angle + Math.PI;
+    ctx.save(); ctx.fillStyle = `rgb(${DRIFT_RGB[F.level]})`;
+    for (let i = 0; i < 8; i++) {
+      const h = Math.sin(i * 12.9898 + Math.floor(time * 30) * 78.233) * 43758.5453, f = h - Math.floor(h);
+      const a = back + (f - 0.5) * 1.4, d = 12 + 22 * ((f * 7) % 1);
+      const p = ground(v, b.x + Math.cos(a) * d, b.y + Math.sin(a) * d, z * (1 - f));
+      if (!p) continue;
+      ctx.globalAlpha = 0.9 * (1 - d / 40);
+      ctx.beginPath(); ctx.arc(p[0], p[1], 3.2 * (1 + f) * px, 0, TAU); ctx.fill();
     }
     ctx.restore();
   }
 
-  // Off the tail while sliding: dust on the ground, and sparks once the drift has a level.
-  function sparks(ctx, v, px, b, z, F, time, ground) {
-    if (!F.on) return;
-    const rgb = DRIFT_RGB[F.level], back = b.angle + Math.PI;
+  // Dust: soft puffs on the ground, growing and fading over their life (Dust's).
+  function dust(ctx, v, px, puffs, ground) {
+    if (!puffs.length) return;
     ctx.save();
-    for (let i = 0; i < 8; i++) {
-      const h = Math.sin(i * 12.9898 + Math.floor(time * 30) * 78.233) * 43758.5453, f = h - Math.floor(h);
-      const a = back + (f - 0.5) * 1.4, d = 12 + 22 * ((f * 7) % 1);
-      const p = ground(v, b.x + Math.cos(a) * d, b.y + Math.sin(a) * d, F.level ? z * (1 - f) : 0);
-      if (!p) continue;
-      ctx.globalAlpha = (F.level ? 0.9 : 0.35) * (1 - d / 40);
-      ctx.fillStyle = `rgb(${rgb})`;
-      ctx.beginPath(); ctx.arc(p[0], p[1], (F.level ? 1.6 : 3.5) * (1 + f) * px * 2, 0, TAU); ctx.fill();
+    for (const p of puffs) {
+      const q = ground(v, p.x, p.y, p.z);
+      if (!q) continue;
+      const f = p.t / p.life;
+      ctx.globalAlpha = p.a * (1 - f) * Math.min(1, f * 6);
+      ctx.fillStyle = p.col;
+      ctx.beginPath(); ctx.ellipse(q[0], q[1], p.r * (1 + 1.6 * f), p.r * (1 + 1.6 * f) * v.ct, 0, 0, TAU); ctx.fill();
     }
     ctx.restore();
   }
@@ -254,7 +246,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { lines, marks, ship, skids, sparks, minimap, drag, pad, sides, hud, note };
+  return { lines, marks, ship, sparks, dust, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };

@@ -6,14 +6,13 @@
 //   Run.STEP                        the step (s)
 //   R: { phase: 'count' | 'race' | 'done' | 'wreck', t, total, lapT, laps, next, n, hull, hits,
 //        wrong, off (0 on the track .. 1 off it), slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest,
-//        dash: { charges, refill, t, v, kind }, hop: { t, cool }, air, pair, grip, drift, skids, fx }
+//        dash: { charges, refill, t, v, kind }, hop: { t, cool }, air, pair, grip, drift, fx }
 //     prev, pcam, pair: the craft's { x, y, angle }, the camera and the craft's height a step before, to draw them between steps
 //     dash: charges (DASH.charges at most, one back every DASH.refill s), t: s of the burst left,
 //       v: the velocity a sidestep gives back when it ends; hop: t s into it (−1: on the ground),
 //       cool: s until the next; air: the craft's height over its flying height
 //     grip: { slip, sliding } (Handling); drift: { t: s charged, level (0, 1, 2), boost: s of its boost
-//       left, k: the boost's top speed ×, on: sliding }; skids: the slide's marks, oldest first
-//       ({ x, y, ax, ay, bx, by (the tail's two sides), level } or null between slides)
+//       left, k: the boost's top speed ×, on: sliding }
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
 //       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost'; the page empties it
 //   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey }
@@ -63,8 +62,8 @@ const Run = (() => {
   const WALL = { restitution: 0.2, friction: 0.12, reach: 2.5 * ArtSurface.T }; // a graze keeps 88% of its speed along the wall: braking beats scraping
   // The drift: a slide faster than min of top speed, on the track and the ground, charges levels at
   // `at` s; grip back, it gives a boost of `boost` × top speed held for `time` s (per level). A hit or
-  // the run-off loses the charge. skids: the slide's marks kept, every `skid` units.
-  const DRIFT = { min: 0.5, at: [0.5, 1.1], boost: [1.2, 1.35], time: [0.3, 0.5], skids: 240, skid: 6 };
+  // the run-off loses the charge.
+  const DRIFT = { min: 0.5, at: [0.5, 1.1], boost: [1.2, 1.35], time: [0.3, 0.5] };
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
   const angleDiff = (a, b) => ((a - b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
@@ -75,7 +74,7 @@ const Run = (() => {
       phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0, off: 0, stats: { ...cfg.stats },
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
       rec: Ghost.recorder(), ghost: Ghost.load(cfg.ghostKey), newBest: false,
-      grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1 }, skids: [],
+      grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       dash: { charges: DASH.charges, refill: 0, t: 0, v: null, kind: null }, hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
     };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.
@@ -192,7 +191,7 @@ const Run = (() => {
     }
   }
 
-  // The drift's charge, its boost when the grip comes back, and the skid marks.
+  // The drift's charge, and its boost when the grip comes back.
   function drift(R, cfg, hit, air, dt) {
     const C = R.craft, F = R.drift, v = Math.hypot(C.vx, C.vy), top = cfg.stats.maxSpeed, sliding = R.grip.sliding && !air;
     F.boost = Math.max(0, F.boost - dt);
@@ -211,15 +210,6 @@ const Run = (() => {
       }
       F.t = 0; F.level = 0;
     }
-    // The marks: a pair of points across the craft's tail, a gap (null) between slides.
-    const S = R.skids, last = S[S.length - 1];
-    if (sliding) {
-      if (!last || Math.hypot(C.x - last.x, C.y - last.y) >= DRIFT.skid) {
-        const r = cfg.r * 0.6, sx = -Math.sin(C.angle) * r, sy = Math.cos(C.angle) * r, bx = C.x - Math.cos(C.angle) * r, by = C.y - Math.sin(C.angle) * r;
-        S.push({ x: C.x, y: C.y, ax: bx + sx, ay: by + sy, bx: bx - sx, by: by - sy, level: F.level });
-      }
-    } else if (last) S.push(null);
-    while (S.length > DRIFT.skids || S[0] === null) S.shift();
   }
 
   function lap(R, cfg) {

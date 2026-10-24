@@ -56,6 +56,7 @@ import { Input as RaceInput } from '../src/race/input.js';
 import { Run } from '../src/race/run.js';
 import { Handling } from '../src/race/handling.js';
 import { Pilot } from '../src/race/pilot.js';
+import { Dust } from '../src/race/dust.js';
 import { View as RaceView } from '../src/race/view.js';
 
 let failed = 0;
@@ -3475,7 +3476,7 @@ test('race handling: the grip bounds the turn, the engine holds speed, the brake
   }
 });
 
-test('race drift: a slide held at speed charges a level, the grip back gives a boost; skid marks behind', () => {
+test('race drift: a slide held at speed charges a level, the grip back gives a boost', () => {
   // Open ground, as if all of it were track (the run-off would lose the charge).
   const { N } = RaceConfig, tr = Track.loop(1, RaceConfig.TRACK), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
   const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr };
@@ -3488,11 +3489,9 @@ test('race drift: a slide held at speed charges a level, the grip back gives a b
   // The nose thrown 1.2 rad off the way and held there: a slide, charged to the first level.
   run(Run.DRIFT.at[0] + 0.15, () => Math.atan2(R.craft.vy, R.craft.vx) + 1.2);
   assert(R.grip.sliding && R.drift.level === 1 && fx.includes('slide') && fx.includes('drift1'), `level ${R.drift.level} after ${R.drift.t}s`);
-  assert(R.skids.length > 10 && R.skids.every((p) => p), 'marks behind the slide');
   // Straightened out: the grip back, a boost over top speed, held a moment, then eased back down.
   run(0.6, () => Math.atan2(R.craft.vy, R.craft.vx));
   assert(!R.grip.sliding && fx.includes('driftBoost') && R.drift.level === 0, 'released');
-  assert(R.skids[R.skids.length - 1] === null, 'a gap after the slide');
   const i = fx.indexOf('driftBoost');
   assert(i >= 0 && R.drift.k === Run.DRIFT.boost[0]);
   run(1.5, () => Math.atan2(R.craft.vy, R.craft.vx));
@@ -3502,6 +3501,26 @@ test('race drift: a slide held at speed charges a level, the grip back gives a b
   run(0.25, () => Math.atan2(R.craft.vy, R.craft.vx) + 1.2);
   run(0.6, () => Math.atan2(R.craft.vy, R.craft.vx));
   assert(fx.includes('slide') && !fx.includes('driftBoost'));
+});
+
+test('race dust: a cloud in the run-off\'s colour off the track, a trail in the track\'s sliding, none at rest; every biome has its colours', () => {
+  const top = 500, cols = { off: 'rgb(1,1,1)', track: 'rgb(2,2,2)' }, c = { x: 0, y: 0, vx: top, vy: 0, angle: 0 };
+  const run = (D, o, s, craft = c) => { for (let t = 0; t < s; t += 1 / 60) Dust.step(D, craft, { speed: top, ...o }, cols, 1 / 60); };
+  let D = Dust.create();
+  run(D, { off: 1 }, 0.5);
+  assert(D.puffs.length > 10 && D.puffs.every((p) => p.col === cols.off), `${D.puffs.length} puffs, in the run-off's colour`);
+  D = Dust.create();
+  run(D, { off: 0, slide: true }, 0.5);
+  assert(D.puffs.length > 5 && D.puffs.every((p) => p.col === cols.track));
+  run(D, { off: 0 }, 1.5);
+  assert.strictEqual(D.puffs.length, 0, 'gone once it settles');
+  D = Dust.create();
+  run(D, { off: 1 }, 1, { ...c, vx: 0 });
+  assert.strictEqual(D.puffs.length, 0, 'none at rest');
+  for (const [biome, type] of [['desert', 'desert'], ['ice', 'ice'], ['lava', 'lava'], ['terran', 'terran'], ['moon', 'moon-grey'], ['gas', 'gas']]) {
+    const k = Dust.colours(type, RaceConfig.KINDS[biome]);
+    assert(/^rgb\(\d+,\d+,\d+\)$/.test(k.off) && /^rgb\(\d+,\d+,\d+\)$/.test(k.track), biome);
+  }
 });
 
 test('race pilot: on regular tracks braking for the tight corners beats flying them flat out', () => {

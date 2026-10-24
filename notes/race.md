@@ -136,7 +136,10 @@ that:
    bottom, the view framed above it), a brake, a hop on a tap, dashes on a flick. Handling
    (`src/race/handling.js`, `notes/race-research.md` Part D): grip, a slide and a brake, so the tight
    corners need the brake (steering no longer slows the craft by itself); a slide held at speed
-   charges a drift boost, with skid marks and sparks; the pad's base fixed on its home ring. Still to
+   charges a drift boost, with sparks by its level; dust off the tail (`src/race/dust.js`, drawn only)
+   in the run-off's colour off the track and the track's while sliding, no skid marks (a hovering
+   ship leaves none); a gas giant biome (haze track, cloud-deck run-off, storm fronts for walls); the
+   pad's base fixed on its home ring. Still to
    do: a racing line and medal times; the camera zooming out with speed; gaps and ramps for the hop;
    the advanced style's corners still don't need the brake.
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
