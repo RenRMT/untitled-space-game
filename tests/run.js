@@ -3186,7 +3186,7 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
 const RACE = RaceConfig.TRACK;
 test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
   for (const style of ['regular', 'advanced']) for (let seed = 1; seed <= 20; seed++) {
-    const opts = { ...RACE, style }, tr = Track.loop(seed, opts), S = tr.samples;
+    const opts = RaceConfig.map(style).TRACK, tr = Track.loop(seed, opts), S = tr.samples;
     assert.strictEqual(tr.pts.length, S);
     assert.deepStrictEqual(tr, Track.loop(seed, opts), 'the same seed, the same track');
     let len = 0;
@@ -3194,8 +3194,8 @@ test('race track: a closed loop inside the map, never too narrow, its bends wide
       const q = tr.pts[(n + 1) % S];
       len += Math.hypot(q.x - p.x, q.y - p.y);
       assert(Math.hypot(q.x - p.x, q.y - p.y) < 4 * tr.ds, `no jumps (seed ${seed}, point ${n})`);
-      assert(p.x - p.hw > RACE.margin * 0.5 && p.y - p.hw > RACE.margin * 0.5 && p.x + p.hw < RACE.size - RACE.margin * 0.5 && p.y + p.hw < RACE.size - RACE.margin * 0.5, `inside the map (seed ${seed})`);
-      assert(p.hw >= RACE.minHw, `wide enough (seed ${seed})`);
+      assert(p.x - p.hw > opts.margin * 0.5 && p.y - p.hw > opts.margin * 0.5 && p.x + p.hw < opts.size - opts.margin * 0.5 && p.y + p.hw < opts.size - opts.margin * 0.5, `inside the map (seed ${seed})`);
+      assert(p.hw >= opts.minHw, `wide enough (seed ${seed})`);
       assert(Math.abs(Math.hypot(p.tx, p.ty) - 1) < 1e-9);
     });
     assert(Math.abs(len - tr.len) < 1e-6 * len);
@@ -3203,7 +3203,7 @@ test('race track: a closed loop inside the map, never too narrow, its bends wide
     assert(tr.pts.every((p) => p.side === 1 || p.side === -1), 'every point bends one way or the other');
     // Two stretches further apart round the loop than a bend could bring them keep their run-offs
     // and a wall between them.
-    const far = Math.ceil((1.6 * (2 * Math.max(...tr.pts.map((p) => p.hw)) + RACE.gap)) / tr.ds);
+    const far = Math.ceil((1.6 * (2 * Math.max(...tr.pts.map((p) => p.hw)) + opts.gap)) / tr.ds);
     for (let a = 0; a < S; a += 3) for (let b = a + far; b < S && S - (b - a) >= far; b += 3) {
       const p = tr.pts[a], q = tr.pts[b];
       assert(Math.hypot(p.x - q.x, p.y - q.y) - p.hw - q.hw >= 2 * (RaceConfig.RUNOFF + RaceConfig.CARVE.open) + RaceConfig.T * 0.9, `a wall between two stretches (seed ${seed}, points ${a}, ${b})`);
@@ -3235,21 +3235,23 @@ test('race track: corners of many kinds, bending both ways, a few that need a li
 });
 
 test('race track: the advanced style folds in on itself, bends both ways, and leaves the regular one as it was', () => {
-  const fills = { regular: [], advanced: [] }, ADV = { ...RACE, style: 'advanced' };
+  const fills = { regular: [], advanced: [] }, ADV = RaceConfig.map('advanced').TRACK;
   let own = 0;
   for (let seed = 1; seed <= 20; seed++) {
     const tr = Track.loop(seed, ADV), m = Track.measure(tr, RACE);
     if (tr.from === 'skeleton') own++;
     assert(tr.corners.length >= 6, `corners (seed ${seed})`);
     assert(m.flips >= 4 && m.oneWay <= 0.85, `bends both ways (seed ${seed}: ${m.flips} flips, ${m.oneWay.toFixed(2)} one way)`);
-    assert(m.lap > 18 && m.lap < 34, `a lap of ${m.lap.toFixed(1)} s (seed ${seed})`);
+    assert(m.lap > 22 && m.lap < 44, `a lap of ${m.lap.toFixed(1)} s (seed ${seed})`);
     fills.advanced.push(m.fill);
     fills.regular.push(Track.measure(Track.loop(seed, RACE), RACE).fill);
   }
   assert(own >= 17, `advanced layouts, not the regular fallback (${own} of 20)`);
   const median = (v) => [...v].sort((a, b) => a - b)[v.length >> 1];
-  assert(median(fills.advanced) <= 0.82 && median(fills.advanced) < median(fills.regular) - 0.04, `folds in more than the regular style (fill ${median(fills.advanced).toFixed(2)} vs ${median(fills.regular).toFixed(2)})`);
+  assert(median(fills.advanced) <= 0.8 && median(fills.advanced) < median(fills.regular) - 0.08, `folds in more than the regular style (fill ${median(fills.advanced).toFixed(2)} vs ${median(fills.regular).toFixed(2)})`);
   assert.deepStrictEqual(Track.loop(5, { ...RACE, style: 'regular' }), Track.loop(5, RACE), 'regular is the default');
+  assert.deepStrictEqual(RaceConfig.map().TRACK, { ...RACE, style: 'regular' }, 'the regular map is the one it was');
+  assert(ADV.size > RACE.size, 'a bigger map for the advanced style');
 });
 
 test('race track: how far outside the edge, the way out, and the point further round', () => {

@@ -24,7 +24,8 @@
 //     corners); minHw: the narrowest half-width; margin: kept clear inside the map's edge; gap: kept
 //     between two stretches of track, edge to edge (the wall between them; default hw); speed, rv:
 //     the craft's top speed and turning circle there (for sizing corners and scoring); style:
-//     'regular' (the default) or 'advanced'
+//     'regular' (the default) or 'advanced'; lap: the lap a layout is scored for, [shortest,
+//     longest] s at top speed (default 20–28 s regular, 22–32 s advanced)
 //   tr: { pts: [{ x, y, hw, tx, ty, k, side }], len, ds, cps, samples, from, corners, score }   (tx, ty: the way round; k:
 //     the curvature there, 1 / the bend's radius; side: the way it bends, −1 or +1 (+1: the way the
 //     angle grows, clockwise on screen); ds: the length a point; cps: the checkpoints' indices, the
@@ -93,6 +94,7 @@ const Track = (() => {
 
   const SAFE = 2; // the tightest bend's radius, at least this many half-widths (the inside wall stays a wall)
   const TRIES = 40, KEEP = 6, CORNERS = [7, 11], ACROSS = 0.85, WIDE = 0.85; // layouts tried; good ones scored, the best kept; corners a layout; squeezed across by; and no wider than this of the room
+  const LAP = [20, 28]; // the lap a layout is scored for (s at top speed), unless asked for another
   const TURN = 2.7, PULLED = [3, 4], NEAR = [0.3, 0.5], OUT = [0.75, 1]; // the sharpest corner (radians); corners pulled in; how far out they and the rest are
   // Each kind of corner (or a wiggle in a straight): the track's width there, × hw.
   const WIDTH = { kink: 1, sweeper: 1.15, square: 1.05, hairpin: 1, 'double-apex': 1.1, decreasing: 1, carousel: 1.15, chicane: 0.9, esses: 0.95 };
@@ -153,13 +155,13 @@ const Track = (() => {
 
   function loop(seed, o) {
     const { size, hw, minHw = 0, margin = 0, gap = hw, samples: S = 720, checks = 16, rv = 2.7 * hw, style = 'regular' } = o;
-    const adv = style === 'advanced', cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, adv };
+    const adv = style === 'advanced', lap = o.lap || (adv ? ADV.LAP : LAP), cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, adv };
     let best = null;
     for (let t = 0, kept = 0; t < (adv ? ADV.TRIES : TRIES) && kept < (adv ? ADV.KEEP : KEEP); t++) {
       const V = adv ? skeleton(seed, t, env) : ring(seed, t, env), tr = V && corners(V, seed, t, env);
       if (!tr) continue;
       kept++;
-      tr.score = score(measure(tr, o), adv);
+      tr.score = score(measure(tr, o), adv, lap);
       if (!best || tr.score > best.score) best = tr;
     }
     if (adv) return best ? Object.assign(best, { from: 'skeleton' }) : loop(seed, { ...o, style: 'regular' });
@@ -200,7 +202,7 @@ const Track = (() => {
   // when it crosses itself or two stretches far apart round it come closer than the track needs
   // (sep: two half-widths and the gap, as apart() will want), before its corners are worked out.
   const ADV = {
-    TRIES: 160, KEEP: 12, INSERTS: 3, OPS: [3, 5], FINGERS: 2,
+    TRIES: 160, KEEP: 12, INSERTS: 3, OPS: [4, 6], FINGERS: 3, LAP: [22, 32],
     SHAPES: [['long', 0.3], ['block', 0.3], ['wedge', 0.2], ['L', 0.2]],
     EDITS: [['finger', 0.35], ['bay', 0.2], ['plateau', 0.15], ['tech', 0.15], ['kinks', 0.15]],
     KINDS: [ // as KINDS, leaning to the slower, trickier corners
@@ -230,7 +232,7 @@ const Track = (() => {
       let edit = pick(r, ADV.EDITS);
       if ((edit === 'finger' && fingers >= ADV.FINGERS) || (edit === 'tech' && tech >= 1)) edit = 'kinks';
       // An edge to rework, the longer the likelier, long enough for the edit.
-      const need = { finger: 1.5 * sep + 0.3, bay: 0.5, plateau: 0.45, tech: 0.75, kinks: 0.35 }[edit];
+      const need = { finger: 1.5 * sep + 0.3, bay: 0.5, plateau: 0.45, tech: 3.2 * sep + 0.3, kinks: 0.35 }[edit];
       const ls = V.map((v, i) => { const q = V[(i + 1) % V.length], l = Math.hypot(q.x - v.x, q.y - v.y); return l >= need ? l * l : 0; });
       if (!ls.some((l) => l)) continue;
       let x = r() * ls.reduce((s, l) => s + l, 0), i = 0;
@@ -243,14 +245,14 @@ const Track = (() => {
         const dir = edit === 'bay' ? -1 : edit === 'finger' ? (r() < 0.6 ? 1 : -1) : r() < 0.5 ? 1 : -1;
         const wd = edit === 'finger' ? sep * span(1.2, 1.45) : Math.min(L - 0.2, span(0.25, 0.45));
         const s1 = span(0.12, L - wd - 0.12), s2 = s1 + wd, slant = edit === 'finger' ? (r() - 0.5) * 0.06 : wd * span(0.1, 0.3);
-        let depth = edit === 'finger' ? span(0.2, 0.42) : edit === 'bay' ? span(0.12, 0.25) : span(0.05, 0.1);
+        let depth = edit === 'finger' ? span(0.2, 0.5) : edit === 'bay' ? span(0.12, 0.25) : span(0.05, 0.1);
         add = () => [at(s1, 0), at(s1 + slant, dir * depth), at(s2 - (edit === 'finger' ? -slant : slant), dir * depth), at(s2, 0)];
         while (dir > 0 && !add().every(inBox) && depth > 0.1) depth *= 0.85;
         if (dir > 0 && !add().every(inBox)) continue;
         if (edit === 'finger') { fingers++; const f = add; add = () => f().map((p, m) => (m === 1 || m === 2 ? { ...p, tight: true } : p)); }
       } else if (edit === 'tech') {
         // A square wave across the edge: up a, along b, across 2a, along b, back: six square corners.
-        const a = span(0.08, 0.12), b = span(0.15, 0.22), s0 = span(0.12, L - 2 * b - 0.12), sd = r() < 0.5 ? -1 : 1;
+        const a = sep * span(0.6, 0.85), b = sep * span(1.1, 1.6), s0 = span(0.12, L - 2 * b - 0.12), sd = r() < 0.5 ? -1 : 1;
         add = () => [[s0, 0], [s0, a], [s0 + b, a], [s0 + b, -a], [s0 + 2 * b, -a], [s0 + 2 * b, 0]].map(([u, o]) => ({ ...at(u, sd * o), tight: true }));
         if (!add().every(inBox)) continue;
         tech++;
@@ -426,12 +428,12 @@ const Track = (() => {
   // How good a layout is (more is better): bends both ways, one to three that need a lift, many
   // kinds of corner, a lap of 20–28 s, a long straight that runs up or down the screen (sideways,
   // less of the way ahead is in view). Advanced layouts (adv) also for folding in on themselves
-  // (fill), more changes of hand, slow corners beside fast ones (rvar), and may run to 32 s.
-  function score(m, adv = false) {
+  // (fill), more changes of hand, and slow corners beside fast ones (rvar). lap: [shortest, longest].
+  function score(m, adv = false, lap = LAP) {
     let s = -10 * Math.max(0, m.oneWay - 0.65) + 0.3 * Math.min(m.flips, adv ? 14 : 10) + 0.3 * Math.min(Object.keys(m.types).length, 6);
     s += m.underRv >= 1 && m.underRv <= 3 ? 1.5 : m.underRv > 3 ? 0.5 : 0;
     if (adv) s += 3 * clamp((0.88 - m.fill) / 0.25, 0, 1) + (m.rvar >= 4 ? 0.5 : 0);
-    if (m.lap) s -= 0.5 * Math.max(0, (adv ? 22 : 20) - m.lap, m.lap - (adv ? 32 : 28));
+    if (m.lap) s -= 0.5 * Math.max(0, lap[0] - m.lap, m.lap - lap[1]);
     if (m.straightS) s += (m.straightS >= 2 ? 0.5 : 0) - (m.straightS * Math.sin((m.straightDeg * Math.PI) / 180) > 1.5 ? 0.5 : 0);
     return s;
   }

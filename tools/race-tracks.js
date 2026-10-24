@@ -2,7 +2,7 @@
 // much of it bends and which way, its tightest bend against the ship's turning circle at top speed,
 // its longest straight, its width, and the wall left between two stretches. For checking what a
 // change to the generator does (notes/race-research.md has the targets).
-//   node tools/race-tracks.js [from] [to] [--hw=tiles] [--gap=tiles] [--style=advanced]   (npm run tracks -- …); seeds 1–30
+//   node tools/race-tracks.js [from] [to] [--hw=tiles] [--gap=tiles] [--style=advanced] [--size=tiles]   (npm run tracks -- …); seeds 1–30
 //
 // Columns: lap (world units, s at top speed); bend: share of the lap bending; one-way: the share of
 // the bending that goes the commoner way; flips: left/right changes; tight: the tightest radius (and
@@ -18,7 +18,7 @@ import { Track } from '../src/race/track.js';
 const args = process.argv.slice(2), flag = (k) => { const a = args.find((s) => s.startsWith(`--${k}=`)); return a ? +a.split('=')[1] * Config.T : undefined; };
 const [from = 1, to = 30] = args.filter((s) => !s.startsWith('--')).map(Number);
 const style = (args.find((s) => s.startsWith('--style=')) || '=regular').split('=')[1];
-const opts = { ...Config.TRACK, style, ...(flag('hw') && { hw: flag('hw') }), ...(flag('gap') && { gap: flag('gap') }) };
+const opts = { ...Config.map(style).TRACK, ...(flag('size') && { size: flag('size') }), ...(flag('hw') && { hw: flag('hw') }), ...(flag('gap') && { gap: flag('gap') }) };
 const V = opts.speed, RV = opts.rv, FAR = Config.RUNOFF + Config.CARVE.open;
 
 function measure(seed) {

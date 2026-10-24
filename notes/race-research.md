@@ -167,15 +167,27 @@ Austin, Abu Dhabi, Singapore) are irregular in ways a ring can't be:
 shrunk to leave room for fingers out), rejects it if it crosses itself or two far-apart edges come
 closer than two half-widths plus `gap`, then builds corners, wiggles, widths and checks exactly as
 the regular style. Scoring adds a bonus for a low fill, more flips and slow corners beside fast ones,
-and allows laps to 32 s. About one skeleton in six survives; 160 tries, the best of 12 kept, and the
-regular style as the fallback (none needed over seeds 1–30). Regular layouts are unchanged bit for bit.
-Measured over seeds 1–30: fill 0.62 / 0.77 / 0.89 (regular 0.80 / 0.87 / 0.91), flips median 8 (6),
-lap 23.5 / 26.2 / 31.5 s. `npm run tracks -- 1 30 --style=advanced` and `npm run tracks:sheet -- 1 24
---style=advanced > sheet.svg` show them. The page takes `?track=advanced` and a Regular / Advanced toggle.
+and is scored for the lap `Config.map('advanced')` asks (26–38 s). About one skeleton in six
+survives; 160 tries, the best of 12 kept, and the regular style as the fallback (none needed over
+seeds 1–30). Regular layouts are unchanged bit for bit. The page takes `?track=advanced` and a
+Regular / Advanced toggle. `npm run tracks -- 1 30 --style=advanced [--size=tiles]` and
+`npm run tracks:sheet -- 1 24 --style=advanced > sheet.svg` show them.
 
-Limits: the map (76 tiles) is small against the track's width plus run-offs and wall, so a finger
-is at least about 0.15 of the map wide and the shapes stay chunky; a bigger map for the advanced
-style would allow thinner, longer fingers and more of them, at a lap-length and memory cost.
+**A bigger map for the advanced style.** At the regular 76 tiles a finger has to be about 0.15 of
+the map wide (two half-widths, both run-offs and a wall), so shapes stayed chunky. Fingers and the
+technical sector are sized against the track, the rest against the map, so a bigger map makes them
+relatively thinner. Measured over seeds 1–30 (fill: area inside over its convex hull's; lap at top speed):
+
+| Map (tiles) | Fill min / median / max | Lap min / median / max | Flips median |
+|---|---|---|---|
+| 76 (regular style) | 0.80 / 0.87 / 0.91 | 18.6 / 22.3 / 24.4 s | 6 |
+| 76 | 0.62 / 0.77 / 0.89 | 23.5 / 26.2 / 31.5 s | 8 |
+| **90 (chosen)** | 0.58 / 0.71 / 0.82 | 25.7 / 34.1 / 40.1 s | 8 |
+| 100 | 0.62 / 0.74 / 0.94 | 29.5 / 37.4 / 41.3 s | 12 |
+
+90 folds in most for the shortest lap; 100 adds lap time without folding more. The cost is 1.4× the
+ground chunks (90² against 76²): building the track took about 6.2 s against 4.5 s in headless
+Chromium on a desktop, and memory grows alike. A three-lap race is about 1¾ minutes.
 
 ---
 

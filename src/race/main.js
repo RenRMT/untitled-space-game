@@ -25,7 +25,7 @@ import { Input } from './input.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
 
-const q = new URLSearchParams(location.search), { T, N, SIZE, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
+const q = new URLSearchParams(location.search), { T, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
 if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 const BIOMES = {
@@ -60,7 +60,7 @@ const STYLES = { regular: 'Regular', advanced: 'Advanced' };
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: q.get('track') === 'advanced' ? 'advanced' : 'regular' };
 Input.mode = q.get('steer') === 'sides' ? 'sides' : 'point';
 Input.stopOnRelease = MODE === 'direct';
-let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), hw, talls, holes, looks: { style: { far, tiles } }, mini }
+let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), size (the map's side), whole (all of it, as a rect), hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
@@ -70,14 +70,14 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // ---------- The track and the run ----------
 
 function build() {
-  const b = BIOMES[S.biome], tr = Track.loop(S.seed, { ...Config.TRACK, style: S.track });
+  const b = BIOMES[S.biome], { N, SIZE, TRACK } = Config.map(S.track), tr = Track.loop(S.seed, TRACK);
   const W = ArtSurface.generate(b.type, S.seed, { w: N, h: N, tall: 0.06 });
   Track.carve(W, tr, S.seed, { ...Config.CARVE, outside: q.get('outside') || Config.CARVE.outside, kinds: Config.KINDS[S.biome] });
   const on = ArtSurface.propsAll(W).filter((p) => Track.edgeDist(tr, p.x, p.y).d < p.r);
   const mini = new Path2D();
   tr.pts.forEach((p, n) => (n ? mini.lineTo(p.x, p.y) : mini.moveTo(p.x, p.y)));
   mini.closePath();
-  G = { W, tr, b, seed: S.seed, track: STYLES[S.track], hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
+  G = { W, tr, b, seed: S.seed, track: STYLES[S.track], size: SIZE, whole: { x0: 0, x1: SIZE, y0: 0, y1: SIZE, cx: SIZE / 2, cy: SIZE / 2 }, hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
   G.lines = Draw.lines(G);
   restart();
 }
@@ -115,9 +115,8 @@ function detailRect(v) {
 // ms each and a phone drops frames on them. The start first, then along the track, then the rest;
 // BAKE.slice ms at a time, with a paint between for the progress. Each chunk is drawn once when
 // done, so its first frame on screen doesn't pay for the upload to the GPU.
-const WHOLE = { x0: 0, x1: SIZE, y0: 0, y1: SIZE, cx: SIZE / 2, cy: SIZE / 2 };
 async function bake() {
-  const { tiles } = looks(), tr = G.tr, total = () => { const l = tiles.layers(WHOLE, 0); return [l.length, l.length + l.missing]; };
+  const { tiles } = looks(), { tr, whole: WHOLE } = G, total = () => { const l = tiles.layers(WHOLE, 0); return [l.length, l.length + l.missing]; };
   const rects = [];
   for (let d = 0; d < tr.len; d += BAKE.step) { const p = tr.pts[Track.ahead(tr, 0, d)]; rects.push(rectAt(p.x, p.y)); }
   rects.push(WHOLE);
@@ -137,7 +136,7 @@ async function bake() {
 // until it's collected).
 function free(look) {
   if (!look) return;
-  for (const L of look.tiles.layers(WHOLE, 0)) L.canvas.width = L.canvas.height = 0;
+  for (const L of look.tiles.layers(G.whole, 0)) L.canvas.width = L.canvas.height = 0;
   look.tiles.clear();
 }
 
@@ -183,7 +182,7 @@ function render(time, a) {
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
-  Draw.minimap(ctx, Wc, G, R, SIZE, ghost);
+  Draw.minimap(ctx, Wc, G, R, G.size, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held); else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
   // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
