@@ -55,9 +55,10 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 const DPRS = coarse ? [1.25, 1] : [2, 1.5, 1.25];
 let dprAt = 0;
 const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the track from the start; ms of work between paints
-// track: the layout's style (Track.loop): 'regular', or 'advanced' (irregular, like real circuits)
-const STYLES = { regular: 'Regular', advanced: 'Advanced' };
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: q.get('track') === 'advanced' ? 'advanced' : 'regular' };
+// track: the layout's style (Track.loop): 'regular', 'advanced' (irregular, like real circuits) or
+// 'expert' (folded in on itself, sharp corners, few long straights)
+const STYLES = { regular: 'Regular', advanced: 'Advanced', expert: 'Expert' };
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: STYLES[q.get('track')] ? q.get('track') : 'regular' };
 Input.mode = q.get('steer') === 'sides' ? 'sides' : 'point';
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), size (the map's side), whole (all of it, as a rect), hw, talls, holes, looks: { style: { far, tiles } }, mini }

@@ -1,6 +1,6 @@
 // A contact sheet of the race's generated tracks (src/race/track.js): each seed's centreline drawn
 // at its width in a grid, as SVG, for looking a style's shapes over at a glance.
-//   node tools/race-tracks-sheet.js [from] [to] [--style=advanced] [--size=tiles] > sheet.svg   (npm run tracks:sheet -- …); seeds 1–24
+//   node tools/race-tracks-sheet.js [from] [to] [--style=advanced|expert] [--size=tiles] > sheet.svg   (npm run tracks:sheet -- …); seeds 1–24
 
 import { Config } from '../src/race/config.js';
 import { Track } from '../src/race/track.js';
