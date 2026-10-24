@@ -48,6 +48,9 @@ import { Missions } from '../src/story/missions.js';
 import { Glyphs } from '../src/ui/glyphs.js';
 import { Status } from '../src/rules/status.js';
 import { ScreenFx } from '../src/rules/screen-fx.js';
+import { Track } from '../src/race/track.js';
+import { Contact } from '../src/race/contact.js';
+import { Ghost } from '../src/race/ghost.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -3176,6 +3179,94 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
   }
   assert(gaps > 30 && gaps < 250, `gaps ${gaps}`);
   assert.strictEqual(ScreenFx.sputter(0, 0.05, 1), 0, 'no thrust, no flame');
+});
+
+// The race (src/race/, notes/race.md): the track's loop, sliding along walls, the ghost.
+const RACE = { size: 76 * 64, hw: 1.9 * 64, minHw: 82, margin: 5 * 64 };
+test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    const tr = Track.loop(seed, RACE), S = tr.samples;
+    assert.strictEqual(tr.pts.length, S);
+    assert.deepStrictEqual(tr, Track.loop(seed, RACE), 'the same seed, the same track');
+    let len = 0;
+    tr.pts.forEach((p, n) => {
+      const q = tr.pts[(n + 1) % S];
+      len += Math.hypot(q.x - p.x, q.y - p.y);
+      assert(Math.hypot(q.x - p.x, q.y - p.y) < 4 * tr.ds, `no jumps (seed ${seed}, point ${n})`);
+      assert(p.x - p.hw > RACE.margin * 0.5 && p.y - p.hw > RACE.margin * 0.5 && p.x + p.hw < RACE.size - RACE.margin * 0.5 && p.y + p.hw < RACE.size - RACE.margin * 0.5, `inside the map (seed ${seed})`);
+      assert(p.hw >= RACE.minHw, `wide enough (seed ${seed})`);
+      assert(Math.abs(Math.hypot(p.tx, p.ty) - 1) < 1e-9);
+    });
+    assert(Math.abs(len - tr.len) < 1e-6 * len);
+    assert(Track.minRadius(tr).r >= 2, `the tightest bend is wider than the track (seed ${seed}: ${Track.minRadius(tr).r.toFixed(2)})`);
+    assert.strictEqual(tr.cps[0], 0, 'the first checkpoint is the start line');
+    for (let k = 1; k < tr.cps.length; k++) assert(tr.cps[k] > tr.cps[k - 1]);
+  }
+  // A wobbly loop squeezed until its bends fold over itself is smoothed out.
+  const tight = Track.loop(3, { ...RACE, hw: 250, minHw: 250, margin: 0 });
+  assert(Track.minRadius(tight).r >= 2, `smoothed: ${Track.minRadius(tight).r.toFixed(2)}`);
+});
+
+test('race track: how far outside the edge, the way out, and the point further round', () => {
+  const tr = Track.loop(1, RACE), p = tr.pts[100], nx = -p.ty, ny = p.tx;
+  let e = Track.edgeDist(tr, p.x, p.y);
+  assert(Math.abs(e.d + p.hw) < 1, 'on the centreline: a half-width inside the edge');
+  assert(Math.abs(e.n - 100) <= 1);
+  e = Track.edgeDist(tr, p.x + nx * (p.hw + 50), p.y + ny * (p.hw + 50), 100, 40);
+  assert(Math.abs(e.d - 50) < 2, `50 outside: ${e.d}`);
+  assert(e.nx * nx + e.ny * ny > 0.99, 'the way out points away from the centreline');
+  assert.deepStrictEqual(Track.edgeDist(tr, p.x + 3, p.y - 2, 100, 40).n, Track.edgeDist(tr, p.x + 3, p.y - 2).n, 'a guess finds the same point');
+  assert.strictEqual(Track.ahead(tr, 100, tr.ds * 10), 110);
+  assert.strictEqual(Track.ahead(tr, 5, -tr.ds * 10), tr.samples - 5, 'back past the start wraps round');
+});
+
+test('race contact: a wall you slide along, not stick to; rocks are circles', () => {
+  // A wall along the line x + y = 0, the track on the side where x + y > 0.
+  const s = Math.SQRT1_2, r = 14, tune = { restitution: 0.2, friction: 0.04, reach: 160 };
+  const world = { rocks: () => [], blocked: (x, y, rr) => (x + y) * s < rr, normal: () => [s, s] };
+  // A graze: flying along it, a little into it.
+  const body = { x: 0, y: 0, vx: 400 * s + 40 * -s, vy: -400 * s + 40 * -s }, from = { x: 20, y: 20 };
+  const hit = Contact.step(body, r, world, tune, from);
+  assert(Math.abs(hit - 40) < 1e-6, `the hit is its speed into the wall: ${hit}`);
+  const along = body.vx * s - body.vy * s, into = body.vx * s + body.vy * s;
+  assert(along > 400 * 0.95, `keeps its speed along the wall: ${along}`);
+  assert(into > 0 && into < 40 * 0.5, 'bounces off it, softly');
+  const d = (body.x + body.y) * s;
+  assert(d >= r && d < r + 1, `rests against the wall: ${d}`);
+  // The game's own bounce, untouched: more lost along the wall.
+  const game = { vx: 400 * s + 40 * -s, vy: -400 * s + 40 * -s };
+  Collide.bounce(game, s, s);
+  assert(game.vx * s - game.vy * s < along);
+  // Head on: what's left is what bounced back.
+  const head = { x: 0, y: 0, vx: -300 * s, vy: -300 * s };
+  assert(Math.abs(Contact.step(head, r, world, tune, from) - 300) < 1e-6);
+  assert(Math.abs(head.vx * s + head.vy * s - 300 * tune.restitution) < 1e-6);
+  // Nowhere to go within reach: back where it was.
+  const stuck = { x: -500, y: -500, vx: 10, vy: 0 };
+  Contact.step(stuck, r, world, tune, from);
+  assert.deepStrictEqual([stuck.x, stuck.y], [20, 20]);
+  // A rock: pushed out to its edge.
+  const rock = { x: 100, y: 100, r: 30 }, b2 = { x: 120, y: 100, vx: -200, vy: 0 };
+  Contact.step(b2, r, { ...world, rocks: () => [rock] }, tune, from);
+  assert(Math.abs(b2.x - (100 + 30 + r)) < 1e-9 && b2.vx > 0);
+});
+
+test('race ghost: a lap recorded at its rate and flown back between its samples', () => {
+  const rec = Ghost.recorder(), STEP = 1 / 120;
+  for (let t = 0; t < 2; t += STEP) rec.add(t, { x: t * 100, y: 50, angle: 3.1 + t * 0.1 });
+  const g = rec.lap(2);
+  assert.strictEqual(g.time, 2);
+  assert(Math.abs(g.s.length / 3 - 2 * Ghost.RATE) <= 1, `${g.s.length / 3} samples`);
+  const p = Ghost.at(g, 1.01);
+  assert(Math.abs(p.x - 101) < 1.5 && p.y === 50, `between samples: ${p.x}`);
+  assert.strictEqual(Ghost.at(g, 5), null, 'past its end');
+  assert.strictEqual(Ghost.at(null, 1), null);
+  // Turning past π goes the short way round.
+  const rec2 = Ghost.recorder();
+  rec2.add(0, { x: 0, y: 0, angle: 3.1 }); rec2.add(1 / 30, { x: 0, y: 0, angle: -3.1 }); rec2.add(2 / 30, { x: 0, y: 0, angle: -3.1 });
+  const mid = Ghost.at(rec2.lap(0.1), 0.5 / 30);
+  assert(Math.abs(Math.cos(mid.angle) + 1) < 0.01, `the short way: ${mid.angle}`);
+  assert.strictEqual(rec.lap(1).s.length, 0, 'a lap starts afresh');
 });
 
 if (failed) {
