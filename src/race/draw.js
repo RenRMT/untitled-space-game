@@ -4,8 +4,12 @@
 //
 //   Draw.marks(ctx, v, px, time, G, R, ground)    ground(v, x, y, z) -> [X, Y] | null
 //   Draw.lines(G) -> { edges, kerbs }   the edges and kerbs on the ground, worked out once a track (G.lines)
-//   Draw.ship(ctx, v, ship, body, { style, time, alpha, shadow, ground })   ship: { art, k (scale), r, z }
-//     (ground: needed for the shadow)
+//   Draw.ship(ctx, v, ship, body, { style, time, alpha, shadow, ground, bank })   ship: { art, k (scale), r, z }
+//     (ground: needed for the shadow); bank: the roll into a turn, a squash across the ship (0 .. 1)
+//   Draw.trail(ctx, v, trails, now, life, width)   the engines' trails: per engine, points { x, y, z, t, a, c }
+//     oldest first (t: when, s; a: strength 0 .. 1; c: colour, TRAIL_RGB), gone after life s
+//   Draw.streaks(ctx, Wc, Hc, cx, cy, a, time)   a boost's speed streaks in from the screen's edges toward
+//     (cx, cy) (CSS px); a: their strength (0 .. 1)
 //   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
 //   Draw.pad(ctx, pad, home, radius, inner, dash, DASH, drift, DRIFT)   the stick (Input.pad, Input.home()),
@@ -97,23 +101,79 @@ const Draw = (() => {
     for (const [g, t] of [[a, a2], [b, b2]]) if (g && t) { ctx.beginPath(); ctx.moveTo(g[0], g[1]); ctx.lineTo(t[0], t[1]); ctx.stroke(); }
   }
 
-  // The ship at flight height, its shadow below and to the side (as game/landing.js draws it).
+  // The ship at flight height, its shadow below and to the side: the ship's own outline (drawn into
+  // a canvas and filled black), cast SHADOW.near of as far as the light would (game/landing.js) so it
+  // stays close under the ship; a hop still throws it further off.
+  const SHADOW = { near: 0.45, a: 0.3 };
+  let shadowCanvas = null;
   function ship(ctx, v, s, b, o) {
-    const [shx, shy] = ArtSurface.shadowShift(s.z);
+    // The bank: a squash across the ship's heading as the screen shows it.
+    const sa = Math.atan2(Math.sin(b.angle) * v.ct, Math.cos(b.angle)), sq = 1 - Math.abs(o.bank || 0);
+    const lean = (c) => { if (sq < 1) { c.rotate(sa); c.scale(1, sq); c.rotate(-sa); } };
     ctx.save();
     ctx.globalAlpha = o.alpha ?? 1;
     if (o.shadow) {
-      const sh = o.ground(v, b.x + shx, b.y + shy);
-      if (sh) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(sh[0], sh[1], s.r * 1.3, s.r * 1.3 * v.ct, 0, 0, TAU); ctx.fill(); }
+      const [shx, shy] = ArtSurface.shadowShift(s.z), sh = o.ground(v, b.x + shx * SHADOW.near, b.y + shy * SHADOW.near);
+      if (sh) shadow(ctx, sh, s, b, o, lean);
     }
     const p = SurfaceGlobe.toScreen(v, b.x, b.y, s.z) || [v.ox + b.x - v.fx, v.oy + (b.y - v.fy) * v.ct - s.z * v.st];
-    ctx.translate(p[0], p[1]); ctx.scale(s.k, s.k);
+    ctx.translate(p[0], p[1]); lean(ctx); ctx.scale(s.k, s.k);
     Art.drawAsset(ctx, s.art, o.style, { angle: b.angle, t: o.time, thrust: b.thrust || 0 });
     ctx.restore();
+  }
+  // The ship drawn as it's drawn on screen (the same sprite, without its flames) into a canvas of
+  // device pixels, filled black there, and laid on the ground at `at`.
+  function shadow(ctx, at, s, b, o, lean) {
+    const m = ctx.getTransform(), ppu = Math.hypot(m.a, m.b), half = Math.ceil(s.art.radius * s.k * ppu * 1.4), n = half * 2;
+    const c = (shadowCanvas ||= document.createElement('canvas')), g = c.getContext('2d');
+    if (c.width < n || c.height < n) c.width = c.height = Math.max(n, c.width);
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-over'; g.clearRect(0, 0, n, n);
+    g.setTransform(ppu, 0, 0, ppu, half, half); lean(g); g.scale(s.k, s.k);
+    Art.drawAsset(g, s.art, o.style, { angle: b.angle, t: o.time, thrust: 0 });
+    g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = '#000'; g.fillRect(0, 0, n, n);
+    ctx.globalAlpha = (o.alpha ?? 1) * SHADOW.a;
+    ctx.drawImage(c, 0, 0, n, n, at[0] - half / ppu, at[1] - half / ppu, n / ppu, n / ppu);
+    ctx.globalAlpha = o.alpha ?? 1;
   }
 
   // The drift's colours by level: none yet, then blue, then orange.
   const DRIFT_RGB = ['207,216,255', '125,249,255', '255,176,58'];
+
+  // The engines' trails' colours (a point's c): flying, the drift's two levels, a boost.
+  const TRAIL_RGB = ['190,220,255', DRIFT_RGB[1], DRIFT_RGB[2], '255,236,200'];
+
+  // The engines' trails: a ribbon along where each engine was, narrowing and fading with age.
+  function trail(ctx, v, trails, now, life, w) {
+    ctx.save(); ctx.lineCap = 'round';
+    for (const pts of trails) {
+      let q = null;
+      for (const p of pts) {
+        const s = SurfaceGlobe.toScreen(v, p.x, p.y, p.z), f = 1 - (now - p.t) / life;
+        if (q && s && f > 0 && p.a > 0) {
+          ctx.globalAlpha = 0.55 * p.a * f; ctx.lineWidth = w * (0.25 + 0.75 * f); ctx.strokeStyle = `rgb(${TRAIL_RGB[p.c]})`;
+          ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(s[0], s[1]); ctx.stroke();
+        }
+        q = s;
+      }
+    }
+    ctx.restore();
+  }
+
+  // A boost's speed streaks: short lines running in from the screen's edges toward (cx, cy), a fresh
+  // scatter 30 times a second.
+  function streaks(ctx, Wc, Hc, cx, cy, a, time) {
+    if (a <= 0.01) return;
+    const R0 = Math.hypot(Wc, Hc) / 2, seed = Math.floor(time * 30);
+    const h = (i, k) => { const x = Math.sin((i * 7 + k) * 12.9898 + seed * 78.233) * 43758.5453; return x - Math.floor(x); };
+    ctx.save(); ctx.strokeStyle = '#ffffff'; ctx.lineCap = 'round';
+    for (let i = 0; i < 28; i++) {
+      const ang = h(i, 1) * TAU, r1 = R0 * (0.6 + 0.5 * h(i, 2)), r0 = Math.max(R0 * 0.32, r1 - R0 * (0.15 + 0.25 * h(i, 3)) * a);
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      ctx.globalAlpha = 0.4 * a * (0.4 + 0.6 * h(i, 4)); ctx.lineWidth = 1 + 2 * h(i, 5);
+      ctx.beginPath(); ctx.moveTo(cx + c * r1, cy + sn * r1); ctx.lineTo(cx + c * r0, cy + sn * r0); ctx.stroke();
+    }
+    ctx.restore();
+  }
 
   // Sparks off the tail while a slide has charged a level, in the level's colour.
   function sparks(ctx, v, px, b, z, F, time, ground) {
@@ -246,7 +306,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { lines, marks, ship, sparks, dust, minimap, drag, pad, sides, hud, note };
+  return { lines, marks, ship, trail, streaks, sparks, dust, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };

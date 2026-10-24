@@ -53,6 +53,14 @@ const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3, track: 0.6, wide: 0.
 const SHIP_SCALE = 1.375, { SURFACE_SCALE } = Config;
 const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 const BODY = { art: ART, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / ART.radius, r: R_SHIP, z: ArtSurface.FLY };
+// What sells the speed (drawn only, like the dust): the engines' trails (`trail` s of where they were,
+// `trailW` wide at the engine, strong from `trailFrom` of top speed up); a boost's punch, the camera
+// out by `punch` and streaks in from the edges, over `kick` s; the ship's bank into a turn (`bank` ×
+// its turn rate, rad/s, at most `maxBank`); and a shake (`shake`: px at most, by what set it off),
+// settling at `settle` a second. A screen asked to keep still (reduced motion) gets no punch or shake.
+const FX = { trail: 0.35, trailW: 3, trailFrom: 0.3, punch: 0.1, kick: 0.45, bank: 0.08, maxBank: 0.3, shake: { side: 3, land: 2.5, hit: 7 }, settle: 14 };
+const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+let fx = null; // { trails: per engine [{ x, y, z, t, a, c }], kick: s of the punch left, bank, shake: px, sx, sy: px now, flash: R.flash a frame before }
 
 const coarse = matchMedia('(pointer: coarse)').matches;
 // The canvas's pixel ratio at most: below a phone's own (most mobile games draw under native
@@ -96,6 +104,7 @@ function restart() {
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
   dust = Dust.create(); dustCols = Dust.colours(G.b.type, Config.KINDS[S.biome]);
+  fx = { trails: ART.engines.map(() => []), kick: 0, bank: 0, shake: 0, sx: 0, sy: 0, flash: 0 };
 }
 
 // ---------- The view ----------
@@ -105,13 +114,18 @@ const cam = { lx: 0, ly: 0, zf: 1 };
 function viewNow(Wc, Hc, C, a) {
   const P = R.pcam, Q = R.cam;
   cam.lx = P.lx + (Q.lx - P.lx) * a; cam.ly = P.ly + (Q.ly - P.ly) * a; cam.zf = P.zf + (Q.zf - P.zf) * a;
-  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf, tilt = ArtSurface.tiltOf(S.style);
+  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf * (1 - FX.punch * punch()), tilt = ArtSurface.tiltOf(S.style);
   // The lead, held so the ship stays in sight (View): on a portrait screen steered by the pad, above
   // the stick's band; else within CAM.reach of the screen's shorter side.
   const band = Input.mode === 'pad' && Hc > Wc ? 1 - Input.home().y0 / Hc : 0;
   const f = View.frame({ W: Wc, H: Hc, lx: cam.lx, ly: cam.ly, zoom, ct: Math.cos(tilt), band, reach: CAM.reach });
-  const v = SurfaceGlobe.view({ R: 1e9, flat: 0, fx: C.x + f.lx, fy: C.y + f.ly, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: f.oy / zoom, tilt });
+  const ct = Math.cos(tilt), v = SurfaceGlobe.view({ R: 1e9, flat: 0, fx: C.x + f.lx + fx.sx / zoom, fy: C.y + f.ly + fx.sy / (zoom * ct), W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: f.oy / zoom, tilt });
   return { v, zoom };
+}
+// The boost's punch now (0 .. 1): straight up, then easing back over the rest of FX.kick.
+function punch() {
+  const p = fx.kick / FX.kick;
+  return calm ? 0 : Math.min(1, (1 - p) / 0.15) * p;
 }
 // The ground to build detailed chunks over round (x, y) (game/landing.js detailRect), and the same
 // held to what the view can show.
@@ -192,10 +206,14 @@ function render(time, a) {
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
   // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
   const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
+  trailAt(C, body, time);
+  Draw.trail(ctx, v, fx.trails, time, FX.trail, FX.trailW);
   Draw.sparks(ctx, v, px, C, body.z, R.drift, time, ground);
-  Draw.ship(ctx, v, body, C, { style: S.style, time, shadow: true, ground });
+  Draw.ship(ctx, v, body, C, { style: S.style, time, shadow: true, ground, bank: fx.bank });
+  const at = SurfaceGlobe.toScreen(v, C.x, C.y, body.z);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (at) Draw.streaks(ctx, Wc, Hc, at[0] * zoom, at[1] * zoom, punch(), time);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, G.size, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
@@ -215,6 +233,33 @@ function render(time, a) {
   note.classList.toggle('big', big);
 }
 
+// The engines where the ship is drawn now, added to their trails: strong with speed, coloured by a
+// boost or the drift's level; the old let go.
+function trailAt(C, body, time) {
+  const c = Math.cos(C.angle), s = Math.sin(C.angle), sp = Math.hypot(R.craft.vx, R.craft.vy) / cfg.stats.maxSpeed;
+  const a = clamp((sp - FX.trailFrom) / (1 - FX.trailFrom), 0, 1);
+  const boost = (R.dash.t > 0 && R.dash.kind === 'boost') || R.drift.boost > 0, col = boost ? 3 : R.drift.on ? R.drift.level : 0;
+  ART.engines.forEach((e, i) => {
+    const pts = fx.trails[i], x = e.x * body.k, y = e.y * body.k;
+    while (pts.length && (time - pts[0].t > FX.trail || pts[0].t > time)) pts.shift();
+    pts.push({ x: C.x + x * c - y * s, y: C.y + x * s + y * c, z: body.z, t: time, a, c: col });
+  });
+}
+// What the run's events look like: a boost's punch, a shake; and the bank, the shake's offset now.
+function juice(dt, time) {
+  for (const k of R.fx) {
+    if (k === 'boost' || k === 'driftBoost') fx.kick = FX.kick;
+    if (FX.shake[k]) fx.shake = Math.max(fx.shake, FX.shake[k]);
+  }
+  if (R.flash > fx.flash + 0.01) fx.shake = Math.max(fx.shake, (FX.shake.hit * R.flash) / 0.4); // a hit (Run's flash, up to 0.4)
+  fx.flash = R.flash;
+  fx.kick = Math.max(0, fx.kick - dt);
+  fx.shake = calm ? 0 : fx.shake * Math.exp(-FX.settle * dt);
+  fx.sx = fx.shake * Math.sin(time * 53); fx.sy = fx.shake * Math.sin(time * 61 + 1);
+  const C = R.craft, w = (((C.angle - R.prev.angle + Math.PI) % TAU + TAU) % TAU - Math.PI) / Run.STEP;
+  fx.bank += (clamp(w * FX.bank, -FX.maxBank, FX.maxBank) - fx.bank) * (1 - Math.exp(-10 * dt));
+}
+
 // A fixed step: the run steps as many times as the frame's time holds (at most a tenth of a second
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
@@ -230,6 +275,7 @@ function frame(t) {
   while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); acc -= Run.STEP; }
   if (dustCols) Dust.step(dust, R.craft, { off: R.air ? 0 : R.off, slide: R.grip.sliding && !R.air, speed: cfg.stats.maxSpeed }, dustCols, Math.min(0.1, dtFrame));
   for (const k of R.fx) Feedback.vibrate(BUZZ[k]);
+  juice(Math.min(0.1, dtFrame), t / 1000);
   R.fx.length = 0;
   render(t / 1000, acc / Run.STEP);
   requestAnimationFrame(frame);
