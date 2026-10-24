@@ -121,9 +121,11 @@ that:
    the track; auto-accelerate with left and right halves to steer (`?steer=sides`), and the steering assist; the camera leading along the track, zooming by its bends;
    the centreline smoothed with a minimum width; your best lap's ghost (saved per biome and seed).
    Tests for the track and for sliding along a wall in `tests/run.js`.
-2. **Tracks and feel:** the three zones and a calm outside; nothing on the track; corners from a
-   vocabulary, scored; a racing line and medal times; the camera zooming out with speed; a touch
-   brake or airbrake, and corners that need it. A metrics tool for tracks (`tools/`).
+2. **Tracks and feel:** done: the three zones (`Track.carve`: ground kinds per biome in
+   `src/race/config.js`, the run-off's slowing in `Run.step`, edge lines and kerbs in `Draw.lines`);
+   high ground beyond the walls; nothing on the track; `npm run tracks` (`tools/race-tracks.js`)
+   measures a run of seeds. Still to do: corners from a vocabulary, scored; a racing line and medal
+   times; the camera zooming out with speed; a touch brake or airbrake, and corners that need it.
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
 4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.

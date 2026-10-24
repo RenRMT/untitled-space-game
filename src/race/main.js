@@ -18,18 +18,15 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtCulture } from '../art/culture.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
-import { Loadout } from '../rules/loadout.js';
+import { Config } from './config.js';
 import { Draw } from './draw.js';
 import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
 
-const q = new URLSearchParams(location.search), T = ArtSurface.T;
-const N = 76, SIZE = N * T; // the surface, tiles a side; world units a side
-const SAMPLES = 720, CHECKS = 16, HW = 1.9 * T; // centreline points; checkpoints; the track's half-width (±25% round the loop)
-const SPACING = 7 * T, CLEAR = 6 * T, GAP = 2.5 * T; // between obstacles on the track; none this close to the start; wall between two stretches of track
-const TRACKS = 2; // the track generator's version: a seed's ghost is kept only for the track it was flown on
+const q = new URLSearchParams(location.search), { T, N, SIZE, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
+if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 const BIOMES = {
   desert: { type: 'desert', label: 'Desert' },
@@ -39,21 +36,16 @@ const BIOMES = {
   moon: { type: 'moon-grey', label: 'Moon' },
 };
 
-// The ship: the Courier as the game fits and draws it (game/state.js SHIP, game/options.js
-// HULL_ART), at the surface's speed and size (game/landing.js SURFACE_SPEED, SURFACE_SCALE;
-// flight/entities.js SHIP_SCALE).
-const SHIP = Loadout.stats(Loadout.starter('courier'));
-// Racing is faster and grippier than the game's surface flight: in Cruise the velocity eases toward
-// the heading at the engine's acceleration, so more of it makes turns bite instead of float.
-const TUNE = { speed: 0.75, accel: 1.4, turn: 1.25 }; // × the ship's top speed, acceleration, turn rate
+// The ship (Config): the Courier as the game fits it, drawn as the game draws it (game/options.js
+// HULL_ART) at the surface's size (flight/entities.js SHIP_SCALE).
 const SPEED = +q.get('speed') || TUNE.speed;
-const STATS = { ...SHIP, maxSpeed: SHIP.maxSpeed * SPEED, accel: SHIP.accel * TUNE.accel, turnRate: SHIP.turnRate * TUNE.turn };
+const STATS = Config.stats(SPEED);
 // The camera: close in (the ground's speed on screen is what reads as fast), leading the ship by
 // `lead` seconds of its speed, `track` of the way along the track rather than its velocity, held
 // to `reach` of the screen's shorter side; pushing in a little at top speed (`pull`), and zoomed by
 // the bends ahead: `wide` on a straight, `tight` in a bend.
 const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3, track: 0.6, wide: 0.93, tight: 1.06 };
-const SURFACE_SCALE = 0.85, SHIP_SCALE = 1.375, R_SHIP = SHIP.radius * SURFACE_SCALE, HULL = SHIP.hull || 120;
+const SHIP_SCALE = 1.375, { SURFACE_SCALE } = Config;
 const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 const BODY = { art: ART, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / ART.radius, r: R_SHIP, z: ArtSurface.FLY };
 
@@ -76,14 +68,15 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // ---------- The track and the run ----------
 
 function build() {
-  const b = BIOMES[S.biome], tr = Track.loop(S.seed, { size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: GAP, samples: SAMPLES, checks: CHECKS });
+  const b = BIOMES[S.biome], tr = Track.loop(S.seed, Config.TRACK);
   const W = ArtSurface.generate(b.type, S.seed, { w: N, h: N, tall: 0.06 });
-  Track.carve(W, tr, S.seed, { T, spacing: SPACING, clear: CLEAR });
+  Track.carve(W, tr, S.seed, { ...Config.CARVE, outside: q.get('outside') || Config.CARVE.outside, kinds: Config.KINDS[S.biome] });
   const on = ArtSurface.propsAll(W).filter((p) => Track.edgeDist(tr, p.x, p.y).d < p.r);
   const mini = new Path2D();
   tr.pts.forEach((p, n) => (n ? mini.lineTo(p.x, p.y) : mini.moveTo(p.x, p.y)));
   mini.closePath();
-  G = { W, tr, b, seed: S.seed, hw: HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
+  G = { W, tr, b, seed: S.seed, hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
+  G.lines = Draw.lines(G);
   restart();
 }
 function looks() {
@@ -227,7 +220,7 @@ function sync() {
   $('help').innerHTML = Input.mode === 'sides'
     ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ brakes · R restart · N new track'
     : 'Drag to fly, drag length sets speed · double-tap to stop · WASD / arrows · R restart · N new track';
-  $('help').innerHTML += '<br>Walls and rocks bounce you and dent the hull · craters slow you · vents burn';
+  $('help').innerHTML += '<br>Walls bounce you and dent the hull · off the track slows you';
 }
 // One at a time: what's asked while the ground is building is ignored.
 function busy(fn) {

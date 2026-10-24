@@ -15,15 +15,17 @@
 //     size: the map's side (world units); hw: the track's half-width (±25% round the loop);
 //     minHw: the narrowest half-width; margin: kept clear inside the map's edge; gap: kept
 //     between two stretches of track, edge to edge (the wall between them; default hw)
-//   tr: { pts: [{ x, y, hw, tx, ty, k }], len, ds, cps, samples }   (tx, ty: the way round; k: the
-//     curvature there, 1 / the bend's radius; ds: the length a point; cps: the checkpoints' indices,
-//     the first the start line)
+//   tr: { pts: [{ x, y, hw, tx, ty, k, side }], len, ds, cps, samples, from }   (tx, ty: the way round; k:
+//     the curvature there, 1 / the bend's radius; side: the way it bends, −1 or +1 (+1: the way the
+//     angle grows, clockwise on screen); ds: the length a point; cps: the checkpoints' indices, the
+//     first the start line; from: 'corners', or 'blob' when no layout of corners would do)
 //   Track.edgeDist(tr, x, y, near?, span?) -> { d, n, nx, ny }   how far (x, y) is outside the track's
 //     edge (< 0: on it), the nearest centreline point, and the way out from it (unit); with a guess
 //     `near`, only the points within `span` of it are looked at
 //   Track.ahead(tr, n, dist) -> n    the centreline point dist further round (back, when < 0)
 //   Track.minRadius(tr) -> { r, n }  the tightest bend: its radius over the track's half-width there
-//   Track.carve(W, tr, seed, { T, spacing, clear })   rewrites a generated surface round the track
+//   Track.carve(W, tr, seed, { T, runoff, open, outside, kinds })   rewrites a generated surface round the
+//     track: the track, its run-off and the walls (outside: 'high' | 'ground'; kinds: { track, off })
 // ES module (`Track`); also runs in Node (the tests).
 
 import { mulberry32 } from '../core/rng.js';
@@ -45,8 +47,8 @@ const Track = (() => {
       len += Math.hypot(b.x - p.x, b.y - p.y);
     });
     pts.forEach((p, n) => {
-      const a = pts[wrap(n - BEND, S)], b = pts[(n + BEND) % S];
-      p.k = Math.abs(angleDiff(Math.atan2(b.ty, b.tx), Math.atan2(a.ty, a.tx))) / ((2 * BEND * len) / S);
+      const a = pts[wrap(n - BEND, S)], b = pts[(n + BEND) % S], turn = angleDiff(Math.atan2(b.ty, b.tx), Math.atan2(a.ty, a.tx));
+      p.k = Math.abs(turn) / ((2 * BEND * len) / S); p.side = turn < 0 ? -1 : 1;
     });
     tr.len = len; tr.ds = len / S;
     return tr;
@@ -152,7 +154,7 @@ const Track = (() => {
     fit(pts, size, lo);
     const tr = shape({ pts, samples: S, cps });
     for (let pass = 0, at; pass < 50 && (at = tooTight(tr, 10)); pass++) { smooth(pts, 4, at); shape(tr); }
-    return minRadius(tr).r >= SAFE && apart(tr, gap) ? tr : null;
+    return minRadius(tr).r >= SAFE && apart(tr, gap) ? Object.assign(tr, { from: 'corners' }) : null;
   }
 
   // No two stretches of the loop (further apart round it than they could be on its bends) closer
@@ -176,6 +178,7 @@ const Track = (() => {
     const pts = ks.map((k, n) => { const th = (n / S) * TAU; return { x: c + Math.cos(th) * R0 * k * ACROSS, y: c + Math.sin(th) * R0 * k, hw: width(th) }; });
     const tr = shape({ pts, samples: S, cps });
     for (let pass = 0; pass < 200 && minRadius(tr).r < SAFE; pass++) { smooth(pts, 8); shape(tr); }
+    tr.from = 'blob';
     return tr;
   }
 
@@ -197,29 +200,34 @@ const Track = (() => {
 
   const ahead = (tr, n, dist) => wrap(n + Math.round(dist / tr.ds), tr.samples);
 
-  // Corners within the track's half-width are opened, a band of corners just outside it is raised
-  // into cliffs (the walls), and the ground beyond is left as generated (before anything of the
-  // surface is built: ArtSurface keeps its cliff pieces and geometry once made). Cliff edges fall
-  // between corners, so corners a little past the edge are opened too, to keep the track about its
-  // width. Props in tiles the walls now cover are dropped; on the track, tall props are thinned to
-  // spaced obstacles (`spacing` apart, none within `clear` of the start), and holes stay.
-  function carve(W, tr, seed, { T, spacing, clear }) {
-    const C = W.C, band = (i, j) => T * (1.4 + 0.8 * Math.sin(i * 0.47 + seed) * Math.cos(j * 0.39 - seed * 1.7) + 0.6 * Math.sin((i + j) * 0.23));
+  // Three zones, before anything of the surface is built (ArtSurface keeps its cliff pieces and
+  // geometry once made): the track; its run-off, `runoff` past the edge; then the wall. Corners out to
+  // the run-off's edge and `open` past it are opened (cliff edges fall between corners, so the extra
+  // keeps them off the run-off); beyond, with outside 'high', every corner is high ground (the track
+  // runs through a canyon), with 'ground' a band of cliffs then the ground as generated. The track's
+  // corners take ground kind kinds.track and the run-off's kinds.off (ArtSurface's a, b, c: G, G2), as
+  // do all beyond with 'high' (so no other kind, a sea or a lava flow, blends in at the run-off's edge).
+  // Nothing is left on the track: props on it and tall props and holes on the run-off are dropped
+  // (clutter on the run-off stays, as rough ground), and so is every prop where the walls now are.
+  // A kind's G and G2. Corners between two kinds blend both weights, so c (any G) takes the G of the
+  // other kind laid beside it: no third kind (a sea, a lava flow) shows between the two.
+  const KIND = { a: [1, 0], b: [0, 0], c: [1, 1] };
+  function carve(W, tr, seed, { T, runoff, open = 0.4 * T, outside = 'high', kinds = { track: 'b', off: 'c' } }) {
+    const { C, G, G2 } = W, edge = runoff + open, band = (i, j) => edge + T * (1 + 0.8 * Math.sin(i * 0.47 + seed) * Math.cos(j * 0.39 - seed * 1.7) + 0.6 * Math.sin((i + j) * 0.23));
+    const lay = (i, j, k) => { const o = k === kinds.track ? kinds.off : kinds.track; G[i][j] = k === 'c' && o !== 'c' ? KIND[o][0] : KIND[k][0]; G2[i][j] = KIND[k][1]; };
     for (let i = 0; i <= W.w; i++) for (let j = 0; j <= W.h; j++) {
       const d = edgeDist(tr, i * T, j * T).d;
-      if (d < 0.4 * T) C[i][j] = 0; else if (d < band(i, j)) C[i][j] = 1;
+      if (d < edge) C[i][j] = 0; else if (outside === 'high' || d < band(i, j)) C[i][j] = 1;
+      if (d < 0) lay(i, j, kinds.track); else if (d < runoff + T || outside === 'high') lay(i, j, kinds.off);
     }
     // W.props is keyed by ArtSurface's tile key, i × 1000 + j.
-    const wall = (i, j) => C[i][j] || C[i + 1][j] || C[i][j + 1] || C[i + 1][j + 1], start = tr.pts[0], kept = [];
+    const wall = (i, j) => C[i][j] || C[i + 1][j] || C[i][j + 1] || C[i + 1][j + 1];
     for (const key of Object.keys(W.props)) {
       const p = W.props[key], i = Math.floor(key / 1000), j = key % 1000;
       if (!p) continue;
       if (wall(i, j)) { delete W.props[key]; continue; }
-      if (p.type === 'small' || edgeDist(tr, p.x, p.y).d > 0) continue; // clutter, or off the track: scenery
-      if (Math.hypot(p.x - start.x, p.y - start.y) < clear) { delete W.props[key]; continue; }
-      if (p.type !== 'tall') continue;
-      if (kept.some((q) => Math.hypot(q.x - p.x, q.y - p.y) < spacing)) delete W.props[key];
-      else kept.push(p);
+      const d = edgeDist(tr, p.x ?? (i + 0.5) * T, p.y ?? (j + 0.5) * T).d;
+      if (p.type === 'small' ? d < 0 : d < runoff + (p.r || 0) + T) delete W.props[key];
     }
   }
 

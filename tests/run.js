@@ -48,6 +48,7 @@ import { Missions } from '../src/story/missions.js';
 import { Glyphs } from '../src/ui/glyphs.js';
 import { Status } from '../src/rules/status.js';
 import { ScreenFx } from '../src/rules/screen-fx.js';
+import { Config as RaceConfig } from '../src/race/config.js';
 import { Track } from '../src/race/track.js';
 import { Contact } from '../src/race/contact.js';
 import { Ghost } from '../src/race/ghost.js';
@@ -3182,7 +3183,7 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
 });
 
 // The race (src/race/, notes/race.md): the track's loop, sliding along walls, the ghost.
-const RACE = { size: 76 * 64, hw: 1.9 * 64, minHw: 82, margin: 5 * 64 };
+const RACE = RaceConfig.TRACK;
 test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
   for (let seed = 1; seed <= 20; seed++) {
     const tr = Track.loop(seed, RACE), S = tr.samples;
@@ -3199,6 +3200,14 @@ test('race track: a closed loop inside the map, never too narrow, its bends wide
     });
     assert(Math.abs(len - tr.len) < 1e-6 * len);
     assert(Track.minRadius(tr).r >= 2, `the tightest bend is wider than the track (seed ${seed}: ${Track.minRadius(tr).r.toFixed(2)})`);
+    assert(tr.pts.every((p) => p.side === 1 || p.side === -1), 'every point bends one way or the other');
+    // Two stretches further apart round the loop than a bend could bring them keep their run-offs
+    // and a wall between them.
+    const far = Math.ceil((1.6 * (2 * Math.max(...tr.pts.map((p) => p.hw)) + RACE.gap)) / tr.ds);
+    for (let a = 0; a < S; a += 3) for (let b = a + far; b < S && S - (b - a) >= far; b += 3) {
+      const p = tr.pts[a], q = tr.pts[b];
+      assert(Math.hypot(p.x - q.x, p.y - q.y) - p.hw - q.hw >= 2 * (RaceConfig.RUNOFF + RaceConfig.CARVE.open) + RaceConfig.T * 0.9, `a wall between two stretches (seed ${seed}, points ${a}, ${b})`);
+    }
     assert.strictEqual(tr.cps[0], 0, 'the first checkpoint is the start line');
     for (let k = 1; k < tr.cps.length; k++) assert(tr.cps[k] > tr.cps[k - 1]);
   }
@@ -3218,6 +3227,27 @@ test('race track: how far outside the edge, the way out, and the point further r
   assert.deepStrictEqual(Track.edgeDist(tr, p.x + 3, p.y - 2, 100, 40).n, Track.edgeDist(tr, p.x + 3, p.y - 2).n, 'a guess finds the same point');
   assert.strictEqual(Track.ahead(tr, 100, tr.ds * 10), 110);
   assert.strictEqual(Track.ahead(tr, 5, -tr.ds * 10), tr.samples - 5, 'back past the start wraps round');
+});
+
+test('race carve: the track, its run-off and the walls; nothing left on the track', () => {
+  const T = RaceConfig.T, n = 40, tr = Track.loop(2, { ...RACE, size: n * T, hw: 1.6 * T, minHw: 1.2 * T, margin: 2 * T, gap: 4.3 * T });
+  const grid = (v) => Array.from({ length: n + 1 }, () => new Array(n + 1).fill(v));
+  const key = (x, y) => Math.floor(x / T) * 1000 + Math.floor(y / T);
+  const at = (n, o) => { const p = tr.pts[n]; return [p.x - p.ty * (p.hw + o), p.y + p.tx * (p.hw + o)]; }; // o past the edge (< 0: on the track)
+  const W = { w: n, h: n, C: grid(1), G: grid(0.5), G2: grid(0.5), props: {} };
+  const put = (type, [x, y], r = 10) => { W.props[key(x, y)] = { type, x, y, r }; return key(x, y); };
+  const onTall = put('tall', at(200, -T)), onSmall = put('small', at(300, -T)), offHole = put('hole', at(400, RaceConfig.RUNOFF * 0.5)), offSmall = put('small', at(500, RaceConfig.RUNOFF * 0.6));
+  assert.strictEqual(new Set([onTall, onSmall, offHole, offSmall]).size, 4, 'a tile each');
+  Track.carve(W, tr, 2, { ...RaceConfig.CARVE, T, kinds: { track: 'b', off: 'c' } });
+  for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) {
+    const d = Track.edgeDist(tr, i * T, j * T).d;
+    if (d < RaceConfig.RUNOFF + RaceConfig.CARVE.open) assert.strictEqual(W.C[i][j], 0, `open on the track and its run-off (${i}, ${j})`);
+    else assert.strictEqual(W.C[i][j], 1, `high ground beyond (${i}, ${j})`);
+    if (d < 0) assert.deepStrictEqual([W.G[i][j], W.G2[i][j]], [0, 0], 'the track: kind b');
+    else assert.deepStrictEqual([W.G[i][j], W.G2[i][j]], [0, 1], 'the run-off and beyond: kind c, beside b');
+  }
+  assert(!W.props[onTall] && !W.props[onSmall] && !W.props[offHole], 'nothing on the track, no holes on the run-off');
+  assert(W.props[offSmall], 'clutter on the run-off stays');
 });
 
 test('race contact: a wall you slide along, not stick to; rocks are circles', () => {

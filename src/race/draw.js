@@ -1,8 +1,9 @@
-// Drawing the race over the ground: the start line and the next checkpoint, the ships (yours and
+// Drawing the race over the ground: the track's edges and kerbs, the start line and the next checkpoint, the ships (yours and
 // your best lap's ghost) with their shadows, the minimap, the drag (as game/hud.js drawDragIndicator
 // draws it) or the halves held when steering by sides, and the HUD's text.
 //
 //   Draw.marks(ctx, v, px, time, G, R, ground)    ground(v, x, y, z) -> [X, Y] | null
+//   Draw.lines(G) -> { edges, kerbs }   the edges and kerbs on the ground, worked out once a track (G.lines)
 //   Draw.ship(ctx, v, ship, body, { style, time, alpha, shadow, ground })   ship: { art, k (scale), r, z }
 //     (ground: needed for the shadow)
 //   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
@@ -24,7 +25,53 @@ const Draw = (() => {
     return [-1, 1].map((s) => ground(v, p.x - p.ty * p.hw * f * s, p.y + p.tx * p.hw * f * s, z));
   }
 
+  // The edges, a point a centreline point each side, at the ground's height there; kerbs on the bends
+  // tighter than KERB: on the inside through the bend's middle, on the outside over its exit, striped
+  // `stripe` points a colour. f: which edge (+1: the left of the way round, −1: the right).
+  const KERB = { k: 1 / 700, w: 10, stripe: 2, inside: [0.2, 0.8], outside: [0.5, 1.15] };
+  function lines(G) {
+    const { pts, samples: S } = G.tr, at = (p, f, o = 0) => { const x = p.x - p.ty * (p.hw - o) * f, y = p.y + p.tx * (p.hw - o) * f; return { x, y, z: ArtSurface.heightAt(G.W, x, y) }; };
+    const edges = [1, -1].map((f) => pts.map((p) => at(p, f)));
+    const kerbs = [], from = pts.findIndex((p, n) => (p.k > KERB.k) !== (pts[(n + S - 1) % S].k > KERB.k));
+    for (let m = 0, start = -1; from >= 0 && m <= S; m++) {
+      const n = (from + m) % S, on = m < S && pts[n].k > KERB.k;
+      if (on && start < 0) start = m;
+      if (!on && start >= 0) {
+        const len = m - start, f = pts[(from + start + (len >> 1)) % S].side;
+        for (const [g, [a, b]] of [[f, KERB.inside], [-f, KERB.outside]]) {
+          const run = [];
+          for (let s = Math.round(start + a * len); s <= Math.round(start + b * len); s++) run.push(at(pts[(from + s) % S], g, KERB.w / 2));
+          kerbs.push(run);
+        }
+        start = -1;
+      }
+    }
+    return { edges, kerbs };
+  }
+  const screen = (v, q) => SurfaceGlobe.toScreen(v, q.x, q.y, q.z);
+  function edgesAndKerbs(ctx, v, L) {
+    ctx.lineCap = 'butt'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(245,248,255,0.5)'; ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (const e of L.edges) {
+      let was = false;
+      for (let n = 0; n <= e.length; n++) { const s = screen(v, e[n % e.length]); if (s) { if (was) ctx.lineTo(s[0], s[1]); else ctx.moveTo(s[0], s[1]); } was = !!s; }
+    }
+    ctx.stroke();
+    ctx.lineWidth = KERB.w;
+    for (const [col, odd] of [['rgba(240,244,250,0.85)', -1], ['rgba(214,52,44,0.9)', 1]]) {
+      ctx.strokeStyle = col; ctx.beginPath();
+      for (const run of L.kerbs) for (let n = 0; n + 1 < run.length; n++) {
+        if (odd >= 0 && Math.floor(n / KERB.stripe) % 2 !== odd) continue;
+        const a = screen(v, run[n]), b = screen(v, run[n + 1]);
+        if (a && b) { ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); }
+      }
+      ctx.stroke();
+    }
+  }
+
   function marks(ctx, v, px, time, G, R, ground) {
+    if (G.lines) edgesAndKerbs(ctx, v, G.lines);
     // The start line: a chequered strip.
     const p = G.tr.pts[0], segs = 12;
     ctx.lineWidth = 9 * px; ctx.lineCap = 'butt';
@@ -110,7 +157,7 @@ const Draw = (() => {
   const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
   function hud(G, R, cfg, missing) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
-    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · seed ${G.seed} · ${Math.round(G.tr.len)} u a lap · ${G.talls.length} rocks, ${G.holes.length} holes on the track${missing ? ` · ${missing} chunks building` : ''}</span>`;
+    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · seed ${G.seed} · ${Math.round(G.tr.len)} u a lap${missing ? ` · ${missing} chunks building` : ''}</span>`;
     return { lap: `Lap ${lap}/${cfg.laps}`, time: `${fmt(R.lapT)} · total ${fmt(R.total)}`, rest };
   }
   function note(R, cfg) {
@@ -123,7 +170,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { marks, ship, minimap, drag, sides, hud, note };
+  return { lines, marks, ship, minimap, drag, sides, hud, note };
 })();
 
 export { Draw };
