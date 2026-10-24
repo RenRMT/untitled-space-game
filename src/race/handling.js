@@ -12,11 +12,12 @@
 // slip's sine) until the slip is back under SLIDE.off: a change the player can learn and use.
 // Slower than LOW it flies as Cruise does (the velocity has no way to be along or across).
 //
-//   Handling.step(body, stats, { targetAngle, targetSpeed, brake, coast }, state, dt) -> state
+//   Handling.step(body, stats, { targetAngle, targetSpeed, brake, coast }, state, dt, conf?) -> state
 //   body: { x, y, vx, vy, angle, thrust }, changed in place (as Flight.step)
 //   stats: { maxSpeed, accel, turnRate }; brake: held; coast: mid-dash, the body only moves
 //   state: { slip (rad), sliding }, kept by the caller from step to step
-//   Handling.config   { GRIP, LIFT, BRAKE, LOW, SLIDE: { on, off, grip, scrub } }
+//   Handling.config   { GRIP, LIFT, BRAKE, LOW, SLIDE: { on, off, grip, scrub } }   (conf: config by default)
+//   Handling.tune(k) -> conf   config × a biome's handling (Config.BIOME: GRIP, LIFT, BRAKE, on, off, grip, scrub)
 // ES module (`Handling`); also runs in Node (the tests).
 
 import { MathUtil } from '../core/math.js';
@@ -26,8 +27,13 @@ const Handling = (() => {
   const { clamp, lerp, angleDiff } = MathUtil;
   const config = { GRIP: 0.85, LIFT: 0.35, BRAKE: 2.5, LOW: 40, SLIDE: { on: 0.42, off: 0.22, grip: 0.8, scrub: 0.3 } };
 
-  function step(body, stats, control, state, dt) {
-    const { targetAngle, targetSpeed, brake = false, coast = false } = control, { GRIP, LIFT, BRAKE, LOW, SLIDE } = config;
+  function tune(k = {}) {
+    const S = config.SLIDE, m = (v, f) => v * (f ?? 1);
+    return { ...config, GRIP: m(config.GRIP, k.GRIP), LIFT: m(config.LIFT, k.LIFT), BRAKE: m(config.BRAKE, k.BRAKE), SLIDE: { on: m(S.on, k.on), off: m(S.off, k.off), grip: m(S.grip, k.grip), scrub: m(S.scrub, k.scrub) } };
+  }
+
+  function step(body, stats, control, state, dt, conf = config) {
+    const { targetAngle, targetSpeed, brake = false, coast = false } = control, { GRIP, LIFT, BRAKE, LOW, SLIDE } = conf;
     if (coast) {
       body.x += body.vx * dt; body.y += body.vy * dt;
       state.slip = 0; state.sliding = false;
@@ -65,7 +71,7 @@ const Handling = (() => {
     return state;
   }
 
-  return { step, config };
+  return { step, tune, config };
 })();
 
 export { Handling };
