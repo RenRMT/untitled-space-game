@@ -43,18 +43,22 @@ Beyond the ships, portraits, surfaces, movement, dash and hazards:
 - **The galaxy** as a career map: a system a cup, a planet a track, every seed already
   deterministic. Day and night for a race before sunrise.
 
-## The track: gates in order over open ground
+## The track: three zones, designed corners
 
-The controls suit open ground: the drag sets an absolute heading in a top-down view, Cruise
-drifts, and the dash is a sidestep. They suit narrow corridors less, which is why walls punish.
-So the course is a fixed order of gates (learnable, ghosts, leaderboards, "wrong way") over wider,
-partly open ground:
+`notes/race-research.md` has the research and measurements behind this.
 
-- soft edges where they can be: rough ground slows you (like the craters now) rather than a cliff;
-- cliffs only where they shape the route; one or two risky shortcuts a track (a vent field, a gap
-  between rocks);
-- the centreline gives the gates, and `carve()` can open a wider band of rough ground instead of
-  walls.
+- **Three zones**, each clear to see and to fly: the track (full speed, a flat ground kind and edge
+  lines, kerbs at the apexes and exits); a run-off band about 1.25 tiles wide past the edge (slower:
+  top speed and grip eased down, a rougher ground kind, dust); then the wall (cliffs: slide, dent).
+  Off-track is measured from the centreline (`Track.edgeDist`), not from what's drawn.
+- **Nothing on the track** for now: rocks and holes come back later as deliberate features.
+- **Calm outside:** high ground beyond the walls, no props there but a few landmarks at the corners.
+- **Corners from a vocabulary** (kink, sweeper, square, hairpin, double apex, decreasing radius,
+  carousel, chicane, esses) sized against the ship's turning circle, so one or two a lap need a lift;
+  bends both ways (today 76–95% of the bending goes one way); width tied to the corners.
+- **Checked by numbers:** each seed scored (lap time, the mix of directions, straights, radii) and the
+  best of a few candidates kept; the corners and a racing line handed on with the track (kerbs,
+  pace-note chevrons, the camera, medal times, later rivals and pads).
 
 An open area with checkpoints in any order is a good second mode later (rally, time attack); on a
 phone it needs a strong arrow to the next one.
@@ -117,6 +121,17 @@ that:
    the track; auto-accelerate with left and right halves to steer (`?steer=sides`), and the steering assist; the camera leading along the track, zooming by its bends;
    the centreline smoothed with a minimum width; your best lap's ghost (saved per biome and seed).
    Tests for the track and for sliding along a wall in `tests/run.js`.
-2. **Content:** soft edges and shortcuts; boost pads (the dash); lava vents on a timer and dust
-   storms; star targets; the daily seed.
-3. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.
+2. **Tracks and feel:** done: the three zones (`Track.carve`: ground kinds per biome in
+   `src/race/config.js`, the run-off's slowing in `Run.step`, edge lines and kerbs in `Draw.lines`);
+   high ground beyond the walls; nothing on the track; `npm run tracks` (`tools/race-tracks.js`)
+   measures a run of seeds. Corners from a vocabulary (`Track.loop`: kink, sweeper, square,
+   hairpin, double apex, decreasing radius, carousel; a chicane or esses in the longest straights),
+   sized against the turning circle at top speed so one to a few a lap need a lift; three or four
+   corners pulled in so it bends both ways; the width following the corners; the best of six
+   layouts by score; the corners handed on as `tr.corners`. Over seeds 1–60: 55–77% of the bending
+   one way (was 71–100%), 6–10 direction changes (was 0–8), 1–6 corners needing a lift (was none),
+   laps of 19–25 s. Still to do: a racing line and medal times; the camera zooming out with speed;
+   a touch brake or airbrake (the corners that need one are there now).
+3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
+   star targets; the daily seed.
+4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.

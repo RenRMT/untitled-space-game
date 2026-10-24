@@ -5,7 +5,7 @@
 //   Run.step(R, G, cfg, control, dt)   one fixed step (control: Input.control())
 //   Run.STEP                        the step (s)
 //   R: { phase: 'count' | 'race' | 'done' | 'wreck', t, total, lapT, laps, next, n, hull, hits,
-//        wrong, slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest }
+//        wrong, off (0 on the track .. 1 off it), slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest }
 //     prev, pcam: the craft's { x, y, angle } and the camera a step before, to draw both between steps
 //   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey }
 //
@@ -15,7 +15,8 @@
 // - sides: full speed; the turn held turns it at its turn rate; held straight, it eases round to
 //   the track's way when close to it.
 // Collisions are Contact.step: walls you slide along, rocks as circles; a hard hit dents the hull.
-// In a hole (craters, vents, lava lakes): top speed × SLOW; glowing ones burn.
+// Off the track (past its edge, on the run-off before the wall): top speed and acceleration eased down
+// (OFF), back up on it. In a hole (craters, vents, lava lakes): top speed × SLOW; glowing ones burn.
 // The camera leads the ship by cam.lead seconds of speed, the lead blended (cam.track) from its
 // velocity toward the track's way that far ahead; it pushes in a little at speed (cam.pull), and
 // out on straights, in for bends (cam.wide, cam.tight) by the tightest bend in sight ahead.
@@ -31,6 +32,7 @@ import { Track } from './track.js';
 const Run = (() => {
   const STEP = 1 / 120, COUNT = 3;
   const SLOW = 0.5, BURN = 12; // in a hole: top speed ×; glowing ones: hull a second
+  const OFF = { speed: 0.4, grip: 0.3, ease: 0.2 }; // off the track: top speed and acceleration less by these at the most, reached over ease s
   const ASSIST = { arc: 0.35, pull: 0.6, ease: 2 }; // within arc (rad) of the track's way: point pulls the heading pull of the way; sides eases round at ease a second
   const WALL = { restitution: 0.2, friction: 0.04, reach: 2.5 * ArtSurface.T }; // a graze keeps 96% of its speed along the wall
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -40,7 +42,7 @@ const Run = (() => {
     const n = G.tr.samples - 8, p = G.tr.pts[n]; // a little behind the start line
     const craft = { x: p.x, y: p.y, vx: 0, vy: 0, angle: Math.atan2(p.ty, p.tx), thrust: 0 };
     const R = {
-      phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0,
+      phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0, off: 0, stats: { ...cfg.stats },
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
       rec: Ghost.recorder(), ghost: Ghost.load(cfg.ghostKey), newBest: false,
     };
@@ -87,7 +89,8 @@ const Run = (() => {
     if (R.phase === 'count' && R.t >= COUNT) { R.phase = 'race'; R.t = 0; }
     const tr = G.tr, C = R.craft, racing = R.phase === 'race', STATS = cfg.stats;
     R.prev.x = C.x; R.prev.y = C.y; R.prev.angle = C.angle;
-    const stats = R.slow ? (R.slowStats ||= { ...STATS, maxSpeed: STATS.maxSpeed * SLOW }) : STATS;
+    const stats = R.stats; // the race's stats as the ground here leaves them
+    stats.maxSpeed = STATS.maxSpeed * (1 - OFF.speed * R.off) * (R.slow ? SLOW : 1); stats.accel = STATS.accel * (1 - OFF.grip * R.off);
     const go = steer(R, G, cfg, ctl, stats, racing), from = { x: C.x, y: C.y };
     Flight.step(C, stats, { targetAngle: go.speed > 0 ? go.angle : C.angle, targetSpeed: go.speed, mode: cfg.mode }, dt);
     // As hard as the same share of top speed at the game's surface speed (game/landing.js).
@@ -99,7 +102,9 @@ const Run = (() => {
     if (R.burn && racing) R.hull -= BURN * dt;
     R.flash = Math.max(0, R.flash - dt);
     if (R.hull <= 0 && racing) { R.hull = 0; R.phase = 'wreck'; }
-    R.n = Track.edgeDist(tr, C.x, C.y, R.n, 40).n;
+    const e = Track.edgeDist(tr, C.x, C.y, R.n, 40);
+    R.n = e.n;
+    R.off = clamp(R.off + (e.d > 0 ? dt : -dt) / OFF.ease, 0, 1);
     camera(R, G, cfg, dt);
     if (!racing) return;
     R.total += dt; R.lapT += dt;
