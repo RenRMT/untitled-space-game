@@ -189,6 +189,44 @@ relatively thinner. Measured over seeds 1–30, all scored for a 26–38 s lap (
 ground chunks (90² against 76²): building the track took about 6.2 s against 4.5 s in headless
 Chromium on a desktop, and memory grows alike. A three-lap race is about 1¾ minutes.
 
+### A7. The expert style: folded everywhere, tight corners, few long straights
+The advanced style still starts from a convex base shape with a few edges reworked, so it reads as
+a blob with notches: mostly sweepers and squares, a handful of folds. The expert style
+(`style: 'expert'`, `?track=expert`, the Expert button) builds the polygon differently. It is the
+outline of a branchy **polyomino** grown on an uneven grid (`grid()`): 4–6 columns by 5–7 rows,
+each 1–1.7 units, with 11–17 cells.
+- A cell is likelier the fewer filled cells it touches (weights 1, 0.05, 0.01 for 1, 2, 3), and
+  2.5× likelier again when it carries an arm on straight. So the clump grows arms, not a lump.
+- A cell is never added when it would touch the clump only at a corner (the outline would pinch)
+  or would close a hole. That keeps the outline a single simple loop.
+- In the outline, every one-cell arm is a finger: the track runs out, makes two square corners a
+  cell apart (a hairpin) and runs back. Every gap between arms is a bay it runs into and out of.
+- Any two stretches side by side are at least one cell apart. So the spacing checks (`clear()`,
+  `apart()`) pass by construction instead of throwing most skeletons away.
+- Corners are nudged up to 0.24 of the smallest cell, so they turn about 70–110° instead of all
+  90°. About two in three are marked tight (square whatever the roll); the rest are picked from
+  kinds leaning to squares, hairpins and decreasing bends. Slow corners are sized at 0.7× (down to
+  the tightest the width allows, SAFE), so almost every corner needs a lift.
+- Every straight but the longest gets a chance of a wiggle (four at most, 85% of them chicanes).
+- The score rewards a low fill (down to 0.5), flips up to 18, one or two straights of 1.5 s or more
+  (`longs` in `Track.measure`), and penalises a longest straight over 4 s or one that runs
+  sideways.
+- 200 tries, the best of 24 kept. It falls back to the advanced style (not needed over seeds 1–30).
+
+Over seeds 1–30, both styles on the 90-tile map:
+
+| Style | Fill min / median / max | Flips median | Corners per lap | Tight share | Longest straight median | Lap median |
+|---|---|---|---|---|---|---|
+| Advanced | 0.58 / 0.71 / 0.82 | 8 | 15 | 0.67 | 2.5 s | 34.1 s |
+| **Expert** | 0.51 / 0.64 / 0.74 | 12 | 19 | 0.99 | 4.4 s (23 of 30 vertical) | 38.4 s |
+
+The tight share counts squares, hairpins, decreasing bends, double apexes and chicanes. Fill
+understates the difference: nested fingers fold the track in far more than the hull ratio shows,
+as the contact sheet makes plain. A 100-tile map with more cells folded no further (fill median
+0.64), so the expert style stays at 90 tiles and costs no more to build than the advanced one.
+`longs` medians 3 in both styles, because a chicane splits a straight into two halves that can
+each pass 1.5 s. The expert style's straights, though, are fewer and broken up.
+
 ---
 
 ## Part B: movement, camera and sessions

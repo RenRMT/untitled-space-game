@@ -3185,7 +3185,7 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
 // The race (src/race/, notes/race.md): the track's loop, sliding along walls, the ghost.
 const RACE = RaceConfig.TRACK;
 test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
-  for (const style of ['regular', 'advanced']) for (let seed = 1; seed <= 20; seed++) {
+  for (const style of ['regular', 'advanced', 'expert']) for (let seed = 1; seed <= 20; seed++) {
     const opts = RaceConfig.map(style).TRACK, tr = Track.loop(seed, opts), S = tr.samples;
     assert.strictEqual(tr.pts.length, S);
     assert.deepStrictEqual(tr, Track.loop(seed, opts), 'the same seed, the same track');
@@ -3252,6 +3252,28 @@ test('race track: the advanced style folds in on itself, bends both ways, and le
   assert.deepStrictEqual(Track.loop(5, { ...RACE, style: 'regular' }), Track.loop(5, RACE), 'regular is the default');
   assert.deepStrictEqual(RaceConfig.map().TRACK, { ...RACE, style: 'regular' }, 'the regular map is the one it was');
   assert(ADV.size > RACE.size, 'a bigger map for the advanced style');
+});
+
+test('race track: the expert style folds in further, with tight corners and few long straights', () => {
+  const EXP = RaceConfig.map('expert').TRACK, ADV = RaceConfig.map('advanced').TRACK, fills = { advanced: [], expert: [] }, longs = [];
+  let own = 0, slow = 0, all = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const tr = Track.loop(seed, EXP), m = Track.measure(tr, EXP);
+    if (tr.from === 'grid') own++;
+    assert(tr.corners.length >= 8, `corners (seed ${seed})`);
+    assert(m.flips >= 6 && m.oneWay <= 0.85, `bends both ways (seed ${seed}: ${m.flips} flips, ${m.oneWay.toFixed(2)} one way)`);
+    assert(m.lap > 26 && m.lap < 48, `a lap of ${m.lap.toFixed(1)} s (seed ${seed})`);
+    assert(m.straightS < 8, `no straight too long (seed ${seed}: ${m.straightS.toFixed(1)} s)`);
+    for (const c of tr.corners) { all++; if (['square', 'hairpin', 'decreasing', 'double-apex', 'chicane'].includes(c.type)) slow++; }
+    fills.expert.push(m.fill); longs.push(m.longs);
+    fills.advanced.push(Track.measure(Track.loop(seed, ADV), ADV).fill);
+  }
+  const median = (v) => [...v].sort((a, b) => a - b)[v.length >> 1];
+  assert(own >= 18, `expert layouts, not a fallback (${own} of 20)`);
+  assert(median(fills.expert) <= 0.67 && median(fills.expert) < median(fills.advanced) - 0.04, `folds in more than the advanced style (fill ${median(fills.expert).toFixed(2)} vs ${median(fills.advanced).toFixed(2)})`);
+  assert(median(longs) <= 3, `few long straights (median ${median(longs)})`);
+  assert(slow / all >= 0.85, `tight corners almost everywhere (${slow} of ${all})`);
+  assert.strictEqual(RaceConfig.map('expert').N, RaceConfig.N_EXP);
 });
 
 test('race track: how far outside the edge, the way out, and the point further round', () => {
