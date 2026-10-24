@@ -14,8 +14,10 @@
 //     grip: { slip, sliding } (Handling); drift: { t: s charged, level (0, 1, 2), boost: s of its boost
 //       left, k: the boost's top speed ×, on: sliding }
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
-//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost'; the page empties it
-//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome? }
+//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', and 'bump' (another ship: Rival.step); the page empties it
+//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome?, grid? }
+//     cam: null for none (a rival's run); ghostKey: null to keep no ghost; grid: { back, side }, where
+//     on the grid it starts: units further back from the start, and across (+: the way −ty, tx)
 //     biome: Config.biome(id), its character: the handling (Handling.tune), the run-off (OFF), the
 //     walls (WALL, and × the hull a hit dents) and the hop (HOP) × its numbers; none, as they are
 //   R.tune: { handling, off, wall, hop } those numbers for this run
@@ -71,12 +73,13 @@ const Run = (() => {
   const angleDiff = (a, b) => ((a - b + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 
   function create(G, cfg) {
-    const n = G.tr.samples - 8, p = G.tr.pts[n]; // a little behind the start line
-    const craft = { x: p.x, y: p.y, vx: 0, vy: 0, angle: Math.atan2(p.ty, p.tx), thrust: 0 };
+    // A little behind the start line; on a grid (cfg.grid), back and across from there.
+    const g = cfg.grid || { back: 0, side: 0 }, n = Track.ahead(G.tr, G.tr.samples - 8, -g.back), p = G.tr.pts[n];
+    const craft = { x: p.x - p.ty * g.side, y: p.y + p.tx * g.side, vx: 0, vy: 0, angle: Math.atan2(p.ty, p.tx), thrust: 0 };
     const R = {
       phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0, off: 0, stats: { ...cfg.stats },
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
-      rec: Ghost.recorder(), ghost: Ghost.load(cfg.ghostKey), newBest: false,
+      rec: Ghost.recorder(), ghost: cfg.ghostKey ? Ghost.load(cfg.ghostKey) : null, newBest: false,
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       dash: { charges: DASH.charges, refill: 0, t: 0, v: null, kind: null }, hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
       tune: tune(cfg.biome),
@@ -190,7 +193,7 @@ const Run = (() => {
     const e = Track.edgeDist(tr, C.x, C.y, R.n, 40);
     R.n = e.n;
     R.off = clamp(R.off + (e.d > 0 && !air ? dt : -dt) / off.ease, 0, 1);
-    camera(R, G, cfg, dt);
+    if (cfg.cam) camera(R, G, cfg, dt);
     if (!racing) return;
     R.total += dt; R.lapT += dt;
     R.rec.add(R.lapT, C);
@@ -226,7 +229,7 @@ const Run = (() => {
   function lap(R, cfg) {
     const g = R.rec.lap(R.lapT);
     R.laps.push(R.lapT); R.lapT = 0;
-    if (!R.ghost || g.time < R.ghost.time) { R.ghost = g; R.newBest = true; Ghost.save(cfg.ghostKey, g); }
+    if (cfg.ghostKey && (!R.ghost || g.time < R.ghost.time)) { R.ghost = g; R.newBest = true; Ghost.save(cfg.ghostKey, g); }
     if (R.laps.length >= cfg.laps) R.phase = 'done';
   }
 

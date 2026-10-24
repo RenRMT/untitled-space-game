@@ -5,7 +5,7 @@ Oct 24, 2026
 Research behind Phase 4 of `notes/race.md` (rivals and a career). It covers how other racing games
 build AI opponents, how to make them hard but fair, how to keep them from all flying alike, how the
 cultures' ships can give them personality, and how to set three challenge levels (regular, advanced,
-expert). Nothing here is built yet.
+expert). A first pass is built; "What's built" at the end says what and what it measured.
 
 ## Where the code stands
 - **No rivals.** `Pilot.fly` (`src/race/pilot.js`) is a scripted pilot. It aims at a centreline point
@@ -76,9 +76,9 @@ replacing `legacy` in `main.js`), and the field is drawn from the other five cul
 | Culture | Ideals (`factions.js`) | How it flies | Handling twist |
 |---|---|---|---|
 | **Wedge** | Order and reach | *The Textbook.* A clean ideal line, very consistent, few mistakes, moderate aggression, and boost saved for straights. The disciplined front-runner. | Balanced |
-| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early but leaves bends hard, blocks, and shrugs off contact with a short recovery. | +accel, −turn (`fighter-heavy`) |
-| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and drift-boosts. Rarely passes recklessly, but its rare mistakes are costly. The boss on expert. | +turn, −accel (`fighter-light`) |
-| **Drifters** (kitbash) | Freelancers and outlaws | *The Wildcard.* Very aggressive: dashes sideways into rivals and takes hops and short cuts. Inconsistent, with high noise and many mistakes. | A small random ± for each mismatched part |
+| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early, blocks, and shrugs off contact with a short recovery. | −turn (`fighter-heavy`) |
+| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and boosts out of bends. Rarely passes recklessly, but its rare mistakes are costly. The boss on expert. | +turn (`fighter-light`) |
+| **Drifters** (kitbash) | Freelancers and outlaws | *The Wildcard.* Very aggressive: dashes sideways into rivals. Inconsistent, with high noise and many mistakes. | A small random ± turn |
 | **Alien** | Grown, not built | *The Unreadable.* Strange lines with a large lateral bias and odd turn-ins, and smooth flowing drifts. No barks, since they "answer no hail". | +grip in slides |
 
 Further ideas:
@@ -92,12 +92,12 @@ The level sets the **skill band** rivals are drawn from. Personality stays the s
 
 | | Regular | Advanced | Expert |
 |---|---|---|---|
-| Share of `vMax` carried in bends | 0.86–0.92 | 0.92–0.96 | 0.96–1.0 |
+| Share of `vMax` carried in bends | 0.86–0.92 | 0.92–0.96 | 0.95–0.98, the boss 1.1 |
 | Line bias (0 ideal, 1 centre) | 0.5–0.8 | 0.2–0.5 | 0–0.2 |
 | Mistake rate | ×1.5 | ×1 | ×0.5 |
 | Drift boost and dash | rarely | usually | well-timed |
 | Skill banding | strong, both ways | mild | minimal, upward only |
-| Field | 1–2 rivals near the player's pace | mixed | one boss (Shard, or Wedge) at 1.0 |
+| Field | the slowest three start ahead of you | the same | the boss (Shard) on pole, on the racing line |
 | Power cut (Forza-style) | −3% top speed | none | none |
 
 **Calibration.** Fly an ideal-line rival headless over many seeds, as `Pilot.lap` and `tools/race-tracks.js`
@@ -127,3 +127,37 @@ expert rivals. Keep a `?ai=` URL override for testing.
 - [Mario Kart Tour bots (MobileSyrup)](https://mobilesyrup.com/2019/09/30/mario-kart-tour-bots-racing/)
 - [Fixing racing AI rubber banding that feels unfair (Bugnet)](https://bugnet.io/blog/how-to-fix-racing-ai-rubber-banding-feeling-unfair)
 - [The quest for a better racing AI system (Unity forum)](https://discussions.unity.com/t/the-quest-for-a-better-racing-ai-system/492635)
+
+## What's built (first pass)
+- **`src/race/line.js`:** the racing line and its speed profile. The relaxation mixes in only a
+  little of the shorter way (`LENGTH` 0.02); more of it hugs the inside of long bends. The line is
+  3–13% faster than the centreline (`Line.ride` with zero offsets).
+- **`src/race/rival.js`:** the presets (`CULTURES`, `LEVELS`), the field and grid, the brain (its own
+  line, the brake scan against its own speeds, bends rolled for pace noise and slips, passing and
+  defending, boosts, a calm spell after a hit, skill banding), ship-to-ship knocks without damage,
+  the standings, and `Rival.race` (a race of rivals alone, headless).
+- **`src/race/run.js`:** `cfg.grid` places a run on the grid; `cam: null` and `ghostKey: null` leave out
+  the camera and the ghost (a rival's run). **`src/race/pilot.js`:** `Pilot.flat`, the headless track
+  both the pilot and the rivals fly.
+- **The page:** five rivals by default, at the track style's level (`?ai=` to set it, `?ai=off` for
+  none), drawn in their cultures' ships; you in an Android ship. Your place and the order are in the
+  HUD, coloured dots on the minimap, and your place at the finish.
+- **`npm run rivals`** (`tools/race-rivals.js`) races them per level and prints the order and the
+  field's time against the line. On regular tracks, seeds 1–3, the field averaged 1.14 × the line
+  on regular, 1.05 on advanced and 1.02 on expert, and the boss won every expert race.
+
+What tuning found:
+- **Acceleration is grip.** Handling's grip is GRIP × the acceleration, so +3% acceleration (Block's
+  first twist) won nearly every race. The twists are turn rate only.
+- **Pace matters less than expected.** From 0.86 to 1.0 a lap is only about 3% quicker: most of a
+  lap is at top speed. The levels come as much from the line bias, the regular level's −3% top
+  speed, the boosts and the slips.
+- **Boosts dominate.** Used well, they make a lap about 15% quicker than the line's boost-free time.
+  Boosted blindly into a gentle bend, a rival runs wide. A rival boosts only when its line ahead holds
+  twice top speed for the burst and the slowdown after.
+- **From the back, the boss lost in traffic.** It was quickest alone, but starting last it finished
+  mid-field. It starts on pole now, the one to hunt down.
+
+Not built yet: drifting and hopping rivals, named pilots with portraits and barks, home biomes,
+a nemesis, and cups. Rivals don't avoid holes or rocks on the real surface (the headless track has
+none). The passing logic is simple: a lot of side-by-side bumping in a tight field.

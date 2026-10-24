@@ -8,6 +8,8 @@
 //     ground with a wall where the run-off ends: lap times (s), hard hits, s off the track, s braking and
 //     its braking zones, over the laps after the first; hull: what the hits dented (biome: Config.BIOME's id,
 //     its craft and handling; opts should be Config.map(style, biome).TRACK)
+//   Pilot.flat(seed, opts, { laps, biome }) -> { G, cfg, run(cfg?) -> R }   a track on flat ground for flying
+//     headless (a wall where the run-off ends, no rocks or holes), the run's cfg there, and a new run on it
 //   Pilot.LINE   the share of the half-width the line adds to a bend's radius
 // ES module (`Pilot`); also runs in Node.
 
@@ -30,13 +32,22 @@ const Pilot = (() => {
     return ctl;
   }
 
-  function lap(seed, opts, { brake = true, laps = 2, biome } = {}) {
+  // A track on flat ground with a wall where the run-off ends, the run's cfg there, and runs on it.
+  function flat(seed, opts, { laps = 2, biome } = {}) {
     const N = Math.round(opts.size / Config.T), tr = Track.loop(seed, opts), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
     const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr }, FAR = Config.RUNOFF + Config.CARVE.open;
-    const cfg = { stats: biome ? Config.stats(Config.TUNE.speed, biome) : Config.STATS, ship: Config.SHIP, hull: 1e6, biome: biome && Config.biome(biome), r: Config.R_SHIP, laps, mode: 'cruise', steer: 'pad', assist: true, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 }, ghostKey: null };
-    const R = Run.create(G, cfg), ctl = { angle: 0, speed: 1, brake: false, events: [] };
-    R.world.blocked = (x, y, r) => Track.edgeDist(tr, x, y, R.n, 40).d + r > FAR;
-    R.world.rocks = R.world.holes = () => [];
+    const cfg = { stats: biome ? Config.stats(Config.TUNE.speed, biome) : Config.STATS, ship: Config.SHIP, hull: 1e6, biome: biome && Config.biome(biome), r: Config.R_SHIP, laps, mode: 'cruise', steer: 'pad', assist: true, cam: null, ghostKey: null };
+    const run = (c = cfg) => {
+      const R = Run.create(G, c);
+      R.world.blocked = (x, y, r) => Track.edgeDist(tr, x, y, R.n, 40).d + r > FAR;
+      R.world.rocks = R.world.holes = () => [];
+      return R;
+    };
+    return { G, cfg, run };
+  }
+
+  function lap(seed, opts, { brake = true, laps = 2, biome } = {}) {
+    const { G, cfg, run } = flat(seed, opts, { laps, biome }), R = run(), ctl = { angle: 0, speed: 1, brake: false, events: [] };
     const out = { laps: [], hits: 0, off: 0, braking: 0, brakes: 0 };
     let last = -Infinity;
     for (let t = 0; t < 60 * laps && R.phase !== 'done'; t += Run.STEP) {
@@ -53,7 +64,7 @@ const Pilot = (() => {
     return out;
   }
 
-  return { fly, lap, LINE };
+  return { fly, lap, flat, LINE };
 })();
 
 export { Pilot };
