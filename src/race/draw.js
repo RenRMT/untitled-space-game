@@ -1,6 +1,6 @@
 // Drawing the race over the ground: the track's edges and kerbs, the start line and the next checkpoint, the ships (yours and
-// your best lap's ghost) with their shadows, the minimap, the drag (as game/hud.js drawDragIndicator
-// draws it) or the halves held when steering by sides, and the HUD's text.
+// your best lap's ghost) with their shadows, the minimap, the stick, the drag (as game/hud.js
+// drawDragIndicator draws it) or the halves held when steering by sides, and the HUD's text.
 //
 //   Draw.marks(ctx, v, px, time, G, R, ground)    ground(v, x, y, z) -> [X, Y] | null
 //   Draw.lines(G) -> { edges, kerbs }   the edges and kerbs on the ground, worked out once a track (G.lines)
@@ -8,6 +8,8 @@
 //     (ground: needed for the shadow)
 //   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
+//   Draw.pad(ctx, pad, home, radius, inner, dash, DASH)   the stick (Input.pad, Input.home()) and the
+//     dash's charges (Run's R.dash, Run.DASH)
 //   Draw.hud(G, R, cfg, missing) -> { lap, time, rest }   text, text, html; missing: chunks still building in view
 //   Draw.note(R, cfg) -> { msg, big }             the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
@@ -142,6 +144,34 @@ const Draw = (() => {
     ctx.restore();
   }
 
+  // The stick: its ring at home in the band while no thumb is on it, else round its base under the
+  // thumb, with the knob held to the ring; the brake zone in the middle, lit while braking. The dash's
+  // charges as pips under the home ring, the next one filling.
+  function pad(ctx, P, home, md, inner, dash, DASH) {
+    const charges = DASH.charges;
+    const on = P.active, bx = on ? P.bx : home.x, by = on ? P.by : home.y;
+    ctx.save();
+    ctx.strokeStyle = '#cfd8ff'; ctx.lineWidth = 1.5; ctx.globalAlpha = on ? 0.5 : 0.28;
+    ctx.beginPath(); ctx.arc(bx, by, md, 0, TAU); ctx.stroke();
+    ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.arc(bx, by, md * inner, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    if (on && P.brake) { ctx.globalAlpha = 0.45; ctx.fillStyle = '#ffb03a'; ctx.beginPath(); ctx.arc(bx, by, md * inner, 0, TAU); ctx.fill(); }
+    if (on) {
+      const dx = P.x - bx, dy = P.y - by, len = Math.hypot(dx, dy), k = len > md ? md / len : 1, kx = bx + dx * k, ky = by + dy * k;
+      ctx.globalAlpha = 0.85; ctx.strokeStyle = '#7df9ff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(kx, ky); ctx.stroke();
+      ctx.beginPath(); ctx.arc(kx, ky, 14, 0, TAU); ctx.stroke();
+    }
+    ctx.globalAlpha = 0.8; ctx.lineWidth = 2;
+    for (let i = 0; i < charges; i++) {
+      const x = home.x + (i - (charges - 1) / 2) * 18, y = home.y + md + 12;
+      ctx.strokeStyle = ctx.fillStyle = '#7df9ff';
+      ctx.beginPath(); ctx.arc(x, y, 5, 0, TAU); ctx.stroke();
+      if (i < dash.charges) ctx.fill();
+      else if (i === dash.charges) { ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, 5, -Math.PI / 2, -Math.PI / 2 + TAU * (dash.refill / DASH.refill)); ctx.fill(); }
+    }
+    ctx.restore();
+  }
+
   // Steering by sides: a chevron at each side's edge, lit while held.
   function sides(ctx, Wc, Hc, held) {
     ctx.save();
@@ -170,7 +200,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { lines, marks, ship, minimap, drag, sides, hud, note };
+  return { lines, marks, ship, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };

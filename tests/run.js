@@ -52,6 +52,9 @@ import { Config as RaceConfig } from '../src/race/config.js';
 import { Track } from '../src/race/track.js';
 import { Contact } from '../src/race/contact.js';
 import { Ghost } from '../src/race/ghost.js';
+import { Input as RaceInput } from '../src/race/input.js';
+import { Run } from '../src/race/run.js';
+import { View as RaceView } from '../src/race/view.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -3344,6 +3347,95 @@ test('race contact: a wall you slide along, not stick to; rocks are circles', ()
   const rock = { x: 100, y: 100, r: 30 }, b2 = { x: 120, y: 100, vx: -200, vy: 0 };
   Contact.step(b2, r, { ...world, rocks: () => [rock] }, tune, from);
   assert(Math.abs(b2.x - (100 + 30 + r)) < 1e-9 && b2.vx > 0);
+});
+
+test('race input: a tap is short and still, a flick short and quick, anything else steers', () => {
+  const g = RaceInput.gesture;
+  assert.strictEqual(g({ dt: 0.12, dist: 2, moved: 3 }), 'tap');
+  assert.strictEqual(g({ dt: 0.15, dist: 60, moved: 60 }), 'flick');
+  assert.strictEqual(g({ dt: 0.6, dist: 2, moved: 3 }), null, 'held: not a tap');
+  assert.strictEqual(g({ dt: 0.15, dist: 10, moved: 40 }), null, 'out and back: not a flick');
+  assert.strictEqual(g({ dt: 0.5, dist: 80, moved: 80 }), null, 'a slow drag steers');
+});
+
+test('race view: on a portrait phone the ship stays above the stick\'s band, whichever way it flies', () => {
+  const W = 390, H = 844, band = 0.28, zoom = 0.8, ct = Math.cos(0.6), { BOX } = RaceView;
+  for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) {
+    const lx = Math.cos(a) * 600, ly = Math.sin(a) * 600, f = RaceView.frame({ W, H, lx, ly, zoom, ct, band, reach: 0.3 });
+    const sx = W / 2 - f.lx * zoom, sy = f.oy - f.ly * zoom * ct;
+    assert(sy <= H * (1 - band) - BOX.gap + 1e-9 && sy >= H * BOX.top - 1e-9, `heading ${a.toFixed(2)}: the ship at ${sy.toFixed(0)} px`);
+    assert(sx >= W * BOX.x[0] - 1e-9 && sx <= W * BOX.x[1] + 1e-9);
+  }
+  // Flying up the ship rests low, the screen ahead of it; flying down it rises.
+  const up = RaceView.frame({ W, H, lx: 0, ly: -600, zoom, ct, band, reach: 0.3 }), down = RaceView.frame({ W, H, lx: 0, ly: 600, zoom, ct, band, reach: 0.3 });
+  assert(up.oy - up.ly * zoom * ct > H * 0.6 && down.oy - down.ly * zoom * ct < H * 0.25);
+  // A short lead isn't moved.
+  assert.deepStrictEqual(RaceView.frame({ W, H, lx: 20, ly: -30, zoom, ct, band, reach: 0.3 }).lx, 20);
+  // No band: the lead held to reach of the shorter side, as before.
+  const f = RaceView.frame({ W, H, lx: 0, ly: -600, zoom, ct, band: 0, reach: 0.3 });
+  assert(Math.abs(Math.hypot(f.lx, f.ly) * zoom - 0.3 * W) < 1e-9 && f.oy === H * 0.55);
+});
+
+test('race maneuvers: the brake, a boost, a sidestep, an airbrake, charges, and a hop', () => {
+  // Flat open ground (no walls), flown at full speed into the race from the start.
+  const { N } = RaceConfig, tr = Track.loop(1, RaceConfig.TRACK), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
+  const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr };
+  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: true, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 }, ghostKey: 'test' };
+  const top = cfg.stats.maxSpeed, speed = (R) => Math.hypot(R.craft.vx, R.craft.vy);
+  // Steered along the track, as a player would.
+  const run = (R, ctl, s) => { for (let t = 0; t < s; t += Run.STEP) { const p = tr.pts[Track.ahead(tr, R.n, 150)]; ctl.angle = Math.atan2(p.ty, p.tx); Run.step(R, G, cfg, ctl); } };
+  const fresh = () => {
+    const R = Run.create(G, cfg), ctl = { angle: R.craft.angle, speed: 1, brake: false, events: [] };
+    ctl.events.push({ type: 'flick' }); // during the countdown: ignored
+    run(R, ctl, 3 + 1.5);
+    assert(R.phase === 'race' && Math.abs(speed(R) - top) < 1 && R.dash.charges === Run.DASH.charges && !ctl.events.length);
+    return [R, ctl];
+  };
+  let [R, ctl] = fresh();
+  ctl.brake = true; run(R, ctl, 1);
+  assert(Math.abs(speed(R) - top * Run.BRAKE.speed) < 5, `braked to ${speed(R)}`);
+
+  [R, ctl] = fresh();
+  ctl.events.push({ type: 'flick', angle: R.craft.angle + 0.1 });
+  run(R, ctl, Run.STEP);
+  assert(Math.abs(speed(R) - top * Run.DASH.boost) < 1 && R.dash.kind === 'boost' && R.dash.charges === 1 && R.fx.includes('boost'), 'a boost');
+  run(R, ctl, 0.3);
+  assert(speed(R) > top * 1.2, 'still fast after the burst');
+  run(R, ctl, 1);
+  assert(speed(R) <= top + 1, `eased back down: ${speed(R)}`);
+
+  [R, ctl] = fresh();
+  const v0 = [R.craft.vx, R.craft.vy], way = Math.atan2(v0[1], v0[0]);
+  ctl.events.push({ type: 'flick', rel: Math.PI / 2 });
+  run(R, ctl, Run.STEP);
+  const across = -R.craft.vx * Math.sin(way) + R.craft.vy * Math.cos(way);
+  assert(R.dash.kind === 'side' && Math.abs(across - top * Run.DASH.side) < 1, `a sidestep to the right of the way: ${across}`);
+  run(R, ctl, Run.DASH.sideTime);
+  assert(Math.hypot(R.craft.vx - v0[0], R.craft.vy - v0[1]) < 20, 'the velocity it had, given back');
+  ctl.events.push({ type: 'flick', rel: Math.PI });
+  run(R, ctl, Run.STEP);
+  assert(R.dash.kind === 'airbrake' && Math.abs(speed(R) - top * Run.DASH.air) < 5 && R.dash.charges === 0, `an airbrake: ${speed(R)}`);
+  const before = speed(R);
+  ctl.events.push({ type: 'flick' });
+  run(R, ctl, Run.STEP);
+  assert(R.dash.kind === 'airbrake' && speed(R) > before, 'no charge left: nothing');
+  run(R, ctl, Run.DASH.refill);
+  assert(R.dash.charges === 1 && R.fx.includes('charge'), 'a charge back');
+
+  [R, ctl] = fresh();
+  ctl.events.push({ type: 'tap' });
+  run(R, ctl, Run.HOP.time / 2);
+  assert(R.air > Run.HOP.h * 0.9 && R.fx.includes('hop'), `up: ${R.air}`);
+  R.fx.length = 0; ctl.events.push({ type: 'tap' });
+  run(R, ctl, Run.HOP.time / 2 + Run.STEP * 2);
+  assert(R.air === 0 && R.fx.includes('land') && !R.fx.includes('hop'), 'down again, no hop in the air');
+  ctl.events.push({ type: 'tap' });
+  run(R, ctl, Run.STEP);
+  assert(R.air === 0, 'a moment on the ground before the next');
+  run(R, ctl, Run.HOP.cool);
+  ctl.events.push({ type: 'tap' });
+  run(R, ctl, 0.1);
+  assert(R.air > 0, 'then it hops again');
 });
 
 test('race ghost: a lap recorded at its rate and flown back between its samples', () => {
