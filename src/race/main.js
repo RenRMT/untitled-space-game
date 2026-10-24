@@ -58,7 +58,10 @@ const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 const BODY = { art: ART, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / ART.radius, r: R_SHIP, z: ArtSurface.FLY };
 
 const coarse = matchMedia('(pointer: coarse)').matches;
-const DPR = coarse ? 1.5 : 2; // the canvas's pixel ratio at most
+// The canvas's pixel ratio at most: below a phone's own (most mobile games draw under native
+// resolution), and lowered a step at a time while frames are missed (pace).
+const DPRS = coarse ? [1.25, 1] : [2, 1.5, 1.25];
+let dprAt = 0;
 const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the track from the start; ms of work between paints
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1 };
 Input.mode = ['point', 'sides'].includes(q.get('steer')) ? q.get('steer') : Store.get('race.steer') === 'sides' ? 'sides' : 'point';
@@ -67,7 +70,7 @@ let G = null; // the track and its surface: { W, tr, b, seed, hw, talls, holes, 
 let R = null; // the run on it
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
-const cv = document.getElementById('view'), ctx = cv.getContext('2d'), hud = document.getElementById('hud'), note = document.getElementById('note');
+const cv = document.getElementById('view'), ctx = cv.getContext('2d'), note = document.getElementById('note');
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 // ---------- The track and the run ----------
@@ -94,11 +97,15 @@ function restart() {
 
 // ---------- The view ----------
 
-function viewNow(Wc, Hc, C) {
-  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * R.cam.zf;
+// The camera, like the craft, between its last two steps (a of the way from the one before).
+const cam = { lx: 0, ly: 0, zf: 1 };
+function viewNow(Wc, Hc, C, a) {
+  const P = R.pcam, Q = R.cam;
+  cam.lx = P.lx + (Q.lx - P.lx) * a; cam.ly = P.ly + (Q.ly - P.ly) * a; cam.zf = P.zf + (Q.zf - P.zf) * a;
+  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf;
   // The lead, held to CAM.reach of the screen's shorter side, so the ship never runs off its edge.
-  const l = Math.hypot(R.cam.lx, R.cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
-  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + R.cam.lx * f, fy: C.y + R.cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
+  const l = Math.hypot(cam.lx, cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
+  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + cam.lx * f, fy: C.y + cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
   return { v, zoom };
 }
 // The ground to build detailed chunks over round (x, y) (game/landing.js detailRect), and the same
@@ -143,20 +150,36 @@ const STARS = Array.from({ length: 220 }, (_, i) => { const h = (n) => { const v
 const ground = (v, x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, ArtSurface.heightAt(G.W, x, y) + z);
 const TAU = Math.PI * 2;
 // The craft between its last two steps (a of the way from the one before).
+const drawn = { x: 0, y: 0, angle: 0, thrust: 0 };
 function between(a) {
   const C = R.craft, P = R.prev, da = ((C.angle - P.angle + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  return { x: P.x + (C.x - P.x) * a, y: P.y + (C.y - P.y) * a, angle: P.angle + da * a, thrust: C.thrust };
+  drawn.x = P.x + (C.x - P.x) * a; drawn.y = P.y + (C.y - P.y) * a; drawn.angle = P.angle + da * a; drawn.thrust = C.thrust;
+  return drawn;
 }
 
+// Frames missed: a frame over 1.5× the usual one missed the display's refresh. When more than a
+// tenth of 2 s of frames miss, the canvas drops to the next pixel ratio (and stays there: up and
+// down again would show). A display held to 30 a second (a phone saving power) misses none.
+const PACE = { span: 2000, missed: 0.1 }, pace = { at: 0, n: 0, ts: [] };
+function paceFrame(t, dt) {
+  if (dt > 250) return; // a hidden tab, a bake
+  pace.ts.push(dt);
+  if (t - pace.at < PACE.span) return;
+  const s = [...pace.ts].sort((x, y) => x - y), usual = s[s.length >> 1], missed = s.filter((x) => x > usual * 1.5).length;
+  if (missed > s.length * PACE.missed && dprAt < DPRS.length - 1) dprAt++;
+  pace.at = t; pace.ts.length = 0;
+}
+
+const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudRest = document.getElementById('hud-rest');
 let hudAt = -1, hudText = '';
 function render(time, a) {
-  const dpr = Math.min(DPR, devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
+  const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
   if (cv.width !== Math.round(Wc * dpr) || cv.height !== Math.round(Hc * dpr)) { cv.width = Math.round(Wc * dpr); cv.height = Math.round(Hc * dpr); }
   Art.beginFrame();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, Wc, Hc);
   if (S.curved) for (const [sx, sy, al] of STARS) { ctx.fillStyle = `rgba(230,236,255,${al * 0.8})`; ctx.fillRect(sx * Wc, sy * Hc, 1, 1); }
-  const C = between(a), { far, tiles } = looks(), { v, zoom } = viewNow(Wc, Hc, C), px = 1 / zoom;
+  const C = between(a), { far, tiles } = looks(), { v, zoom } = viewNow(Wc, Hc, C, a), px = 1 / zoom;
   const got = tiles.layers(detailRect(v), 0), layers = [far, ...got];
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   if (S.curved) SurfaceGlobe.draw(ctx, layers, v, { dpr: dpr * zoom, fog: bg, fogDist: SurfaceGlobe.horizonDist(v) * 1.3, under: bg });
@@ -171,11 +194,13 @@ function render(time, a) {
   Draw.minimap(ctx, Wc, G, R, SIZE, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held); else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
-  // The HUD's text, ten times a second, and only written when it changed.
+  // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
   if (time - hudAt > 0.1 || time < hudAt) {
     hudAt = time;
-    const html = Draw.hud(G, R, cfg, got.missing);
-    if (html !== hudText) hud.innerHTML = hudText = html;
+    const h = Draw.hud(G, R, cfg, got.missing);
+    if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
+    hudTime.textContent = h.time;
+    if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
   }
   const { msg, big } = Draw.note(R, cfg);
   if (note.textContent !== msg) note.textContent = msg;
@@ -187,6 +212,7 @@ function render(time, a) {
 let last = 0, acc = 0;
 function frame(t) {
   if (baking) { last = t; requestAnimationFrame(frame); return; }
+  if (last) paceFrame(t, t - last);
   acc += Math.min(0.1, (t - last) / 1000 || 0); last = t;
   cfg.steer = Input.mode;
   const ctl = Input.control();

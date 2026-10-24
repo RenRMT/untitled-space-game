@@ -7,7 +7,7 @@
 //     (ground: needed for the shadow)
 //   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
-//   Draw.hud(G, R, cfg, missing) -> html          missing: chunks still building in view
+//   Draw.hud(G, R, cfg, missing) -> { lap, time, rest }   text, text, html; missing: chunks still building in view
 //   Draw.note(R, cfg) -> { msg, big }             the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
 
@@ -110,7 +110,8 @@ const Draw = (() => {
   const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
   function hud(G, R, cfg, missing) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
-    return `<b>Lap ${lap}/${cfg.laps}</b> · ${fmt(R.lapT)} · total ${fmt(R.total)}<br>Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · seed ${G.seed} · ${Math.round(G.tr.len)} u a lap · ${G.talls.length} rocks, ${G.holes.length} holes on the track${missing ? ` · ${missing} chunks building` : ''}</span>`;
+    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · seed ${G.seed} · ${Math.round(G.tr.len)} u a lap · ${G.talls.length} rocks, ${G.holes.length} holes on the track${missing ? ` · ${missing} chunks building` : ''}</span>`;
+    return { lap: `Lap ${lap}/${cfg.laps}`, time: `${fmt(R.lapT)} · total ${fmt(R.total)}`, rest };
   }
   function note(R, cfg) {
     const best = R.laps.length ? Math.min(...R.laps) : null, hullPct = Math.round((100 * R.hull) / cfg.hull), lap = Math.min(cfg.laps, R.laps.length + 1);
