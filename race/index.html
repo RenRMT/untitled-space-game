@@ -17,6 +17,7 @@
     #help { position: fixed; right: 16px; bottom: 14px; opacity: 0.55; pointer-events: none; text-align: right; }
     @media (max-width: 600px) { #help { display: none; } }
     body.busy::after { content: 'Building track…'; position: fixed; inset: 0; display: grid; place-items: center; background: #05060acc; }
+    body.busy[data-busy]::after { content: attr(data-busy); }
   </style>
 </head>
 <body class="busy">
