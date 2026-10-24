@@ -97,8 +97,8 @@ that:
 
 ## From mobile racing games
 
-- **Controls:** portrait and one thumb first (`notes/race-research.md` Part C). A stick in a band
-  along the bottom; the view frames the race above it so the ship is never under the thumb. Back to
+- **Controls:** portrait and one thumb first (`notes/race-research.md` Part C). A stick fixed in a
+  band along the bottom; the view frames the race above it so the ship is never under the thumb. Back to
   the stick's middle brakes, a tap hops, a flick dashes (forward a boost, sideways a sidestep, back
   an airbrake; two charges). Drag-anywhere (point) and the left and right halves (sides, as Data
   Wing) stay as options.
@@ -133,8 +133,12 @@ that:
    layouts by score; the corners handed on as `tr.corners`. Over seeds 1–60: 55–77% of the bending
    one way (was 71–100%), 6–10 direction changes (was 0–8), 1–6 corners needing a lift (was none),
    laps of 19–25 s. Controls for portrait and one thumb: the pad (a stick in a band along the
-   bottom, the view framed above it), a brake, a hop on a tap, dashes on a flick. Still to do: a
-   racing line and medal times; the camera zooming out with speed; gaps and ramps for the hop.
+   bottom, the view framed above it), a brake, a hop on a tap, dashes on a flick. Handling
+   (`src/race/handling.js`, `notes/race-research.md` Part D): grip, a slide and a brake, so the tight
+   corners need the brake (steering no longer slows the craft by itself); a slide held at speed
+   charges a drift boost, with skid marks and sparks; the pad's base fixed on its home ring. Still to
+   do: a racing line and medal times; the camera zooming out with speed; gaps and ramps for the hop;
+   the advanced style's corners still don't need the brake.
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
 4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.

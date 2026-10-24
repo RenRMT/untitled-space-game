@@ -54,6 +54,8 @@ import { Contact } from '../src/race/contact.js';
 import { Ghost } from '../src/race/ghost.js';
 import { Input as RaceInput } from '../src/race/input.js';
 import { Run } from '../src/race/run.js';
+import { Handling } from '../src/race/handling.js';
+import { Pilot } from '../src/race/pilot.js';
 import { View as RaceView } from '../src/race/view.js';
 
 let failed = 0;
@@ -3436,6 +3438,84 @@ test('race maneuvers: the brake, a boost, a sidestep, an airbrake, charges, and 
   ctl.events.push({ type: 'tap' });
   run(R, ctl, 0.1);
   assert(R.air > 0, 'then it hops again');
+});
+
+test('race handling: the grip bounds the turn, the engine holds speed, the brake only slows, the slide comes and goes', () => {
+  const stats = RaceConfig.STATS, { GRIP, BRAKE, SLIDE } = Handling.config, top = stats.maxSpeed, a = stats.accel, dt = Run.STEP;
+  const fresh = (angle = 0) => [{ x: 0, y: 0, vx: top, vy: 0, angle, thrust: 1 }, { slip: 0, sliding: false }];
+  const way = (b) => Math.atan2(b.vy, b.vx), speed = (b) => Math.hypot(b.vx, b.vy);
+  // Nose held square to the way at full speed: the velocity swings round no faster than the grip lets it.
+  let [b, st] = fresh(), slid = false;
+  for (let t = 0; t < 0.6; t += dt) {
+    const w0 = way(b), v = speed(b);
+    Handling.step(b, stats, { targetAngle: Math.PI / 2, targetSpeed: top }, st, dt);
+    assert(Math.abs(way(b) - w0) <= (GRIP * a / v) * dt * 1.001 + 1e-9, `turned ${(way(b) - w0) / dt} rad/s at ${v}`);
+    slid ||= st.sliding;
+  }
+  assert(slid, 'the nose swung past SLIDE.on: a slide');
+  // Pointed back along the way, the grip comes back only once the slip is under SLIDE.off.
+  for (let t = 0; t < 2 && st.sliding; t += dt) {
+    Handling.step(b, stats, { targetAngle: way(b), targetSpeed: top }, st, dt);
+    if (st.sliding) assert(st.slip > SLIDE.off - 1e-9);
+  }
+  assert(!st.sliding && st.slip <= SLIDE.off);
+  // A nose a little off the way (no slide): the engine holds top speed, steering doesn't brake.
+  [b, st] = fresh(0.3);
+  for (let t = 0; t < 1; t += dt) Handling.step(b, stats, { targetAngle: 0.3, targetSpeed: top }, st, dt);
+  assert(!st.sliding && Math.abs(speed(b) - top) < 1, `held at ${speed(b)}`);
+  // Lifting slows at LIFT × the acceleration, braking at BRAKE ×, and the brake turns no tighter.
+  [b, st] = fresh();
+  Handling.step(b, stats, { targetAngle: 0, targetSpeed: top * 0.35, brake: true }, st, 0.1);
+  assert(Math.abs(top - speed(b) - BRAKE * a * 0.1) < 1e-6, `braked by ${top - speed(b)}`);
+  [b, st] = fresh();
+  for (let t = 0; t < 0.4; t += dt) {
+    const w0 = way(b);
+    Handling.step(b, stats, { targetAngle: Math.PI / 2, targetSpeed: top * 0.35, brake: true }, st, dt);
+    assert(Math.abs(way(b) - w0) <= (GRIP * a / speed(b)) * dt * 1.001 + 1e-9, 'no tighter for braking'); // at the speed it slowed to
+  }
+});
+
+test('race drift: a slide held at speed charges a level, the grip back gives a boost; skid marks behind', () => {
+  // Open ground, as if all of it were track (the run-off would lose the charge).
+  const { N } = RaceConfig, tr = Track.loop(1, RaceConfig.TRACK), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
+  const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr };
+  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: false, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 }, ghostKey: 'test' };
+  const top = cfg.stats.maxSpeed, speed = (R) => Math.hypot(R.craft.vx, R.craft.vy), fx = [];
+  const R = Run.create(G, cfg), ctl = { angle: R.craft.angle, speed: 1, brake: false, events: [] };
+  const run = (s, aim) => { for (let t = 0; t < s; t += Run.STEP) { ctl.angle = aim(); Run.step(R, G, cfg, ctl); R.off = 0; fx.push(...R.fx); R.fx.length = 0; } };
+  run(3 + 1.5, () => R.craft.angle);
+  assert(R.phase === 'race' && Math.abs(speed(R) - top) < 1 && !R.grip.sliding);
+  // The nose thrown 1.2 rad off the way and held there: a slide, charged to the first level.
+  run(Run.DRIFT.at[0] + 0.15, () => Math.atan2(R.craft.vy, R.craft.vx) + 1.2);
+  assert(R.grip.sliding && R.drift.level === 1 && fx.includes('slide') && fx.includes('drift1'), `level ${R.drift.level} after ${R.drift.t}s`);
+  assert(R.skids.length > 10 && R.skids.every((p) => p), 'marks behind the slide');
+  // Straightened out: the grip back, a boost over top speed, held a moment, then eased back down.
+  run(0.6, () => Math.atan2(R.craft.vy, R.craft.vx));
+  assert(!R.grip.sliding && fx.includes('driftBoost') && R.drift.level === 0, 'released');
+  assert(R.skids[R.skids.length - 1] === null, 'a gap after the slide');
+  const i = fx.indexOf('driftBoost');
+  assert(i >= 0 && R.drift.k === Run.DRIFT.boost[0]);
+  run(1.5, () => Math.atan2(R.craft.vy, R.craft.vx));
+  assert(Math.abs(speed(R) - top) < 2, `back to top speed: ${speed(R)}`);
+  // A short slide charges nothing and gives nothing.
+  fx.length = 0;
+  run(0.25, () => Math.atan2(R.craft.vy, R.craft.vx) + 1.2);
+  run(0.6, () => Math.atan2(R.craft.vy, R.craft.vx));
+  assert(fx.includes('slide') && !fx.includes('driftBoost'));
+});
+
+test('race pilot: on regular tracks braking for the tight corners beats flying them flat out', () => {
+  let gain = 0, faster = 0, wide = 0;
+  for (let seed = 1; seed <= 6; seed++) {
+    const flat = Pilot.lap(seed, RaceConfig.TRACK, { brake: false }), brake = Pilot.lap(seed, RaceConfig.TRACK);
+    assert(flat.laps.length === 1 && brake.laps.length === 1);
+    assert(brake.hits === 0 && brake.brakes >= 1, `seed ${seed}: the braking pilot brakes and stays off the walls`);
+    gain += flat.laps[0] - brake.laps[0];
+    if (flat.laps[0] - brake.laps[0] > 0.2) faster++;
+    if (flat.off > 0.5 || flat.hits) wide++;
+  }
+  assert(faster >= 3 && gain > 2, `braking faster on ${faster} of 6, ${gain.toFixed(2)} s in all`);
+  assert(wide >= 3, `flat out runs wide on ${wide} of 6`);
 });
 
 test('race ghost: a lap recorded at its rate and flown back between its samples', () => {

@@ -272,7 +272,8 @@ as an identity; auto-accelerate, assist, ghost, minimap, wrong way.
 
 ### What can improve, most first
 1. No corner needs a lift: the turning circle (326) is under every corner's radius, so laps are flat
-   out and skill is only line tidiness. It also removes the braking zones rivals need.
+   out and skill is only line tidiness. It also removes the braking zones rivals need. *Done (Part D):
+   the Cruise step cut the chord, so pointing the nose at a corner's exit braked by itself.*
 2. Look-ahead is short and the camera zooms in at speed (`cam.pull`), the opposite of common practice;
    the ship sits at 55% whichever way it flies.
 3. Sides mode inverts on downward stretches and has no touch brake (both halves go straight).
@@ -332,7 +333,8 @@ Oct 24, 2026. Portrait on a phone comes first, steered with one thumb.
 ### C2. What the race does now (`src/race/input.js`, `view.js`, `run.js`)
 - **Pad** (the default on touch screens, `?steer=pad`):
   - a stick in a band along the bottom 28% of a portrait screen (40% in landscape), kept clear of the home bar;
-  - a ring at home in the band; a touch anywhere in it puts the base under the thumb, and the base follows past the rim;
+  - a ring fixed at home in the band; a touch anywhere in it steers from the ring's centre, and anywhere past the rim
+    is full speed that way (the base no longer moves to the thumb or follows it: no drag, one place to learn);
   - angle is the heading and reach the speed, as point mode;
   - brought back into the middle quarter once out, it **brakes** (top speed eased to ×0.35 at 2.5× the acceleration).
 - **The view** (`View.frame`) frames the race above the band on a portrait screen:
@@ -349,6 +351,49 @@ Oct 24, 2026. Portrait on a phone comes first, steered with one thumb.
 - **Haptics** (Android browsers): a buzz on each dash, the hop, the landing and a charge back.
 - Point (drag anywhere) stays the default with a mouse and gets the same taps and flicks; its double-tap stop is gone.
   Sides is unchanged, with X and Space too.
+
+## Part D: grip, the slide and the brake
+
+Oct 24, 2026. Before this, no corner needed the brake. Measured, there were three reasons:
+- **Steering braked by itself.** In Cruise the velocity eases toward heading × speed as one vector, so
+  pointing the nose at a corner's exit cut the chord: the velocity turned and lost speed together, for free.
+- **The brake was grip.** It multiplied all of the acceleration by 2.5, turning included.
+- **Walls were free.** A graze kept 96% of its speed.
+
+On top of that, the track is wide against its corners. A 90° corner's line has a radius far over the
+centreline's, so `<Rv` overstates how tight a corner flies.
+
+`src/race/handling.js` (the race's own step; the game's `Flight` is untouched; Direct still uses it)
+splits the change in velocity in two:
+- **Along the velocity:** the engine holds the speed asked for whichever way the nose points
+  (×1 the acceleration up, or down from over top speed). Lifting slows at ×0.35; the brake slows at ×2.5.
+- **Across it:** the grip, ×0.85 the acceleration, so the tightest circle at top speed is about
+  384. The brake no longer adds grip.
+- **The slide:** the slip is the nose's angle from the velocity. Over 0.42 rad the craft slides: the
+  grip drops to ×0.8 and the speed is scrubbed by 0.3 × the acceleration × the slip's sine. It grips
+  again under 0.22 rad. The gap between the two (hysteresis) makes the change predictable.
+- **Walls:** friction 0.12, so a graze keeps 88% and scraping costs more than braking.
+
+**The drift.** A slide held over half of top speed, on the track and on the ground, charges level 1
+at 0.5 s and level 2 at 1.1 s. When the grip comes back it gives a boost: ×1.2 top speed for 0.3 s, or
+×1.35 for 0.5 s. A hit or the run-off loses the charge.
+- Skid marks (the last 240 points) and dust or sparks coloured by level (dust, blue, orange).
+- An arc over the pad's ring fills with the charge.
+- Haptics on the slide, each level and the boost.
+
+**Checked by a scripted pilot** (`src/race/pilot.js`, `npm run tracks -- --fly`). It flies a lap flat
+out, then a lap braking for the bends ahead it can't take (their radius plus half the half-width,
+against the grip). Grip was swept from 0.75 to 0.9; 0.85 gives about three braking zones a lap.
+
+| Style (seeds) | Braking gains a lap, min / median / max | Gains > 0.2 s | Braking zones (median) | Flat out off the track (median) |
+|---|---|---|---|---|
+| Regular (1–30) | −0.14 / 0.52 / 2.35 s | 20 of 30 | 3 | 0.9 s |
+| Expert (1–12) | 0.92 / 2.67 / 4.20 s | 12 of 12 | 16 | 6.0 s |
+| Advanced (1–12) | about 0 | 0 of 12 | – | 0 s |
+
+The advanced style's skeleton layouts still fly flat out. Making their slow corners tighter (× 0.75
+to 0.85) didn't change that, so it's left for the generator: shorter run-ins and corners that turn
+further.
 
 ## Sources
 - [Search-based PCG: taxonomy and survey (Togelius et al.)](https://course.ccs.neu.edu/cs5150f13/readings/togelius_sbpcg.pdf)

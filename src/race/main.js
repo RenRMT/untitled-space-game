@@ -183,17 +183,19 @@ function render(time, a) {
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
   Draw.marks(ctx, v, px, time, G, R, ground);
+  Draw.skids(ctx, v, px, R.skids, ground);
   const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
   // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
   const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
+  Draw.sparks(ctx, v, px, C, body.z, R.drift, time, ground);
   Draw.ship(ctx, v, body, C, { style: S.style, time, shadow: true, ground });
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, G.size, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
-  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH);
+  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH, R.drift, Run.DRIFT);
   else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
   // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
@@ -213,7 +215,7 @@ function render(time, a) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
-const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6] };
+const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26 };
 function frame(t) {
   if (baking) { last = t; requestAnimationFrame(frame); return; }
   if (last) paceFrame(t, t - last);
@@ -237,7 +239,7 @@ function sync() {
   for (const id of Object.keys(STYLES)) $(`track-${id}`).setAttribute('aria-pressed', S.track === id);
   $('help').innerHTML = Input.mode === 'sides'
     ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ / X brakes · Space hops · R restart · N new track'
-    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
+    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes before tight corners; hold a slide to charge a boost' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
   $('help').innerHTML += '<br>Walls bounce you and dent the hull · off the track slows you';
   place();
 }

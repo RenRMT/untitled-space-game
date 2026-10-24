@@ -8,8 +8,11 @@
 //     (ground: needed for the shadow)
 //   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
-//   Draw.pad(ctx, pad, home, radius, inner, dash, DASH)   the stick (Input.pad, Input.home()) and the
-//     dash's charges (Run's R.dash, Run.DASH)
+//   Draw.pad(ctx, pad, home, radius, inner, dash, DASH, drift, DRIFT)   the stick (Input.pad, Input.home()),
+//     the dash's charges (Run's R.dash, Run.DASH) and the drift's charge (R.drift, Run.DRIFT)
+//   Draw.skids(ctx, v, px, skids, ground)   the slides' marks on the ground (Run's R.skids)
+//   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   dust and sparks off the tail while sliding,
+//     coloured by the drift's level (R.drift); z: the ship's height
 //   Draw.hud(G, R, cfg, missing) -> { lap, time, rest }   text, text, html; missing: chunks still building in view
 //   Draw.note(R, cfg) -> { msg, big }             the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
@@ -109,6 +112,48 @@ const Draw = (() => {
     ctx.restore();
   }
 
+  // The drift's colours by level: dust, then blue, then orange.
+  const DRIFT_RGB = ['226,214,190', '125,249,255', '255,176,58'];
+
+  // The slides' marks: two dark streaks from the tail, fading with age, in a few strokes (a stroke
+  // per alpha) rather than one a segment.
+  function skids(ctx, v, px, S, ground) {
+    if (S.length < 2) return;
+    const BUCKETS = 6, per = Math.ceil(S.length / BUCKETS);
+    ctx.save(); ctx.lineWidth = 2.5 * px; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgb(18,18,24)';
+    for (let b = 0; b < BUCKETS; b++) {
+      ctx.globalAlpha = 0.4 * (b + 1) / BUCKETS;
+      ctx.beginPath();
+      for (let i = Math.max(1, b * per); i < Math.min(S.length, (b + 1) * per + 1); i++) {
+        const p = S[i - 1], q = S[i];
+        if (!p || !q) continue;
+        for (const [x0, y0, x1, y1] of [[p.ax, p.ay, q.ax, q.ay], [p.bx, p.by, q.bx, q.by]]) {
+          const a = ground(v, x0, y0), c = ground(v, x1, y1);
+          if (a && c) { ctx.moveTo(a[0], a[1]); ctx.lineTo(c[0], c[1]); }
+        }
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Off the tail while sliding: dust on the ground, and sparks once the drift has a level.
+  function sparks(ctx, v, px, b, z, F, time, ground) {
+    if (!F.on) return;
+    const rgb = DRIFT_RGB[F.level], back = b.angle + Math.PI;
+    ctx.save();
+    for (let i = 0; i < 8; i++) {
+      const h = Math.sin(i * 12.9898 + Math.floor(time * 30) * 78.233) * 43758.5453, f = h - Math.floor(h);
+      const a = back + (f - 0.5) * 1.4, d = 12 + 22 * ((f * 7) % 1);
+      const p = ground(v, b.x + Math.cos(a) * d, b.y + Math.sin(a) * d, F.level ? z * (1 - f) : 0);
+      if (!p) continue;
+      ctx.globalAlpha = (F.level ? 0.9 : 0.35) * (1 - d / 40);
+      ctx.fillStyle = `rgb(${rgb})`;
+      ctx.beginPath(); ctx.arc(p[0], p[1], (F.level ? 1.6 : 3.5) * (1 + f) * px * 2, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function minimap(ctx, Wc, G, R, size, ghost) {
     const side = Math.min(170, Wc * 0.32), x0 = Wc - side - 16, y0 = 64, s = side / size, C = R.craft;
     ctx.save();
@@ -144,10 +189,10 @@ const Draw = (() => {
     ctx.restore();
   }
 
-  // The stick: its ring at home in the band while no thumb is on it, else round its base under the
-  // thumb, with the knob held to the ring; the brake zone in the middle, lit while braking. The dash's
+  // The stick: its ring fixed at home in the band, brighter with a thumb on it, the knob held to the
+  // ring; the brake zone in the middle, lit while braking. The dash's
   // charges as pips under the home ring, the next one filling.
-  function pad(ctx, P, home, md, inner, dash, DASH) {
+  function pad(ctx, P, home, md, inner, dash, DASH, drift, DRIFT) {
     const charges = DASH.charges;
     const on = P.active, bx = on ? P.bx : home.x, by = on ? P.by : home.y;
     ctx.save();
@@ -168,6 +213,15 @@ const Draw = (() => {
       ctx.beginPath(); ctx.arc(x, y, 5, 0, TAU); ctx.stroke();
       if (i < dash.charges) ctx.fill();
       else if (i === dash.charges) { ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, 5, -Math.PI / 2, -Math.PI / 2 + TAU * (dash.refill / DASH.refill)); ctx.fill(); }
+    }
+    // The drift's charge: an arc over the top of the ring filling left to right, a tick at the first
+    // level, its colour the level reached.
+    if (drift) {
+      const r = md + 8, a0 = -Math.PI * 0.75, span = Math.PI / 2, at = DRIFT.at, f = Math.min(1, drift.t / at[1]), tick = a0 + (span * at[0]) / at[1];
+      ctx.lineCap = 'round'; ctx.lineWidth = 3; ctx.globalAlpha = 0.25; ctx.strokeStyle = '#cfd8ff';
+      ctx.beginPath(); ctx.arc(home.x, home.y, r, a0, a0 + span); ctx.stroke();
+      ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(home.x + Math.cos(tick) * (r - 5), home.y + Math.sin(tick) * (r - 5)); ctx.lineTo(home.x + Math.cos(tick) * (r + 5), home.y + Math.sin(tick) * (r + 5)); ctx.stroke();
+      if (f > 0) { ctx.lineWidth = 3; ctx.globalAlpha = 0.9; ctx.strokeStyle = `rgb(${DRIFT_RGB[drift.level]})`; ctx.beginPath(); ctx.arc(home.x, home.y, r, a0, a0 + span * f); ctx.stroke(); }
     }
     ctx.restore();
   }
@@ -200,7 +254,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { lines, marks, ship, minimap, drag, pad, sides, hud, note };
+  return { lines, marks, ship, skids, sparks, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };

@@ -10,7 +10,7 @@
 //   Config.KINDS             per biome: { track, off } ground kinds ('a' | 'b' | 'c', ArtSurface)
 //   Config.SHIP, STATS, TUNE, SPEED   the Courier as the game fits it; the race's stats (× TUNE, SPEED top speed)
 //   Config.R_SHIP, HULL      the craft's collision radius on the surface; its hull
-//   Config.TRACKS            the track generator's version: a seed's ghost is kept only for the track it was flown on
+//   Config.TRACKS            the tracks' and the handling's version: a seed's ghost is kept only for the track and handling it was flown with
 // ES module (`Config`); also runs in Node.
 
 import { Loadout } from '../rules/loadout.js';
@@ -19,7 +19,7 @@ const Config = (() => {
   const T = 64, N = 76, SIZE = N * T; // ArtSurface.T; the surface, tiles a side; world units a side
   const N_ADV = 90, LAP_ADV = [26, 38]; // the advanced style's tiles a side, and the lap its layouts are scored for (s)
   const N_EXP = 90, LAP_EXP = [28, 40]; // the expert style's
-  const TRACKS = 4;
+  const TRACKS = 5; // 5: grip, slide and brake (Handling)
   // The ship: the Courier as the game fits and draws it (game/state.js SHIP), at the surface's size
   // (game/landing.js SURFACE_SCALE).
   const SHIP = Loadout.stats(Loadout.starter('courier'));
