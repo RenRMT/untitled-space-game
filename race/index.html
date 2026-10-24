@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Race</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #05060a; color: #dfe6f2; font: 500 13px system-ui, sans-serif; overflow: hidden; }
+    canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px max(16px, env(safe-area-inset-left)); background: linear-gradient(#05060ae0, #05060a00); }
+    .grp { display: flex; gap: 2px; }
+    button { min-height: 36px; padding: 0 12px; border: 1px solid #3a4152; background: #10131c; color: inherit; font: inherit; border-radius: 6px; cursor: pointer; }
+    button[aria-pressed="true"] { background: #2b3550; border-color: #7f9bd6; }
+    #note { position: fixed; left: 0; right: 0; top: 30%; text-align: center; font-weight: 600; font-size: 15px; pointer-events: none; text-shadow: 0 1px 3px #000; white-space: pre-line; }
+    #note.big { font-size: 64px; }
+    #hud { position: fixed; left: 16px; bottom: 14px; pointer-events: none; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; line-height: 1.5; }
+    #help { position: fixed; right: 16px; bottom: 14px; opacity: 0.55; pointer-events: none; text-align: right; }
+    @media (max-width: 600px) { #help { display: none; } }
+    body.busy::after { content: 'Building track…'; position: fixed; inset: 0; display: grid; place-items: center; background: #05060acc; }
+  </style>
+</head>
+<body class="busy">
+  <canvas id="view"></canvas>
+  <div class="bar">
+    <div class="grp" id="biomes"></div>
+    <div class="grp"><button id="lowpoly">Low-poly</button><button id="line">Line</button></div>
+    <button id="curved">Curved</button>
+    <button id="steer">Steer: point</button>
+    <button id="restart">Restart</button>
+    <button id="next">New track</button>
+  </div>
+  <div id="note"></div>
+  <div id="hud"></div>
+  <div id="help"></div>
+  <script type="module" src="../src/race/main.js"></script>
+</body>
+</html>
