@@ -56,13 +56,14 @@ let STATS = Config.stats(SPEED); // × the biome's (Config.BIOME), set with the 
 // the bends ahead: `wide` on a straight, `tight` in a bend.
 const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3, track: 0.6, wide: 0.93, tight: 1.06 };
 const SHIP_SCALE = 1.375, { SURFACE_SCALE } = Config;
-// You fly an Android ship; the rivals their own cultures' (Rival.CULTURES: the hull, the colour),
-// each the same size as yours.
+// You fly an Android light fighter; the rivals their own cultures' ships in their colours (Rival.CULTURES),
+// the hull by the level (light, fighter, heavy), each the same size as yours.
 const XENO = ArtCulture.xeno(1), HUMAN = Object.fromEntries(ArtCulture.HUMAN.map((id, i) => [id, ArtCulture.create(id, 11 + i, Rival.CULTURES[id].color)]));
 const CULTURE = { ...HUMAN, drifter: ArtCulture.kitbash(Object.values(HUMAN), 14, Rival.CULTURES.drifter.color), alien: XENO.alien };
 const sized = (art) => ({ art, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / art.radius, r: R_SHIP, z: ArtSurface.FLY });
 const ART = ArtBlueprints.create('fighter-light', XENO.android, 3), BODY = sized(ART);
-const RIVAL_BODY = Object.fromEntries(Object.entries(Rival.CULTURES).map(([id, c]) => [id, sized(ArtBlueprints.create(c.art, CULTURE[id], 5))]));
+const RIVAL_BODY = {}; // by hull (the level's: Rival.LEVELS ship) and culture, made when first raced
+const rivalBody = (w) => RIVAL_BODY[`${w.art}.${w.id}`] ||= sized(ArtBlueprints.create(w.art, CULTURE[w.id], 5));
 // What sells the speed (drawn only, like the dust): the engines' trails (`trail` s of where they were,
 // `trailW` wide at the engine, strong from `trailFrom` of top speed up); a boost's punch, the camera
 // out by `punch` and streaks in from the edges, over `kick` s; the ship's bank into a turn (`bank` ×
@@ -198,7 +199,7 @@ function rivals(v, a, C, time, far) {
   for (const X of pack.racers) {
     const B = between(a, X.R, other);
     if (Math.abs(B.x - C.x) > far || Math.abs(B.y - C.y) > far) continue;
-    Draw.ship(ctx, v, RIVAL_BODY[X.who.id], B, { style: S.style, time, shadow: true, ground });
+    Draw.ship(ctx, v, rivalBody(X.who), B, { style: S.style, time, shadow: true, ground });
   }
 }
 

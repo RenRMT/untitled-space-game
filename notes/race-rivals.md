@@ -76,8 +76,8 @@ replacing `legacy` in `main.js`), and the field is drawn from the other five cul
 | Culture | Ideals (`factions.js`) | How it flies | Handling twist |
 |---|---|---|---|
 | **Wedge** | Order and reach | *The Textbook.* A clean ideal line, very consistent, few mistakes, moderate aggression, and boost saved for straights. The disciplined front-runner. | Balanced |
-| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early, blocks, and shrugs off contact with a short recovery. | −turn (`fighter-heavy`) |
-| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and boosts out of bends. Rarely passes recklessly, but its rare mistakes are costly. The boss on expert. | +turn (`fighter-light`) |
+| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early, blocks, and shrugs off contact with a short recovery. | −turn |
+| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and boosts out of bends. Rarely passes recklessly, but its rare mistakes are costly. The boss on expert. | +turn |
 | **Drifters** (kitbash) | Freelancers and outlaws | *The Wildcard.* Very aggressive: dashes sideways into rivals. Inconsistent, with high noise and many mistakes. | A small random ± turn |
 | **Alien** | Grown, not built | *The Unreadable.* Strange lines with a large lateral bias and odd turn-ins, and smooth flowing drifts. No barks, since they "answer no hail". | +grip in slides |
 
@@ -99,6 +99,7 @@ The level sets the **skill band** rivals are drawn from. Personality stays the s
 | Skill banding | strong, both ways | mild | minimal, upward only |
 | Field | the slowest three start ahead of you | the same | the boss (Shard) on pole, on the racing line |
 | Power cut (Forza-style) | −3% top speed | none | none |
+| Rivals' hull (looks only) | light fighter | fighter | heavy fighter |
 
 **Calibration.** Fly an ideal-line rival headless over many seeds, as `Pilot.lap` and `tools/race-tracks.js`
 already do, to get a target lap time for each track. That doubles as the **medal times**: gold is about expert,

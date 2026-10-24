@@ -50,19 +50,20 @@ import { Track } from './track.js';
 
 const Rival = (() => {
   const CULTURES = {
-    wedge: { name: 'Wedge', color: '#5fa8ff', art: 'fighter', bias: 0, weave: 0, aim: 1, brake: 1, aggression: 0.45, block: 0.2, ram: 0, boost: 'straights', noise: 0.01, mistakes: 0.5, slips: ['wide', 'early'], recover: 0.6, twist: {} },
-    block: { name: 'Block', color: '#e0a030', art: 'fighter-heavy', bias: 0.3, weave: 0, aim: 1.1, brake: 1.3, aggression: 0.6, block: 0.9, ram: 0, boost: 'straights', noise: 0.015, mistakes: 0.8, slips: ['early', 'wide'], recover: 0.3, twist: { turnRate: 0.94 } },
-    shard: { name: 'Shard', color: '#3fbf6a', art: 'fighter-light', bias: 0, weave: 0, aim: 0.9, brake: 0.8, aggression: 0.3, block: 0, ram: 0, boost: 'exits', noise: 0.01, mistakes: 0.4, slips: ['late'], recover: 1, twist: { turnRate: 1.06 } },
-    drifter: { name: 'Drifters', color: '#d8824a', art: 'fighter', bias: 0.2, weave: 0, aim: 1, brake: 1, aggression: 0.9, block: 0.5, ram: 0.6, boost: 'random', noise: 0.04, mistakes: 1.6, slips: ['late', 'wide', 'early'], recover: 0.5, twist: 'random' },
-    alien: { name: 'Alien', color: '#c86ad8', art: 'fighter', bias: 0.1, weave: 0.2, aim: 1, brake: 1, aggression: 0.5, block: 0.2, ram: 0, boost: 'exits', noise: 0.02, mistakes: 0.8, slips: ['wide'], recover: 0.6, twist: { slide: 1.1 } },
+    wedge: { name: 'Wedge', color: '#5fa8ff', bias: 0, weave: 0, aim: 1, brake: 1, aggression: 0.45, block: 0.2, ram: 0, boost: 'straights', noise: 0.01, mistakes: 0.5, slips: ['wide', 'early'], recover: 0.6, twist: {} },
+    block: { name: 'Block', color: '#e0a030', bias: 0.3, weave: 0, aim: 1.1, brake: 1.3, aggression: 0.6, block: 0.9, ram: 0, boost: 'straights', noise: 0.015, mistakes: 0.8, slips: ['early', 'wide'], recover: 0.3, twist: { turnRate: 0.94 } },
+    shard: { name: 'Shard', color: '#3fbf6a', bias: 0, weave: 0, aim: 0.9, brake: 0.8, aggression: 0.3, block: 0, ram: 0, boost: 'exits', noise: 0.01, mistakes: 0.4, slips: ['late'], recover: 1, twist: { turnRate: 1.06 } },
+    drifter: { name: 'Drifters', color: '#d8824a', bias: 0.2, weave: 0, aim: 1, brake: 1, aggression: 0.9, block: 0.5, ram: 0.6, boost: 'random', noise: 0.04, mistakes: 1.6, slips: ['late', 'wide', 'early'], recover: 0.5, twist: 'random' },
+    alien: { name: 'Alien', color: '#c86ad8', bias: 0.1, weave: 0.2, aim: 1, brake: 1, aggression: 0.5, block: 0.2, ram: 0, boost: 'exits', noise: 0.02, mistakes: 0.8, slips: ['wide'], recover: 0.6, twist: { slide: 1.1 } },
   };
   // pace, bias: the bands drawn from; mistakes: × each culture's; boost: the odds it takes a chance
-  // to; band: [up, down] skill banding at its most; speed: × top speed; boss: [the culture, its pace],
+  // to; band: [up, down] skill banding at its most; speed: × top speed; ship: the hull they're drawn
+  // as (ArtBlueprints: lighter to heavier up the levels; looks only); boss: [the culture, its pace],
   // the one rival a cut above the rest: on the racing line itself, and half as many mistakes.
   const LEVELS = {
-    regular: { pace: [0.86, 0.92], bias: [0.5, 0.8], mistakes: 1.5, boost: 0.3, band: [0.04, 0.04], speed: 0.97 },
-    advanced: { pace: [0.92, 0.96], bias: [0.2, 0.5], mistakes: 1, boost: 0.7, band: [0.02, 0.02], speed: 1 },
-    expert: { pace: [0.95, 0.98], bias: [0, 0.2], mistakes: 0.5, boost: 1, band: [0.01, 0], speed: 1, boss: ['shard', 1.1] },
+    regular: { pace: [0.86, 0.92], bias: [0.5, 0.8], mistakes: 1.5, boost: 0.3, band: [0.04, 0.04], speed: 0.97, ship: 'fighter-light' },
+    advanced: { pace: [0.92, 0.96], bias: [0.2, 0.5], mistakes: 1, boost: 0.7, band: [0.02, 0.02], speed: 1, ship: 'fighter' },
+    expert: { pace: [0.95, 0.98], bias: [0, 0.2], mistakes: 0.5, boost: 1, band: [0.01, 0], speed: 1, ship: 'fighter-heavy', boss: ['shard', 1.1] },
   };
   const PLAYER = 3, SLOT = { back: 55, side: 0.42 }; // your slot (0: the front); a slot back, and across × the half-width
   const AIM = { near: 50, lead: 0.25 }, ROOM = 40; // ROOM: the units it leaves itself braking (× brake)
@@ -78,7 +79,7 @@ const Rival = (() => {
     const who = ids.map((id, i) => {
       const r = mulberry32(hashInt(seed, i, 0x51a1)), c = CULTURES[id];
       const boss = !!L.boss && L.boss[0] === id, pace = boss ? L.boss[1] : L.pace[0] + (L.pace[1] - L.pace[0]) * r();
-      return { id, name: c.name, color: c.color, art: c.art, pace, boss, bias: boss ? 0 : clamp(L.bias[0] + (L.bias[1] - L.bias[0]) * r() + c.bias, 0, 1) };
+      return { id, name: c.name, color: c.color, art: L.ship, pace, boss, bias: boss ? 0 : clamp(L.bias[0] + (L.bias[1] - L.bias[0]) * r() + c.bias, 0, 1) };
     });
     // The slowest at the front, you in the middle: there's someone to pass from the first bend. A
     // boss starts on pole: the one to hunt down.
