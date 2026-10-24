@@ -86,8 +86,10 @@ that:
    chunks are built ahead along the track, not only along the velocity.
 5. **Smaller costs:** the HUD's text is rewritten only when it changes (10 times a second); the
    canvas's pixel ratio is held lower on phones.
-6. **Drivable tracks:** the centreline is smoothed until its tightest bend is wider than the
-   track, and the track never narrows below a few ship widths.
+6. **Drivable tracks:** a polygon of 8 to 13 seeded corners, rounded into arcs from hairpins to
+   sweepers and joined by straights, a little taller than wide; no bend tighter than twice the
+   track's half-width, no two stretches without a wall between them, and the track never narrows
+   below a few ship widths.
 
 ## From mobile racing games
 
@@ -112,8 +114,7 @@ that:
 1. **Feel and structure** (done): moved to `race/` and `src/race/` (track, contact, ghost, input,
    drawing, the run and its wiring) with the import boundary; walls you slide along and rocks as
    circles; the fixed step with interpolation; chunks built during the countdown and ahead along
-   the track; auto-accelerate with left and right halves to steer (`?steer=sides`, or the Steer
-   button), and the steering assist; the camera leading along the track, zooming by its bends;
+   the track; auto-accelerate with left and right halves to steer (`?steer=sides`), and the steering assist; the camera leading along the track, zooming by its bends;
    the centreline smoothed with a minimum width; your best lap's ghost (saved per biome and seed).
    Tests for the track and for sliding along a wall in `tests/run.js`.
 2. **Content:** soft edges and shortcuts; boost pads (the dash); lava vents on a timer and dust
