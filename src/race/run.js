@@ -15,7 +15,10 @@
 //       left, k: the boost's top speed ×, on: sliding }
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
 //       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost'; the page empties it
-//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey }
+//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome? }
+//     biome: Config.biome(id), its character: the handling (Handling.tune), the run-off (OFF), the
+//     walls (WALL, and × the hull a hit dents) and the hop (HOP) × its numbers; none, as they are
+//   R.tune: { handling, off, wall, hop } those numbers for this run
 //
 // Flying is Handling.step (the race's grip, slide and brake; Flight.step's Direct with ?mode=direct)
 // on the race's stats. Steering:
@@ -76,6 +79,7 @@ const Run = (() => {
       rec: Ghost.recorder(), ghost: Ghost.load(cfg.ghostKey), newBest: false,
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       dash: { charges: DASH.charges, refill: 0, t: 0, v: null, kind: null }, hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
+      tune: tune(cfg.biome),
     };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.
     // The props round a tile (ArtSurface.propsNear: they depend only on the tile) are found once
@@ -98,6 +102,13 @@ const Run = (() => {
       normal: (x, y) => { const e = Track.edgeDist(G.tr, x, y, R.n, 40); return [-e.nx, -e.ny]; },
     };
     return R;
+  }
+
+  // A run's numbers on a biome (Config.biome): × its character, as they are without one.
+  function tune(b) {
+    const k = (o, f = {}) => Object.fromEntries(Object.entries(o).map(([key, v]) => [key, v * (f[key] ?? 1)]));
+    if (!b) return { handling: Handling.config, off: OFF, wall: { ...WALL, damage: 1 }, hop: HOP };
+    return { handling: Handling.tune(b.handling), off: k(OFF, b.off), wall: { ...WALL, restitution: WALL.restitution * (b.wall.restitution ?? 1), friction: WALL.friction * (b.wall.friction ?? 1), damage: b.wall.damage ?? 1 }, hop: { ...HOP, time: HOP.time * (b.hop.time ?? 1), h: HOP.h * (b.hop.h ?? 1) } };
   }
 
   // What the controls fly: a heading and a speed (world units a second).
@@ -144,22 +155,22 @@ const Run = (() => {
   function step(R, G, cfg, ctl, dt = STEP) {
     R.t += dt;
     if (R.phase === 'count' && R.t >= COUNT) { R.phase = 'race'; R.t = 0; }
-    const tr = G.tr, C = R.craft, racing = R.phase === 'race', STATS = cfg.stats, D = R.dash, H = R.hop;
+    const tr = G.tr, C = R.craft, racing = R.phase === 'race', STATS = cfg.stats, D = R.dash, H = R.hop, { off, wall, hop } = R.tune;
     R.prev.x = C.x; R.prev.y = C.y; R.prev.angle = C.angle; R.pair = R.air;
     if (ctl.events && ctl.events.length) { if (racing) for (const ev of ctl.events) act(R, cfg, ev); ctl.events.length = 0; }
     const air = H.t >= 0;
     const stats = R.stats; // the race's stats as the ground here leaves them
-    stats.maxSpeed = STATS.maxSpeed * (1 - OFF.speed * R.off) * (R.slow ? SLOW : 1) * (R.drift.boost > 0 ? R.drift.k : 1);
+    stats.maxSpeed = STATS.maxSpeed * (1 - off.speed * R.off) * (R.slow ? SLOW : 1) * (R.drift.boost > 0 ? R.drift.k : 1);
     const direct = cfg.mode === 'direct';
-    stats.accel = STATS.accel * (1 - OFF.grip * R.off) * (direct && ctl.brake ? BRAKE.accel : 1) * (air ? HOP.grip : 1);
+    stats.accel = STATS.accel * (1 - off.grip * R.off) * (direct && ctl.brake ? BRAKE.accel : 1) * (air ? hop.grip : 1);
     const go = steer(R, G, cfg, ctl, stats, racing), from = { x: C.x, y: C.y };
     const fly = { targetAngle: go.speed > 0 ? go.angle : C.angle, targetSpeed: go.speed, mode: cfg.mode, brake: racing && ctl.brake, coast: D.t > 0 };
     if (direct) Flight.step(C, stats, fly, dt);
-    else Handling.step(C, stats, fly, R.grip, dt);
+    else Handling.step(C, stats, fly, R.grip, dt, R.tune.handling);
     // As hard as the same share of top speed at the game's surface speed (game/landing.js).
-    const hit = Contact.step(C, cfg.r, R.world, WALL, from) / (STATS.maxSpeed / (cfg.ship.maxSpeed * 0.5));
+    const hit = Contact.step(C, cfg.r, R.world, wall, from) / (STATS.maxSpeed / (cfg.ship.maxSpeed * 0.5));
     if (hit > Collide.config.surfaceSafe * 0.5) { R.hits++; R.flash = Math.min(0.4, hit / 600); }
-    R.hull -= Collide.damage(hit, Collide.config.surfaceSafe);
+    R.hull -= Collide.damage(hit, Collide.config.surfaceSafe) * wall.damage;
     // The dash's burst: a hit ends it, the bounce kept; a sidestep gives back the velocity it had.
     if (D.t > 0) {
       D.t -= dt;
@@ -169,8 +180,8 @@ const Run = (() => {
     if (racing && D.charges < DASH.charges && (D.refill += dt) >= DASH.refill) { D.charges++; D.refill = 0; R.fx.push('charge'); }
     // The hop: up and down again.
     H.cool = Math.max(0, H.cool - dt);
-    if (air && (H.t += dt) >= HOP.time) { H.t = -1; H.cool = HOP.cool; R.fx.push('land'); }
-    R.air = H.t >= 0 ? HOP.h * Math.sin((Math.PI * H.t) / HOP.time) : 0;
+    if (air && (H.t += dt) >= hop.time) { H.t = -1; H.cool = hop.cool; R.fx.push('land'); }
+    R.air = H.t >= 0 ? hop.h * Math.sin((Math.PI * H.t) / hop.time) : 0;
     R.slow = R.burn = false;
     if (!air) for (const p of R.world.holes(C.x, C.y)) if (Math.hypot(C.x - p.x, C.y - p.y) < p.r) { R.slow = true; if (p.emit) R.burn = true; }
     if (R.burn && racing) R.hull -= BURN * dt;
@@ -178,7 +189,7 @@ const Run = (() => {
     if (R.hull <= 0 && racing) { R.hull = 0; R.phase = 'wreck'; }
     const e = Track.edgeDist(tr, C.x, C.y, R.n, 40);
     R.n = e.n;
-    R.off = clamp(R.off + (e.d > 0 && !air ? dt : -dt) / OFF.ease, 0, 1);
+    R.off = clamp(R.off + (e.d > 0 && !air ? dt : -dt) / off.ease, 0, 1);
     camera(R, G, cfg, dt);
     if (!racing) return;
     R.total += dt; R.lapT += dt;

@@ -2,7 +2,7 @@
 // much of it bends and which way, its tightest bend against the ship's turning circle at top speed,
 // its longest straight, its width, and the wall left between two stretches. For checking what a
 // change to the generator does (notes/race-research.md has the targets).
-//   node tools/race-tracks.js [from] [to] [--hw=tiles] [--gap=tiles] [--style=advanced|expert] [--size=tiles] [--fly]   (npm run tracks -- …); seeds 1–30
+//   node tools/race-tracks.js [from] [to] [--hw=tiles] [--gap=tiles] [--style=advanced|expert] [--biome=ice|…] [--size=tiles] [--fly]   (npm run tracks -- …); seeds 1–30
 //
 // Columns: lap (world units, s at top speed); bend: share of the lap bending; one-way: the share of
 // the bending that goes the commoner way; flips: left/right changes; tight: the tightest radius (and
@@ -22,7 +22,8 @@ import { Track } from '../src/race/track.js';
 const args = process.argv.slice(2), flag = (k) => { const a = args.find((s) => s.startsWith(`--${k}=`)); return a ? +a.split('=')[1] * Config.T : undefined; };
 const [from = 1, to = 30] = args.filter((s) => !s.startsWith('--')).map(Number);
 const fly = args.includes('--fly'), style = (args.find((s) => s.startsWith('--style=')) || '=regular').split('=')[1];
-const opts = { ...Config.map(style).TRACK, ...(flag('size') && { size: flag('size') }), ...(flag('hw') && { hw: flag('hw') }), ...(flag('gap') && { gap: flag('gap') }) };
+const biome = (args.find((s) => s.startsWith('--biome=')) || '=').split('=')[1] || undefined;
+const opts = { ...Config.map(style, biome).TRACK, ...(flag('size') && { size: flag('size') }), ...(flag('hw') && { hw: flag('hw') }), ...(flag('gap') && { gap: flag('gap') }) };
 const V = opts.speed, RV = opts.rv, FAR = Config.RUNOFF + Config.CARVE.open;
 
 function measure(seed) {
@@ -35,7 +36,7 @@ function measure(seed) {
     const p = pts[a], q = pts[b];
     wall = Math.min(wall, Math.hypot(p.x - q.x, p.y - q.y) - p.hw - q.hw - 2 * FAR);
   }
-  const flown = fly ? (() => { const a = Pilot.lap(seed, opts, { brake: false }), b = Pilot.lap(seed, opts); return { gain: a.laps[0] - b.laps[0], zones: b.brakes, braking: b.braking, wide: a.off, hits: a.hits }; })() : {};
+  const flown = fly ? (() => { const a = Pilot.lap(seed, opts, { brake: false, biome }), b = Pilot.lap(seed, opts, { biome }); return { gain: a.laps[0] - b.laps[0], zones: b.brakes, braking: b.braking, wide: a.off, hits: a.hits }; })() : {};
   return { seed, ...m, wall, from: tr.from, score: tr.score ?? 0, ...flown };
 }
 
@@ -47,7 +48,7 @@ const COLS = [
   ...(fly ? [['brake', 15, (m) => `${f(m.gain, 2)}s ${m.zones}× ${f(m.braking, 1)}s`], ['wide', 9, (m) => `${f(m.wide, 1)}s ${m.hits}`]] : []),
   ['corners', 0, (m) => Object.entries(m.types).map(([k, n]) => `${n} ${k}`).join(', ')],
 ];
-console.log(`Tracks ${from}–${to} (${style}): hw ${f(opts.hw)}, gap ${f(opts.gap)}, run-off ${f(Config.RUNOFF)}; top speed ${f(V)}, turning circle v²/a ${f(RV)}\n`);
+console.log(`Tracks ${from}–${to} (${style}${biome ? `, ${biome}` : ''}): hw ${f(opts.hw)}, gap ${f(opts.gap)}, run-off ${f(Config.RUNOFF)}; top speed ${f(V)}, turning circle v²/a ${f(RV)}\n`);
 console.log(COLS.map(([h, n]) => pad(h, n)).join('  '));
 const all = [];
 for (let s = from; s <= to; s++) { const m = measure(s); all.push(m); console.log(COLS.map(([, n, g]) => pad(g(m), n)).join('  ')); }

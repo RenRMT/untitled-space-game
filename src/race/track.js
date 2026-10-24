@@ -30,7 +30,9 @@
 //     corners); minHw: the narrowest half-width; margin: kept clear inside the map's edge; gap: kept
 //     between two stretches of track, edge to edge (the wall between them; default hw); speed, rv:
 //     the craft's top speed and turning circle there (for sizing corners and scoring); style:
-//     'regular' (the default), 'advanced' or 'expert'; lap: the lap a layout is scored for, [shortest,
+//     'regular' (the default), 'advanced' or 'expert'; mix: × each kind of corner's odds ({ sweeper: 1.5,
+//     hairpin: 0.4, … }, a biome's; kinks are by how little a corner turns, not picked); chicanes: × the odds a
+//     wiggle is a chicane rather than esses; lap: the lap a layout is scored for, [shortest,
 //     longest] s at top speed (default 20–28 s regular, 22–32 s advanced, 28–40 s expert)
 //   tr: { pts: [{ x, y, hw, tx, ty, k, side }], len, ds, cps, samples, from, corners, score }   (tx, ty: the way round; k:
 //     the curvature there, 1 / the bend's radius; side: the way it bends, −1 or +1 (+1: the way the
@@ -162,7 +164,7 @@ const Track = (() => {
 
   function loop(seed, o) {
     const { size, hw, minHw = 0, margin = 0, gap = hw, samples: S = 720, checks = 16, rv = 2.7 * hw, style = 'regular' } = o;
-    const st = STYLE[style] || STYLE.regular, lap = o.lap || st.lap, cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, st };
+    const st = tilt(STYLE[style] || STYLE.regular, o), lap = o.lap || st.lap, cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, st };
     let best = null;
     for (let t = 0, kept = 0; t < st.tries && kept < st.keep; t++) {
       const V = st.lay(seed, t, env), tr = V && corners(V, seed, t, env);
@@ -383,6 +385,13 @@ const Track = (() => {
     advanced: { lay: (...a) => skeleton(...a), tries: 160, keep: 12, lap: ADV.LAP, kinds: ADV.KINDS, inserts: 3, sharp: 1, from: 'skeleton', fall: 'regular' },
     expert: { lay: (...a) => grid(...a), tries: 200, keep: 24, lap: EXP.LAP, kinds: EXP.KINDS, inserts: 4, spare: 1, chicanes: 0.85, sharp: 0.7, from: 'grid', fall: 'advanced' },
   };
+  // A style tilted by a biome (o.mix: × each kind of corner's weight; o.chicanes: × the odds a
+  // wiggle is a chicane); without them, the style as it is.
+  function tilt(st, { mix, chicanes }) {
+    if (!mix && chicanes === undefined) return st;
+    const kinds = st.kinds.map((ws) => ws.map(([k, w]) => [k, w * ((mix && mix[k]) ?? 1)]));
+    return { ...st, kinds, chicanes: Math.min(1, (st.chicanes ?? 0.55) * (chicanes ?? 1)) };
+  }
   // A layout from its polygon V (fitted to the map), or null when it won't do: each corner a kind
   // (corner()) placed where its way in and out lie along the polygon's edges; a wiggle (wiggle()) in
   // up to INSERTS of the longest straights.

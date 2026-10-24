@@ -3537,6 +3537,47 @@ test('race pilot: on regular tracks braking for the tight corners beats flying t
   assert(wide >= 3, `flat out runs wide on ${wide} of 6`);
 });
 
+test('race biomes: terran is the standard, every number as it is without a biome', () => {
+  for (const style of ['regular', 'advanced', 'expert']) assert.deepStrictEqual(RaceConfig.map(style, 'terran'), RaceConfig.map(style), style);
+  assert.deepStrictEqual(RaceConfig.stats(undefined, 'terran'), RaceConfig.STATS);
+  const tr = Track.loop(3, RaceConfig.map('regular', 'terran').TRACK), base = Track.loop(3, RaceConfig.TRACK);
+  assert.deepStrictEqual(tr.pts, base.pts, 'the same track');
+  const G = { W: {}, tr }, cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {}, ghostKey: null };
+  assert.deepStrictEqual(Run.create(G, { ...cfg, biome: RaceConfig.biome('terran') }).tune, Run.create(G, cfg).tune, 'the same handling, run-off, walls and hop');
+  assert.strictEqual(RaceConfig.biome('terran').rev, 0, 'its ghosts keep their key');
+  for (const id of Object.keys(RaceConfig.BIOME)) assert(RaceConfig.KINDS[id], `${id} has its ground kinds`);
+});
+
+test('race biomes: each its own handling, track and run-off, and every one drivable', () => {
+  const G = { W: {}, tr: Track.loop(1, RaceConfig.TRACK) }, base = { ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {}, ghostKey: null };
+  const tune = (id) => Run.create(G, { ...base, stats: RaceConfig.stats(undefined, id), biome: RaceConfig.biome(id) }).tune;
+  const T = Object.fromEntries(Object.keys(RaceConfig.BIOME).map((id) => [id, tune(id)]));
+  // Ice: the nose held square, the velocity swings round slower than on terran.
+  const swing = (id) => {
+    const stats = RaceConfig.stats(undefined, id), b = { x: 0, y: 0, vx: stats.maxSpeed, vy: 0, angle: 0, thrust: 1 }, st = { slip: 0, sliding: false };
+    for (let t = 0; t < 0.3; t += Run.STEP) Handling.step(b, stats, { targetAngle: Math.PI / 2, targetSpeed: stats.maxSpeed }, st, Run.STEP, T[id].handling);
+    return Math.atan2(b.vy, b.vx);
+  };
+  assert(swing('ice') < 0.8 * swing('terran'), `ice turns ${swing('ice').toFixed(2)} rad to terran's ${swing('terran').toFixed(2)}`);
+  assert(T.desert.off.speed > T.terran.off.speed && T.ice.off.speed < T.terran.off.speed, 'deep sand slows more, ice less');
+  assert(T.lava.wall.damage > 1 && T.gas.wall.damage < 1 && T.ice.wall.friction < T.terran.wall.friction, 'lava walls hurt, storm fronts are soft, ice walls slip');
+  assert(T.moon.hop.time > T.terran.hop.time && T.moon.hop.h > T.terran.hop.h, 'the moon hops long and high');
+  // The tracks: lava's narrower and tighter than ice's.
+  const tight = { ice: 0, lava: 0 }, hw = {};
+  for (const id of ['ice', 'lava']) {
+    const o = RaceConfig.map('regular', id).TRACK;
+    hw[id] = o.hw;
+    for (let seed = 1; seed <= 12; seed++) tight[id] += Track.loop(seed, o).corners.filter((c) => ['square', 'hairpin', 'decreasing', 'chicane'].includes(c.type)).length;
+  }
+  assert(hw.lava < RaceConfig.HW && hw.ice > RaceConfig.HW, 'lava narrow, ice wide');
+  assert(tight.lava > 1.3 * tight.ice, `tight corners: lava ${tight.lava}, ice ${tight.ice}`);
+  // Every biome flown round by the braking pilot.
+  for (const id of Object.keys(RaceConfig.BIOME)) for (let seed = 1; seed <= 2; seed++) {
+    const r = Pilot.lap(seed, RaceConfig.map('regular', id).TRACK, { biome: id });
+    assert(r.laps.length === 1 && r.hull < 50, `${id} seed ${seed}: a lap, ${r.hull.toFixed(0)} hull dented`);
+  }
+});
+
 test('race ghost: a lap recorded at its rate and flown back between its samples', () => {
   const rec = Ghost.recorder(), STEP = 1 / 120;
   for (let t = 0; t < 2; t += STEP) rec.add(t, { x: t * 100, y: 50, angle: 3.1 + t * 0.1 });

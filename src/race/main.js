@@ -33,18 +33,18 @@ const q = new URLSearchParams(location.search), { T, TRACKS, SHIP, R_SHIP, HULL,
 if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 const BIOMES = {
-  desert: { type: 'desert', label: 'Desert' },
-  ice: { type: 'ice', label: 'Ice' },
-  lava: { type: 'lava', label: 'Lava' },
-  terran: { type: 'terran', label: 'Terran' },
-  moon: { type: 'moon-grey', label: 'Moon' },
-  gas: { type: 'gas', label: 'Gas giant' },
+  desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; deep sand off the track' },
+  ice: { type: 'ice', label: 'Ice', about: 'Little grip, long slides; wide sweeping bends' },
+  lava: { type: 'lava', label: 'Lava', about: 'Grippy, narrow and technical; the walls hurt' },
+  terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on' },
+  moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity: long hops, slow to pick up' },
+  gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls' },
 };
 
 // The ship (Config): the Courier as the game fits it, drawn as the game draws it (game/options.js
 // HULL_ART) at the surface's size (flight/entities.js SHIP_SCALE).
 const SPEED = +q.get('speed') || TUNE.speed;
-const STATS = Config.stats(SPEED);
+let STATS = Config.stats(SPEED); // × the biome's (Config.BIOME), set with the track
 // The camera: close in (the ground's speed on screen is what reads as fast), leading the ship by
 // `lead` seconds of its speed, `track` of the way along the track rather than its velocity, held
 // to `reach` of the screen's shorter side; pushing in a little at top speed (`pull`), and zoomed by
@@ -85,7 +85,8 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // ---------- The track and the run ----------
 
 function build() {
-  const b = BIOMES[S.biome], { N, SIZE, TRACK } = Config.map(S.track), tr = Track.loop(S.seed, TRACK);
+  const b = BIOMES[S.biome], { N, SIZE, TRACK } = Config.map(S.track, S.biome), tr = Track.loop(S.seed, TRACK);
+  STATS = Config.stats(SPEED, S.biome);
   const W = ArtSurface.generate(b.type, S.seed, { w: N, h: N, tall: 0.06 });
   Track.carve(W, tr, S.seed, { ...Config.CARVE, outside: q.get('outside') || Config.CARVE.outside, kinds: Config.KINDS[S.biome] });
   const on = ArtSurface.propsAll(W).filter((p) => Track.edgeDist(tr, p.x, p.y).d < p.r);
@@ -100,7 +101,8 @@ function looks() {
   return G.looks[S.style] || (G.looks[S.style] = { far: ArtSurface.farImage(G.W, S.style), tiles: SurfaceGlobe.tiles(G.W, S.style, { size: 8, dpr: coarse ? 1 : 1.5, keep: Infinity }) });
 }
 function restart() {
-  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${TRACKS}.${S.biome}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}` };
+  const bio = Config.biome(S.biome);
+  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio, ghostKey: `${TRACKS}.${S.biome}${bio.rev ? `~${bio.rev}` : ''}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}` };
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
   dust = Dust.create(); dustCols = Dust.colours(G.b.type, Config.KINDS[S.biome]);
@@ -284,7 +286,7 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
+for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.title = BIOMES[id].about; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
 for (const id of Object.keys(STYLES)) { const b = document.createElement('button'); b.id = `track-${id}`; b.textContent = STYLES[id]; b.onclick = () => busy(() => { S.track = id; return newGround(); }); $('tracks').append(b); }
 function sync() {
   for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);

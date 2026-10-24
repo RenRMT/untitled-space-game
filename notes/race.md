@@ -63,6 +63,27 @@ Beyond the ships, portraits, surfaces, movement, dash and hazards:
 An open area with checkpoints in any order is a good second mode later (rally, time attack); on a
 phone it needs a strong arrow to the next one.
 
+## Biome character
+
+Each biome races differently, not only looks different: one profile per biome in `src/race/config.js`
+(`Config.BIOME`), each number × the standard one, read by the track (`Config.map(style, biome)`:
+width and the odds of each kind of corner, `Track.loop`'s `mix` and `chicanes`), the handling
+(`Handling.tune`) and the run (`Run`'s `R.tune`: run-off, walls, hop). **Terran is the standard**, the
+track to learn on: it has no profile, so its tracks, feel and ghosts are as they were. A biome's
+`rev` goes in its ghosts' key, so retuning one leaves the others' ghosts. `npm run tracks -- --biome=ice --fly`
+measures one.
+
+| Biome | Handling | Track | Run-off and walls |
+|---|---|---|---|
+| Terran | standard | standard | standard |
+| Ice | grip ×0.65, slides start sooner and keep their speed, weak brake | wide, sweepers and carousels | slows less; slippery walls |
+| Desert | grip ×0.8, slides come easier (rally) | flowing, fewer chicanes | deep sand slows more; soft walls |
+| Lava | grip ×1.1, top speed ×1.05 | narrow, squares, hairpins, chicanes | rough run-off; walls dent ×1.5 |
+| Moon | slow to pick up, grip ×0.85; long high hops | carousels and double apexes | standard |
+| Gas giant | floaty: turn and acceleration ×0.9 | wide open sweepers | storm fronts soft but draggy |
+
+Live biome hazards (vents, dust storms, crosswinds) are left for the content phase.
+
 ## The camera: angled top-down, framing the track
 
 The low-poly ground is drawn ahead of time in chunks at a fixed tilt along +y (`Art.config.tilt`,
