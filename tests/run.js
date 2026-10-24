@@ -3669,6 +3669,19 @@ test('race rivals: the standings, the finished first by time; ships knock apart 
   assert.strictEqual(A.hull, hull, 'no damage');
 });
 
+test('race rivals: risk, how much contact each seeks, by culture and scaled by the level', () => {
+  const C = Rival.CULTURES;
+  assert(C.shard.risk < C.wedge.risk && C.wedge.risk < C.alien.risk && C.alien.risk < C.block.risk && C.block.risk < C.drifter.risk, 'Shard the cleanest, the Drifters the roughest');
+  assert(Rival.LEVELS.regular.risk > Rival.LEVELS.advanced.risk && Rival.LEVELS.advanced.risk > Rival.LEVELS.expert.risk, 'messier at regular, cleaner at expert');
+  const struck = {}, level = {};
+  for (const lv of ['regular', 'expert']) for (let seed = 1; seed <= 4; seed++) for (const r of Rival.race(seed, RaceConfig.TRACK, { level: lv })) {
+    struck[r.id] = (struck[r.id] || 0) + r.struck; level[lv] = (level[lv] || 0) + r.knocks;
+  }
+  assert(struck.shard + struck.wedge < struck.block + struck.drifter, `careful ${struck.shard} + ${struck.wedge}, bold ${struck.block} + ${struck.drifter} knocks caused`);
+  assert(struck.drifter >= Math.max(struck.shard, struck.wedge, struck.alien), `the Drifters knock the most: ${JSON.stringify(struck)}`);
+  assert(level.regular > level.expert, `knocks: regular ${level.regular}, expert ${level.expert}`);
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

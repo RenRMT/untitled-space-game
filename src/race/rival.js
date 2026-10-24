@@ -11,9 +11,14 @@
 // - bias: how far toward the centreline its line sits (0: the racing line); weave: a wander across
 //   the track, × the room there (the Aliens' strange lines)
 // - aim: × how far ahead it steers for (turning in early or late); brake: × the room it leaves braking
-// - aggression: how readily it pulls out to pass (below 0.5 it waits behind for room); block: how
-//   hard it moves to the inside when someone closes from behind; ram: how often it sidesteps into
-//   a ship alongside (s⁻¹)
+// - risk: its appetite for contact, 0 (keeps well clear) to 1 (leans on you), × the level's risk:
+//   the room it leaves a ship it passes or runs beside (CLEAR, in craft radii, from the most to the
+//   least), whether it squeezes into a gap tighter than that (SQUEEZE and up) or waits behind,
+//   whether it keeps to its side of a ship alongside, `clear` off, never steering across it (below
+//   YIELD), how soon it brakes for a ship
+//   it's closing on (TTC: s before contact, from the most to none), and how long a knock sets it
+//   back (KNOCKED s at 0); block: how hard it moves to the inside when someone closes from behind;
+//   ram: how often it sidesteps into a ship alongside (s⁻¹)
 // - boost: when it dashes forward: 'straights' (onto a long straight at speed), 'exits' (out of the
 //   bend onto one) or 'random' (whenever there's a charge, now and then)
 // - noise: how much its pace wanders from bend to bend; slips: the mistakes it makes, × mistakes how
@@ -32,11 +37,11 @@
 //   Rival.pack(G, cfg, L, level, seed, run) -> pack   the rivals' runs: cfg, your run's (theirs are
 //     made from it); L: Line.build's racing line; run(cfg) -> R makes a run (Run.create, or Pilot.flat's)
 //   Rival.step(pack, G, R?)   one Run.STEP for every rival, then the ships pushed apart (R: yours, or none)
-//   Rival.ships(Rs, r)   runs' craft (radius r) that overlap pushed apart
+//   Rival.ships(Rs, r, tr?)   runs' craft (radius r) that overlap pushed apart (tr: the track, to say whose knock it was)
 //   Rival.progress(G, R) -> laps   how far round a run is (laps done + the share of this one)
 //   Rival.standings(P, G, R) -> { place, of, rows: [{ id, name, color, done, prog, you? }] }   the order now
 //     (done: the finish time, or null), yours among them
-//   Rival.race(seed, opts, { level, biome, laps }) -> [{ id, time, pace, hits, slips }]   a race of
+//   Rival.race(seed, opts, { level, biome, laps }) -> [{ id, time, pace, hits, knocks, struck, slips }]   a race of
 //     rivals alone, flown headless (Pilot.flat), for the tests and tools
 //   pack: { level, racers: [{ who, cfg, R, ai, ctl }] }; ai: { line: { off, v, time }, pace, best,
 //     shift, slip, slips, finish (s, once its laps are done), … }
@@ -50,23 +55,25 @@ import { Track } from './track.js';
 
 const Rival = (() => {
   const CULTURES = {
-    wedge: { name: 'Wedge', color: '#5fa8ff', bias: 0, weave: 0, aim: 1, brake: 1, aggression: 0.45, block: 0.2, ram: 0, boost: 'straights', noise: 0.01, mistakes: 0.5, slips: ['wide', 'early'], recover: 0.6, twist: {} },
-    block: { name: 'Block', color: '#e0a030', bias: 0.3, weave: 0, aim: 1.1, brake: 1.3, aggression: 0.6, block: 0.9, ram: 0, boost: 'straights', noise: 0.015, mistakes: 0.8, slips: ['early', 'wide'], recover: 0.3, twist: { turnRate: 0.94 } },
-    shard: { name: 'Shard', color: '#3fbf6a', bias: 0, weave: 0, aim: 0.9, brake: 0.8, aggression: 0.3, block: 0, ram: 0, boost: 'exits', noise: 0.01, mistakes: 0.4, slips: ['late'], recover: 1, twist: { turnRate: 1.06 } },
-    drifter: { name: 'Drifters', color: '#d8824a', bias: 0.2, weave: 0, aim: 1, brake: 1, aggression: 0.9, block: 0.5, ram: 0.6, boost: 'random', noise: 0.04, mistakes: 1.6, slips: ['late', 'wide', 'early'], recover: 0.5, twist: 'random' },
-    alien: { name: 'Alien', color: '#c86ad8', bias: 0.1, weave: 0.2, aim: 1, brake: 1, aggression: 0.5, block: 0.2, ram: 0, boost: 'exits', noise: 0.02, mistakes: 0.8, slips: ['wide'], recover: 0.6, twist: { slide: 1.1 } },
+    wedge: { name: 'Wedge', color: '#5fa8ff', bias: 0, weave: 0, aim: 1, brake: 1, risk: 0.35, block: 0.2, ram: 0, boost: 'straights', noise: 0.01, mistakes: 0.5, slips: ['wide', 'early'], recover: 0.6, twist: {} },
+    block: { name: 'Block', color: '#e0a030', bias: 0.3, weave: 0, aim: 1.1, brake: 1.3, risk: 0.8, block: 0.9, ram: 0, boost: 'straights', noise: 0.015, mistakes: 0.8, slips: ['early', 'wide'], recover: 0.3, twist: { turnRate: 0.94 } },
+    shard: { name: 'Shard', color: '#3fbf6a', bias: 0, weave: 0, aim: 0.9, brake: 0.8, risk: 0.2, block: 0, ram: 0, boost: 'exits', noise: 0.01, mistakes: 0.4, slips: ['late'], recover: 1, twist: { turnRate: 1.06 } },
+    drifter: { name: 'Drifters', color: '#d8824a', bias: 0.2, weave: 0, aim: 1, brake: 1, risk: 1, block: 0.5, ram: 0.6, boost: 'random', noise: 0.04, mistakes: 1.6, slips: ['late', 'wide', 'early'], recover: 0.5, twist: 'random' },
+    alien: { name: 'Alien', color: '#c86ad8', bias: 0.1, weave: 0.2, aim: 1, brake: 1, risk: 0.5, block: 0.2, ram: 0, boost: 'exits', noise: 0.02, mistakes: 0.8, slips: ['wide'], recover: 0.6, twist: { slide: 1.1 } },
   };
   // pace, bias: the bands drawn from; mistakes: × each culture's; boost: the odds it takes a chance
-  // to; band: [up, down] skill banding at its most; speed: × top speed; ship: the hull they're drawn
+  // to; band: [up, down] skill banding at its most; risk: × each culture's (messier at regular,
+  // cleaner at expert); speed: × top speed; ship: the hull they're drawn
   // as (ArtBlueprints: lighter to heavier up the levels; looks only); boss: [the culture, its pace],
   // the one rival a cut above the rest: on the racing line itself, and half as many mistakes.
   const LEVELS = {
-    regular: { pace: [0.86, 0.92], bias: [0.5, 0.8], mistakes: 1.5, boost: 0.3, band: [0.04, 0.04], speed: 0.97, ship: 'fighter-light' },
-    advanced: { pace: [0.92, 0.96], bias: [0.2, 0.5], mistakes: 1, boost: 0.7, band: [0.02, 0.02], speed: 1, ship: 'fighter' },
-    expert: { pace: [0.95, 0.98], bias: [0, 0.2], mistakes: 0.5, boost: 1, band: [0.01, 0], speed: 1, ship: 'fighter-heavy', boss: ['shard', 1.1] },
+    regular: { pace: [0.86, 0.92], bias: [0.5, 0.8], mistakes: 1.5, boost: 0.3, band: [0.04, 0.04], risk: 1.25, speed: 0.97, ship: 'fighter-light' },
+    advanced: { pace: [0.92, 0.96], bias: [0.2, 0.5], mistakes: 1, boost: 0.7, band: [0.02, 0.02], risk: 1, speed: 1, ship: 'fighter' },
+    expert: { pace: [0.95, 0.98], bias: [0, 0.2], mistakes: 0.5, boost: 1, band: [0.01, 0], risk: 0.75, speed: 1, ship: 'fighter-heavy', boss: ['shard', 1.1] },
   };
   const PLAYER = 3, SLOT = { back: 55, side: 0.42 }; // your slot (0: the front); a slot back, and across × the half-width
   const AIM = { near: 50, lead: 0.25 }, ROOM = 40; // ROOM: the units it leaves itself braking (× brake)
+  const CLEAR = [4, 2.2], SQUEEZE = 0.6, YIELD = 0.5, TTC = [0.8, 0], KNOCKED = 0.8; // risk (above)
   const SLIP = 0.06, WEAVES = [4, 8], BAND = 1500; // SLIP: a mistake's odds a bend (× mistakes); WEAVES: waves a lap; BAND: units behind or ahead for the full banding
   const TAU = Math.PI * 2;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -108,6 +115,7 @@ const Rival = (() => {
       const ai = {
         line, lim, pace: who.pace, best: Math.max(who.pace, lv.pace[1]), c, lv, rng: mulberry32(hashInt(seed, i, 0x2c9d)),
         bend: nextBend(tr, R.n), k: 1, slip: null, slips: 0, shift: 0, open: false, calm: 0, hits: 0, finish: null,
+        risk: clamp(c.risk * lv.risk, 0, 1), passing: null,
       };
       return { who, cfg: rcfg, R, ai, ctl: { angle: R.craft.angle, speed: 1, brake: false, keyed: true, events: [] } };
     });
@@ -148,36 +156,46 @@ const Rival = (() => {
     if (ai.slip && wrap(R.n - ai.slip.to, S) < S / 4) { ai.slip = null; ai.k = 1 + (ai.k - 1) * 0.5; }
     // After a hit it settles for a moment before pushing again.
     if (R.hits > ai.hits) { ai.hits = R.hits; ai.calm = c.recover; }
+    if (R.fx.includes('bump')) ai.calm = Math.max(ai.calm, KNOCKED * (1 - ai.risk)); // knocked by a ship (last step's)
     ai.calm = Math.max(0, ai.calm - dt);
     // Skill banding: better behind you, worse ahead, never past its band's best.
     const [up, down] = ai.lv.band, g = gap == null ? 0 : clamp(gap / BAND, -1, 1);
     const b = Math.min(1 + g * (g > 0 ? up : down), ai.best / ai.pace);
     // Where across the track it wants to be: its line, moved over to pass, to defend, or by a slip.
     const reach = (AIM.near + v * AIM.lead) * c.aim, j = Track.ahead(tr, R.n, reach), p = tr.pts[j];
-    let want = 0, follow = Infinity;
-    const me = progress(G, R), mine = ai.line.off[j];
+    let want = 0, follow = Infinity, lo = -ai.lim[j], hi = ai.lim[j], passing = null;
+    const me = progress(G, R), mine = ai.line.off[j], at = lateral(tr, R), r = cfg.r, risk = ai.risk;
+    const clear = (CLEAR[0] + (CLEAR[1] - CLEAR[0]) * risk) * r, ttc = TTC[0] + (TTC[1] - TTC[0]) * risk;
     for (const o of others) {
-      const dn = (o.prog - me) * tr.len, oo = lateral(tr, o.R);
-      if (dn > -3 * cfg.r && dn < 60 + v * 0.35 && Math.abs(mine - oo) < 2.6 * cfg.r) {
-        // Someone ahead on its line (or still alongside, passing them): round them, on the side
-        // nearer its own line, if there's room (or it's bold enough to squeeze); else it sits behind.
-        const lo = oo - 3 * cfg.r, hi = oo + 3 * cfg.r, room = (x) => Math.abs(x) <= ai.lim[j];
-        const side = room(lo) && (!room(hi) || Math.abs(lo - mine) < Math.abs(hi - mine)) ? lo : room(hi) ? hi : null;
-        if (side !== null || c.aggression >= 0.5) want = (side ?? (mine > oo ? hi : lo)) - mine;
-        else follow = Math.min(follow, Math.hypot(o.R.craft.vx, o.R.craft.vy));
-      } else if (dn < 0 && dn > -120 && Math.hypot(o.R.craft.vx, o.R.craft.vy) > v && c.block > 0.3 && tr.pts[R.n].k < 1 / 800) {
+      const dn = (o.prog - me) * tr.len, oo = lateral(tr, o.R), ov = Math.hypot(o.R.craft.vx, o.R.craft.vy);
+      if (dn > (ai.passing === o.R ? -3 * r : 0) && dn < 60 + v * 0.35 && Math.abs(mine - oo) < clear) {
+        // Someone ahead on its line (or the one it's passing, still alongside): round them, `clear` to
+        // the side nearer its own line, if there's room; a bold one squeezes in anyway, else it sits behind.
+        const left = oo - clear, right = oo + clear, room = (x) => Math.abs(x) <= ai.lim[j];
+        const side = room(left) && (!room(right) || Math.abs(left - mine) < Math.abs(right - mine)) ? left : room(right) ? right : null;
+        if (side !== null || risk >= SQUEEZE) { want = (side ?? (mine > oo ? right : left)) - mine; passing = o.R; }
+        else follow = Math.min(follow, ov);
+        // Closing on one square ahead: the careful brake well before they touch, the bold not at all.
+        if (dn > 2 * r && Math.abs(at - oo) < 2.2 * r && v > ov && (dn - 2 * r) / (v - ov) < ttc) follow = Math.min(follow, ov);
+      } else if (dn < 0 && dn > -120 && ov > v && c.block > 0.3 && tr.pts[R.n].k < 1 / 800) {
         // Someone closing from behind on a straight: it moves toward the inside of the next bend.
         const nb = tr.corners && tr.corners[ai.bend];
         if (nb) want = nb.side * ai.lim[j] * c.block * 0.5 - mine;
       }
+      // A ship alongside: the careful keep to their side of it, `clear` off (moving aside if closer);
+      // the bold hold their line, and lean on it. A boss gives way to no one, but never leans.
+      if (Math.abs(dn) < 4 * r && Math.abs(at - oo) < clear + 2 * r && risk < YIELD && !X.who.boss) {
+        if (at >= oo) lo = Math.max(lo, oo + clear); else hi = Math.min(hi, oo - clear);
+      }
       // A ship alongside: the bold sidestep into it.
-      if (c.ram && Math.abs(dn) < 2 * cfg.r && Math.abs(oo - lateral(tr, R)) < 4 * cfg.r && R.dash.charges >= 1 && R.dash.t <= 0 && ai.rng() < c.ram * dt) {
-        ctl.events.push({ type: 'flick', rel: Math.sign(oo - lateral(tr, R)) * (Math.PI / 2) });
+      if (c.ram && Math.abs(dn) < 2 * r && Math.abs(oo - at) < 4 * r && R.dash.charges >= 1 && R.dash.t <= 0 && ai.rng() < c.ram * dt) {
+        ctl.events.push({ type: 'flick', rel: Math.sign(oo - at) * (Math.PI / 2) });
       }
     }
+    ai.passing = passing;
     if (ai.slip && ai.slip.type === 'wide') want += -ai.slip.side * ai.lim[j] * 0.6;
     ai.shift += (want - ai.shift) * Math.min(1, 3 * dt);
-    const off = clamp(mine + ai.shift, -ai.lim[j], ai.lim[j]);
+    const off = lo <= hi ? clamp(mine + ai.shift, lo, hi) : clamp(at, -ai.lim[j], ai.lim[j]); // boxed in: holds where it is
     ctl.angle = Math.atan2(p.y + p.tx * off - C.y, p.x - p.ty * off - C.x);
     // The brake: for what's ahead it can't take at this speed, leaving itself ROOM × brake.
     const a = cfg.stats.accel, dec = R.tune.handling.BRAKE * a, room = ROOM * c.brake;
@@ -229,13 +247,23 @@ const Rival = (() => {
       Run.step(X.R, G, X.cfg, X.ctl);
       if (X.ai.finish === null && X.R.laps.length >= X.cfg.race) X.ai.finish = X.R.total;
     });
-    ships(all.map((o) => o.R), P.racers[0] ? P.racers[0].cfg.r : 0);
+    ships(all.map((o) => o.R), P.racers[0] ? P.racers[0].cfg.r : 0, G.tr);
   }
 
   // Ships against ships: circles pushed apart, their speeds toward each other traded (a soft knock,
-  // no damage; one harder than BUMP is felt: R.fx 'bump'). A ship in the air passes over.
+  // no damage; one harder than BUMP is felt: R.fx 'bump', and counted: R.knocks, and R.struck for the
+  // ship that did more of the closing). A ship in the air passes over.
   const KNOCK = 0.3, BUMP = 40;
-  function ships(Rs, r) {
+  // Whose knock it was, in the track's frame (so that both racing along at speed doesn't count): the
+  // one moving across toward the other, or the one behind closing faster along it.
+  function blame(tr, A, B, nx, ny) {
+    const p = tr.pts[A.n], a = A.craft, b = B.craft, nt = nx * p.tx + ny * p.ty, nc = -nx * p.ty + ny * p.tx;
+    const at = a.vx * p.tx + a.vy * p.ty, bt = b.vx * p.tx + b.vy * p.ty, m = (at + bt) / 2;
+    const ac = -a.vx * p.ty + a.vy * p.tx, bc = -b.vx * p.ty + b.vy * p.tx;
+    return (at - m) * nt + ac * nc > (bt - m) * -nt + bc * -nc ? A : B;
+  }
+
+  function ships(Rs, r, tr) {
     for (let i = 0; i < Rs.length; i++) for (let j = i + 1; j < Rs.length; j++) {
       const A = Rs[i], B = Rs[j], a = A.craft, b = B.craft;
       if (A.air > 10 || B.air > 10) continue;
@@ -245,9 +273,11 @@ const Rival = (() => {
       a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
       const into = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
       if (into <= 0) continue;
-      const k = ((1 + KNOCK) * into) / 2;
+      const k = ((1 + KNOCK) * into) / 2, by = tr ? blame(tr, A, B, nx, ny) : null;
       a.vx -= nx * k; a.vy -= ny * k; b.vx += nx * k; b.vy += ny * k;
-      if (into > BUMP) for (const X of [A, B]) X.fx.push('bump');
+      if (into <= BUMP) continue;
+      for (const X of [A, B]) { X.fx.push('bump'); X.knocks = (X.knocks || 0) + 1; }
+      if (by) by.struck = (by.struck || 0) + 1;
     }
   }
 
@@ -267,7 +297,7 @@ const Rival = (() => {
     const L = Line.build(G.tr, { stats: cfg.stats, handling: probe.tune.handling, r: cfg.r });
     const P = pack(G, cfg, L, level, seed, run);
     for (let t = 0; t < 90 * laps && P.racers.some((X) => X.ai.finish === null); t += Run.STEP) step(P, G, null);
-    return P.racers.map((X) => ({ id: X.who.id, time: X.ai.finish, pace: X.who.pace, line: X.ai.line.time, hits: X.R.hits, slips: X.ai.slips, laps: X.R.laps.slice(0, laps) }));
+    return P.racers.map((X) => ({ id: X.who.id, time: X.ai.finish, pace: X.who.pace, line: X.ai.line.time, hits: X.R.hits, knocks: X.R.knocks || 0, struck: X.R.struck || 0, slips: X.ai.slips, laps: X.R.laps.slice(0, laps) }));
   }
 
   return { CULTURES, LEVELS, PLAYER, field, grid, pack, step, ships, progress, standings, race };

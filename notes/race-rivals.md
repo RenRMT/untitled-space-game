@@ -73,13 +73,25 @@ win), and a voice. The ship is drawn with `ArtBlueprints.create(type, ArtCulture
 **Android is the player's culture, not a rival.** The player flies an Android ship (`ArtCulture.android`,
 replacing `legacy` in `main.js`), and the field is drawn from the other five cultures.
 
-| Culture | Ideals (`factions.js`) | How it flies | Handling twist |
-|---|---|---|---|
-| **Wedge** | Order and reach | *The Textbook.* A clean ideal line, very consistent, few mistakes, moderate aggression, and boost saved for straights. The disciplined front-runner. | Balanced |
-| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early, blocks, and shrugs off contact with a short recovery. | −turn |
-| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and boosts out of bends. Rarely passes recklessly, but its rare mistakes are costly. The boss on expert. | +turn |
-| **Drifters** (kitbash) | Freelancers and outlaws | *The Wildcard.* Very aggressive: dashes sideways into rivals. Inconsistent, with high noise and many mistakes. | A small random ± turn |
-| **Alien** | Grown, not built | *The Unreadable.* Strange lines with a large lateral bias and odd turn-ins, and smooth flowing drifts. No barks, since they "answer no hail". | +grip in slides |
+| Culture | Ideals (`factions.js`) | How it flies | Risk | Handling twist |
+|---|---|---|---|---|
+| **Wedge** | Order and reach | *The Textbook.* A clean ideal line, very consistent, few mistakes, and boost saved for straights. Fair and clean in traffic. The disciplined front-runner. | 0.35 | Balanced |
+| **Block** | Industry first | *The Wall.* Wide, defensive lines. Brakes early, blocks, and shrugs off contact with a short recovery. Leans on you, never gives way. | 0.8 | −turn |
+| **Shard** | Precision and stillness | *The Blade.* Brakes latest, takes the tightest apexes and boosts out of bends. Rarely passes recklessly, but its rare mistakes are costly. Gives room, never squeezes, brakes rather than touches. The boss on expert. | 0.2 | +turn |
+| **Drifters** (kitbash) | Freelancers and outlaws | *The Wildcard.* Very aggressive: dashes sideways into rivals. Inconsistent, with high noise and many mistakes. Squeezes into anything. | 1 | A small random ± turn |
+| **Alien** | Grown, not built | *The Unreadable.* Strange lines with a large lateral bias and odd turn-ins, and smooth flowing drifts. No barks, since they "answer no hail". | 0.5 | +grip in slides |
+
+**Risk** is each culture's appetite for contact, × the level's (1.25 regular, 1 advanced, 0.75
+expert). It sets:
+- the side gap a rival leaves a ship it passes or runs beside: 4 craft radii at 0, 2.2 at 1;
+- whether it squeezes into a gap tighter than that (0.6 and up) or waits behind;
+- whether it keeps to its side of a ship alongside and moves aside if it comes closer (below 0.5),
+  or holds its line and leans on it. The boss gives way to no one, but never leans;
+- how soon it brakes for a ship it's closing on: 0.8 s before contact at 0, never at 1;
+- how long a knock sets it back: up to 0.8 s at 0.
+
+Ship-to-ship contact is a soft knock: pushed apart, the closing speed traded, no hull damage. A ship
+mid-hop passes over. The knock is blamed on the ship doing more of the closing in the track's frame.
 
 Further ideas:
 - **Named rivals** with crew portraits (`art/crew.js`, `art/portraits.js`) and short barks at overtakes and the finish.
@@ -159,6 +171,12 @@ What tuning found:
 - **From the back, the boss lost in traffic.** It was quickest alone, but starting last it finished
   mid-field. It starts on pole now, the one to hunt down.
 
+**Risk** (a second pass), on regular tracks, seeds 1–8: knocks caused a race follow it. On regular
+and advanced: Shard 0.3–0.4, Wedge 0.5–0.8, Block 1.3–1.8, Alien 1.5–2.6, Drifters 2.9–4.4. There
+are about 8 knocks a race on regular and advanced, and 5–6 on expert. Two bugs turned up on the
+way. A careful rival beside another steered back to its line straight through it; now it never
+steers across a ship alongside. A ship right *behind* a rival counted as one it was passing.
+
 Not built yet: drifting and hopping rivals, named pilots with portraits and barks, home biomes,
 a nemesis, and cups. Rivals don't avoid holes or rocks on the real surface (the headless track has
-none). The passing logic is simple: a lot of side-by-side bumping in a tight field.
+none). Rivals don't treat you differently from each other.
