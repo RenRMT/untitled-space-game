@@ -176,14 +176,14 @@ Regular / Advanced toggle. `npm run tracks -- 1 30 --style=advanced [--size=tile
 **A bigger map for the advanced style.** At the regular 76 tiles a finger has to be about 0.15 of
 the map wide (two half-widths, both run-offs and a wall), so shapes stayed chunky. Fingers and the
 technical sector are sized against the track, the rest against the map, so a bigger map makes them
-relatively thinner. Measured over seeds 1–30 (fill: area inside over its convex hull's; lap at top speed):
+relatively thinner. Measured over seeds 1–30, all scored for a 26–38 s lap (fill: area inside over its convex hull's; lap at top speed):
 
 | Map (tiles) | Fill min / median / max | Lap min / median / max | Flips median |
 |---|---|---|---|
 | 76 (regular style) | 0.80 / 0.87 / 0.91 | 18.6 / 22.3 / 24.4 s | 6 |
-| 76 | 0.62 / 0.77 / 0.89 | 23.5 / 26.2 / 31.5 s | 8 |
+| 76 | 0.63 / 0.74 / 0.84 | 24.3 / 27.1 / 30.5 s | 8 |
 | **90 (chosen)** | 0.58 / 0.71 / 0.82 | 25.7 / 34.1 / 40.1 s | 8 |
-| 100 | 0.62 / 0.74 / 0.94 | 29.5 / 37.4 / 41.3 s | 12 |
+| 100 | 0.62 / 0.76 / 0.94 | 29.5 / 36.4 / 40.3 s | 12 |
 
 90 folds in most for the shortest lap; 100 adds lap time without folding more. The cost is 1.4× the
 ground chunks (90² against 76²): building the track took about 6.2 s against 4.5 s in headless
