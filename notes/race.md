@@ -165,4 +165,4 @@ that:
    the advanced style's corners still don't need the brake.
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
-4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.
+4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades. Research and design: `notes/race-rivals.md`.
