@@ -3,7 +3,9 @@
 // kinds the track and its run-off are laid in.
 //
 //   Config.T, N, SIZE        a tile (ArtSurface.T: main.js checks), tiles a side, world units a side
-//   Config.TRACK             the options Track.loop is called with
+//   Config.TRACK             the options Track.loop is called with (the regular style)
+//   Config.map(style)        -> { N, SIZE, TRACK } for a track style: the advanced style's map is
+//                            bigger (N_ADV tiles), so its fingers can be thin and long against it
 //   Config.CARVE             the options Track.carve is called with (but kinds: Config.KINDS[biome])
 //   Config.KINDS             per biome: { track, off } ground kinds ('a' | 'b' | 'c', ArtSurface)
 //   Config.SHIP, STATS, TUNE, SPEED   the Courier as the game fits it; the race's stats (× TUNE, SPEED top speed)
@@ -15,6 +17,7 @@ import { Loadout } from '../rules/loadout.js';
 
 const Config = (() => {
   const T = 64, N = 76, SIZE = N * T; // ArtSurface.T; the surface, tiles a side; world units a side
+  const N_ADV = 90, LAP_ADV = [26, 38]; // the advanced style's tiles a side, and the lap its layouts are scored for (s)
   const TRACKS = 4;
   // The ship: the Courier as the game fits and draws it (game/state.js SHIP), at the surface's size
   // (game/landing.js SURFACE_SCALE).
@@ -34,6 +37,10 @@ const Config = (() => {
     size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: 2 * (RUNOFF + OPEN) + T, samples: 720, checks: 16,
     speed: STATS.maxSpeed, rv: STATS.maxSpeed ** 2 / STATS.accel,
   };
+  const map = (style = 'regular') => {
+    const n = style === 'advanced' ? N_ADV : N;
+    return { N: n, SIZE: n * T, TRACK: { ...TRACK, size: n * T, style, ...(style === 'advanced' && { lap: LAP_ADV }) } };
+  };
   const CARVE = { T, runoff: RUNOFF, open: OPEN, outside: 'high' };
   const KINDS = {
     desert: { track: 'b', off: 'a' }, // hardpan; dune sea (gravel reg is the mesas' colour)
@@ -42,7 +49,7 @@ const Config = (() => {
     terran: { track: 'a', off: 'c' }, // meadow; woodland (b is the sea)
     moon: { track: 'b', off: 'c' }, // mare; ejecta
   };
-  return { T, N, SIZE, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
+  return { T, N, SIZE, N_ADV, map, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
 })();
 
 export { Config };

@@ -12,16 +12,24 @@
 // circle wobbled by a few seeded waves). Each stage draws on its own random stream. The width
 // follows the corners (wider in sweepers, narrower in chicanes), eased along, held to `minHw`, and
 // under half of each bend's radius (so its inside never folds over itself).
+//
+// The advanced style (style: 'advanced') lays the polygon out the way real circuits are instead of
+// round the middle: a base shape (long, block, wedge or L) with a few edges reworked into fingers
+// that run out and back, bays that fold in, shallow steps, a technical sector of square corners and
+// kinked straights (skeleton()); the rest is as above, scored also for how far it folds in on
+// itself. When none will do it falls back to the regular style.
 
-//   const tr = Track.loop(seed, { size, hw, minHw, margin, gap, samples, checks, speed, rv })
+//   const tr = Track.loop(seed, { size, hw, minHw, margin, gap, samples, checks, speed, rv, style })
 //     size: the map's side (world units); hw: the track's half-width on a straight (× WIDTH in
 //     corners); minHw: the narrowest half-width; margin: kept clear inside the map's edge; gap: kept
 //     between two stretches of track, edge to edge (the wall between them; default hw); speed, rv:
-//     the craft's top speed and turning circle there (for sizing corners and scoring)
+//     the craft's top speed and turning circle there (for sizing corners and scoring); style:
+//     'regular' (the default) or 'advanced'; lap: the lap a layout is scored for, [shortest,
+//     longest] s at top speed (default 20–28 s regular, 22–32 s advanced)
 //   tr: { pts: [{ x, y, hw, tx, ty, k, side }], len, ds, cps, samples, from, corners, score }   (tx, ty: the way round; k:
 //     the curvature there, 1 / the bend's radius; side: the way it bends, −1 or +1 (+1: the way the
 //     angle grows, clockwise on screen); ds: the length a point; cps: the checkpoints' indices, the
-//     first the start line; from: 'corners', or 'blob' when no layout of corners would do; corners:
+//     first the start line; from: 'corners', 'skeleton' (advanced), or 'blob' when no layout would do; corners:
 //     [{ type, side, from, apex, to, r }] each corner and wiggle in order round, its points and its
 //     tightest radius; score: how the layout scored)
 //   Track.measure(tr, { speed, rv }) -> what a track is like (below; tools/race-tracks.js prints it)
@@ -86,6 +94,7 @@ const Track = (() => {
 
   const SAFE = 2; // the tightest bend's radius, at least this many half-widths (the inside wall stays a wall)
   const TRIES = 40, KEEP = 6, CORNERS = [7, 11], ACROSS = 0.85, WIDE = 0.85; // layouts tried; good ones scored, the best kept; corners a layout; squeezed across by; and no wider than this of the room
+  const LAP = [20, 28]; // the lap a layout is scored for (s at top speed), unless asked for another
   const TURN = 2.7, PULLED = [3, 4], NEAR = [0.3, 0.5], OUT = [0.75, 1]; // the sharpest corner (radians); corners pulled in; how far out they and the rest are
   // Each kind of corner (or a wiggle in a straight): the track's width there, × hw.
   const WIDTH = { kink: 1, sweeper: 1.15, square: 1.05, hairpin: 1, 'double-apex': 1.1, decreasing: 1, carousel: 1.15, chicane: 0.9, esses: 0.95 };
@@ -107,17 +116,21 @@ const Track = (() => {
     return [x, y, h];
   }
 
+  // The kinds a corner may be, by how far it turns: under 1.4 rad, under 2.2, more.
+  const KINDS = [
+    [['sweeper', 0.55], ['square', 0.45]],
+    [['square', 0.25], ['double-apex', 0.3], ['decreasing', 0.3], ['carousel', 0.15]],
+    [['hairpin', 0.6], ['double-apex', 0.15], ['decreasing', 0.15], ['carousel', 0.1]],
+  ];
   // A corner turning `turn` (radians, signed): its kind, picked by how far it turns, and its pieces.
   // Radii are measured against rv, the craft's turning circle at top speed: wider bends are flown
   // flat out, tighter ones (squares, hairpins, the tight end of a decreasing bend) need a lift.
-  // rMin: the tightest a radius may be, SAFE of the half-width it will have.
-  function corner(turn, r, hw, minHw, rv) {
-    const a = Math.abs(turn);
+  // rMin: the tightest a radius may be, SAFE of the half-width it will have. adv: picked from
+  // ADV.KINDS; tight: a square whatever the roll (a fingertip's or a technical sector's).
+  function corner(turn, r, hw, minHw, rv, adv = false, tight = false) {
+    const a = Math.abs(turn), ws = adv ? ADV.KINDS : KINDS;
     if (a < 0.1) return { type: null, pieces: [], rMin: 0 };
-    const type = a < 0.45 ? 'kink'
-      : a < 1.4 ? pick(r, [['sweeper', 0.55], ['square', 0.45]])
-        : a < 2.2 ? pick(r, [['square', 0.25], ['double-apex', 0.3], ['decreasing', 0.3], ['carousel', 0.15]])
-          : pick(r, [['hairpin', 0.6], ['double-apex', 0.15], ['decreasing', 0.15], ['carousel', 0.1]]);
+    const type = a < 0.45 ? 'kink' : tight && a < 2.2 ? 'square' : pick(r, a < 1.4 ? ws[0] : a < 2.2 ? ws[1] : ws[2]);
     const rMin = SAFE * 1.05 * Math.max(hw * WIDTH[type], minHw), at = (lo, hi) => Math.max(rMin, rv * (lo + (hi - lo) * r()));
     let pieces;
     if (type === 'kink') pieces = [arc(turn, at(3, 5))];
@@ -141,16 +154,17 @@ const Track = (() => {
   }
 
   function loop(seed, o) {
-    const { size, hw, minHw = 0, margin = 0, gap = hw, samples: S = 720, checks = 16, rv = 2.7 * hw } = o;
-    const cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv };
+    const { size, hw, minHw = 0, margin = 0, gap = hw, samples: S = 720, checks = 16, rv = 2.7 * hw, style = 'regular' } = o;
+    const adv = style === 'advanced', lap = o.lap || (adv ? ADV.LAP : LAP), cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, adv };
     let best = null;
-    for (let t = 0, kept = 0; t < TRIES && kept < KEEP; t++) {
-      const tr = corners(seed, t, env);
+    for (let t = 0, kept = 0; t < (adv ? ADV.TRIES : TRIES) && kept < (adv ? ADV.KEEP : KEEP); t++) {
+      const V = adv ? skeleton(seed, t, env) : ring(seed, t, env), tr = V && corners(V, seed, t, env);
       if (!tr) continue;
       kept++;
-      tr.score = score(measure(tr, o));
+      tr.score = score(measure(tr, o), adv, lap);
       if (!best || tr.score > best.score) best = tr;
     }
+    if (adv) return best ? Object.assign(best, { from: 'skeleton' }) : loop(seed, { ...o, style: 'regular' });
     return best || blob(rng(seed, 0, 0), env);
   }
 
@@ -164,11 +178,10 @@ const Track = (() => {
     return k;
   }
 
-  // A layout, or null when it won't do. A polygon of corners round the middle, a few of them pulled
-  // in (so the loop bends both ways); each corner a kind (corner()) placed where its way in and out
-  // lie along the polygon's edges; a wiggle (wiggle()) in up to INSERTS of the longest straights.
-  function corners(seed, t, { size, hw, minHw, margin, gap, S, cps, rv }) {
-    const rl = rng(seed, t, 1), rc = rng(seed, t, 2), rx = rng(seed, t, 3);
+  // The regular style's polygon: corners round the middle, a few of them pulled in (so the loop
+  // bends both ways), fitted to the map.
+  function ring(seed, t, { size, hw, minHw, margin }) {
+    const rl = rng(seed, t, 1);
     const K = CORNERS[0] + Math.floor(rl() * (CORNERS[1] - CORNERS[0] + 1)), rot = rl() * TAU;
     const nIn = PULLED[0] + Math.floor(rl() * (PULLED[1] - PULLED[0] + 1)), pulled = new Set();
     for (let k = 0; k < 20 && pulled.size < nIn; k++) { const i = Math.floor(rl() * K); if (!pulled.has((i + 1) % K) && !pulled.has((i + K - 1) % K)) pulled.add(i); }
@@ -177,14 +190,120 @@ const Track = (() => {
       const th = rot + ((i + 0.6 * (rl() - 0.5)) / K) * TAU, [a, b] = pulled.has(i) ? NEAR : OUT, d = a + (b - a) * rl();
       V.push({ x: Math.cos(th) * d * ACROSS, y: Math.sin(th) * d });
     }
-    const lo = margin + 1.25 * Math.max(hw, minHw);
+    fit(V, size, margin + 1.25 * Math.max(hw, minHw));
+    return V;
+  }
+
+  // The advanced style: an irregular polygon, the way real circuits are laid out rather than a ring
+  // round the middle. A base shape (a long box, a block, a wedge or an L) in a portrait box of
+  // height 1, mirrored at random, then a few edges reworked: a finger (the track runs out and back,
+  // a hairpin at its tip), a bay (the outline folds in), a plateau (a shallow step out or in), a
+  // technical sector (a zig-zag of short corners) or kinks (a straight bent a little). Thrown away
+  // when it crosses itself or two stretches far apart round it come closer than the track needs
+  // (sep: two half-widths and the gap, as apart() will want), before its corners are worked out.
+  const ADV = {
+    TRIES: 160, KEEP: 12, INSERTS: 3, OPS: [4, 6], FINGERS: 3, LAP: [22, 32],
+    SHAPES: [['long', 0.3], ['block', 0.3], ['wedge', 0.2], ['L', 0.2]],
+    EDITS: [['finger', 0.35], ['bay', 0.2], ['plateau', 0.15], ['tech', 0.15], ['kinks', 0.15]],
+    KINDS: [ // as KINDS, leaning to the slower, trickier corners
+      [['sweeper', 0.45], ['square', 0.55]],
+      [['square', 0.2], ['double-apex', 0.3], ['decreasing', 0.35], ['carousel', 0.15]],
+      [['hairpin', 0.55], ['double-apex', 0.2], ['decreasing', 0.2], ['carousel', 0.05]],
+    ],
+  };
+  function skeleton(seed, t, { size, hw, minHw, margin, gap }) {
+    const r = rng(seed, t, 4), lo = margin + 1.25 * Math.max(hw, minHw), room = size - 2 * lo;
+    const sep = (2 * Math.max(hw * WIDTH.sweeper, minHw) + gap) / room, span = (a, b) => a + (b - a) * r();
+    const w = WIDE * span(0.75, 1), base = pick(r, ADV.SHAPES);
+    let V;
+    if (base === 'long') { const a = w * span(0.45, 0.7); V = [[0, 0], [a, 0], [a, 1], [0, 1]]; }
+    else if (base === 'block') V = [[w * span(0, 0.3), 0], [w * span(0.7, 1), 0], [w, 1], [0, 1]];
+    else if (base === 'wedge') V = [[0, 0], [w * span(0.3, 0.5), 0], [w, span(0.75, 1)], [w * span(0, 0.2), 1]];
+    else { const h = span(0.35, 0.6), x = w * span(0.4, 0.6); V = [[0, 0], [w, 0], [w, h], [x, h], [x, 1], [0, 1]]; }
+    // Shrunk about the box's middle (leaving room for fingers out), mirrored and jittered.
+    const fx = r() < 0.5, fy = r() < 0.5, sc = span(0.65, 0.8);
+    V = V.map(([x, y]) => ({ x: WIDE / 2 + ((fx ? w - x : x) - w / 2) * sc + (r() - 0.5) * 0.05, y: 0.5 + ((fy ? 1 - y : y) - 0.5) * sc + (r() - 0.5) * 0.05 }));
+    // out: the side of an edge outside the polygon (by the way round it goes).
+    const out = areaOf(V) > 0 ? 1 : -1;
+    const inBox = (p) => p.x > -0.02 && p.x < WIDE + 0.02 && p.y > -0.02 && p.y < 1.02;
+    let fingers = 0, tech = 0;
+    const ops = ADV.OPS[0] + Math.floor(r() * (ADV.OPS[1] - ADV.OPS[0] + 1));
+    for (let k = 0, tries = 0; k < ops && tries < 20; tries++) {
+      let edit = pick(r, ADV.EDITS);
+      if ((edit === 'finger' && fingers >= ADV.FINGERS) || (edit === 'tech' && tech >= 1)) edit = 'kinks';
+      // An edge to rework, the longer the likelier, long enough for the edit.
+      const need = { finger: 1.5 * sep + 0.3, bay: 0.5, plateau: 0.45, tech: 3.2 * sep + 0.3, kinks: 0.35 }[edit];
+      const ls = V.map((v, i) => { const q = V[(i + 1) % V.length], l = Math.hypot(q.x - v.x, q.y - v.y); return l >= need ? l * l : 0; });
+      if (!ls.some((l) => l)) continue;
+      let x = r() * ls.reduce((s, l) => s + l, 0), i = 0;
+      while ((x -= ls[i]) >= 0) i++;
+      const A = V[i], B = V[(i + 1) % V.length], L = Math.hypot(B.x - A.x, B.y - A.y), dx = (B.x - A.x) / L, dy = (B.y - A.y) / L;
+      const nx = dy * out, ny = -dx * out, at = (s, o) => ({ x: A.x + dx * s + nx * o, y: A.y + dy * s + ny * o });
+      let add;
+      if (edit === 'finger' || edit === 'bay' || edit === 'plateau') {
+        // A notch: down the side s1–s2 to depth (outward > 0), across, and back up.
+        const dir = edit === 'bay' ? -1 : edit === 'finger' ? (r() < 0.6 ? 1 : -1) : r() < 0.5 ? 1 : -1;
+        const wd = edit === 'finger' ? sep * span(1.2, 1.45) : Math.min(L - 0.2, span(0.25, 0.45));
+        const s1 = span(0.12, L - wd - 0.12), s2 = s1 + wd, slant = edit === 'finger' ? (r() - 0.5) * 0.06 : wd * span(0.1, 0.3);
+        let depth = edit === 'finger' ? span(0.2, 0.5) : edit === 'bay' ? span(0.12, 0.25) : span(0.05, 0.1);
+        add = () => [at(s1, 0), at(s1 + slant, dir * depth), at(s2 - (edit === 'finger' ? -slant : slant), dir * depth), at(s2, 0)];
+        while (dir > 0 && !add().every(inBox) && depth > 0.1) depth *= 0.85;
+        if (dir > 0 && !add().every(inBox)) continue;
+        if (edit === 'finger') { fingers++; const f = add; add = () => f().map((p, m) => (m === 1 || m === 2 ? { ...p, tight: true } : p)); }
+      } else if (edit === 'tech') {
+        // A square wave across the edge: up a, along b, across 2a, along b, back: six square corners.
+        const a = sep * span(0.6, 0.85), b = sep * span(1.1, 1.6), s0 = span(0.12, L - 2 * b - 0.12), sd = r() < 0.5 ? -1 : 1;
+        add = () => [[s0, 0], [s0, a], [s0 + b, a], [s0 + b, -a], [s0 + 2 * b, -a], [s0 + 2 * b, 0]].map(([u, o]) => ({ ...at(u, sd * o), tight: true }));
+        if (!add().every(inBox)) continue;
+        tech++;
+      } else {
+        const n = 1 + Math.floor(r() * 2);
+        add = () => Array.from({ length: n }, (_, m) => at((L * (m + 1)) / (n + 1), (r() < 0.5 ? -1 : 1) * span(0.015, 0.035)));
+      }
+      V.splice(i + 1, 0, ...add());
+      k++;
+    }
+    if (!simple(V)) return null;
     fit(V, size, lo);
+    return clear(V, sep * room) ? V : null;
+  }
+
+  // Whether a polygon's edges cross (other than neighbours meeting at their corner).
+  const cross = (a, b, c, d) => {
+    const o = (p, q, s) => Math.sign((q.x - p.x) * (s.y - p.y) - (q.y - p.y) * (s.x - p.x));
+    return o(a, b, c) !== o(a, b, d) && o(c, d, a) !== o(c, d, b);
+  };
+  function simple(V) {
+    const K = V.length;
+    for (let i = 0; i < K; i++) for (let j = i + 2; j < K; j++) {
+      if (i === 0 && j === K - 1) continue;
+      if (cross(V[i], V[(i + 1) % K], V[j], V[(j + 1) % K])) return false;
+    }
+    return true;
+  }
+  // No two edges further apart round the polygon than 1.6 sep (as apart() skips) closer than sep.
+  const segDist = (a, b, c, d) => Math.min(ptSeg(a, c, d), ptSeg(b, c, d), ptSeg(c, a, b), ptSeg(d, a, b));
+  const ptSeg = (p, a, b) => { const ex = b.x - a.x, ey = b.y - a.y, l2 = ex * ex + ey * ey, u = l2 ? clamp(((p.x - a.x) * ex + (p.y - a.y) * ey) / l2, 0, 1) : 0; return Math.hypot(p.x - a.x - ex * u, p.y - a.y - ey * u); };
+  function clear(V, sep) {
+    const K = V.length, l = V.map((v, i) => Math.hypot(V[(i + 1) % K].x - v.x, V[(i + 1) % K].y - v.y)), per = l.reduce((s, x) => s + x, 0);
+    for (let i = 0; i < K; i++) for (let j = i + 2, between = l[i + 1]; j < K; between += l[j], j++) {
+      if (Math.min(between, per - between - l[i] - l[j]) < 1.6 * sep) continue;
+      if (segDist(V[i], V[(i + 1) % K], V[j], V[(j + 1) % K]) < sep) return false;
+    }
+    return true;
+  }
+
+  // A layout from its polygon V (fitted to the map), or null when it won't do: each corner a kind
+  // (corner()) placed where its way in and out lie along the polygon's edges; a wiggle (wiggle()) in
+  // up to INSERTS of the longest straights.
+  function corners(V, seed, t, { size, hw, minHw, margin, gap, S, cps, rv, adv }) {
+    const rc = rng(seed, t, 2), rx = rng(seed, t, 3), K = V.length, lo = margin + 1.25 * Math.max(hw, minHw);
     // Each corner: the way in and out, how far it turns, its kind and pieces, and how far back
     // along the way in it starts (tin) and on along the way out it ends (tout), at scale f.
     const C = V.map((v, i) => {
       const a = V[wrap(i - 1, K)], b = V[(i + 1) % K];
       const ai = Math.atan2(v.y - a.y, v.x - a.x), ao = Math.atan2(b.y - v.y, b.x - v.x), turn = angleDiff(ao, ai);
-      return { v, ai, ao, turn, l: Math.hypot(b.x - v.x, b.y - v.y), f: 1, ...corner(turn, rc, hw, minHw, rv) };
+      return { v, ai, ao, turn, l: Math.hypot(b.x - v.x, b.y - v.y), f: 1, ...corner(turn, rc, hw, minHw, rv, adv, v.tight) };
     });
     if (C.some((c) => Math.abs(c.turn) > TURN)) return null;
     for (const c of C) {
@@ -201,7 +320,7 @@ const Track = (() => {
     if (C.some((c) => c.pieces.some((p) => p.r && p.r * c.f < c.rMin))) return null;
     // Wiggles in the longest straights, each with LEAD of straight before and after.
     const free = C.map((c, i) => ({ i, l: c.l - c.tout - C[(i + 1) % K].tin })).sort((p, q) => q.l - p.l);
-    for (const { i, l } of free.slice(0, INSERTS)) {
+    for (const { i, l } of free.slice(0, adv ? ADV.INSERTS : INSERTS)) {
       const w = wiggle(rx, hw, minHw, rv);
       if (rx() < 0.75 && l >= w.len + 2 * LEAD * rv) C[i].ins = w;
     }
@@ -272,11 +391,12 @@ const Track = (() => {
 
   // What a track is like, for scoring layouts and for tools/race-tracks.js. speed (top speed) and rv
   // (its turning circle) as Track.loop's options; lap times only with a speed.
-  //   -> { len, lap, bend, oneWay, flips, tight, tightHw, underRv, straight, straightS, straightDeg, hwMin, hwMax, types }
+  //   -> { len, lap, bend, oneWay, flips, tight, tightHw, underRv, straight, straightS, straightDeg, hwMin, hwMax, fill, rvar, types }
   //   bend: the share of the lap bending; oneWay: the share of the bending that goes the commoner way;
   //   flips: left/right changes; tight: the tightest radius (tightHw: over the half-width there);
   //   underRv: corners tighter than rv; straight: the longest (straightDeg: degrees off vertical);
-  //   types: corners (and wiggles) of each kind
+  //   fill: the area inside the loop over its convex hull's (1: no bay or finger anywhere); rvar: the
+  //   widest corner's radius over the tightest's; types: corners (and wiggles) of each kind
   const BENT = 1 / 1500;
   function measure(tr, { speed = 0, rv = 0 } = {}) {
     const { pts, ds, samples: S } = tr, kind = (p) => (p.k > BENT ? p.side : 0);
@@ -290,20 +410,30 @@ const Track = (() => {
     bends.forEach((r, i) => { if (r.k !== bends[(i + 1) % bends.length].k) flips++; });
     const long = runs.filter((r) => !r.k).reduce((a, r) => (r.len > a.len ? r : a), { len: 0, tx: 0, ty: 1 }), types = {};
     for (const c of tr.corners || []) types[c.type] = (types[c.type] || 0) + 1;
+    const rs = (tr.corners || []).map((c) => c.r), rvar = rs.length ? Math.max(...rs) / Math.min(...rs) : 1;
     return {
       len: tr.len, lap: speed ? tr.len / speed : 0, bend: bendLen / tr.len, oneWay: bendLen ? Math.max(one, bendLen - one) / bendLen : 0, flips,
       tight: 1 / Math.max(...pts.map((p) => p.k)), tightHw: minRadius(tr).r, underRv: (tr.corners || []).filter((c) => c.r < rv).length,
       straight: long.len, straightS: speed ? long.len / speed : 0, straightDeg: (Math.atan2(Math.abs(long.tx), Math.abs(long.ty)) * 180) / Math.PI,
-      hwMin: Math.min(...pts.map((p) => p.hw)), hwMax: Math.max(...pts.map((p) => p.hw)), types,
+      hwMin: Math.min(...pts.map((p) => p.hw)), hwMax: Math.max(...pts.map((p) => p.hw)), fill: Math.abs(areaOf(pts)) / areaOf(hull(pts)), rvar, types,
     };
+  }
+  const areaOf = (P) => P.reduce((s, p, i) => { const q = P[(i + 1) % P.length]; return s + (p.x * q.y - q.x * p.y) / 2; }, 0);
+  // The convex hull (Andrew's monotone chain), anticlockwise (its area > 0).
+  function hull(P) {
+    const ps = [...P].sort((a, b) => a.x - b.x || a.y - b.y), turn = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const half = (qs) => { const h = []; for (const p of qs) { while (h.length >= 2 && turn(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop(); h.push(p); } h.pop(); return h; };
+    return [...half(ps), ...half(ps.reverse())];
   }
   // How good a layout is (more is better): bends both ways, one to three that need a lift, many
   // kinds of corner, a lap of 20–28 s, a long straight that runs up or down the screen (sideways,
-  // less of the way ahead is in view).
-  function score(m) {
-    let s = -10 * Math.max(0, m.oneWay - 0.65) + 0.3 * Math.min(m.flips, 10) + 0.3 * Math.min(Object.keys(m.types).length, 6);
+  // less of the way ahead is in view). Advanced layouts (adv) also for folding in on themselves
+  // (fill), more changes of hand, and slow corners beside fast ones (rvar). lap: [shortest, longest].
+  function score(m, adv = false, lap = LAP) {
+    let s = -10 * Math.max(0, m.oneWay - 0.65) + 0.3 * Math.min(m.flips, adv ? 14 : 10) + 0.3 * Math.min(Object.keys(m.types).length, 6);
     s += m.underRv >= 1 && m.underRv <= 3 ? 1.5 : m.underRv > 3 ? 0.5 : 0;
-    if (m.lap) s -= 0.5 * Math.max(0, 20 - m.lap, m.lap - 28);
+    if (adv) s += 3 * clamp((0.88 - m.fill) / 0.25, 0, 1) + (m.rvar >= 4 ? 0.5 : 0);
+    if (m.lap) s -= 0.5 * Math.max(0, lap[0] - m.lap, m.lap - lap[1]);
     if (m.straightS) s += (m.straightS >= 2 ? 0.5 : 0) - (m.straightS * Math.sin((m.straightDeg * Math.PI) / 180) > 1.5 ? 0.5 : 0);
     return s;
   }
