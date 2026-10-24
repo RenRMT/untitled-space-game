@@ -6,9 +6,9 @@
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
 // centreline, passed in order; your best lap's ghost flies beside you. R restarts, N a new track.
-// Steering (Input): point (the game's drag) or sides (it flies itself; hold a half to turn); the
-// Steer button switches and remembers it.
-// Query parameters: ?biome=desert|ice|lava|terran|moon, ?style=line, ?curved, ?seed=, ?laps=,
+// Drawn low-poly, on flat ground. Steering (Input): point (the game's drag), or ?steer=sides (it
+// flies itself; hold a half to turn).
+// Query parameters: ?biome=desert|ice|lava|terran|moon, ?seed=, ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=point|sides, ?assist=0 (no steering assist).
 // ES module; needs a browser.
@@ -18,7 +18,6 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtCulture } from '../art/culture.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
-import { Store } from '../core/store.js';
 import { Loadout } from '../rules/loadout.js';
 import { Draw } from './draw.js';
 import { Ghost } from './ghost.js';
@@ -29,7 +28,8 @@ import { Track } from './track.js';
 const q = new URLSearchParams(location.search), T = ArtSurface.T;
 const N = 76, SIZE = N * T; // the surface, tiles a side; world units a side
 const SAMPLES = 720, CHECKS = 16, HW = 1.9 * T; // centreline points; checkpoints; the track's half-width (±25% round the loop)
-const SPACING = 7 * T, CLEAR = 6 * T; // between obstacles on the track; none this close to the start
+const SPACING = 7 * T, CLEAR = 6 * T, GAP = 2.5 * T; // between obstacles on the track; none this close to the start; wall between two stretches of track
+const TRACKS = 2; // the track generator's version: a seed's ghost is kept only for the track it was flown on
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 const BIOMES = {
   desert: { type: 'desert', label: 'Desert' },
@@ -63,8 +63,8 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 const DPRS = coarse ? [1.25, 1] : [2, 1.5, 1.25];
 let dprAt = 0;
 const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the track from the start; ms of work between paints
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1 };
-Input.mode = ['point', 'sides'].includes(q.get('steer')) ? q.get('steer') : Store.get('race.steer') === 'sides' ? 'sides' : 'point';
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1 };
+Input.mode = q.get('steer') === 'sides' ? 'sides' : 'point';
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
@@ -76,7 +76,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // ---------- The track and the run ----------
 
 function build() {
-  const b = BIOMES[S.biome], tr = Track.loop(S.seed, { size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, samples: SAMPLES, checks: CHECKS });
+  const b = BIOMES[S.biome], tr = Track.loop(S.seed, { size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: GAP, samples: SAMPLES, checks: CHECKS });
   const W = ArtSurface.generate(b.type, S.seed, { w: N, h: N, tall: 0.06 });
   Track.carve(W, tr, S.seed, { T, spacing: SPACING, clear: CLEAR });
   const on = ArtSurface.propsAll(W).filter((p) => Track.edgeDist(tr, p.x, p.y).d < p.r);
@@ -90,7 +90,7 @@ function looks() {
   return G.looks[S.style] || (G.looks[S.style] = { far: ArtSurface.farImage(G.W, S.style), tiles: SurfaceGlobe.tiles(G.W, S.style, { size: 8, dpr: coarse ? 1 : 1.5, keep: Infinity }) });
 }
 function restart() {
-  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${S.biome}.${S.seed}.${SPEED}` };
+  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${TRACKS}.${S.biome}.${S.seed}.${SPEED}` };
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
 }
@@ -105,7 +105,7 @@ function viewNow(Wc, Hc, C, a) {
   const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf;
   // The lead, held to CAM.reach of the screen's shorter side, so the ship never runs off its edge.
   const l = Math.hypot(cam.lx, cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
-  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + cam.lx * f, fy: C.y + cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
+  const v = SurfaceGlobe.view({ R: 1e9, flat: 0, fx: C.x + cam.lx * f, fy: C.y + cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
   return { v, zoom };
 }
 // The ground to build detailed chunks over round (x, y) (game/landing.js detailRect), and the same
@@ -138,7 +138,7 @@ async function bake() {
   delete document.body.dataset.busy;
   baking = false;
 }
-// A style's chunks let go, their canvases emptied (a browser may hold a dropped canvas's memory
+// A track's chunks let go, their canvases emptied (a browser may hold a dropped canvas's memory
 // until it's collected).
 function free(look) {
   if (!look) return;
@@ -146,7 +146,6 @@ function free(look) {
   look.tiles.clear();
 }
 
-const STARS = Array.from({ length: 220 }, (_, i) => { const h = (n) => { const v = Math.sin(i * 127.1 + n * 311.7) * 43758.5453; return v - Math.floor(v); }; return [h(1), h(2), 0.3 + 0.7 * h(3)]; });
 const ground = (v, x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, ArtSurface.heightAt(G.W, x, y) + z);
 const TAU = Math.PI * 2;
 // The craft between its last two steps (a of the way from the one before).
@@ -178,12 +177,10 @@ function render(time, a) {
   Art.beginFrame();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, Wc, Hc);
-  if (S.curved) for (const [sx, sy, al] of STARS) { ctx.fillStyle = `rgba(230,236,255,${al * 0.8})`; ctx.fillRect(sx * Wc, sy * Hc, 1, 1); }
   const C = between(a), { far, tiles } = looks(), { v, zoom } = viewNow(Wc, Hc, C, a), px = 1 / zoom;
   const got = tiles.layers(detailRect(v), 0), layers = [far, ...got];
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
-  if (S.curved) SurfaceGlobe.draw(ctx, layers, v, { dpr: dpr * zoom, fog: bg, fogDist: SurfaceGlobe.horizonDist(v) * 1.3, under: bg });
-  else SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
+  SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
   Draw.marks(ctx, v, px, time, G, R, ground);
   const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
@@ -227,8 +224,6 @@ const $ = (id) => document.getElementById(id);
 for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
 function sync() {
   for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);
-  for (const [id, on] of [['line', S.style === 'line'], ['lowpoly', S.style === 'lowpoly'], ['curved', S.curved]]) $(id).setAttribute('aria-pressed', on);
-  $('steer').textContent = Input.mode === 'sides' ? 'Steer: sides' : 'Steer: point';
   $('help').innerHTML = Input.mode === 'sides'
     ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ brakes · R restart · N new track'
     : 'Drag to fly, drag length sets speed · double-tap to stop · WASD / arrows · R restart · N new track';
@@ -242,14 +237,6 @@ function busy(fn) {
 }
 function newGround() { if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]); build(); return bake(); }
 const newTrack = () => busy(() => { S.seed++; return newGround(); });
-function setStyle(style) {
-  if (S.style === style) return;
-  busy(() => { free(G.looks[S.style]); delete G.looks[S.style]; S.style = style; return bake(); });
-}
-$('line').onclick = () => setStyle('line');
-$('lowpoly').onclick = () => setStyle('lowpoly');
-$('curved').onclick = () => { S.curved = !S.curved; sync(); };
-$('steer').onclick = () => { Input.mode = Input.mode === 'sides' ? 'point' : 'sides'; Store.set('race.steer', Input.mode); Input.reset(R.craft.angle); sync(); };
 $('restart').onclick = () => busy(restart);
 $('next').onclick = newTrack;
 Input.init(cv, {
