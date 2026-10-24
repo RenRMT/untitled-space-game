@@ -15,7 +15,7 @@ import { Loadout } from '../rules/loadout.js';
 
 const Config = (() => {
   const T = 64, N = 76, SIZE = N * T; // ArtSurface.T; the surface, tiles a side; world units a side
-  const TRACKS = 3;
+  const TRACKS = 4;
   // The ship: the Courier as the game fits and draws it (game/state.js SHIP), at the surface's size
   // (game/landing.js SURFACE_SCALE).
   const SHIP = Loadout.stats(Loadout.starter('courier'));
@@ -27,8 +27,13 @@ const Config = (() => {
   // The track: its half-width (±25% round the loop, never under minHw), kept clear of the map's edge
   // by margin; the run-off past its edge (slow ground, then the wall); between two stretches, edge to
   // edge, both run-offs and at least a tile of wall (gap).
-  const HW = 1.9 * T, RUNOFF = 1.25 * T, OPEN = 0.4 * T;
-  const TRACK = { size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: 2 * (RUNOFF + OPEN) + T, samples: 720, checks: 16 };
+  // Its corners are sized against the craft's top speed and its turning circle there (rv, v²/a), at
+  // the race's own speed (not ?speed=, so a seed's track stays the same).
+  const HW = 1.9 * T, RUNOFF = 1.25 * T, OPEN = 0.4 * T, STATS = stats();
+  const TRACK = {
+    size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: 2 * (RUNOFF + OPEN) + T, samples: 720, checks: 16,
+    speed: STATS.maxSpeed, rv: STATS.maxSpeed ** 2 / STATS.accel,
+  };
   const CARVE = { T, runoff: RUNOFF, open: OPEN, outside: 'high' };
   const KINDS = {
     desert: { track: 'b', off: 'a' }, // hardpan; dune sea (gravel reg is the mesas' colour)
@@ -37,7 +42,7 @@ const Config = (() => {
     terran: { track: 'a', off: 'c' }, // meadow; woodland (b is the sea)
     moon: { track: 'b', off: 'c' }, // mare; ejecta
   };
-  return { T, N, SIZE, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS: stats(), HW, RUNOFF, TRACK, CARVE, KINDS };
+  return { T, N, SIZE, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
 })();
 
 export { Config };

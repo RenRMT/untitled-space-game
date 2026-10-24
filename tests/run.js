@@ -3216,6 +3216,24 @@ test('race track: a closed loop inside the map, never too narrow, its bends wide
   assert(Track.minRadius(tight).r >= 2, `smoothed: ${Track.minRadius(tight).r.toFixed(2)}`);
 });
 
+test('race track: corners of many kinds, bending both ways, a few that need a lift', () => {
+  const seen = new Set();
+  let lifts = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const tr = Track.loop(seed, RACE), m = Track.measure(tr, RACE);
+    assert(tr.corners.length >= 6, `corners (seed ${seed})`);
+    for (const c of tr.corners) {
+      seen.add(c.type);
+      assert([c.from, c.apex, c.to].every((n) => Number.isInteger(n) && n >= 0 && n < tr.samples) && Math.abs(c.side) === 1 && c.r > 0, `a corner (seed ${seed})`);
+    }
+    assert(m.flips >= 4 && m.oneWay <= 0.85, `bends both ways (seed ${seed}: ${m.flips} flips, ${m.oneWay.toFixed(2)} one way)`);
+    assert(m.lap > 18 && m.lap < 30, `a lap of ${m.lap.toFixed(1)} s (seed ${seed})`);
+    if (m.underRv >= 1) lifts++;
+  }
+  assert(lifts >= 15, `most tracks have a corner that needs a lift (${lifts} of 20)`);
+  for (const k of ['hairpin', 'square', 'sweeper', 'double-apex', 'decreasing', 'chicane']) assert(seen.has(k), `a ${k} somewhere`);
+});
+
 test('race track: how far outside the edge, the way out, and the point further round', () => {
   const tr = Track.loop(1, RACE), p = tr.pts[100], nx = -p.ty, ny = p.tx;
   let e = Track.edgeDist(tr, p.x, p.y);
@@ -3236,7 +3254,12 @@ test('race carve: the track, its run-off and the walls; nothing left on the trac
   const at = (n, o) => { const p = tr.pts[n]; return [p.x - p.ty * (p.hw + o), p.y + p.tx * (p.hw + o)]; }; // o past the edge (< 0: on the track)
   const W = { w: n, h: n, C: grid(1), G: grid(0.5), G2: grid(0.5), props: {} };
   const put = (type, [x, y], r = 10) => { W.props[key(x, y)] = { type, x, y, r }; return key(x, y); };
-  const onTall = put('tall', at(200, -T)), onSmall = put('small', at(300, -T)), offHole = put('hole', at(400, RaceConfig.RUNOFF * 0.5)), offSmall = put('small', at(500, RaceConfig.RUNOFF * 0.6));
+  const onTall = put('tall', at(200, -T)), onSmall = put('small', at(300, -T)), offHole = put('hole', at(400, RaceConfig.RUNOFF * 0.5));
+  // A tile on the run-off clear of the walls: its middle off the track, its corners all opened.
+  const d = (i, j) => Track.edgeDist(tr, i * T, j * T).d, open = RaceConfig.RUNOFF + RaceConfig.CARVE.open;
+  let off = null;
+  for (let i = 0; i < n && !off; i++) for (let j = 0; j < n && !off; j++) if (d(i + 0.5, j + 0.5) > 0 && [d(i, j), d(i + 1, j), d(i, j + 1), d(i + 1, j + 1)].every((v) => v < open) && key((i + 0.5) * T, (j + 0.5) * T) !== offHole) off = [(i + 0.5) * T, (j + 0.5) * T];
+  const offSmall = put('small', off);
   assert.strictEqual(new Set([onTall, onSmall, offHole, offSmall]).size, 4, 'a tile each');
   Track.carve(W, tr, 2, { ...RaceConfig.CARVE, T, kinds: { track: 'b', off: 'c' } });
   for (let i = 0; i <= n; i++) for (let j = 0; j <= n; j++) {

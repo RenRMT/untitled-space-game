@@ -124,8 +124,14 @@ that:
 2. **Tracks and feel:** done: the three zones (`Track.carve`: ground kinds per biome in
    `src/race/config.js`, the run-off's slowing in `Run.step`, edge lines and kerbs in `Draw.lines`);
    high ground beyond the walls; nothing on the track; `npm run tracks` (`tools/race-tracks.js`)
-   measures a run of seeds. Still to do: corners from a vocabulary, scored; a racing line and medal
-   times; the camera zooming out with speed; a touch brake or airbrake, and corners that need it.
+   measures a run of seeds. Corners from a vocabulary (`Track.loop`: kink, sweeper, square,
+   hairpin, double apex, decreasing radius, carousel; a chicane or esses in the longest straights),
+   sized against the turning circle at top speed so one to a few a lap need a lift; three or four
+   corners pulled in so it bends both ways; the width following the corners; the best of six
+   layouts by score; the corners handed on as `tr.corners`. Over seeds 1–60: 55–77% of the bending
+   one way (was 71–100%), 6–10 direction changes (was 0–8), 1–6 corners needing a lift (was none),
+   laps of 19–25 s. Still to do: a racing line and medal times; the camera zooming out with speed;
+   a touch brake or airbrake (the corners that need one are there now).
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
 4. **Rivals and a career:** AI ships, cups on the galaxy map, upgrades.
