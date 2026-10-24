@@ -56,6 +56,8 @@ import { Input as RaceInput } from '../src/race/input.js';
 import { Run } from '../src/race/run.js';
 import { Handling } from '../src/race/handling.js';
 import { Pilot } from '../src/race/pilot.js';
+import { Line } from '../src/race/line.js';
+import { Rival } from '../src/race/rival.js';
 import { Dust } from '../src/race/dust.js';
 import { View as RaceView } from '../src/race/view.js';
 
@@ -3594,6 +3596,90 @@ test('race ghost: a lap recorded at its rate and flown back between its samples'
   const mid = Ghost.at(rec2.lap(0.1), 0.5 / 30);
   assert(Math.abs(Math.cos(mid.angle) + 1) < 0.01, `the short way: ${mid.angle}`);
   assert.strictEqual(rec.lap(1).s.length, 0, 'a lap starts afresh');
+});
+
+test('race line: inside the track, on the inside at the apexes, and faster than the centreline', () => {
+  for (const style of ['regular', 'expert']) for (let seed = 1; seed <= 3; seed++) {
+    const tr = Track.loop(seed, RaceConfig.map(style).TRACK), o = { stats: RaceConfig.STATS, handling: Handling.config, r: RaceConfig.R_SHIP };
+    const L = Line.build(tr, o), lim = Line.lim(tr, Line.MARGIN * o.r), centre = Line.ride(tr, new Float64Array(tr.samples), o.stats, o.handling);
+    assert(L.off.every((v, n) => Math.abs(v) <= lim[n] + 1e-9), `${style} ${seed}: within the track`);
+    assert(L.time < 0.97 * centre.time, `${style} ${seed}: ${L.time.toFixed(2)} s on the line, ${centre.time.toFixed(2)} s on the centreline`);
+    const bends = tr.corners.filter((c) => c.r < 2.5 * tr.pts[c.apex].hw), inside = bends.filter((c) => L.off[c.apex] * c.side > 0);
+    assert(inside.length >= 0.8 * bends.length, `${style} ${seed}: inside at ${inside.length} of ${bends.length} tight apexes`);
+    assert(L.v.every((v) => v > 0 && v <= o.stats.maxSpeed), 'speeds up to top speed');
+  }
+  const a = Line.build(Track.loop(2, RaceConfig.TRACK), { stats: RaceConfig.STATS, handling: Handling.config, r: RaceConfig.R_SHIP });
+  const b = Line.build(Track.loop(2, RaceConfig.TRACK), { stats: RaceConfig.STATS, handling: Handling.config, r: RaceConfig.R_SHIP });
+  assert.deepStrictEqual(a.off, b.off, 'the same line every time');
+});
+
+test('race rivals: one from each culture but yours, none faster than your craft, the slowest ahead of you on the grid', () => {
+  for (const level of Object.keys(Rival.LEVELS)) {
+    const F = Rival.field(4, level), L = Rival.LEVELS[level];
+    assert.deepStrictEqual(F.map((w) => w.id).sort(), ['alien', 'block', 'drifter', 'shard', 'wedge'], level);
+    assert(!F.some((w) => w.id === 'android'), 'android is yours');
+    assert(F.every((w) => w.boss || (w.pace >= L.pace[0] && w.pace <= L.pace[1])), `${level}: paces in the band`);
+    assert.deepStrictEqual(F.map((w) => w.slot).sort(), [0, 1, 2, 4, 5], 'slot 3 is yours');
+    const ahead = F.filter((w) => w.slot < Rival.PLAYER && !w.boss), behind = F.filter((w) => w.slot > Rival.PLAYER);
+    assert(ahead.every((a) => behind.every((b) => a.pace <= b.pace)), `${level}: the slower ones start ahead of you`);
+  }
+  assert.strictEqual(Rival.field(4, 'expert').find((w) => w.slot === 0).id, 'shard', 'the expert boss is on pole');
+  assert.deepStrictEqual(Rival.field(9, 'advanced'), Rival.field(9, 'advanced'), 'the same field for the same seed');
+  const { G, cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 }), probe = run();
+  const P = Rival.pack(G, cfg, Line.build(G.tr, { stats: cfg.stats, handling: probe.tune.handling, r: cfg.r }), 'expert', 1, run);
+  for (const X of P.racers) {
+    assert(X.cfg.stats.maxSpeed <= cfg.stats.maxSpeed && X.cfg.stats.accel <= cfg.stats.accel, `${X.who.id}: no more top speed or grip than yours`);
+    assert(X.R.tune.handling.GRIP <= probe.tune.handling.GRIP, `${X.who.id}: no more grip`);
+  }
+});
+
+test('race rivals: they race clean, the same race from the same seed, the levels in order, the expert boss ahead', () => {
+  const avg = {};
+  for (const level of Object.keys(Rival.LEVELS)) for (let seed = 1; seed <= 2; seed++) {
+    const res = Rival.race(seed, RaceConfig.TRACK, { level });
+    assert(res.every((r) => r.time !== null && r.laps.length === 3), `${level} ${seed}: every rival finishes`);
+    assert(res.reduce((n, r) => n + r.hits, 0) <= 3, `${level} ${seed}: ${res.reduce((n, r) => n + r.hits, 0)} hard hits`);
+    avg[level] = (avg[level] || 0) + res.reduce((t, r) => t + r.time, 0);
+    if (level === 'expert') assert.strictEqual(res.reduce((a, b) => (b.time < a.time ? b : a)).id, 'shard', `seed ${seed}: the boss wins`);
+  }
+  assert(avg.regular > 1.04 * avg.advanced && avg.advanced > 1.01 * avg.expert, `regular ${avg.regular.toFixed(0)}, advanced ${avg.advanced.toFixed(0)}, expert ${avg.expert.toFixed(0)} s`);
+  assert.deepStrictEqual(Rival.race(3, RaceConfig.TRACK, { level: 'regular', laps: 1 }), Rival.race(3, RaceConfig.TRACK, { level: 'regular', laps: 1 }), 'the same race');
+});
+
+test('race rivals: the standings, the finished first by time; ships knock apart without damage', () => {
+  const { G, cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 }), probe = run();
+  const P = Rival.pack(G, cfg, Line.build(G.tr, { stats: cfg.stats, handling: probe.tune.handling, r: cfg.r }), 'regular', 1, run);
+  const R = run({ ...cfg, grid: Rival.grid(Rival.PLAYER, G.tr.pts[0].hw) });
+  let st = Rival.standings(P, G, R);
+  assert.strictEqual(st.of, 6);
+  assert.strictEqual(st.place, Rival.PLAYER + 1, 'you start where your slot is');
+  P.racers[4].ai.finish = 50; R.phase = 'done'; R.total = 40;
+  st = Rival.standings(P, G, R);
+  assert.strictEqual(st.rows[0].id, 'you'); assert.strictEqual(st.rows[1].id, P.racers[4].who.id); assert.strictEqual(st.place, 1);
+  // Two ships overlapping, closing: pushed apart, the closing speed traded, felt, the hulls whole.
+  const A = run(), B = run(), hull = A.hull;
+  Object.assign(A.craft, { x: 0, y: 0, vx: 200, vy: 0 }); Object.assign(B.craft, { x: cfg.r, y: 0, vx: 0, vy: 0 });
+  Rival.ships([A, B], cfg.r);
+  assert(Math.abs(B.craft.x - A.craft.x - 2 * cfg.r) < 1e-6, 'apart');
+  assert(B.craft.vx > 0 && A.craft.vx < 200 && A.craft.vx + B.craft.vx === 200, 'the speed traded');
+  assert(A.fx.includes('bump') && B.fx.includes('bump'), 'felt');
+  B.air = 30; Object.assign(B.craft, { x: A.craft.x });
+  Rival.ships([A, B], cfg.r);
+  assert.strictEqual(B.craft.x, A.craft.x, 'one in the air passes over');
+  assert.strictEqual(A.hull, hull, 'no damage');
+});
+
+test('race rivals: risk, how much contact each seeks, by culture and scaled by the level', () => {
+  const C = Rival.CULTURES;
+  assert(C.shard.risk < C.wedge.risk && C.wedge.risk < C.alien.risk && C.alien.risk < C.block.risk && C.block.risk < C.drifter.risk, 'Shard the cleanest, the Drifters the roughest');
+  assert(Rival.LEVELS.regular.risk > Rival.LEVELS.advanced.risk && Rival.LEVELS.advanced.risk > Rival.LEVELS.expert.risk, 'messier at regular, cleaner at expert');
+  const struck = {}, level = {};
+  for (const lv of ['regular', 'expert']) for (let seed = 1; seed <= 4; seed++) for (const r of Rival.race(seed, RaceConfig.TRACK, { level: lv })) {
+    struck[r.id] = (struck[r.id] || 0) + r.struck; level[lv] = (level[lv] || 0) + r.knocks;
+  }
+  assert(struck.shard + struck.wedge < struck.block + struck.drifter, `careful ${struck.shard} + ${struck.wedge}, bold ${struck.block} + ${struck.drifter} knocks caused`);
+  assert(struck.drifter >= Math.max(struck.shard, struck.wedge, struck.alien), `the Drifters knock the most: ${JSON.stringify(struck)}`);
+  assert(level.regular > level.expert, `knocks: regular ${level.regular}, expert ${level.expert}`);
 });
 
 if (failed) {

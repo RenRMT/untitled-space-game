@@ -1,5 +1,5 @@
-// Drawing the race over the ground: the track's edges and kerbs, the start line and the next checkpoint, the ships (yours and
-// your best lap's ghost) with their shadows, the minimap, the stick, the drag (as game/hud.js
+// Drawing the race over the ground: the track's edges and kerbs, the start line and the next checkpoint, the ships (yours,
+// the rivals' and your best lap's ghost) with their shadows, the minimap, the stick, the drag (as game/hud.js
 // drawDragIndicator draws it) or the halves held when steering by sides, and the HUD's text.
 //
 //   Draw.marks(ctx, v, px, time, G, R, ground)    ground(v, x, y, z) -> [X, Y] | null
@@ -10,15 +10,17 @@
 //     oldest first (t: when, s; a: strength 0 .. 1; c: colour, TRAIL_RGB), gone after life s
 //   Draw.streaks(ctx, Wc, Hc, cx, cy, a, time)   a boost's speed streaks in from the screen's edges toward
 //     (cx, cy) (CSS px); a: their strength (0 .. 1)
-//   Draw.minimap(ctx, Wc, G, R, size, ghost?)    size: the map's side (world units); ghost: { x, y }
+//   Draw.minimap(ctx, Wc, G, R, size, ghost?, rivals?)    size: the map's side (world units); ghost: { x, y };
+//     rivals: [{ x, y, color }]
 //   Draw.drag(ctx, drag, maxDrag), Draw.sides(ctx, Wc, Hc, held)
 //   Draw.pad(ctx, pad, home, radius, inner, dash, DASH, drift, DRIFT)   the stick (Input.pad, Input.home()),
 //     the dash's charges (Run's R.dash, Run.DASH) and the drift's charge (R.drift, Run.DRIFT)
 //   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   sparks off the tail while a slide has
 //     charged a level, coloured by it (R.drift); z: the ship's height
 //   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
-//   Draw.hud(G, R, cfg, missing) -> { lap, time, rest }   text, text, html; missing: chunks still building in view
-//   Draw.note(R, cfg) -> { msg, big }             the message over the track (the countdown, …)
+//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, rest }   text, text, html; missing: chunks still building
+//     in view; pos: Rival.standings(), the place and the order, when there are rivals
+//   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
 
 import { Art } from '../art/render.js';
@@ -206,7 +208,7 @@ const Draw = (() => {
     ctx.restore();
   }
 
-  function minimap(ctx, Wc, G, R, size, ghost) {
+  function minimap(ctx, Wc, G, R, size, ghost, rivals = []) {
     const side = Math.min(170, Wc * 0.32), x0 = Wc - side - 16, y0 = 64, s = side / size, C = R.craft;
     ctx.save();
     ctx.fillStyle = 'rgba(5,6,10,0.7)'; ctx.fillRect(x0, y0, side, side);
@@ -219,6 +221,7 @@ const Draw = (() => {
     dot(st.x, st.y, 2.5, '#ffffff');
     if (R.phase === 'race') dot(cp.x, cp.y, 3, '#7df9ff');
     if (ghost) dot(ghost.x, ghost.y, 2.2, 'rgba(200,190,255,0.8)');
+    for (const o of rivals) dot(o.x, o.y, 2.6, o.color);
     ctx.translate(C.x, C.y); ctx.rotate(C.angle); ctx.scale(1 / s, 1 / s);
     ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-4, -4); ctx.lineTo(-4, 4); ctx.closePath(); ctx.fill();
     ctx.restore();
@@ -291,17 +294,19 @@ const Draw = (() => {
   }
 
   const fmt = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(2).padStart(5, '0')}`;
-  function hud(G, R, cfg, missing) {
+  const nth = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
+  function hud(G, R, cfg, missing, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
     const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · ${G.track ? `${G.track} ` : ''}seed ${G.seed} · ${Math.round(G.tr.len)} u a lap${missing ? ` · ${missing} chunks building` : ''}</span>`;
-    return { lap: `Lap ${lap}/${cfg.laps}`, time: `${fmt(R.lapT)} · total ${fmt(R.total)}`, rest };
+    const order = pos ? `${pos.rows.map((r, i) => `<span style="color:${r.color}${r.you ? ';font-weight:700' : ''}">${i + 1} ${r.name}</span>`).join(' · ')}<br>` : '';
+    return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: `${fmt(R.lapT)} · total ${fmt(R.total)}`, rest: order + rest };
   }
-  function note(R, cfg) {
+  function note(R, cfg, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, hullPct = Math.round((100 * R.hull) / cfg.hull), lap = Math.min(cfg.laps, R.laps.length + 1);
     if (R.phase === 'count') return { msg: R.t < 2.4 ? String(3 - Math.floor(R.t / 0.8)) : 'GO', big: true };
     if (R.phase === 'race' && R.total < 0.8) return { msg: 'GO', big: true };
     if (R.phase === 'race' && R.wrong > 0.8) return { msg: 'Wrong way', big: false };
-    if (R.phase === 'done') return { msg: `Finished in ${fmt(R.total)}\nBest lap ${fmt(best)}${R.newBest ? ' · new best' : ''} · ${R.hits} hits · hull ${hullPct}%\nR to race again · N for a new track`, big: false };
+    if (R.phase === 'done') return { msg: `Finished ${pos ? `${nth(pos.place)} of ${pos.of} ` : ''}in ${fmt(R.total)}\nBest lap ${fmt(best)}${R.newBest ? ' · new best' : ''} · ${R.hits} hits · hull ${hullPct}%\nR to race again · N for a new track`, big: false };
     if (R.phase === 'wreck') return { msg: `The hull gave out on lap ${lap}\nR to try again · N for a new track`, big: false };
     return { msg: '', big: false };
   }
