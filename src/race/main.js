@@ -3,8 +3,8 @@
 // Courier's art, its engine numbers, and the surface's flying (Flight). notes/race.md is the plan.
 //
 // This module wires the page: builds a track, runs it a fixed step at a time (Run) and draws it
-// between steps, the ground in chunks (SurfaceGlobe.tiles) built during the countdown along the
-// start and, in the race, ahead along the track in idle time. Laps count by checkpoints along the
+// between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
+// countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
 // centreline, passed in order; your best lap's ghost flies beside you. R restarts, N a new track.
 // Steering (Input): point (the game's drag) or sides (it flies itself; hold a half to turn); the
 // Steer button switches and remembers it.
@@ -58,16 +58,19 @@ const ART = ArtBlueprints.create('fighter-light', ArtCulture.legacy, 3);
 const BODY = { art: ART, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / ART.radius, r: R_SHIP, z: ArtSurface.FLY };
 
 const coarse = matchMedia('(pointer: coarse)').matches;
-const DPR = coarse ? 1.5 : 2, KEEP = coarse ? 56 : 72; // the canvas's pixel ratio at most; detailed chunks kept
-const WARM = { ahead: 2500, step: 500, budget: 8 }; // the countdown builds the ground this far along from the start, a rect every step, ms a frame
+// The canvas's pixel ratio at most: below a phone's own (most mobile games draw under native
+// resolution), and lowered a step at a time while frames are missed (pace).
+const DPRS = coarse ? [1.25, 1] : [2, 1.5, 1.25];
+let dprAt = 0;
+const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the track from the start; ms of work between paints
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: q.get('style') === 'line' ? 'line' : 'lowpoly', curved: q.has('curved'), seed: +q.get('seed') || 1 };
 Input.mode = ['point', 'sides'].includes(q.get('steer')) ? q.get('steer') : Store.get('race.steer') === 'sides' ? 'sides' : 'point';
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
 let cfg = null; // what the run flies by (Run)
-let warmed = 0; // how far along from the start the countdown has built the ground
-const cv = document.getElementById('view'), ctx = cv.getContext('2d'), hud = document.getElementById('hud'), note = document.getElementById('note');
+let baking = false; // the ground is being built: the run waits
+const cv = document.getElementById('view'), ctx = cv.getContext('2d'), note = document.getElementById('note');
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 // ---------- The track and the run ----------
@@ -84,23 +87,25 @@ function build() {
   restart();
 }
 function looks() {
-  return G.looks[S.style] || (G.looks[S.style] = { far: ArtSurface.farImage(G.W, S.style), tiles: SurfaceGlobe.tiles(G.W, S.style, { size: 8, dpr: coarse ? 1 : 1.5, keep: KEEP }) });
+  return G.looks[S.style] || (G.looks[S.style] = { far: ArtSurface.farImage(G.W, S.style), tiles: SurfaceGlobe.tiles(G.W, S.style, { size: 8, dpr: coarse ? 1 : 1.5, keep: Infinity }) });
 }
 function restart() {
   cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${S.biome}.${S.seed}.${SPEED}` };
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
-  warmed = 0;
-  looks().tiles.layers(detailRect(viewNow(innerWidth, innerHeight, R.craft).v), Infinity); // the start's chunks, now
 }
 
 // ---------- The view ----------
 
-function viewNow(Wc, Hc, C) {
-  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * R.cam.zf;
+// The camera, like the craft, between its last two steps (a of the way from the one before).
+const cam = { lx: 0, ly: 0, zf: 1 };
+function viewNow(Wc, Hc, C, a) {
+  const P = R.pcam, Q = R.cam;
+  cam.lx = P.lx + (Q.lx - P.lx) * a; cam.ly = P.ly + (Q.ly - P.ly) * a; cam.zf = P.zf + (Q.zf - P.zf) * a;
+  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf;
   // The lead, held to CAM.reach of the screen's shorter side, so the ship never runs off its edge.
-  const l = Math.hypot(R.cam.lx, R.cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
-  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + R.cam.lx * f, fy: C.y + R.cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
+  const l = Math.hypot(cam.lx, cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
+  const v = SurfaceGlobe.view({ R: S.curved ? 600 : 1e9, flat: S.curved ? 300 : 0, fx: C.x + cam.lx * f, fy: C.y + cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
   return { v, zoom };
 }
 // The ground to build detailed chunks over round (x, y) (game/landing.js detailRect), and the same
@@ -110,43 +115,72 @@ function detailRect(v) {
   const ex = SurfaceGlobe.extent(v), r = rectAt(v.fx, v.fy);
   return { x0: Math.max(ex.x0, r.x0), x1: Math.min(ex.x1, r.x1), y0: Math.max(ex.y0, r.y0), y1: Math.min(ex.y1, r.y1), cx: r.cx, cy: r.cy };
 }
-// The countdown: the ground along the track from the start, a rect at a time, so the race's first
-// stretch never waits on a chunk. In the race: the ground a moment ahead along the track (the way
-// it's flying round), in idle time.
-function warmStart(tiles) {
-  if (warmed > WARM.ahead) return;
-  const p = G.tr.pts[Track.ahead(G.tr, 0, warmed)];
-  if (tiles.layers(rectAt(p.x, p.y), WARM.budget).missing === 0) warmed += WARM.step;
+// The bake: every chunk of the map, built before the countdown and kept (a whole map is about
+// 100 chunks, ~80 MB at dpr 1), so the race never builds one: a chunk's build steps run several
+// ms each and a phone drops frames on them. The start first, then along the track, then the rest;
+// BAKE.slice ms at a time, with a paint between for the progress. Each chunk is drawn once when
+// done, so its first frame on screen doesn't pay for the upload to the GPU.
+const WHOLE = { x0: 0, x1: SIZE, y0: 0, y1: SIZE, cx: SIZE / 2, cy: SIZE / 2 };
+async function bake() {
+  const { tiles } = looks(), tr = G.tr, total = () => { const l = tiles.layers(WHOLE, 0); return [l.length, l.length + l.missing]; };
+  const rects = [];
+  for (let d = 0; d < tr.len; d += BAKE.step) { const p = tr.pts[Track.ahead(tr, 0, d)]; rects.push(rectAt(p.x, p.y)); }
+  rects.push(WHOLE);
+  baking = true;
+  for (const rect of rects) {
+    while (tiles.layers(rect, BAKE.slice).missing) {
+      const [done, all] = total();
+      document.body.dataset.busy = `Building track… ${Math.round((100 * done) / all)}%`;
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  for (const L of tiles.layers(WHOLE, 0)) ctx.drawImage(L.canvas, 0, 0, 1, 1);
+  delete document.body.dataset.busy;
+  baking = false;
 }
-let idle = null;
-function buildAhead(tiles) {
-  if (idle) return;
-  const C = R.craft, tr = G.tr, p = tr.pts[R.n], v = Math.hypot(C.vx, C.vy), fwd = C.vx * p.tx + C.vy * p.ty >= 0 ? 1 : -1;
-  const a = tr.pts[Track.ahead(tr, R.n, fwd * (v * 1.5 + 400))], rect = rectAt(a.x, a.y);
-  if (window.requestIdleCallback) idle = requestIdleCallback((dl) => { idle = null; tiles.warm(rect, Math.min(4, dl.timeRemaining() - 2)); });
-  else tiles.warm(rect, 3);
+// A style's chunks let go, their canvases emptied (a browser may hold a dropped canvas's memory
+// until it's collected).
+function free(look) {
+  if (!look) return;
+  for (const L of look.tiles.layers(WHOLE, 0)) L.canvas.width = L.canvas.height = 0;
+  look.tiles.clear();
 }
 
 const STARS = Array.from({ length: 220 }, (_, i) => { const h = (n) => { const v = Math.sin(i * 127.1 + n * 311.7) * 43758.5453; return v - Math.floor(v); }; return [h(1), h(2), 0.3 + 0.7 * h(3)]; });
 const ground = (v, x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, ArtSurface.heightAt(G.W, x, y) + z);
 const TAU = Math.PI * 2;
 // The craft between its last two steps (a of the way from the one before).
+const drawn = { x: 0, y: 0, angle: 0, thrust: 0 };
 function between(a) {
   const C = R.craft, P = R.prev, da = ((C.angle - P.angle + Math.PI) % TAU + TAU) % TAU - Math.PI;
-  return { x: P.x + (C.x - P.x) * a, y: P.y + (C.y - P.y) * a, angle: P.angle + da * a, thrust: C.thrust };
+  drawn.x = P.x + (C.x - P.x) * a; drawn.y = P.y + (C.y - P.y) * a; drawn.angle = P.angle + da * a; drawn.thrust = C.thrust;
+  return drawn;
 }
 
+// Frames missed: a frame over 1.5× the usual one missed the display's refresh. When more than a
+// tenth of 2 s of frames miss, the canvas drops to the next pixel ratio (and stays there: up and
+// down again would show). A display held to 30 a second (a phone saving power) misses none.
+const PACE = { span: 2000, missed: 0.1 }, pace = { at: 0, n: 0, ts: [] };
+function paceFrame(t, dt) {
+  if (dt > 250) return; // a hidden tab, a bake
+  pace.ts.push(dt);
+  if (t - pace.at < PACE.span) return;
+  const s = [...pace.ts].sort((x, y) => x - y), usual = s[s.length >> 1], missed = s.filter((x) => x > usual * 1.5).length;
+  if (missed > s.length * PACE.missed && dprAt < DPRS.length - 1) dprAt++;
+  pace.at = t; pace.ts.length = 0;
+}
+
+const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudRest = document.getElementById('hud-rest');
 let hudAt = -1, hudText = '';
 function render(time, a) {
-  const dpr = Math.min(DPR, devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
+  const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
   if (cv.width !== Math.round(Wc * dpr) || cv.height !== Math.round(Hc * dpr)) { cv.width = Math.round(Wc * dpr); cv.height = Math.round(Hc * dpr); }
   Art.beginFrame();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, Wc, Hc);
   if (S.curved) for (const [sx, sy, al] of STARS) { ctx.fillStyle = `rgba(230,236,255,${al * 0.8})`; ctx.fillRect(sx * Wc, sy * Hc, 1, 1); }
-  const C = between(a), { far, tiles } = looks(), { v, zoom } = viewNow(Wc, Hc, C), px = 1 / zoom;
-  if (R.phase === 'count') warmStart(tiles);
-  const got = tiles.layers(detailRect(v), 4), layers = [far, ...got];
+  const C = between(a), { far, tiles } = looks(), { v, zoom } = viewNow(Wc, Hc, C, a), px = 1 / zoom;
+  const got = tiles.layers(detailRect(v), 0), layers = [far, ...got];
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   if (S.curved) SurfaceGlobe.draw(ctx, layers, v, { dpr: dpr * zoom, fog: bg, fogDist: SurfaceGlobe.horizonDist(v) * 1.3, under: bg });
   else SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
@@ -159,13 +193,14 @@ function render(time, a) {
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, SIZE, ghost);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held); else Draw.drag(ctx, Input.drag, Input.maxDrag());
-  if (R.phase === 'race' || R.phase === 'done') buildAhead(tiles);
 
-  // The HUD's text, ten times a second, and only written when it changed.
+  // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
   if (time - hudAt > 0.1 || time < hudAt) {
     hudAt = time;
-    const html = Draw.hud(G, R, cfg, got.missing);
-    if (html !== hudText) hud.innerHTML = hudText = html;
+    const h = Draw.hud(G, R, cfg, got.missing);
+    if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
+    hudTime.textContent = h.time;
+    if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
   }
   const { msg, big } = Draw.note(R, cfg);
   if (note.textContent !== msg) note.textContent = msg;
@@ -176,6 +211,8 @@ function render(time, a) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 function frame(t) {
+  if (baking) { last = t; requestAnimationFrame(frame); return; }
+  if (last) paceFrame(t, t - last);
   acc += Math.min(0.1, (t - last) / 1000 || 0); last = t;
   cfg.steer = Input.mode;
   const ctl = Input.control();
@@ -187,7 +224,7 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.onclick = () => busy(() => { S.biome = id; build(); }); $('biomes').append(b); }
+for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
 function sync() {
   for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);
   for (const [id, on] of [['line', S.style === 'line'], ['lowpoly', S.style === 'lowpoly'], ['curved', S.curved]]) $(id).setAttribute('aria-pressed', on);
@@ -197,10 +234,20 @@ function sync() {
     : 'Drag to fly, drag length sets speed · double-tap to stop · WASD / arrows · R restart · N new track';
   $('help').innerHTML += '<br>Walls and rocks bounce you and dent the hull · craters slow you · vents burn';
 }
-function busy(fn) { document.body.classList.add('busy'); setTimeout(() => { fn(); sync(); document.body.classList.remove('busy'); }, 30); }
-const newTrack = () => busy(() => { S.seed++; build(); });
-$('line').onclick = () => busy(() => { S.style = 'line'; looks(); });
-$('lowpoly').onclick = () => busy(() => { S.style = 'lowpoly'; looks(); });
+// One at a time: what's asked while the ground is building is ignored.
+function busy(fn) {
+  if (document.body.classList.contains('busy') && G) return;
+  document.body.classList.add('busy');
+  setTimeout(async () => { await fn(); sync(); document.body.classList.remove('busy'); }, 30);
+}
+function newGround() { if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]); build(); return bake(); }
+const newTrack = () => busy(() => { S.seed++; return newGround(); });
+function setStyle(style) {
+  if (S.style === style) return;
+  busy(() => { free(G.looks[S.style]); delete G.looks[S.style]; S.style = style; return bake(); });
+}
+$('line').onclick = () => setStyle('line');
+$('lowpoly').onclick = () => setStyle('lowpoly');
 $('curved').onclick = () => { S.curved = !S.curved; sync(); };
 $('steer').onclick = () => { Input.mode = Input.mode === 'sides' ? 'point' : 'sides'; Store.set('race.steer', Input.mode); Input.reset(R.craft.angle); sync(); };
 $('restart').onclick = () => busy(restart);
@@ -211,4 +258,4 @@ Input.init(cv, {
 });
 
 window.race = { S, Input, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; } }; // to poke at from the console
-busy(() => { build(); requestAnimationFrame(frame); });
+busy(async () => { await newGround(); requestAnimationFrame(frame); });

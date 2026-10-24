@@ -17,6 +17,7 @@
     #help { position: fixed; right: 16px; bottom: 14px; opacity: 0.55; pointer-events: none; text-align: right; }
     @media (max-width: 600px) { #help { display: none; } }
     body.busy::after { content: 'Building track…'; position: fixed; inset: 0; display: grid; place-items: center; background: #05060acc; }
+    body.busy[data-busy]::after { content: attr(data-busy); }
   </style>
 </head>
 <body class="busy">
@@ -30,7 +31,7 @@
     <button id="next">New track</button>
   </div>
   <div id="note"></div>
-  <div id="hud"></div>
+  <div id="hud"><b id="hud-lap"></b> · <span id="hud-time"></span><br><span id="hud-rest"></span></div>
   <div id="help"></div>
   <script type="module" src="../src/race/main.js"></script>
 </body>

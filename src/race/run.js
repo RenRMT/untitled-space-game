@@ -5,8 +5,8 @@
 //   Run.step(R, G, cfg, control, dt)   one fixed step (control: Input.control())
 //   Run.STEP                        the step (s)
 //   R: { phase: 'count' | 'race' | 'done' | 'wreck', t, total, lapT, laps, next, n, hull, hits,
-//        wrong, slow, burn, flash, craft, prev, cam: { lx, ly, zf }, ghost, newBest }
-//     prev: the craft's { x, y, angle } a step before, to draw it between steps
+//        wrong, slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest }
+//     prev, pcam: the craft's { x, y, angle } and the camera a step before, to draw both between steps
 //   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey }
 //
 // Flying is Flight.step (Cruise, or Direct with ?mode=direct) on the race's stats. Steering:
@@ -41,12 +41,26 @@ const Run = (() => {
     const craft = { x: p.x, y: p.y, vx: 0, vy: 0, angle: Math.atan2(p.ty, p.tx), thrust: 0 };
     const R = {
       phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0,
-      craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 },
+      craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
       rec: Ghost.recorder(), ghost: Ghost.load(cfg.ghostKey), newBest: false,
     };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.
+    // The props round a tile (ArtSurface.propsNear: they depend only on the tile) are found once
+    // and kept, rocks and holes apart, so the steps make no garbage for the collector.
+    const T = ArtSurface.T, memo = new Map();
+    const near = (x, y) => {
+      const k = Math.floor(x / T) * 1000 + Math.floor(y / T);
+      let m = memo.get(k);
+      if (!m) {
+        const ps = ArtSurface.propsNear(G.W, x, y);
+        m = { rocks: ps.filter((q) => q.type === 'tall').map((q) => ({ x: q.x, y: q.y, r: q.r + 0.5 })), holes: ps.filter((q) => q.type === 'hole') }; // rocks a hair wider than blocked() sees them
+        memo.set(k, m);
+      }
+      return m;
+    };
     R.world = {
-      rocks: (x, y) => ArtSurface.propsNear(G.W, x, y).filter((q) => q.type === 'tall').map((q) => ({ x: q.x, y: q.y, r: q.r + 0.5 })), // a hair wider than blocked() sees them
+      rocks: (x, y) => near(x, y).rocks,
+      holes: (x, y) => near(x, y).holes,
       blocked: (x, y, r) => ArtSurface.blocked(G.W, x, y, r),
       normal: (x, y) => { const e = Track.edgeDist(G.tr, x, y, R.n, 40); return [-e.nx, -e.ny]; },
     };
@@ -71,17 +85,17 @@ const Run = (() => {
   function step(R, G, cfg, ctl, dt = STEP) {
     R.t += dt;
     if (R.phase === 'count' && R.t >= COUNT) { R.phase = 'race'; R.t = 0; }
-    const W = G.W, tr = G.tr, C = R.craft, racing = R.phase === 'race', STATS = cfg.stats;
+    const tr = G.tr, C = R.craft, racing = R.phase === 'race', STATS = cfg.stats;
     R.prev.x = C.x; R.prev.y = C.y; R.prev.angle = C.angle;
-    const stats = R.slow ? { ...STATS, maxSpeed: STATS.maxSpeed * SLOW } : STATS;
+    const stats = R.slow ? (R.slowStats ||= { ...STATS, maxSpeed: STATS.maxSpeed * SLOW }) : STATS;
     const go = steer(R, G, cfg, ctl, stats, racing), from = { x: C.x, y: C.y };
     Flight.step(C, stats, { targetAngle: go.speed > 0 ? go.angle : C.angle, targetSpeed: go.speed, mode: cfg.mode }, dt);
     // As hard as the same share of top speed at the game's surface speed (game/landing.js).
     const hit = Contact.step(C, cfg.r, R.world, WALL, from) / (STATS.maxSpeed / (cfg.ship.maxSpeed * 0.5));
     if (hit > Collide.config.surfaceSafe * 0.5) { R.hits++; R.flash = Math.min(0.4, hit / 600); }
     R.hull -= Collide.damage(hit, Collide.config.surfaceSafe);
-    const inHole = ArtSurface.propsNear(W, C.x, C.y).filter((p) => p.type === 'hole' && Math.hypot(C.x - p.x, C.y - p.y) < p.r);
-    R.slow = inHole.length > 0; R.burn = inHole.some((p) => p.emit);
+    R.slow = R.burn = false;
+    for (const p of R.world.holes(C.x, C.y)) if (Math.hypot(C.x - p.x, C.y - p.y) < p.r) { R.slow = true; if (p.emit) R.burn = true; }
     if (R.burn && racing) R.hull -= BURN * dt;
     R.flash = Math.max(0, R.flash - dt);
     if (R.hull <= 0 && racing) { R.hull = 0; R.phase = 'wreck'; }
@@ -107,6 +121,7 @@ const Run = (() => {
 
   function camera(R, G, cfg, dt) {
     const C = R.craft, tr = G.tr, cam = cfg.cam, k = 1 - Math.exp(-3 * dt);
+    Object.assign(R.pcam, R.cam);
     const v = Math.hypot(C.vx, C.vy), sp = v / cfg.stats.maxSpeed, p = tr.pts[R.n];
     const fwd = C.vx * p.tx + C.vy * p.ty >= 0 ? 1 : -1, reach = v * cam.lead;
     const a = tr.pts[Track.ahead(tr, R.n, fwd * reach)];

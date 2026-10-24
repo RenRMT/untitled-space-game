@@ -216,13 +216,15 @@ const SurfaceGlobe = (() => {
   }
 
   // Flat: each layer drawn straight where it lies, the focus at (ox, oy). Edges land on whole device
-  // pixels (dpr: device px per view unit), so neighbouring chunks meet without a seam.
+  // pixels (dpr: device px per view unit), so neighbouring chunks meet without a seam: the origin is
+  // snapped once and each edge from it, so as the view moves a chunk keeps its size on screen
+  // (snapping each edge where it falls would make it a pixel wider or narrower frame to frame).
   function drawFlat(ctx, layers, v, o = {}) {
-    const k = o.dpr || 1, snap = (u) => Math.round(u * k) / k;
+    const k = o.dpr || 1, snap = (u) => Math.round(u * k) / k, X = snap(v.ox - v.fx), Y = snap(v.oy - v.fy * v.ct);
     ctx.fillStyle = o.under || Art.config.bg; ctx.fillRect(0, 0, v.W, v.H);
     for (const L of layers) {
-      const x0 = snap(v.ox + L.x0 - v.fx), y0 = snap(v.oy + L.y0 - v.fy * v.ct);
-      const x1 = snap(v.ox + L.x0 - v.fx + L.canvas.width / L.sx), y1 = snap(v.oy + L.y0 - v.fy * v.ct + L.canvas.height / L.sy);
+      const x0 = X + snap(L.x0), y0 = Y + snap(L.y0);
+      const x1 = X + snap(L.x0 + L.canvas.width / L.sx), y1 = Y + snap(L.y0 + L.canvas.height / L.sy);
       ctx.globalAlpha = L.alpha ?? 1;
       ctx.drawImage(L.canvas, x0, y0, x1 - x0, y1 - y0);
     }
