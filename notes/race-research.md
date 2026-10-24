@@ -1,0 +1,227 @@
+# Racing: research on movement and tracks
+
+Oct 24, 2026
+
+Research behind `notes/race.md`: how other racing games, mobile ones especially, handle movement and
+tracks, held up against the race prototype (`race/`, `src/race/`), with a close look at the track
+generator (`Track.loop`, `Track.carve`). Rivals, pickups and abilities are left for later; where they
+bear on movement or tracks it's said. Numbers measured on the prototype as of commit 8e0e6e3.
+
+## Part A: the track generator
+
+### A0. How it works today (from reading the code and measuring it)
+- **Layout** (`Track.loop` → `corners()`): a seeded polygon of 8 to 13 vertices round the map's
+  middle, each at a random distance out (0.25 to 1). It is squeezed to be taller than wide, then fitted to the map.
+  Each vertex is rounded into **one circular arc** (radius skewed tight by `r()**3`) and joined to the next by
+  straights. Layouts are rejected for corners sharper than 2.7 rad, arcs that don't fit their edge, a minimum
+  radius under 2 half-widths, or two stretches closer than `gap`. After 60 tries it falls back to `blob()`.
+  **One RNG stream** feeds everything.
+- **Width**: a sine round the loop (±25%), unrelated to the corners.
+- **Carve** (`Track.carve`) uses the surface's tile-corner grid `C` (T = 64 units): corners within
+  0.4T of the edge are opened, a noisy band of 1.4T ± 0.8T outside it becomes high ground (cliffs), and
+  **everything beyond is left as generated**: random mesas, dunes, props and holes. Props in wall tiles are
+  dropped. **On the track**, tall rocks are thinned to one per 7T, and holes (craters, vents) stay.
+- **Zones today: only two.** The track's edge *is* the cliff. Holes are the only slow ground (×0.5 speed;
+  vents burn). There is no run-off, and the ground under the track is whatever biome texture happens to be there.
+- Measured over seeds 1 to 8 or 1 to 20:
+  - **76 to 95% of all bending goes one way**, with only **2 to 6 left/right direction changes a lap**.
+    Real circuits mix both directions much more. This is the polygon-round-the-middle shape.
+  - Lap length is 9.3k to 12.6k units (about 19 to 26 s); 40 to 67% of the lap is bend.
+  - **79 to 91 of the 100 ground chunks lie within 700 units of the track.** Baking only near the track would
+    barely shrink memory; what outside detail costs is mostly **build time** per chunk.
+  - The ship's turning circle at top speed is v²/a ≈ 326, which is under every generated corner's radius
+    (350 to 565), so **no corner needs a lift**.
+
+### A1. Less detail outside the track
+| Option | What | Gains | Costs |
+|---|---|---|---|
+| a. Strip props beyond the walls | In carve, drop every prop (small/tall/hole) with d > the wall band; ground stays | Simple, faster chunk builds, calmer screen | Ground still has dunes, mesas and colour noise |
+| b. **Fill with high ground** | `C = 1` for all corners beyond the band: the track runs through a canyon of mesa/ice shelf/basalt | Strongest readability (anything not track is wall), walls between stretches come free (helps `gap`), no stray mesas, few cliff pieces | Less "planet" scenery; plateau tops can look flat (they keep `topZ` noise) |
+| c. Calm the ground kinds | Set the `G`/`G2` weights beyond the run-off to one plain kind | Visually quiet, with no new geometry | Dunes (`amp`) still undulate |
+| d. Smaller map / lower DPR far from track | Fit the map to the track's bounds; draw chunks far from the track at lower dpr | The real memory win | A change to the bake/`SurfaceGlobe.tiles` options |
+
+**Recommendation: b + a**, keeping 3 to 6 large props outside the wall as **landmarks** at corner apexes
+(they help players learn corners). Do d later if memory on phones becomes a problem.
+
+### A2. No obstacles on the track
+In `carve`, delete every `tall` and `hole` prop with `edgeDist(...).d < runoff + p.r`. Optionally drop
+`small` clutter on the track too, for a clean surface. Keep the code paths in `Contact` and the hole
+check in `Run.step` (rocks and holes come back later as deliberate features), and keep the minimap dots
+(they just draw nothing). Bump `TRACKS` so old ghosts are dropped.
+
+### A3. Track, run-off, wall: three zones
+**Gameplay** (all cheap: `Run.step` already calls `Track.edgeDist` every step, so `d` comes for free):
+- **Track** (d ≤ 0): full stats.
+- **Run-off** (0 < d ≤ RUNOFF, about 1.25T ≈ 80 units ≈ 3 ship widths): top speed eases toward about ×0.6 and
+  accel/grip toward about ×0.7, over about 0.2 s rather than instantly, so it doesn't jolt. No damage. This replaces the
+  hole slow-down as the "off-track" rule. Research says the penalty must be consistent and readable, and
+  not so soft that cutting pays: check that crossing run-off on the inside of any corner is slower than staying on the track.
+- **Wall** (cliffs beyond): existing `Contact` slide plus dent. Keep the damage for "clean lap" scoring (and
+  optionally the wreck).
+- Carve must open corners out to d < RUNOFF + 0.4T. Cliff outlines snap to the 64-unit grid with seeded
+  offsets, so a run-off under 1T would let walls poke into the track. `gap` between stretches must grow to about
+  2·RUNOFF + 1.5T (≈ 4T), or b above makes this moot.
+
+**Visual** (two layers):
+1. **Ground kinds, baked into the chunks**: carve also writes `W.G`/`W.G2` at tile corners. Ground
+   kinds per biome already fit almost one-to-one:
+
+   | Biome | Track | Run-off | Beyond (if not plateau) |
+   |---|---|---|---|
+   | Desert | b Hardpan (flat, cracked) | c Gravel reg (dark grit) | a Dune sea |
+   | Ice | b Glare ice (flat) | c Pressure ridges | a Snowfield |
+   | Moon | b Mare (flat, dark) | c Ejecta (grit) | a Regolith |
+   | Lava | c Ash field (smooth) | a Basalt (rough) | b Lava flow (glows) |
+   | Terran | a Meadow | c Woodland | — (b is the sea: avoid) |
+
+   The weights are per tile corner (64 units) and blend, so edges blur over about ±32 units. Flat kinds also flatten
+   the track (`amp: 0`).
+2. **A crisp overlay** drawn each frame in `Draw.marks` from the centreline: edge lines at d = 0, and
+   **kerbs** (alternating biome-tinted stripes) on the inside at the apex and the outside at the exit wherever curvature is
+   high. Kerbs also act as corner warnings. Terran needs the overlay most (a tinted road ribbon).
+   Cost: one or two paths per frame over the visible span only.
+3. Feedback: dust or spray particles behind the ship and a light haptic tick on run-off; sparks, shake and a
+   stronger haptic on walls. The HUD notes "off track".
+
+### A4. Generating common corners and features
+Corner vocabulary, with sizes measured against the turning circle Rv ≈ 326 (v²/a at top speed) and half-width hw ≈ 120:
+
+| Corner | Turn | Radius | Role |
+|---|---|---|---|
+| Kink | < 30° | ≫ Rv | flat out, line only |
+| Sweeper | 30 to 100° | 1.5 to 4 Rv | flat out with a clean line |
+| Square (90°) | 80 to 100° | about Rv | edge of a lift |
+| Hairpin | > 140° (GT Course Maker's rule) | < Rv (≥ 2 hw) | forces lift/brake: a braking zone |
+| Double apex | 100 to 180° | two arcs with a short straight | two clipping points |
+| Decreasing radius | 90 to 180° | r1 > r2 | trap corner ("mistake generator") |
+| Carousel | 180 to 270° | constant, ≥ 2 Rv | sustained drift |
+| Chicane | net ≈ 0, ±30 to 50° | small | sideways shift > track width, or it gets driven straight |
+| Esses | alternating 40 to 90° | medium | rhythm, tests drift transitions |
+
+Spacing rule from the physics: at top speed the velocity swings at a/v ≈ 1.5 rad/s, so a chicane
+or esses element needs about 0.3 s × (degrees/30) of straight between apexes (≈ 300 to 400 units for ±30°).
+A chicane's sideways offset must be larger than track width minus a ship width, or it can be flown straight.
+
+**Generation options:**
+1. **Polygon + corner types (extend the current one)**: keep the polygon for the overall shape. Per vertex,
+   pick a type from its turn angle plus a seeded roll, and emit a *compound* segment list (two arcs for double apex
+   or decreasing radius, one tight arc for a hairpin). Insert chicanes or esses *inside* long straights (net turn 0,
+   so the polygon doesn't change). Force 2 to 4 **concave** vertices (push them inward) for opposite-hand corners.
+   *Pros*: incremental, keeps fit/apart/blob. *Cons*: compound corners need longer edges, so more rejects.
+2. **Segment grammar + Dubins closure**: walk a sequence of corner/straight tokens (a rhythm such as "long
+   straight → hairpin → short → esses → sweeper…"), then close back to the start pose with a Dubins path
+   (arc-straight-arc at a minimum radius). Reject on self-intersection or leaving the map. (Prasetya & Maulidevi: tracks as
+   parameterised segment sequences plus multi-objective search.) *Pros*: explicit rhythm.
+   *Cons*: the shape wanders, fitting a portrait map is hard, and the closing section is generic.
+3. **Curvature profile / clothoids**: define κ(s) piecewise linear (Euler spirals, as GT's Course
+   Maker uses for easing), integrate, and solve closure (x, y, heading). *Pros*: smooth transitions built in.
+   *Cons*: closure needs a small optimiser.
+4. **Search-based** (Togelius' SBPCG taxonomy; Lanzi et al. evolved tracks with a shape-diversity fitness
+   plus a simulated-driver fitness): any of the above as the representation, with a score. At runtime, cheap
+   geometric scoring of K candidates per seed. Offline, a bot flying the deterministic physics in Node
+   curates a pool (daily seed, "New track").
+5. **Corner-complex library**: hand-made combos (e.g. a "Becketts" esses) stamped into option 1 or 2. Gives
+   identity at authoring cost.
+
+**Recommendation: 1 + light 4.** Extend the polygon with corner types, inserted chicanes/esses and forced
+concave vertices. Generate a few candidates per seed and keep the best score (deterministic). Ease arc↔straight
+joins with a short spiral or local smoothing. Keep option 4 offline for a curated pool later.
+
+### A5. Other generator features suggested by the research
+- **Corner metadata output**: `tr.corners = [{ type, dir, entry, apex, exit, radius, vMax }]`. It feeds kerbs,
+  pace-note chevrons before corners (rally-style readability on a small screen), the camera's bend zoom
+  (instead of scanning `k`), the steering assist, and later AI, pads and corner names.
+- **Racing line and speed profile**: a minimum-curvature line inside the width, then vMax = √(a·r) along
+  it. This gives a lap-time estimate (score and medal times without a bot), places kerbs and landmarks, and
+  later rivals' line and pad placement (pads *off* the line are a choice; *on* it are just speed).
+- **Width tied to corners**: wider into hairpins and slow corners (line choice, and later overtaking and braking
+  zones), narrower through fast esses. Changes stay gradual (FIA: about 1 in 20).
+- **Scoring and validity** (also the tests): closed and non-intersecting; min radius ≥ 2 hw; `gap`; lap
+  time 20 to 30 s; **one-way bend share ≤ about 0.7 and ≥ 6 direction changes**; 1 or 2 corners under Rv; a longest
+  straight ≥ about 2 s; radius variety; horizontal straights capped (sideways look-ahead is only about 0.9 s on phones).
+- **Start/finish**: halfway down the longest straight (already done). The first corner should be medium, not a hairpin, with
+  a wide start straight; this matters for a starting grid later.
+- **Separate RNG streams per stage** (layout, corner types, width, decoration) so tuning one stage doesn't
+  reshuffle another seed's layout, which would silently invalidate ghosts. Bump `TRACKS` when the layout changes.
+- **Hooks reserved for later, as metadata only**: straights long enough for pads, corner exits for
+  pickups, and "thin wall" spots where two stretches pass close (the `apart` check finds them) as shortcut
+  candidates.
+- **Difficulty dial**: corner count, hairpin count, width and run-off width from one value, for daily or tiered tracks.
+- **Landmarks**: one distinctive tall prop outside the wall per major corner, for memorability.
+
+---
+
+## Part B: movement, camera and sessions
+
+Measured: ship radius 13.6 (about 27 across); top speed 487 u/s, accel 728 u/s², nose turn 4.5 rad/s.
+In Cruise the velocity turns at most a/v ≈ 1.5 rad/s at top speed (turning circle v²/a ≈ 326); the
+nose turns 3× faster, which is the drift. Track about 243 wide (9 ship widths). Look-ahead (ship at 55%
+of the screen's height, lead held to 0.3 of its short side): phone portrait about 1.7 s flying up,
+1.4 s down, 0.9 s sideways; desktop 1920×1080 (zoom 1.69) about 1.1 s up.
+
+### Findings from other games
+- **Controls:** auto-accelerate is the mobile default (Asphalt 9, Mario Kart Tour, Horizon Chase).
+  Touch beats tilt (GI2014; tilt works as a supplement). Data Wing: left/right halves, both halves
+  brake, scraping a wall gives speed. Steering toward the finger (Touch Racing Nitro: distance is
+  speed) is the other family, as point mode. Relative steering under a fixed camera inverts when
+  driving down the screen (the "RC car" complaint about isometric top-down racers). Assists like
+  Smart Steering are optional, framed as correcting touch, and off raises the ceiling. Avoid controls
+  that need an arc of the thumb (one direction is harder).
+- **Feel:** a solid simulation with assists and camera polish on top (Criterion, GDC 2018).
+  Collisions forgiving but punchy. Wipeout makes walls cost a lot of speed and pairs them with
+  airbrakes. The grip-to-slide change must be predictable.
+- **Camera:** zoom out as speed rises (Rush Rally, Art of Rally), the car low on the screen, about
+  1.5 to 2 s of road ahead. Close cameras need designed sightlines; an unseen corner reads as unfair.
+- **Sessions:** Trackmania's 30 to 40 s tracks, instant restart, ghosts and medal ghosts; multi-lap
+  races several times longer weaken "one more go". Mobile: 45 to 90 s, star targets, async ghosts and
+  daily seeds.
+- **Tracks:** wider is easier and lets the skilled carry a smoother line (about 1.6 car widths a lane
+  plus a shoulder in arcade guidance; real circuits change width gradually). Vary corner types, a few
+  deliberate mistake generators rather than uniform difficulty; a long straight into a tight corner is
+  the braking and passing zone. The racing line and its clipping points are what a track is designed
+  round.
+- **Later features:** rivals need room to pass (an overtaking line beside the main one, mostly on
+  straights) and corners that force speed differences; AI needs a minimum-curvature line. Pads need
+  width and sightlines (off the line a choice, on it just speed). A sideways dash longer than half the
+  width becomes a wall-hit generator.
+
+### What the prototype does well
+The deterministic 120 Hz step with interpolation (ghosts, medals, replays, AI later); walls you slide
+along with low restitution and track-derived normals; about 22 s laps, 70 s races; a camera that leads
+along the track and zooms by bends; every chunk baked before the countdown and the pixel ratio dropped
+on missed frames; generator constraints (min radius, gap, min width, portrait shape); the Cruise drift
+as an identity; auto-accelerate, assist, ghost, minimap, wrong way.
+
+### What can improve, most first
+1. No corner needs a lift: the turning circle (326) is under every corner's radius, so laps are flat
+   out and skill is only line tidiness. It also removes the braking zones rivals need.
+2. Look-ahead is short and the camera zooms in at speed (`cam.pull`), the opposite of common practice;
+   the ship sits at 55% whichever way it flies.
+3. Sides mode inverts on downward stretches and has no touch brake (both halves go straight).
+4. Corners are random rather than designed (Part A).
+5. Rocks on the track can land on an apex, untelegraphed.
+6. Wall damage and the wreck run against mobile forgiveness: better a clean-lap target.
+7. No targets but your own ghost.
+8. Arc-to-straight curvature jumps (minor for a drifting ship).
+
+### Directions
+- **Cornering depth:** scrub (speed lost with the slip angle), corners tighter than the turning
+  circle, an airbrake (brake one side to turn tighter at a small cost), or walls as speed (Data Wing).
+  Recommended: a little scrub plus a touch brake or airbrake, with 1 or 2 corners a lap that need it.
+- **Steering:** point (absolute) as the main scheme, with a second finger or zone to brake; sides as an
+  option, both halves braking. A turning camera is out (chunks are drawn at a fixed tilt).
+- **Camera:** zoom out with speed, the ship opposite its way, at least 1.5 s ahead; speed lines make up
+  for the sense of speed lost.
+
+## Sources
+- [Search-based PCG: taxonomy and survey (Togelius et al.)](https://course.ccs.neu.edu/cs5150f13/readings/togelius_sbpcg.pdf)
+- [Track generation by GA, shape and simulation fitness (Lanzi et al., cited in TU Delft survey)](https://publications.graphics.tudelft.nl/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBc3dNIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--abf95264f8d6bf9b4093135f332b098978f253bd/TWB11a.pdf)
+- [Segment-sequence tracks with multi-objective search (Prasetya & Maulidevi)](https://lppm.itb.ac.id/?p=64965)
+- [Closed-loop layouts and self-crossing repair (Chulalongkorn thesis)](https://digital.car.chula.ac.th/chulaetd/75063)
+- [GT Course Maker: hairpins over 140°, Euler-spiral easing](https://www.gtplanet.net/forum/threads/course-maker-toolbox.352281/post-14000734)
+- [Generating procedural racetracks (hull + displacement)](https://gamedeveloper.com/programming/generating-procedural-racetracks)
+- [Adversarial RL for PCG: road segments](https://arxiv.org/pdf/2103.04847)
+- [Clothoid discussion](https://www.gtplanet.net/forum/threads/cities-skylines-the-sim-city-we-deserve.325276/page-23) · [Clothoid limits](https://pmc.ncbi.nlm.nih.gov/articles/PMC7184578/)
+- [Track boundary / kerbs debate](https://www.gtplanet.net/forum/threads/poll-where-is-the-track-boundary-in-your-opinion.202836/) · [Grass vs gravel run-off](https://motorsportweek.com/?p=12501) · [Kerbs explained](https://flowracers.com/?p=9290)
+- [Arcade track design fundamentals](https://gamedeveloper.com/design/feature-the-fundamentals-of-arcade-style-racing-track-design) · [A Rational Approach to Racing Game Track Design](https://gamedeveloper.com/design/a-rational-approach-to-racing-game-track-design) · [Magnopus: memorable tracks](https://www.magnopus.com/blog/the-art-of-designing-a-memorable-race-track) · [Five rules of racetrack design](https://www.autocarindia.com/motor-sports-news-amp/five-rules-that-drive-racetrack-design-420806) · [GTPlanet: track width](https://www.gtplanet.net/forum/threads/track-width.189125)
+- [GDC: Vehicle Feel Masterclass](https://gdcvault.com/play/1025295/Vehicle-Feel-Masterclass-Balancing-Arcade) · [Data Wing](https://www.pocketgamer.co.uk/data-wing/data-wing-is-a-minimalist-arcade-racer-out-now-for-ios-and-android/) · [Touch Racing Nitro](https://www.pocketgamer.com/touch-racing-nitro/review) · [Tilt vs touch (GI2014)](https://www.csit.carleton.ca/~rteather/pdfs/GI2014.pdf) · [Smart Steering](https://www.mariowiki.com/Smart_Steering) · [Top-down rally cameras](https://traxion.gg/heres-why-are-so-many-rally-games-going-top-down/) · [Art of Rally camera](https://jalopnik.com/how-a-small-change-in-camera-angle-completely-transform-1849152549) · [Wipeout 2097 airbrakes](https://wipeout.fandom.com/wiki/Wipeout_2097) · [Trackmania Turbo review](https://www.godisageek.com/reviews/trackmania-turbo-review)
