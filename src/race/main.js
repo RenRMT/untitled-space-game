@@ -6,11 +6,12 @@
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
 // centreline, passed in order; your best lap's ghost flies beside you. R restarts, N a new track.
-// Drawn low-poly, on flat ground. Steering (Input): point (the game's drag), or ?steer=sides (it
-// flies itself; hold a half to turn).
+// Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
+// default on touch screens, the view framed above it, View), point (the game's drag; the default
+// with a mouse), or sides (it flies itself; hold a half to turn). Tap to hop, flick to dash.
 // Query parameters: ?biome=desert|ice|lava|terran|moon, ?seed=, ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
-// ?mode=direct (no drift; letting go stops), ?steer=point|sides, ?assist=0 (no steering assist).
+// ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist).
 // ES module; needs a browser.
 
 import { Art } from '../art/render.js';
@@ -18,12 +19,14 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtCulture } from '../art/culture.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
+import { Feedback } from '../core/feedback.js';
 import { Config } from './config.js';
 import { Draw } from './draw.js';
 import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
+import { View } from './view.js';
 
 const q = new URLSearchParams(location.search), { T, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
 if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
@@ -59,7 +62,7 @@ const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the 
 // 'expert' (folded in on itself, sharp corners, few long straights)
 const STYLES = { regular: 'Regular', advanced: 'Advanced', expert: 'Expert' };
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: STYLES[q.get('track')] ? q.get('track') : 'regular' };
-Input.mode = q.get('steer') === 'sides' ? 'sides' : 'point';
+Input.mode = ['pad', 'point', 'sides'].includes(q.get('steer')) ? q.get('steer') : coarse ? 'pad' : 'point';
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), size (the map's side), whole (all of it, as a rect), hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
@@ -98,10 +101,12 @@ const cam = { lx: 0, ly: 0, zf: 1 };
 function viewNow(Wc, Hc, C, a) {
   const P = R.pcam, Q = R.cam;
   cam.lx = P.lx + (Q.lx - P.lx) * a; cam.ly = P.ly + (Q.ly - P.ly) * a; cam.zf = P.zf + (Q.zf - P.zf) * a;
-  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf;
-  // The lead, held to CAM.reach of the screen's shorter side, so the ship never runs off its edge.
-  const l = Math.hypot(cam.lx, cam.ly) * zoom, f = Math.min(1, (CAM.reach * Math.min(Wc, Hc)) / (l || 1));
-  const v = SurfaceGlobe.view({ R: 1e9, flat: 0, fx: C.x + cam.lx * f, fy: C.y + cam.ly * f, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: (Hc * 0.55) / zoom, tilt: ArtSurface.tiltOf(S.style) });
+  const zoom = clamp(Math.min(Wc, Hc) / 800, 0.55, 1.3) * CAM.zoom * cam.zf, tilt = ArtSurface.tiltOf(S.style);
+  // The lead, held so the ship stays in sight (View): on a portrait screen steered by the pad, above
+  // the stick's band; else within CAM.reach of the screen's shorter side.
+  const band = Input.mode === 'pad' && Hc > Wc ? 1 - Input.home().y0 / Hc : 0;
+  const f = View.frame({ W: Wc, H: Hc, lx: cam.lx, ly: cam.ly, zoom, ct: Math.cos(tilt), band, reach: CAM.reach });
+  const v = SurfaceGlobe.view({ R: 1e9, flat: 0, fx: C.x + f.lx, fy: C.y + f.ly, W: Wc / zoom, H: Hc / zoom, ox: Wc / 2 / zoom, oy: f.oy / zoom, tilt });
   return { v, zoom };
 }
 // The ground to build detailed chunks over round (x, y) (game/landing.js detailRect), and the same
@@ -144,10 +149,11 @@ function free(look) {
 const ground = (v, x, y, z = 0) => SurfaceGlobe.toScreen(v, x, y, ArtSurface.heightAt(G.W, x, y) + z);
 const TAU = Math.PI * 2;
 // The craft between its last two steps (a of the way from the one before).
-const drawn = { x: 0, y: 0, angle: 0, thrust: 0 };
+const drawn = { x: 0, y: 0, angle: 0, thrust: 0, air: 0 };
 function between(a) {
   const C = R.craft, P = R.prev, da = ((C.angle - P.angle + Math.PI) % TAU + TAU) % TAU - Math.PI;
   drawn.x = P.x + (C.x - P.x) * a; drawn.y = P.y + (C.y - P.y) * a; drawn.angle = P.angle + da * a; drawn.thrust = C.thrust;
+  drawn.air = R.pair + (R.air - R.pair) * a;
   return drawn;
 }
 
@@ -179,12 +185,16 @@ function render(time, a) {
   Draw.marks(ctx, v, px, time, G, R, ground);
   const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
-  Draw.ship(ctx, v, BODY, C, { style: S.style, time, shadow: true, ground });
+  // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
+  const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
+  Draw.ship(ctx, v, body, C, { style: S.style, time, shadow: true, ground });
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, G.size, ghost);
-  if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held); else Draw.drag(ctx, Input.drag, Input.maxDrag());
+  if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
+  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH);
+  else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
   // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
   if (time - hudAt > 0.1 || time < hudAt) {
@@ -202,6 +212,8 @@ function render(time, a) {
 // A fixed step: the run steps as many times as the frame's time holds (at most a tenth of a second
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
+// What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
+const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6] };
 function frame(t) {
   if (baking) { last = t; requestAnimationFrame(frame); return; }
   if (last) paceFrame(t, t - last);
@@ -209,6 +221,8 @@ function frame(t) {
   cfg.steer = Input.mode;
   const ctl = Input.control();
   while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); acc -= Run.STEP; }
+  for (const k of R.fx) Feedback.vibrate(BUZZ[k]);
+  R.fx.length = 0;
   render(t / 1000, acc / Run.STEP);
   requestAnimationFrame(frame);
 }
@@ -222,10 +236,19 @@ function sync() {
   for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);
   for (const id of Object.keys(STYLES)) $(`track-${id}`).setAttribute('aria-pressed', S.track === id);
   $('help').innerHTML = Input.mode === 'sides'
-    ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ brakes · R restart · N new track'
-    : 'Drag to fly, drag length sets speed · double-tap to stop · WASD / arrows · R restart · N new track';
+    ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ / X brakes · Space hops · R restart · N new track'
+    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
   $('help').innerHTML += '<br>Walls bounce you and dent the hull · off the track slows you';
+  place();
 }
+// The HUD's text sits at the bottom left, but on a portrait screen steered by the pad that's the
+// stick's band: there it goes under the bar at the top instead.
+function place() {
+  const up = Input.mode === 'pad' && innerHeight > innerWidth, hud = $('hud');
+  hud.style.top = up ? `${document.querySelector('.bar').offsetHeight + 4}px` : '';
+  hud.style.bottom = up ? 'auto' : '';
+}
+addEventListener('resize', place);
 // One at a time: what's asked while the ground is building is ignored.
 function busy(fn) {
   if (document.body.classList.contains('busy') && G) return;
@@ -236,8 +259,12 @@ function newGround() { if (G) for (const k of Object.keys(G.looks)) free(G.looks
 const newTrack = () => busy(() => { S.seed++; return newGround(); });
 $('restart').onclick = () => busy(restart);
 $('next').onclick = newTrack;
+// The screen's safe area at the bottom (a phone's home bar), which the stick's band keeps clear of.
+const safe = Object.assign(document.createElement('div'), { style: 'position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none' });
+document.body.append(safe);
 Input.init(cv, {
   tilt: () => ArtSurface.tiltOf(S.style),
+  inset: () => safe.offsetHeight,
   onKey: (k) => { if (k === 'r') busy(restart); else if (k === 'n') newTrack(); else return false; return true; },
 });
 

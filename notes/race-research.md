@@ -291,6 +291,65 @@ as an identity; auto-accelerate, assist, ghost, minimap, wrong way.
 - **Camera:** zoom out with speed, the ship opposite its way, at least 1.5 s ahead; speed lines make up
   for the sense of speed lost.
 
+## Part C: controls in portrait, one thumb
+
+Oct 24, 2026. Portrait on a phone comes first, steered with one thumb.
+
+### C0. What went wrong
+- **The ship under the thumb.** The camera's focus sat 0.55 down the screen and led the ship by up to 0.3
+  of the short side. On a 390×844 phone flying up, the ship was drawn 69% down, where the thumb rests.
+  Flying down, the track ahead ran under it.
+- **One gesture did everything.** Drag-anywhere steering left no room for maneuvers: dash, a real brake, a hop.
+
+### C1. Findings from other games and research
+- **One-handed grip is the commonest.** In Hoober's field study 49% of touches were one-handed, two-thirds
+  right-handed. The easy reach is the lower middle of the screen.
+- **Mario Kart Tour** (portrait first, landscape added later): it accelerates by itself and you slide one
+  finger to steer. **Tap** uses an item, a swipe up or down throws it forward or back, swipe-and-hold drifts.
+  Tilt doesn't fit portrait.
+- **Other one-thumb games.**
+  - Data Wing: halves to turn, both to brake.
+  - Subway Surfers: swipes for lanes, jump and roll.
+  - Alto: tap to jump, hold to flip.
+  - Archero, Vampire Survivors: a floating stick in the lower screen.
+  - Asphalt 9 TouchDrive: tap to drift or brake, swipes for tricks.
+- **Fixed or floating stick.** No study isolates thumb drift. A small portrait study found the floating stick
+  slightly ahead on every measure, and developers find thumbs slide off fixed ones. The usual hybrid:
+  - a home ring drawn where the thumb goes;
+  - a touch anywhere in a lower band re-centres the stick;
+  - the base follows past its rim;
+  - a small deadzone.
+- **Gestures one thumb can make without blocking steering:**
+  - hold and drag: steer;
+  - back to the middle: brake;
+  - let go: keep the course;
+  - a **flick** (short, quick, released): an action with a direction;
+  - a **tap** (short, still): an action;
+  - a second finger's tap, for two-thumb players.
+  Avoid a long press (it clashes with the start of a drag) and double-taps (slow, easy to trigger by accident).
+- **Letting go keeps the course**, so gestures that lift the thumb cost about 150 ms of steering and nothing else.
+
+### C2. What the race does now (`src/race/input.js`, `view.js`, `run.js`)
+- **Pad** (the default on touch screens, `?steer=pad`):
+  - a stick in a band along the bottom 28% of a portrait screen (40% in landscape), kept clear of the home bar;
+  - a ring at home in the band; a touch anywhere in it puts the base under the thumb, and the base follows past the rim;
+  - angle is the heading and reach the speed, as point mode;
+  - brought back into the middle quarter once out, it **brakes** (top speed eased to ×0.35 at 2.5× the acceleration).
+- **The view** (`View.frame`) frames the race above the band on a portrait screen:
+  - the focus sits 0.42 down;
+  - the ship is held in a box from 0.16 of the height to 40 px above the band;
+  - flying up it rests just above the thumb with most of the screen ahead; flying down it rises toward the top.
+- **Tap** (any finger, anywhere; Space) **hops**: 0.55 s off the ground. No slowing on the run-off or in holes,
+  only 0.4 of the grip, and walls still stop it. It's a run-off shortcut and a dodge for now; gaps and ramps later.
+- **Flick** (any finger; the game's FLICK) **dashes**, read against the craft's way:
+  - within 50°: a boost, 2× top speed, eased back down;
+  - up to 130°: a sidestep, 1.6× top speed square to the way, the velocity given back after;
+  - beyond: an airbrake, the speed halved.
+  It takes two charges, one back every 2.5 s, shown as pips under the ring. Keys: Shift, Q and E.
+- **Haptics** (Android browsers): a buzz on each dash, the hop, the landing and a charge back.
+- Point (drag anywhere) stays the default with a mouse and gets the same taps and flicks; its double-tap stop is gone.
+  Sides is unchanged, with X and Space too.
+
 ## Sources
 - [Search-based PCG: taxonomy and survey (Togelius et al.)](https://course.ccs.neu.edu/cs5150f13/readings/togelius_sbpcg.pdf)
 - [Track generation by GA, shape and simulation fitness (Lanzi et al., cited in TU Delft survey)](https://publications.graphics.tudelft.nl/rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBc3dNIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--abf95264f8d6bf9b4093135f332b098978f253bd/TWB11a.pdf)
@@ -303,3 +362,4 @@ as an identity; auto-accelerate, assist, ghost, minimap, wrong way.
 - [Track boundary / kerbs debate](https://www.gtplanet.net/forum/threads/poll-where-is-the-track-boundary-in-your-opinion.202836/) · [Grass vs gravel run-off](https://motorsportweek.com/?p=12501) · [Kerbs explained](https://flowracers.com/?p=9290)
 - [Arcade track design fundamentals](https://gamedeveloper.com/design/feature-the-fundamentals-of-arcade-style-racing-track-design) · [A Rational Approach to Racing Game Track Design](https://gamedeveloper.com/design/a-rational-approach-to-racing-game-track-design) · [Magnopus: memorable tracks](https://www.magnopus.com/blog/the-art-of-designing-a-memorable-race-track) · [Five rules of racetrack design](https://www.autocarindia.com/motor-sports-news-amp/five-rules-that-drive-racetrack-design-420806) · [GTPlanet: track width](https://www.gtplanet.net/forum/threads/track-width.189125)
 - [GDC: Vehicle Feel Masterclass](https://gdcvault.com/play/1025295/Vehicle-Feel-Masterclass-Balancing-Arcade) · [Data Wing](https://www.pocketgamer.co.uk/data-wing/data-wing-is-a-minimalist-arcade-racer-out-now-for-ios-and-android/) · [Touch Racing Nitro](https://www.pocketgamer.com/touch-racing-nitro/review) · [Tilt vs touch (GI2014)](https://www.csit.carleton.ca/~rteather/pdfs/GI2014.pdf) · [Smart Steering](https://www.mariowiki.com/Smart_Steering) · [Top-down rally cameras](https://traxion.gg/heres-why-are-so-many-rally-games-going-top-down/) · [Art of Rally camera](https://jalopnik.com/how-a-small-change-in-camera-angle-completely-transform-1849152549) · [Wipeout 2097 airbrakes](https://wipeout.fandom.com/wiki/Wipeout_2097) · [Trackmania Turbo review](https://www.godisageek.com/reviews/trackmania-turbo-review)
+- [Mario Kart Tour drifting (iMore)](https://www.imore.com/mario-kart-tour-how-drift-and-when-you-should-try-it) · [Mario Kart Tour first impressions](https://9to5google.com/2019/05/23/mariokart-tour-first-impressions/) · [Mario Kart Tour landscape mode](https://www.siliconera.com/mario-kart-tour-landscape-mode-is-here/) · [How users hold phones (Hoober)](https://www.uxmatters.com/mt/archives/2013/02/how-do-users-really-hold-mobile-devices.php) · [On-screen gamepad designs](https://publications.ait.ac.at/en/publications/investigating-on-screen-gamepad-designs-for-smartphone-controlled/) · [Fixed vs floating joystick (UPI)](https://repository.upi.edu/101077) · [Fixing virtual joysticks](https://bugnet.io/blog/how-to-fix-mobile-virtual-joystick-feeling-bad)
