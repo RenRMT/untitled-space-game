@@ -3,7 +3,7 @@
 // kinds the track and its run-off are laid in.
 //
 //   Config.T, N, SIZE        a tile (ArtSurface.T: main.js checks), tiles a side, world units a side
-//   Config.TRACK             the options Track.loop is called with
+//   Config.TRACK             the options Track.loop is called with (the page adds the style)
 //   Config.CARVE             the options Track.carve is called with (but kinds: Config.KINDS[biome])
 //   Config.KINDS             per biome: { track, off } ground kinds ('a' | 'b' | 'c', ArtSurface)
 //   Config.SHIP, STATS, TUNE, SPEED   the Courier as the game fits it; the race's stats (× TUNE, SPEED top speed)

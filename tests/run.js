@@ -3185,10 +3185,10 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
 // The race (src/race/, notes/race.md): the track's loop, sliding along walls, the ghost.
 const RACE = RaceConfig.TRACK;
 test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
-  for (let seed = 1; seed <= 20; seed++) {
-    const tr = Track.loop(seed, RACE), S = tr.samples;
+  for (const style of ['regular', 'advanced']) for (let seed = 1; seed <= 20; seed++) {
+    const opts = { ...RACE, style }, tr = Track.loop(seed, opts), S = tr.samples;
     assert.strictEqual(tr.pts.length, S);
-    assert.deepStrictEqual(tr, Track.loop(seed, RACE), 'the same seed, the same track');
+    assert.deepStrictEqual(tr, Track.loop(seed, opts), 'the same seed, the same track');
     let len = 0;
     tr.pts.forEach((p, n) => {
       const q = tr.pts[(n + 1) % S];
@@ -3232,6 +3232,24 @@ test('race track: corners of many kinds, bending both ways, a few that need a li
   }
   assert(lifts >= 15, `most tracks have a corner that needs a lift (${lifts} of 20)`);
   for (const k of ['hairpin', 'square', 'sweeper', 'double-apex', 'decreasing', 'chicane']) assert(seen.has(k), `a ${k} somewhere`);
+});
+
+test('race track: the advanced style folds in on itself, bends both ways, and leaves the regular one as it was', () => {
+  const fills = { regular: [], advanced: [] }, ADV = { ...RACE, style: 'advanced' };
+  let own = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const tr = Track.loop(seed, ADV), m = Track.measure(tr, RACE);
+    if (tr.from === 'skeleton') own++;
+    assert(tr.corners.length >= 6, `corners (seed ${seed})`);
+    assert(m.flips >= 4 && m.oneWay <= 0.85, `bends both ways (seed ${seed}: ${m.flips} flips, ${m.oneWay.toFixed(2)} one way)`);
+    assert(m.lap > 18 && m.lap < 34, `a lap of ${m.lap.toFixed(1)} s (seed ${seed})`);
+    fills.advanced.push(m.fill);
+    fills.regular.push(Track.measure(Track.loop(seed, RACE), RACE).fill);
+  }
+  assert(own >= 17, `advanced layouts, not the regular fallback (${own} of 20)`);
+  const median = (v) => [...v].sort((a, b) => a - b)[v.length >> 1];
+  assert(median(fills.advanced) <= 0.82 && median(fills.advanced) < median(fills.regular) - 0.04, `folds in more than the regular style (fill ${median(fills.advanced).toFixed(2)} vs ${median(fills.regular).toFixed(2)})`);
+  assert.deepStrictEqual(Track.loop(5, { ...RACE, style: 'regular' }), Track.loop(5, RACE), 'regular is the default');
 });
 
 test('race track: how far outside the edge, the way out, and the point further round', () => {

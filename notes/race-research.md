@@ -149,6 +149,34 @@ joins with a short spiral or local smoothing. Keep option 4 offline for a curate
 - **Difficulty dial**: corner count, hairpin count, width and run-off width from one value, for daily or tiered tracks.
 - **Landmarks**: one distinctive tall prop outside the wall per major corner, for memorability.
 
+### A6. The advanced style: irregular layouts like real circuits
+Every regular layout is a polygon placed by angle round the map's middle, so it reads as a wobbly
+ring (convex-hull fill about 0.87). Real circuits (Bahrain, Zandvoort, Hungaroring, Baku, Interlagos,
+Austin, Abu Dhabi, Singapore) are irregular in ways a ring can't be:
+
+| Feature | Examples | In `skeleton()` |
+|---|---|---|
+| Fingers: out and back on itself, a hairpin at the tip | Bahrain T4–10, Abu Dhabi, Austin, Zandvoort | a narrow U (4 vertices) into an edge, out or in; its tip corners squares |
+| Bays: the outline folds far in | Hungaroring, Interlagos | a wide, slanted notch inward |
+| Elongated or L-shaped, not a ring | Baku, Montreal, Monza, Mexico | base shapes: long, block, wedge, L |
+| A technical sector beside fast ones | Monaco, Baku castle, Singapore | a square wave of six square corners |
+| Kinked straights | Jeddah, Baku | one or two tiny offsets (kinks) |
+| Steps | Mexico stadium | a shallow, wide notch out or in (plateau) |
+
+`Track.loop(seed, { …, style: 'advanced' })` grows such a skeleton in a portrait box (the base shape
+shrunk to leave room for fingers out), rejects it if it crosses itself or two far-apart edges come
+closer than two half-widths plus `gap`, then builds corners, wiggles, widths and checks exactly as
+the regular style. Scoring adds a bonus for a low fill, more flips and slow corners beside fast ones,
+and allows laps to 32 s. About one skeleton in six survives; 160 tries, the best of 12 kept, and the
+regular style as the fallback (none needed over seeds 1–30). Regular layouts are unchanged bit for bit.
+Measured over seeds 1–30: fill 0.62 / 0.77 / 0.89 (regular 0.80 / 0.87 / 0.91), flips median 8 (6),
+lap 23.5 / 26.2 / 31.5 s. `npm run tracks -- 1 30 --style=advanced` and `npm run tracks:sheet -- 1 24
+--style=advanced > sheet.svg` show them. The page takes `?track=advanced` and a Regular / Advanced toggle.
+
+Limits: the map (76 tiles) is small against the track's width plus run-offs and wall, so a finger
+is at least about 0.15 of the map wide and the shapes stay chunky; a bigger map for the advanced
+style would allow thinner, longer fingers and more of them, at a lap-length and memory cost.
+
 ---
 
 ## Part B: movement, camera and sessions

@@ -55,10 +55,12 @@ const coarse = matchMedia('(pointer: coarse)').matches;
 const DPRS = coarse ? [1.25, 1] : [2, 1.5, 1.25];
 let dprAt = 0;
 const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the track from the start; ms of work between paints
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1 };
+// track: the layout's style (Track.loop): 'regular', or 'advanced' (irregular, like real circuits)
+const STYLES = { regular: 'Regular', advanced: 'Advanced' };
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: q.get('track') === 'advanced' ? 'advanced' : 'regular' };
 Input.mode = q.get('steer') === 'sides' ? 'sides' : 'point';
 Input.stopOnRelease = MODE === 'direct';
-let G = null; // the track and its surface: { W, tr, b, seed, hw, talls, holes, looks: { style: { far, tiles } }, mini }
+let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
@@ -68,14 +70,14 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 // ---------- The track and the run ----------
 
 function build() {
-  const b = BIOMES[S.biome], tr = Track.loop(S.seed, Config.TRACK);
+  const b = BIOMES[S.biome], tr = Track.loop(S.seed, { ...Config.TRACK, style: S.track });
   const W = ArtSurface.generate(b.type, S.seed, { w: N, h: N, tall: 0.06 });
   Track.carve(W, tr, S.seed, { ...Config.CARVE, outside: q.get('outside') || Config.CARVE.outside, kinds: Config.KINDS[S.biome] });
   const on = ArtSurface.propsAll(W).filter((p) => Track.edgeDist(tr, p.x, p.y).d < p.r);
   const mini = new Path2D();
   tr.pts.forEach((p, n) => (n ? mini.lineTo(p.x, p.y) : mini.moveTo(p.x, p.y)));
   mini.closePath();
-  G = { W, tr, b, seed: S.seed, hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
+  G = { W, tr, b, seed: S.seed, track: STYLES[S.track], hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
   G.lines = Draw.lines(G);
   restart();
 }
@@ -83,7 +85,7 @@ function looks() {
   return G.looks[S.style] || (G.looks[S.style] = { far: ArtSurface.farImage(G.W, S.style), tiles: SurfaceGlobe.tiles(G.W, S.style, { size: 8, dpr: coarse ? 1 : 1.5, keep: Infinity }) });
 }
 function restart() {
-  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${TRACKS}.${S.biome}.${S.seed}.${SPEED}` };
+  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, ghostKey: `${TRACKS}.${S.biome}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}` };
   R = Run.create(G, cfg);
   Input.reset(R.craft.angle);
 }
@@ -215,8 +217,10 @@ function frame(t) {
 
 const $ = (id) => document.getElementById(id);
 for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
+for (const id of Object.keys(STYLES)) { const b = document.createElement('button'); b.id = `track-${id}`; b.textContent = STYLES[id]; b.onclick = () => busy(() => { S.track = id; return newGround(); }); $('tracks').append(b); }
 function sync() {
   for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);
+  for (const id of Object.keys(STYLES)) $(`track-${id}`).setAttribute('aria-pressed', S.track === id);
   $('help').innerHTML = Input.mode === 'sides'
     ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ brakes · R restart · N new track'
     : 'Drag to fly, drag length sets speed · double-tap to stop · WASD / arrows · R restart · N new track';
