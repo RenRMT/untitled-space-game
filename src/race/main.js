@@ -7,14 +7,17 @@
 // This module wires the page: builds a track, runs it a fixed step at a time (Run) and draws it
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
-// centreline, passed in order; your best lap's ghost flies beside you. R restarts, N a new track.
+// centreline, passed in order; your best lap's ghost flies beside you. It opens on the title (Menu):
+// a planet, then a level; in the race the Menu button (or Esc) pauses it, to restart or go back to
+// the title. R restarts, N a new track.
 // Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
 // default on touch screens, the view framed above it, View), point (the game's drag; the default
 // with a mouse), or sides (it flies itself; hold a half to turn). Tap to hop, flick to dash.
 // Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed=, ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist),
-// ?ai=regular|advanced|expert|off (the rivals' level, the track's style by default; off: none).
+// ?ai=regular|advanced|expert|off (the rivals' level, the track's style by default; off: none),
+// ?track=regular|advanced|expert; with ?biome= or ?track= the race starts at once, past the title.
 // ES module; needs a browser.
 
 import { Art } from '../art/render.js';
@@ -29,6 +32,7 @@ import { Dust } from './dust.js';
 import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Line } from './line.js';
+import { Menu } from './menu.js';
 import { Rival } from './rival.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
@@ -37,13 +41,14 @@ import { View } from './view.js';
 const q = new URLSearchParams(location.search), { T, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
 if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
+// The biomes, each with the planet the title shows for it (Menu: Art's planet types, a moon's).
 const BIOMES = {
-  desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; deep sand off the track' },
-  ice: { type: 'ice', label: 'Ice', about: 'Little grip, long slides; wide sweeping bends' },
-  lava: { type: 'lava', label: 'Lava', about: 'Grippy, narrow and technical; the walls hurt' },
-  terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on' },
-  moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity: long hops, slow to pick up' },
-  gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls' },
+  desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; deep sand off the track', body: { kind: 'planet', type: 'desert' } },
+  ice: { type: 'ice', label: 'Ice', about: 'Little grip, long slides; wide sweeping bends', body: { kind: 'planet', type: 'ice' } },
+  lava: { type: 'lava', label: 'Lava', about: 'Grippy, narrow and technical; the walls hurt', body: { kind: 'planet', type: 'lava' } },
+  terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on', body: { kind: 'planet', type: 'terran' } },
+  moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity: long hops, slow to pick up', body: { kind: 'moon', type: 'grey' } },
+  gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls', body: { kind: 'planet', type: 'gas' } },
 };
 
 // The ship (Config): the Courier as the game fits it, drawn as the game draws it (game/options.js
@@ -82,6 +87,7 @@ const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the 
 // track: the layout's style (Track.loop): 'regular', 'advanced' (irregular, like real circuits) or
 // 'expert' (folded in on itself, sharp corners, few long straights)
 const STYLES = { regular: 'Regular', advanced: 'Advanced', expert: 'Expert' };
+const ABOUT = { regular: 'Flowing bends to learn the planet on; the rivals in light fighters', advanced: 'Irregular, like a real circuit; the rivals in fighters', expert: 'Folded in on itself: sharp corners, few straights; the rivals in heavy fighters' };
 const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: STYLES[q.get('track')] ? q.get('track') : 'regular', ai: q.get('ai') === 'off' || Rival.LEVELS[q.get('ai')] ? q.get('ai') : null };
 const level = () => (S.ai === 'off' ? null : S.ai || S.track); // the rivals' level: ?ai=, else the track's style
 Input.mode = ['pad', 'point', 'sides'].includes(q.get('steer')) ? q.get('steer') : coarse ? 'pad' : 'point';
@@ -92,6 +98,7 @@ let pack = null; // the rivals' runs (Rival.pack), or null with ?ai=off
 let dust = Dust.create(), dustCols = null; // the dust off the craft (drawn only), and its colours on this ground
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
+let paused = true; // a menu is up (Menu): the run waits, still drawn
 const cv = document.getElementById('view'), ctx = cv.getContext('2d'), note = document.getElementById('note');
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -216,8 +223,8 @@ function paceFrame(t, dt) {
   pace.at = t; pace.ts.length = 0;
 }
 
-const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudRest = document.getElementById('hud-rest');
-let hudAt = -1, hudText = '', pos = null; // pos: the standings (Rival.standings), with the HUD's text
+const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudTotal = document.getElementById('hud-total'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
+let hudAt = -1, hudText = '', hudPos = '', pos = null; // pos: the standings (Rival.standings), with the HUD's text
 function render(time, a) {
   const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
   if (cv.width !== Math.round(Wc * dpr) || cv.height !== Math.round(Hc * dpr)) { cv.width = Math.round(Wc * dpr); cv.height = Math.round(Hc * dpr); }
@@ -255,8 +262,9 @@ function render(time, a) {
     pos = pack ? Rival.standings(pack, G, R) : null;
     const h = Draw.hud(G, R, cfg, got.missing, pos);
     if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
-    hudTime.textContent = h.time;
+    hudTime.textContent = h.time; hudTotal.textContent = h.total;
     if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
+    if (h.order !== hudPos) hudOrder.innerHTML = hudPos = h.order;
   }
   const { msg, big } = Draw.note(R, cfg, pos);
   if (note.textContent !== msg) note.textContent = msg;
@@ -296,16 +304,18 @@ let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
 const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
 function frame(t) {
-  if (baking) { last = t; requestAnimationFrame(frame); return; }
+  // Nothing to run yet, the ground building, or the title over it all: nothing to step or draw.
+  if (!G || baking || Menu.up === 'title') { last = t; requestAnimationFrame(frame); return; }
   if (last) paceFrame(t, t - last);
   const dtFrame = (t - last) / 1000 || 0;
   acc += Math.min(0.1, dtFrame); last = t;
   cfg.steer = Input.mode;
   const ctl = Input.control();
+  if (paused) { acc = 0; ctl.events.length = 0; }
   while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); if (pack) Rival.step(pack, G, R); acc -= Run.STEP; }
-  if (dustCols) Dust.step(dust, R.craft, { off: R.air ? 0 : R.off, slide: R.grip.sliding && !R.air, speed: cfg.stats.maxSpeed }, dustCols, Math.min(0.1, dtFrame));
+  if (dustCols && !paused) Dust.step(dust, R.craft, { off: R.air ? 0 : R.off, slide: R.grip.sliding && !R.air, speed: cfg.stats.maxSpeed }, dustCols, Math.min(0.1, dtFrame));
   for (const k of R.fx) Feedback.vibrate(BUZZ[k]);
-  juice(Math.min(0.1, dtFrame), t / 1000);
+  juice(paused ? 0 : Math.min(0.1, dtFrame), t / 1000);
   R.fx.length = 0;
   render(t / 1000, acc / Run.STEP);
   requestAnimationFrame(frame);
@@ -314,43 +324,50 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-for (const id of Object.keys(BIOMES)) { const b = document.createElement('button'); b.id = id; b.textContent = BIOMES[id].label; b.title = BIOMES[id].about; b.onclick = () => busy(() => { S.biome = id; return newGround(); }); $('biomes').append(b); }
-for (const id of Object.keys(STYLES)) { const b = document.createElement('button'); b.id = `track-${id}`; b.textContent = STYLES[id]; b.onclick = () => busy(() => { S.track = id; return newGround(); }); $('tracks').append(b); }
-function sync() {
-  for (const id of Object.keys(BIOMES)) $(id).setAttribute('aria-pressed', S.biome === id);
-  for (const id of Object.keys(STYLES)) $(`track-${id}`).setAttribute('aria-pressed', S.track === id);
-  $('help').innerHTML = Input.mode === 'sides'
-    ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ / X brakes · Space hops · R restart · N new track'
-    : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes before tight corners; hold a slide to charge a boost' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep · R restart · N new track`;
-  $('help').innerHTML += '<br>Walls bounce you and dent the hull · off the track slows you';
-  place();
+// The title (Menu): a planet, then a level; the race on them, built only if it's not the one there.
+function toTitle() {
+  paused = true;
+  $('hud').hidden = true; note.textContent = '';
+  Menu.title({
+    planets: Object.entries(BIOMES).map(([id, b]) => ({ id, label: b.label, about: b.about, body: b.body })),
+    levels: Object.entries(STYLES).map(([id, label]) => ({ id, label, about: ABOUT[id] })),
+    biome: S.biome, level: S.track,
+    onPick: (biome, track) => {
+      Menu.close();
+      const same = G && S.biome === biome && S.track === track;
+      S.biome = biome; S.track = track;
+      busy(() => { if (same) restart(); else return newGround(); }, play);
+    },
+  });
 }
-// The HUD's text sits at the bottom left, but on a portrait screen steered by the pad that's the
-// stick's band: there it goes under the bar at the top instead.
-function place() {
-  const up = Input.mode === 'pad' && innerHeight > innerWidth, hud = $('hud');
-  hud.style.top = up ? `${document.querySelector('.bar').offsetHeight + 4}px` : '';
-  hud.style.bottom = up ? 'auto' : '';
+function play() { paused = false; $('hud').hidden = false; }
+function menu() {
+  if (Menu.up || !G) return;
+  paused = true;
+  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle });
 }
-addEventListener('resize', place);
 // One at a time: what's asked while the ground is building is ignored.
-function busy(fn) {
-  if (document.body.classList.contains('busy') && G) return;
+function busy(fn, then) {
+  if (document.body.classList.contains('busy')) return;
   document.body.classList.add('busy');
-  setTimeout(async () => { await fn(); sync(); document.body.classList.remove('busy'); }, 30);
+  setTimeout(async () => { await fn(); document.body.classList.remove('busy'); then?.(); }, 30);
 }
 function newGround() { if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]); build(); return bake(); }
 const newTrack = () => busy(() => { S.seed++; return newGround(); });
-$('restart').onclick = () => busy(restart);
-$('next').onclick = newTrack;
+$('menu-btn').onclick = menu;
 // The screen's safe area at the bottom (a phone's home bar), which the stick's band keeps clear of.
 const safe = Object.assign(document.createElement('div'), { style: 'position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none' });
 document.body.append(safe);
 Input.init(cv, {
   tilt: () => ArtSurface.tiltOf(S.style),
   inset: () => safe.offsetHeight,
-  onKey: (k) => { if (k === 'r') busy(restart); else if (k === 'n') newTrack(); else return false; return true; },
+  onKey: (k) => {
+    if (Menu.up) return Menu.key(k) || k.length === 1 || k.startsWith('Arrow'); // nothing reaches the run under a menu
+    if (k === 'r') busy(restart); else if (k === 'n') newTrack(); else if (k === 'Escape') menu(); else return false;
+    return true;
+  },
 });
 
 window.race = { S, Input, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
-busy(async () => { await newGround(); requestAnimationFrame(frame); });
+requestAnimationFrame(frame);
+if (q.has('biome') || q.has('track')) busy(newGround, play); else toTitle();

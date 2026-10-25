@@ -166,3 +166,10 @@ that:
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
 4. **Rivals and a career:** AI ships (a first pass is in: five rivals, one per culture, at three levels), cups on the galaxy map, upgrades. Research, design and status: `notes/race-rivals.md`.
+
+Alongside the phases, the menus (a first pass): the title (`src/race/menu.js`) in the Low-poly UI
+kit: the planets as cards scrolled left and right, each drawn as the game draws it, then the level
+as one of three dots on the planet. In the race the top bar is gone: the times at the top left
+(the lap's, the total under it), the standings down the bottom left and one Menu button at the bottom
+right (Resume, Restart, Main menu, under the planet and the seed), those two either side of the
+stick on a portrait phone.
