@@ -42,8 +42,10 @@ URL parameters:
 | `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
 
 The race is a second page beside the game: `/race/` (`race/index.html`), a lap race on a generated
-surface in the game's own ship. Its parameters are listed at the top of `src/race/main.js`;
-`notes/race.md` is the plan.
+surface in the game's own ship. It opens on a title (`src/race/menu.js`, in the Low-poly UI kit): a
+planet chosen from cards scrolled sideways, then a level (regular, advanced, expert) as dots on it; in
+the race one Menu button pauses it, to restart or go back to the title. Its parameters are listed at
+the top of `src/race/main.js`; `notes/race.md` is the plan.
 
 ## Code layout
 
@@ -53,7 +55,7 @@ surface in the game's own ship. Its parameters are listed at the top of `src/rac
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel), HUD, the frame loop |
-| `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the best lap's ghost (`ghost.js`), the controls, the run and its drawing; it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
+| `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the best lap's ghost (`ghost.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |

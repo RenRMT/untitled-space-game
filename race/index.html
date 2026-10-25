@@ -1,36 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-ui="lowpoly">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Race</title>
+  <link rel="stylesheet" href="../src/ui/kit.css">
+  <link rel="stylesheet" href="../src/ui/kit-lowpoly.css">
+  <link rel="stylesheet" href="../src/race/menu.css">
   <style>
     html, body { margin: 0; height: 100%; background: #05060a; color: #dfe6f2; font: 500 13px system-ui, sans-serif; overflow: hidden; }
-    canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
-    .bar { position: fixed; top: 0; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 10px max(16px, env(safe-area-inset-left)); background: linear-gradient(#05060ae0, #05060a00); }
-    .grp { display: flex; gap: 2px; }
-    button { min-height: 36px; padding: 0 12px; border: 1px solid #3a4152; background: #10131c; color: inherit; font: inherit; border-radius: 6px; cursor: pointer; }
-    button[aria-pressed="true"] { background: #2b3550; border-color: #7f9bd6; }
-    #note { position: fixed; left: 0; right: 0; top: 30%; text-align: center; font-weight: 600; font-size: 15px; pointer-events: none; text-shadow: 0 1px 3px #000; white-space: pre-line; }
+    #view { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+    #note { position: fixed; left: 0; right: 0; top: 30%; text-align: center; font: 600 15px/1.4 var(--sans); letter-spacing: 0.04em; pointer-events: none; text-shadow: 0 1px 3px #000; white-space: pre-line; }
     #note.big { font-size: 64px; }
-    #hud { position: fixed; left: 16px; bottom: 14px; pointer-events: none; font-variant-numeric: tabular-nums; text-shadow: 0 1px 3px #000; line-height: 1.5; }
-    #help { position: fixed; right: 16px; bottom: 14px; opacity: 0.55; pointer-events: none; text-align: right; }
-    @media (max-width: 600px) { #help { display: none; } }
-    body.busy::after { content: 'Building track…'; position: fixed; inset: 0; display: grid; place-items: center; background: #05060acc; }
+    body.busy::after { content: 'Building track…'; position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; background: #05060acc; font: 600 15px var(--sans); letter-spacing: 0.08em; }
     body.busy[data-busy]::after { content: attr(data-busy); }
   </style>
 </head>
-<body class="busy">
+<body>
   <canvas id="view"></canvas>
-  <div class="bar">
-    <div class="grp" id="biomes"></div>
-    <div class="grp" id="tracks"></div>
-    <button id="restart">Restart</button>
-    <button id="next">New track</button>
-  </div>
   <div id="note"></div>
-  <div id="hud"><b id="hud-lap"></b> · <span id="hud-time"></span><br><span id="hud-rest"></span></div>
-  <div id="help"></div>
+  <div id="hud" class="ui" hidden>
+    <div class="rm-read"><span id="hud-lap"></span><span id="hud-time" class="num"></span><span id="hud-rest"></span></div>
+    <div id="hud-order" class="rm-read"></div>
+    <button id="menu-btn" type="button" class="ui-btn ghost" aria-label="Race menu"><span>Menu</span></button>
+  </div>
   <script type="module" src="../src/race/main.js"></script>
 </body>
 </html>
