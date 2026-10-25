@@ -61,33 +61,30 @@
 
 /* The race's menu sheet. */
 .rm-sheet .body { gap: 12px; }
-.rm-sheet .ui-note { font-size: 13px; }
+.rm-where { font-size: 14px; }
 
-/* The HUD along the bottom: the times on the left, the order in the middle, the Menu button at the
-   right. Only the button takes a touch: the rest lets it through to the track. */
-#hud {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; gap: 10px; pointer-events: none;
-  padding: 0 max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-}
+/* The HUD: the times at the top left; the standings, one under the other, at the bottom left and
+   the Menu button at the bottom right. Only the button takes a touch: the rest lets it through to
+   the track. */
 #hud[hidden] { display: none; }
 .rm-read {
   padding: 8px 12px 9px; background: color-mix(in srgb, var(--deep) 88%, transparent); box-shadow: var(--well); clip-path: var(--cut-s);
-  font: 500 12px/1.5 var(--sans); color: var(--hud);
+  font: 500 12px/1.5 var(--sans); color: var(--hud); pointer-events: none;
 }
 .rm-read .num { color: var(--glass); }
+#hud-times { position: fixed; z-index: 2; top: max(16px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
 #hud-lap { display: block; font: 700 13px/1.3 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--trim); }
-#hud-time { display: block; font-size: 15px; }
+#hud-time { display: block; font-size: 17px; }
+#hud-total { display: block; font-size: 12px; }
 #hud-rest { display: block; color: var(--mute); font-size: 11px; }
-#hud-order { flex: 1; min-width: 0; display: flex; justify-content: center; }
+#hud-foot {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2; display: flex; align-items: flex-end; gap: 10px; pointer-events: none;
+  padding: 0 max(16px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
 #hud-order:empty { visibility: hidden; }
-#hud-order ol { display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 12px; margin: 0; padding: 0; list-style: none; }
+#hud-order ol { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
 #hud-order li { white-space: nowrap; }
-#hud-order li .num { color: var(--mute); margin-right: 4px; }
+#hud-order li .num { display: inline-block; width: 1.4em; color: var(--mute); }
 #hud-order li.you { color: var(--trim); font-weight: 700; }
 #hud-order li.you .num { color: var(--glass); }
 #menu-btn { pointer-events: auto; margin-left: auto; }
-/* Narrow: the order on a row of its own above the times and the button. */
-@media (max-width: 640px) {
-  #hud { flex-wrap: wrap; }
-  #hud-order { order: -1; flex-basis: 100%; }
-}

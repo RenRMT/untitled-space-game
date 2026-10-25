@@ -223,7 +223,7 @@ function paceFrame(t, dt) {
   pace.at = t; pace.ts.length = 0;
 }
 
-const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
+const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudTotal = document.getElementById('hud-total'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
 let hudAt = -1, hudText = '', hudPos = '', pos = null; // pos: the standings (Rival.standings), with the HUD's text
 function render(time, a) {
   const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
@@ -262,7 +262,7 @@ function render(time, a) {
     pos = pack ? Rival.standings(pack, G, R) : null;
     const h = Draw.hud(G, R, cfg, got.missing, pos);
     if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
-    hudTime.textContent = h.time;
+    hudTime.textContent = h.time; hudTotal.textContent = h.total;
     if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
     if (h.order !== hudPos) hudOrder.innerHTML = hudPos = h.order;
   }
@@ -324,15 +324,11 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-const help = () => (Input.mode === 'sides'
-  ? 'It flies itself: hold the left or right half to turn · A/D or ←/→ · S or ↓ / X brakes · Space hops'
-  : `${Input.mode === 'pad' ? 'The stick at the bottom: push to fly, back to the middle brakes before tight corners; hold a slide to charge a boost' : 'Drag to fly, drag length sets speed'} · tap to hop · flick to dash (forward boost, sideways sidestep, back airbrake)<br>WASD / arrows · X brakes · Space hops · Shift dashes · Q/E sidestep`)
-  + '<br>R restarts · N a new track · Esc this menu<br>Walls bounce you and dent the hull · off the track slows you';
-// The HUD sits along the bottom, but on a portrait screen steered by the pad that's the stick's
-// band: there it sits just above it.
+// The standings and the Menu button sit along the bottom, but on a portrait screen steered by the
+// pad that's the stick's band: there they sit just above it.
 function place() {
   const up = Input.mode === 'pad' && innerHeight > innerWidth;
-  $('hud').style.bottom = up ? `${innerHeight - Input.home().y0}px` : '';
+  $('hud-foot').style.bottom = up ? `${innerHeight - Input.home().y0}px` : '';
 }
 addEventListener('resize', place);
 // The title (Menu): a planet, then a level; the race on them, built only if it's not the one there.
@@ -355,7 +351,7 @@ function play() { paused = false; $('hud').hidden = false; place(); }
 function menu() {
   if (Menu.up || !G) return;
   paused = true;
-  Menu.pause({ help: help(), onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle });
+  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle });
 }
 // One at a time: what's asked while the ground is building is ignored.
 function busy(fn, then) {

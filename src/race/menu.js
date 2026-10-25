@@ -5,11 +5,11 @@
 //   picking one shows it large with the three levels as dots on its face (regular, advanced,
 //   expert), and Race starts it.
 // - in the race: one Menu button at the bottom right (Esc too), opening a sheet with Resume,
-//   Restart and Main menu, and the controls' help.
+//   Restart and Main menu, under the planet and the track's seed.
 //
 //   Menu.title({ planets, levels, biome, level, onPick(biome, level) })   the title, on the planet given
 //     planets: [{ id, label, about, body: { kind: 'planet' | 'moon', type, ring? } }]; levels: [{ id, label, about }]
-//   Menu.pause({ help, onResume, onRestart, onMain })   the sheet over the race (help: html)
+//   Menu.pause({ planet, seed, onResume, onRestart, onMain })   the sheet over the race (planet: its label)
 //   Menu.close()        either one closed (the sheet's onResume isn't called)
 //   Menu.up             'title' | 'pause' | null: what's open
 //   Menu.key(key) -> handled   a key while a menu is up (Menu.up)
@@ -153,12 +153,12 @@ const Menu = (() => {
 
   // ---------- In the race ----------
 
-  function pause({ help, onResume, onRestart, onMain }) {
+  function pause({ planet, seed, onResume, onRestart, onMain }) {
     const resume = () => { close(); onResume(); };
     const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'dialog' },
-      el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Paused' }))),
-      el('div', { className: 'body' }, btn('Resume', resume, 'primary lg wide'), btn('Restart', () => { close(); onRestart(); }, 'lg wide'), btn('Main menu', () => { close(); onMain(); }, 'ghost lg wide'),
-        el('span', { className: 'ui-label', textContent: 'Controls' }), el('p', { className: 'ui-note', innerHTML: help })));
+      el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Paused' }),
+        el('span', { className: 's rm-where' }, el('span', { textContent: planet }), ' · seed ', el('span', { className: 'num', textContent: String(seed) })))),
+      el('div', { className: 'body' }, btn('Resume', resume, 'primary lg wide'), btn('Restart', () => { close(); onRestart(); }, 'lg wide'), btn('Main menu', () => { close(); onMain(); }, 'ghost lg wide')));
     sheet.setAttribute('aria-label', 'Race menu');
     const scrim = el('div', { className: 'ui ui-scrim', onclick: (e) => { if (e.target === scrim) resume(); } }, sheet);
     open('pause', scrim, (k) => {

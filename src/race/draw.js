@@ -18,7 +18,7 @@
 //   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   sparks off the tail while a slide has
 //     charged a level, coloured by it (R.drift); z: the ship's height
 //   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
-//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, rest, order }   text, text, html, html (the standings, '' with no rivals); missing: chunks still building
+//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, total, rest, order }   text ×3, html, html (the standings, '' with no rivals); missing: chunks still building
 //     in view; pos: Rival.standings(), the place and the order, when there are rivals
 //   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …)
 // ES module (`Draw`); needs a browser.
@@ -297,9 +297,9 @@ const Draw = (() => {
   const nth = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
   function hud(G, R, cfg, missing, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
-    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}<br><span style="opacity:.6">${G.b.label} · ${G.track ? `${G.track} ` : ''}seed ${G.seed} · ${Math.round(G.tr.len)} u a lap${missing ? ` · ${missing} chunks building` : ''}</span>`;
+    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}${missing ? `<br><span style="opacity:.6">${missing} chunks building</span>` : ''}`;
     const order = pos ? `<ol>${pos.rows.map((r, i) => `<li${r.you ? ' class="you"' : ''}><span class="num">${i + 1}</span><span style="color:${r.color}">${r.name}</span></li>`).join('')}</ol>` : '';
-    return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: `${fmt(R.lapT)} · total ${fmt(R.total)}`, rest, order };
+    return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: fmt(R.lapT), total: `Total ${fmt(R.total)}`, rest, order };
   }
   function note(R, cfg, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, hullPct = Math.round((100 * R.hull) / cfg.hull), lap = Math.min(cfg.laps, R.laps.length + 1);
