@@ -324,13 +324,6 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-// The standings and the Menu button sit along the bottom, but on a portrait screen steered by the
-// pad that's the stick's band: there they sit just above it.
-function place() {
-  const up = Input.mode === 'pad' && innerHeight > innerWidth;
-  $('hud-foot').style.bottom = up ? `${innerHeight - Input.home().y0}px` : '';
-}
-addEventListener('resize', place);
 // The title (Menu): a planet, then a level; the race on them, built only if it's not the one there.
 function toTitle() {
   paused = true;
@@ -347,7 +340,7 @@ function toTitle() {
     },
   });
 }
-function play() { paused = false; $('hud').hidden = false; place(); }
+function play() { paused = false; $('hud').hidden = false; }
 function menu() {
   if (Menu.up || !G) return;
   paused = true;

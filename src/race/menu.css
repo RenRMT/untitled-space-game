@@ -64,8 +64,8 @@
 .rm-where { font-size: 14px; }
 
 /* The HUD: the times at the top left; the standings, one under the other, at the bottom left and
-   the Menu button at the bottom right. Only the button takes a touch: the rest lets it through to
-   the track. */
+   the Menu button at the bottom right, either side of the stick on a phone. Only the button takes
+   a touch: the rest lets it through to the track (and the stick). */
 #hud[hidden] { display: none; }
 .rm-read {
   padding: 8px 12px 9px; background: color-mix(in srgb, var(--deep) 88%, transparent); box-shadow: var(--well); clip-path: var(--cut-s);
