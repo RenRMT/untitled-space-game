@@ -251,9 +251,9 @@ const Rival = (() => {
   }
 
   // Ships against ships: circles pushed apart, their speeds toward each other traded (a soft knock,
-  // no damage; one harder than BUMP is felt: R.fx 'bump', and counted: R.knocks, and R.struck for the
+  // each × the other's R.bump.power and its own R.bump.recoil; no damage; one harder than BUMP is felt: R.fx 'bump', and counted: R.knocks, and R.struck for the
   // ship that did more of the closing). A ship in the air passes over.
-  const KNOCK = 0.3, BUMP = 40;
+  const KNOCK = 0.3, BUMP = 40, UNIT = { power: 1, recoil: 1 };
   // Whose knock it was, in the track's frame (so that both racing along at speed doesn't count): the
   // one moving across toward the other, or the one behind closing faster along it.
   function blame(tr, A, B, nx, ny) {
@@ -274,7 +274,9 @@ const Rival = (() => {
       const into = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
       if (into <= 0) continue;
       const k = ((1 + KNOCK) * into) / 2, by = tr ? blame(tr, A, B, nx, ny) : null;
-      a.vx -= nx * k; a.vy -= ny * k; b.vx += nx * k; b.vy += ny * k;
+      // Each ship knocked by the other's bump power, × its own recoil (Career's side-bump; 1 and 1 stock).
+      const PA = A.bump || UNIT, PB = B.bump || UNIT, ka = k * PB.power * PA.recoil, kb = k * PA.power * PB.recoil;
+      a.vx -= nx * ka; a.vy -= ny * ka; b.vx += nx * kb; b.vy += ny * kb;
       if (into <= BUMP) continue;
       for (const X of [A, B]) { X.fx.push('bump'); X.knocks = (X.knocks || 0) + 1; }
       if (by) by.struck = (by.struck || 0) + 1;

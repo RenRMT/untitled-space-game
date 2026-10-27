@@ -166,10 +166,41 @@ that:
 3. **Content:** boost pads (the dash); rocks, vents and dust storms as placed features; shortcuts;
    star targets; the daily seed.
 4. **Rivals and a career:** AI ships (a first pass is in: five rivals, one per culture, at three levels), cups on the galaxy map, upgrades. Research, design and status: `notes/race-rivals.md`.
+   The career's first pass is in: pickups and the hangar (below). Still to do: cups on the galaxy map,
+   in-race power-ups, star targets for every pickup.
+
+## The career: pickups and the hangar
+
+What mobile racers do (Hill Climb Racing 2, Beach Buggy Racing 2, Asphalt 9, CSR Racing 2, Mario Kart
+Tour): coins picked up on the track pay for the meta (HCR2, BBR2); a soft currency for the cost curve
+and scarce, slot-specific parts that gate the higher tiers (Asphalt's import parts, CSR2's parts per
+slot); a reward for placing (BBR2's chests from 3rd up); in-race items kept apart from what you keep
+(Mario Kart). Taken from them: two currencies, pickups placed for risk and reward, banking at the
+finish with a placement bonus; left out: loot boxes and random drops. Time is the gate instead, as
+the game's own research.
+
+- **Pickups** (`src/race/pickups.js`): credit chips in trails along the racing line; salvage crates
+  (a part each: coil, vane, cell, plate, leaning by biome) across the track from the line at the
+  tightest bends, so taking one costs the line; one rare crate at the tightest bend of all. All from
+  the seed. Picked up once a race, banked at the finish (×1.5 for a win, ×1.25 the podium, ×1 a
+  finish, ×0.5 a wreck, plus the level's purse); a restart drops the haul.
+- **The hangar** (`src/race/career.js`, `Menu.hangar`): the game's lab (`src/rules/lab.js`, which
+  `rules/research.js` now runs on too) over the race's own packages, on the real clock, offline too
+  (`?fastresearch` 60×). Four trees (Drive, Handling, Dash, Chassis), each paid in its own part;
+  three tiers, every tier a fork of two choices that rule each other out (Lab's `fork`; a tier opens
+  after either choice before it). Every choice is a trade, like the game's mods: higher top speed for
+  less acceleration, a longer dash for a softer one, bump power for steering. Each gives at least
+  twice what it takes by `Career.FX`'s weights (tested), so the choice is which build, not whether.
+  A tree can be stripped back (respec) for a fee, half its parts back.
+- **What a build changes:** the race's stats, the handling (grip, brake, when a slide starts), the
+  drift (charge times, boost), the dash (charges, refill, duration, boost, sidestep), the hull and the
+  walls, and the side-bump (`Rival.ships`: the other ship's power × your recoil). The track, its
+  racing line and the rivals stay stock; a build's ghost is kept apart from the stock ship's.
+- Saved apart from the game (`race.career`), never touching the game's save.
 
 Alongside the phases, the menus (a first pass): the title (`src/race/menu.js`) in the Low-poly UI
 kit: the planets as cards scrolled left and right, each drawn as the game draws it, then the level
 as one of three dots on the planet. In the race the top bar is gone: the times at the top left
 (the lap's, the total under it), the standings down the bottom left and one Menu button at the bottom
-right (Resume, Restart, Main menu, under the planet and the seed), those two either side of the
+right (Resume, Restart, Hangar, Main menu, under the planet and the seed; Race again after the finish), those two either side of the
 stick on a portrait phone.

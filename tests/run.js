@@ -59,6 +59,9 @@ import { Pilot } from '../src/race/pilot.js';
 import { Line } from '../src/race/line.js';
 import { Rival } from '../src/race/rival.js';
 import { Dust } from '../src/race/dust.js';
+import { Career } from '../src/race/career.js';
+import { Pickups } from '../src/race/pickups.js';
+import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
 
 let failed = 0;
@@ -3680,6 +3683,165 @@ test('race rivals: risk, how much contact each seeks, by culture and scaled by t
   assert(struck.shard + struck.wedge < struck.block + struck.drifter, `careful ${struck.shard} + ${struck.wedge}, bold ${struck.block} + ${struck.drifter} knocks caused`);
   assert(struck.drifter >= Math.max(struck.shard, struck.wedge, struck.alien), `the Drifters knock the most: ${JSON.stringify(struck)}`);
   assert(level.regular > level.expert, `knocks: regular ${level.regular}, expert ${level.expert}`);
+});
+
+// ---------- The race's career: the hangar's trade-off trees, pickups, banking ----------
+
+test('lab: forks rule each other out, a requirement list is met by any one of it', () => {
+  const pk = {
+    a: { id: 'a', cat: 'x', requires: [], time: 10, cost: { credits: 1 }, fork: 'f' },
+    b: { id: 'b', cat: 'x', requires: [], time: 10, cost: { credits: 1 }, fork: 'f' },
+    c: { id: 'c', cat: 'x', requires: [['a', 'b']], time: 10, cost: { credits: 1 } },
+  };
+  const L = Lab.create({ packages: pk, categories: [{ id: 'x' }], queueMax: () => 3 }), lab = L.empty(), have = () => 0;
+  assert.strictEqual(L.status('c', lab, 9, have).state, 'locked');
+  assert(L.enqueue(lab, 'b', 0));
+  assert.strictEqual(L.status('a', lab, 9, have).state, 'closed', 'its fork sibling queued closes it');
+  assert.strictEqual(L.status('a', lab, 9, have).by, 'b');
+  assert(!L.enqueue(lab, 'a', 0), 'and it can\'t be queued');
+  assert.strictEqual(L.status('c', lab, 9, have).state, 'available', 'b (pending) meets [a, b]');
+  assert(L.enqueue(lab, 'c', 0));
+  assert.deepStrictEqual(L.cancel(lab, 'b', 1).map((x) => x.id), ['b', 'c'], 'cancelling b takes c with it');
+  assert.strictEqual(L.status('a', lab, 9, have).state, 'available', 'b gone, a opens again');
+  const lay = L.layout(Object.values(pk));
+  assert.deepStrictEqual(lay.nodes.map((n) => [n.id, n.col]), [['a', 0], ['b', 0], ['c', 1]]);
+});
+
+test('race career: every choice is a trade worth more than it costs, two to a tier, three tiers a tree', () => {
+  const P = Object.values(Career.PACKAGES);
+  assert.strictEqual(P.length, Career.TREES.length * 3 * 2);
+  for (const p of P) {
+    const v = Career.value(p.fx);
+    assert(v.gain > 0 && v.cost > 0, `${p.id}: a gain and a cost`);
+    assert(v.gain >= Career.RATIO * v.cost, `${p.id}: gains ${v.gain.toFixed(3)} against costs ${v.cost.toFixed(3)}`);
+    assert(Object.keys(p.fx).every((k) => Career.FX[k]), `${p.id}: known effects`);
+    assert.strictEqual(P.filter((q) => q.fork === p.fork).length, 2, `${p.id}: one of two`);
+    assert(p.requires.flat().every((r) => Career.PACKAGES[r].tier === p.tier - 1 && Career.PACKAGES[r].cat === p.cat), `${p.id}: needs the tier before, in its tree`);
+    const part = Career.TREES.find((t) => t.id === p.cat).part;
+    assert(p.cost.credits > 0 && p.cost[part] > 0, `${p.id}: credits and its tree's part`);
+  }
+  assert.deepStrictEqual([...Career.PARTS].sort(), [...new Set(Career.TREES.map((t) => t.part))].sort(), 'a part a tree');
+  const keys = new Set(P.flatMap((p) => Object.keys(p.fx)));
+  for (const k of ['hull', 'speed', 'accel', 'turn', 'driftBoost', 'dashTime', 'charges', 'bumpPower', 'bumpRecoil']) assert(keys.has(k), `${k} is in a tree`);
+});
+
+test('race career: the tune is stock with nothing done, and every build stays within its clamps', () => {
+  const t0 = Career.tune([]);
+  const ones = (o) => Object.values(o).every((v) => v === 1);
+  assert(ones(t0.stats) && ones(t0.handling) && ones(t0.drift) && ones(t0.wall) && ones(t0.bump) && t0.hull === 1 && t0.dash.charges === 0);
+  const paths = (tree) => ['a', 'b'].flatMap((x) => ['a', 'b'].flatMap((y) => ['a', 'b'].map((z) => [`${tree}.1${x}`, `${tree}.2${y}`, `${tree}.3${z}`])));
+  const [d, h, s, c] = Career.TREES.map((t) => paths(t.id));
+  let n = 0;
+  for (const a of d) for (const b of h) for (const e of s) for (const f of c) {
+    const t = Career.tune([...a, ...b, ...e, ...f]); n++;
+    const all = [...Object.values(t.stats), ...Object.values(t.handling), ...Object.values(t.drift), t.hull, ...Object.values(t.wall), ...Object.values(t.bump), t.dash.refill, t.dash.boostTime, t.dash.boost, t.dash.side];
+    assert(all.every((v) => v >= Career.CLAMP[0] && v <= Career.CLAMP[1]), 'within the clamps');
+    assert(t.dash.charges >= 0 && t.dash.charges <= 2);
+  }
+  assert.strictEqual(n, 8 ** 4);
+  const st = { ...RaceConfig.STATS }, out = Career.stats(st, Career.tune(['drive.1a']));
+  assert(Math.abs(out.maxSpeed / st.maxSpeed - 1.06) < 1e-9 && Math.abs(out.accel / st.accel - 0.98) < 1e-9);
+  assert.deepStrictEqual(st, RaceConfig.STATS, 'the stock stats untouched');
+  assert.strictEqual(Career.sig([]), '');
+  assert.strictEqual(Career.sig(['drive.2b', 'drive.1a']), 'd1ad2b');
+});
+
+test('race career: paid when queued, the fork closed, built on the real clock (offline too), stripped back for a fee', () => {
+  const c = Career.empty();
+  assert(!Career.buy(c, 'drive.1a', 0), 'nothing to pay with');
+  c.credits = 5000; c.parts.coil = 20;
+  assert(Career.buy(c, 'drive.1a', 0));
+  assert.strictEqual(c.credits, 5000 - 300); assert.strictEqual(c.parts.coil, 18);
+  assert.strictEqual(Career.status(c, 'drive.1b').state, 'closed');
+  assert(Career.buy(c, 'drive.2b', 0), 'the next tier queues behind it');
+  // Saved, and loaded an hour later: both built while the game was closed.
+  const later = Career.from(JSON.parse(JSON.stringify(c)), Career.lab.timeOf('drive.1a') + Career.lab.timeOf('drive.2b') + 1);
+  assert.deepStrictEqual(later.lab.done, ['drive.1a', 'drive.2b']);
+  assert.strictEqual(later.lab.active, null);
+  const before = later.credits;
+  assert(Career.respec(later, 'drive', 0));
+  assert.deepStrictEqual(later.lab.done, []);
+  assert.strictEqual(later.credits, before - 2 * Career.RESPEC, 'the fee: per tier done');
+  assert.strictEqual(later.parts.coil, 13 + 1 + 2, 'half the parts back');
+  assert.strictEqual(Career.status(later, 'drive.1b').state, 'available', 'both choices open again');
+  // Cancelling: all back while queued, half while building.
+  const k = Career.empty(); k.credits = 2000; k.parts.vane = 20;
+  Career.buy(k, 'handling.1b', 0); Career.buy(k, 'handling.2a', 0);
+  Career.cancel(k, 'handling.1b', 1);
+  assert.strictEqual(k.credits, 2000 - 150, 'half of the one building back, all of the one queued on it');
+  assert.deepStrictEqual(Career.from(null).lab, Career.lab.empty(), 'no save: a new career');
+  assert.deepStrictEqual(Career.from({ credits: 9, lab: { done: ['gone.1a', 'dash.1a'], queue: [], active: null } }).lab.done, ['dash.1a'], 'what a table no longer has is dropped');
+});
+
+test('race career: the haul banked at the finish, more for placing, half for a wreck', () => {
+  const haul = { credits: 100, parts: { coil: 2, cell: 1 } };
+  let c = Career.empty(), b = Career.bank(c, haul, { place: 1, level: 'regular' });
+  assert.deepStrictEqual(b, { mult: 1.5, purse: Career.PURSE.regular, credits: 150 + Career.PURSE.regular, parts: { coil: 3, cell: 2 } });
+  assert.strictEqual(c.credits, b.credits); assert.strictEqual(c.parts.coil, 3);
+  c = Career.empty(); b = Career.bank(c, haul, { place: 3, level: 'expert' });
+  assert.strictEqual(b.mult, 1.25); assert.strictEqual(b.purse, Career.PURSE.expert);
+  c = Career.empty(); b = Career.bank(c, haul, { place: 5 });
+  assert.strictEqual(b.mult, 1);
+  c = Career.empty(); b = Career.bank(c, haul, { wreck: true });
+  assert.deepStrictEqual(b, { mult: 0.5, purse: 0, credits: 50, parts: { coil: 1, cell: 0 } });
+});
+
+test('race pickups: the same for a seed, on the track, chips on the line, crates across from it', () => {
+  for (const style of ['regular', 'expert']) for (let seed = 1; seed <= 3; seed++) {
+    const tr = Track.loop(seed, RaceConfig.map(style).TRACK), L = Line.build(tr, { stats: RaceConfig.STATS, handling: Handling.config, r: RaceConfig.R_SHIP });
+    const P = Pickups.place(tr, L, seed, 'lava');
+    assert.deepStrictEqual(P, Pickups.place(tr, L, seed, 'lava'), 'the same every time');
+    assert.strictEqual(new Set(P.map((p) => p.id)).size, P.length, 'ids unique');
+    for (const p of P) assert(Track.edgeDist(tr, p.x, p.y).d + p.r <= 1e-6, `${style} ${seed} ${p.id}: on the track`);
+    const crates = P.filter((p) => p.kind !== 'chip'), chips = P.filter((p) => p.kind === 'chip');
+    assert.strictEqual(crates.length, Pickups.CRATES + 1); assert.strictEqual(crates.filter((p) => p.kind === 'rare').length, 1);
+    assert(chips.length >= 15, `${chips.length} chips`);
+    const fromLine = (p) => Math.hypot(p.x - L.x[p.n], p.y - L.y[p.n]);
+    assert(chips.every((p) => fromLine(p) < 1e-6), 'chips on the line');
+    assert(crates.every((p) => fromLine(p) > 2 * RaceConfig.R_SHIP), 'crates off it');
+    assert(crates.every((p) => Career.PARTS.includes(p.part)));
+  }
+});
+
+test('race pickups: picked up once and only while racing; a lap flown along the line brings some home', () => {
+  const { G, cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 }), probe = run();
+  const L = Line.build(G.tr, { stats: cfg.stats, handling: probe.tune.handling, r: cfg.r }), P = Pickups.place(G.tr, L, 1, 'terran');
+  const c = { ...cfg, pickups: P }, R = run(c), ctl = { angle: 0, speed: 1, brake: false, events: [] };
+  Object.assign(R.craft, { x: P[0].x, y: P[0].y });
+  Run.step(R, G, c, ctl);
+  assert.strictEqual(R.got.size, 0, 'not in the countdown');
+  R.phase = 'race'; Object.assign(R.craft, { x: P[0].x, y: P[0].y, vx: 0, vy: 0 });
+  Run.step(R, G, c, ctl);
+  assert(R.got.has(P[0].id) && R.fx.some((k) => k === 'crate' || k === 'chip'));
+  const once = JSON.stringify(R.haul);
+  Object.assign(R.craft, { x: P[0].x, y: P[0].y, vx: 0, vy: 0 }); Run.step(R, G, c, ctl);
+  assert.strictEqual(JSON.stringify(R.haul), once, 'once a race');
+  const F = run(c);
+  for (let t = 0; t < 60 && F.phase !== 'done'; t += Run.STEP) { Pilot.fly(G, F, c, {}, ctl); Run.step(F, G, c, ctl); }
+  assert(F.haul.credits >= 5 * Pickups.CHIP.credits, `a lap picked up ${F.haul.credits} credits`);
+});
+
+test('race career: the build reaches the run (dash, drift, walls, hull), and the side-bump is lopsided', () => {
+  const { cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 });
+  const t = Career.tune(['dash.1a', 'dash.2a', 'dash.3a', 'handling.1a', 'handling.2a', 'handling.3a', 'chassis.1a', 'chassis.2a', 'chassis.3b']);
+  const R = run({ ...cfg, career: t }), S = run();
+  assert.strictEqual(R.dash.charges, Run.DASH.charges + 2);
+  assert(R.tune.dash.boostTime > Run.DASH.boostTime && R.tune.dash.refill > Run.DASH.refill);
+  assert(R.tune.drift.at[0] < Run.DRIFT.at[0] && R.tune.drift.boost[0] > Run.DRIFT.boost[0]);
+  assert(R.tune.handling.SLIDE.on < S.tune.handling.SLIDE.on, 'loose tail: slides sooner');
+  assert(R.tune.wall.friction < S.tune.wall.friction, 'glancing hull');
+  assert(R.bump.power > 1 && S.bump.power === 1);
+  // A ram into a stock ship at the same closing speed: the stock ship shoved further, the ram less.
+  const knock = (A, B) => {
+    Object.assign(A.craft, { x: 0, y: 0, vx: 200, vy: 0 }); Object.assign(B.craft, { x: cfg.r, y: 0, vx: 0, vy: 0 });
+    Rival.ships([A, B], cfg.r);
+    return [A.craft.vx, B.craft.vx];
+  };
+  const [, stockB] = knock(run(), run()), [ramA, ramB] = knock(run({ ...cfg, career: t }), run());
+  assert(ramB > stockB, `the rival knocked to ${ramB.toFixed(1)}, not ${stockB.toFixed(1)}`);
+  const shock = Career.tune(['chassis.1a', 'chassis.2b']), [, mounted] = knock(run(), run({ ...cfg, career: shock }));
+  assert(mounted < stockB, 'shock mounts: knocked less');
+  assert(ramA > 0);
 });
 
 if (failed) {

@@ -4,6 +4,7 @@
 //   const R = Run.create(G, cfg)    G: the track and its surface ({ W, tr }); cfg: below
 //   Run.step(R, G, cfg, control, dt)   one fixed step (control: Input.control())
 //   Run.STEP                        the step (s)
+//   Run.tune(biome?, career?)       a run's R.tune, without making one
 //   R: { phase: 'count' | 'race' | 'done' | 'wreck', t, total, lapT, laps, next, n, hull, hits,
 //        wrong, off (0 on the track .. 1 off it), slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest,
 //        dash: { charges, refill, t, v, kind }, hop: { t, cool }, air, pair, grip, drift, fx }
@@ -14,13 +15,17 @@
 //     grip: { slip, sliding } (Handling); drift: { t: s charged, level (0, 1, 2), boost: s of its boost
 //       left, k: the boost's top speed ×, on: sliding }
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
-//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', and 'bump' (another ship: Rival.step); the page empties it
-//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome?, grid? }
+//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', 'chip', 'crate', and 'bump' (another ship: Rival.step); the page empties it
+//     haul, got: what's been picked up this race (Pickups.collect: cfg.pickups) and their ids
+//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome?, grid?, career?, pickups? }
 //     cam: null for none (a rival's run); ghostKey: null to keep no ghost; grid: { back, side }, where
 //     on the grid it starts: units further back from the start, and across (+: the way −ty, tx)
 //     biome: Config.biome(id), its character: the handling (Handling.tune), the run-off (OFF), the
 //     walls (WALL, and × the hull a hit dents) and the hop (HOP) × its numbers; none, as they are
-//   R.tune: { handling, off, wall, hop } those numbers for this run
+//     career: Career.tune's, the hangar's build: × the handling, the walls, the dash and the drift (its
+//     stats are already in cfg.stats, its hull in cfg.hull); bump: its side-bump (Rival.step); none, stock
+//     pickups: Pickups.place's, picked up while racing
+//   R.tune: { handling, off, wall, hop, dash, drift } those numbers for this run; R.bump: { power, recoil }
 //
 // Flying is Handling.step (the race's grip, slide and brake; Flight.step's Direct with ?mode=direct)
 // on the race's stats. Steering:
@@ -54,6 +59,7 @@ import { Flight } from '../flight/flight.js';
 import { Contact } from './contact.js';
 import { Ghost } from './ghost.js';
 import { Handling } from './handling.js';
+import { Pickups } from './pickups.js';
 import { Track } from './track.js';
 
 const Run = (() => {
@@ -81,9 +87,10 @@ const Run = (() => {
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
       rec: Ghost.recorder(), ghost: cfg.ghostKey ? Ghost.load(cfg.ghostKey) : null, newBest: false,
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
-      dash: { charges: DASH.charges, refill: 0, t: 0, v: null, kind: null }, hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
-      tune: tune(cfg.biome),
+      hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
+      tune: tune(cfg.biome, cfg.career), bump: cfg.career ? cfg.career.bump : BUMP, haul: Pickups.haul(), got: new Set(),
     };
+    R.dash = { charges: R.tune.dash.charges, refill: 0, t: 0, v: null, kind: null };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.
     // The props round a tile (ArtSurface.propsNear: they depend only on the tile) are found once
     // and kept, rocks and holes apart, so the steps make no garbage for the collector.
@@ -107,11 +114,24 @@ const Run = (() => {
     return R;
   }
 
-  // A run's numbers on a biome (Config.biome): × its character, as they are without one.
-  function tune(b) {
+  // A run's numbers on a biome (Config.biome): × its character, as they are without one; and × the
+  // hangar's build (Career.tune), the dash's charges added.
+  const BUMP = { power: 1, recoil: 1 };
+  function tune(b, c) {
     const k = (o, f = {}) => Object.fromEntries(Object.entries(o).map(([key, v]) => [key, v * (f[key] ?? 1)]));
-    if (!b) return { handling: Handling.config, off: OFF, wall: { ...WALL, damage: 1 }, hop: HOP };
-    return { handling: Handling.tune(b.handling), off: k(OFF, b.off), wall: { ...WALL, restitution: WALL.restitution * (b.wall.restitution ?? 1), friction: WALL.friction * (b.wall.friction ?? 1), damage: b.wall.damage ?? 1 }, hop: { ...HOP, time: HOP.time * (b.hop.time ?? 1), h: HOP.h * (b.hop.h ?? 1) } };
+    const t = b
+      ? { handling: b.handling, off: k(OFF, b.off), wall: { ...WALL, restitution: WALL.restitution * (b.wall.restitution ?? 1), friction: WALL.friction * (b.wall.friction ?? 1), damage: b.wall.damage ?? 1 }, hop: { ...HOP, time: HOP.time * (b.hop.time ?? 1), h: HOP.h * (b.hop.h ?? 1) } }
+      : { handling: {}, off: OFF, wall: { ...WALL, damage: 1 }, hop: HOP };
+    t.dash = DASH; t.drift = DRIFT;
+    if (c) {
+      t.handling = k({ GRIP: 1, BRAKE: 1, on: 1, ...t.handling }, c.handling);
+      t.wall = { ...t.wall, friction: t.wall.friction * c.wall.friction, damage: t.wall.damage * c.wall.damage };
+      const d = c.dash;
+      t.dash = { ...DASH, charges: DASH.charges + d.charges, refill: DASH.refill * d.refill, boostTime: DASH.boostTime * d.boostTime, sideTime: DASH.sideTime * d.boostTime, boost: DASH.boost * d.boost, side: DASH.side * d.side };
+      t.drift = { ...DRIFT, at: DRIFT.at.map((x) => x * c.drift.at), boost: DRIFT.boost.map((x) => 1 + (x - 1) * c.drift.boost) };
+    }
+    t.handling = b || c ? Handling.tune(t.handling) : Handling.config;
+    return t;
   }
 
   // What the controls fly: a heading and a speed (world units a second).
@@ -132,7 +152,7 @@ const Run = (() => {
 
   // A flick or a tap (Input.control().events).
   function act(R, cfg, ev) {
-    const C = R.craft, D = R.dash;
+    const C = R.craft, D = R.dash, DA = R.tune.dash;
     if (ev.type === 'tap') {
       if (R.hop.t < 0 && R.hop.cool <= 0) { R.hop.t = 0; R.fx.push('hop'); }
       return;
@@ -141,16 +161,16 @@ const Run = (() => {
     const v = Math.hypot(C.vx, C.vy), way = v > 40 ? Math.atan2(C.vy, C.vx) : C.angle, top = cfg.stats.maxSpeed;
     const angle = ev.rel !== undefined ? way + ev.rel : ev.angle ?? way, rel = angleDiff(angle, way);
     D.charges--; D.v = null;
-    if (Math.abs(rel) <= DASH.fwd) {
-      D.kind = 'boost'; D.t = DASH.boostTime;
-      C.vx = Math.cos(angle) * top * DASH.boost; C.vy = Math.sin(angle) * top * DASH.boost; C.angle = angle; C.thrust = 1;
-    } else if (Math.abs(rel) < DASH.back) {
+    if (Math.abs(rel) <= DA.fwd) {
+      D.kind = 'boost'; D.t = DA.boostTime;
+      C.vx = Math.cos(angle) * top * DA.boost; C.vy = Math.sin(angle) * top * DA.boost; C.angle = angle; C.thrust = 1;
+    } else if (Math.abs(rel) < DA.back) {
       const side = way + Math.sign(rel) * Math.PI / 2;
-      D.kind = 'side'; D.t = DASH.sideTime; D.v = [C.vx, C.vy];
-      C.vx += Math.cos(side) * top * DASH.side; C.vy += Math.sin(side) * top * DASH.side;
+      D.kind = 'side'; D.t = DA.sideTime; D.v = [C.vx, C.vy];
+      C.vx += Math.cos(side) * top * DA.side; C.vy += Math.sin(side) * top * DA.side;
     } else {
       D.kind = 'airbrake';
-      C.vx *= DASH.air; C.vy *= DASH.air;
+      C.vx *= DA.air; C.vy *= DA.air;
     }
     R.fx.push(D.kind);
   }
@@ -180,7 +200,8 @@ const Run = (() => {
       if (hit > 0) { D.t = 0; D.v = null; } else if (D.t <= 0 && D.v) { C.vx = D.v[0]; C.vy = D.v[1]; D.v = null; }
     }
     if (racing && !direct) drift(R, cfg, hit, air, dt);
-    if (racing && D.charges < DASH.charges && (D.refill += dt) >= DASH.refill) { D.charges++; D.refill = 0; R.fx.push('charge'); }
+    if (racing && D.charges < R.tune.dash.charges && (D.refill += dt) >= R.tune.dash.refill) { D.charges++; D.refill = 0; R.fx.push('charge'); }
+    if (racing && cfg.pickups) for (const p of Pickups.collect(cfg.pickups, R.got, R.haul, C.x, C.y, cfg.r)) R.fx.push(p.kind === 'chip' ? 'chip' : 'crate');
     // The hop: up and down again.
     H.cool = Math.max(0, H.cool - dt);
     if (air && (H.t += dt) >= hop.time) { H.t = -1; H.cool = hop.cool; R.fx.push('land'); }
@@ -207,18 +228,18 @@ const Run = (() => {
 
   // The drift's charge, and its boost when the grip comes back.
   function drift(R, cfg, hit, air, dt) {
-    const C = R.craft, F = R.drift, v = Math.hypot(C.vx, C.vy), top = cfg.stats.maxSpeed, sliding = R.grip.sliding && !air;
+    const DR = R.tune.drift, C = R.craft, F = R.drift, v = Math.hypot(C.vx, C.vy), top = cfg.stats.maxSpeed, sliding = R.grip.sliding && !air;
     F.boost = Math.max(0, F.boost - dt);
     if (sliding && !F.on) R.fx.push('slide');
     F.on = sliding;
-    if (hit > 0 || R.off > 0.5) { F.t = 0; F.level = 0; } else if (sliding && v > DRIFT.min * top) {
+    if (hit > 0 || R.off > 0.5) { F.t = 0; F.level = 0; } else if (sliding && v > DR.min * top) {
       F.t += dt;
-      const level = F.t >= DRIFT.at[1] ? 2 : F.t >= DRIFT.at[0] ? 1 : 0;
+      const level = F.t >= DR.at[1] ? 2 : F.t >= DR.at[0] ? 1 : 0;
       if (level > F.level) { F.level = level; R.fx.push(`drift${level}`); }
     } else if (!sliding) {
       if (F.level > 0) {
-        const L = F.level - 1, to = DRIFT.boost[L] * top;
-        F.k = DRIFT.boost[L]; F.boost = DRIFT.time[L];
+        const L = F.level - 1, to = DR.boost[L] * top;
+        F.k = DR.boost[L]; F.boost = DR.time[L];
         if (v < to && v > 0) { C.vx *= to / v; C.vy *= to / v; }
         C.thrust = 1; R.fx.push('driftBoost');
       }
@@ -248,7 +269,7 @@ const Run = (() => {
     R.cam.zf += ((1 + cam.pull * sp) * (cam.wide + (cam.tight - cam.wide) * bend) - R.cam.zf) * k * 0.6;
   }
 
-  return { create, step, STEP, BRAKE, DASH, HOP, DRIFT, WALL };
+  return { create, step, tune, STEP, BRAKE, DASH, HOP, DRIFT, WALL };
 })();
 
 export { Run };

@@ -3,6 +3,9 @@
 // drawDragIndicator draws it) or the halves held when steering by sides, and the HUD's text.
 //
 //   Draw.marks(ctx, v, px, time, G, R, ground)    ground(v, x, y, z) -> [X, Y] | null
+//   Draw.pickups(ctx, v, px, time, P, got, ground)   what's on the track to pick up (Pickups.place), bobbing,
+//     those in got (taken this race) left out; chips gold, crates coloured by their part (PART), the rare one glowing
+//   Draw.PART[part]   a salvage part's colour (the HUD and the hangar too)
 //   Draw.lines(G) -> { edges, kerbs }   the edges and kerbs on the ground, worked out once a track (G.lines)
 //   Draw.ship(ctx, v, ship, body, { style, time, alpha, shadow, ground, bank })   ship: { art, k (scale), r, z }
 //     (ground: needed for the shadow); bank: the roll into a turn, a squash across the ship (0 .. 1)
@@ -20,7 +23,8 @@
 //   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
 //   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, total, rest, order }   text ×3, html, html (the standings, '' with no rivals); missing: chunks still building
 //     in view; pos: Rival.standings(), the place and the order, when there are rivals
-//   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …)
+//   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …; at the end,
+//     what was banked: R.banked, Career.bank's)
 // ES module (`Draw`); needs a browser.
 
 import { Art } from '../art/render.js';
@@ -101,6 +105,36 @@ const Draw = (() => {
     if (a && b) { ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
     ctx.setLineDash([]); ctx.lineWidth = 3 * px; ctx.strokeStyle = `rgba(125,249,255,${pulse})`;
     for (const [g, t] of [[a, a2], [b, b2]]) if (g && t) { ctx.beginPath(); ctx.moveTo(g[0], g[1]); ctx.lineTo(t[0], t[1]); ctx.stroke(); }
+  }
+
+  const PART = { coil: '#ffb03a', vane: '#7df9ff', cell: '#8cff6a', plate: '#c8d2e6' };
+  function pickups(ctx, v, px, time, P, got, ground) {
+    if (!P) return;
+    for (const p of P) {
+      if (got.has(p.id)) continue;
+      const bob = Math.sin(time * 3 + p.n) * 3, z = (p.kind === 'chip' ? 12 : 16) + bob;
+      const g = ground(v, p.x, p.y), at = ground(v, p.x, p.y, z);
+      if (!g || !at) continue;
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.ellipse(g[0], g[1], p.r * 0.8, p.r * 0.8 * v.ct, 0, 0, TAU); ctx.fill();
+      const r = p.r, spin = time * (p.kind === 'chip' ? 2.5 : 1.2) + p.n;
+      if (p.kind === 'chip') {
+        const w = r * Math.abs(Math.cos(spin)) + 2;
+        ctx.fillStyle = '#ffd84a'; ctx.strokeStyle = 'rgba(120,80,0,0.9)'; ctx.lineWidth = 1.5 * px;
+        ctx.beginPath(); ctx.moveTo(at[0], at[1] - r); ctx.lineTo(at[0] + w * 0.7, at[1]); ctx.lineTo(at[0], at[1] + r); ctx.lineTo(at[0] - w * 0.7, at[1]); ctx.closePath();
+        ctx.fill(); ctx.stroke();
+        continue;
+      }
+      if (p.kind === 'rare') {
+        ctx.fillStyle = `rgba(200,140,255,${0.25 + 0.15 * Math.sin(time * 5)})`;
+        ctx.beginPath(); ctx.arc(at[0], at[1], r * 1.7, 0, TAU); ctx.fill();
+      }
+      ctx.save(); ctx.translate(at[0], at[1]); ctx.rotate(Math.sin(spin) * 0.4);
+      ctx.fillStyle = PART[p.part] || '#fff'; ctx.strokeStyle = 'rgba(20,22,28,0.9)'; ctx.lineWidth = 2 * px;
+      ctx.fillRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4); ctx.strokeRect(-r * 0.7, -r * 0.7, r * 1.4, r * 1.4);
+      ctx.beginPath(); ctx.moveTo(-r * 0.7, 0); ctx.lineTo(r * 0.7, 0); ctx.moveTo(0, -r * 0.7); ctx.lineTo(0, r * 0.7); ctx.stroke();
+      ctx.restore();
+    }
   }
 
   // The ship at flight height, its shadow below and to the side: the ship's own outline (drawn into
@@ -297,21 +331,23 @@ const Draw = (() => {
   const nth = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
   function hud(G, R, cfg, missing, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
-    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br>Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}${missing ? `<br><span style="opacity:.6">${missing} chunks building</span>` : ''}`;
+    const parts = Object.entries(R.haul.parts).map(([k, n]) => `<span style="color:${PART[k]}">■</span>${n}`).join(' ');
+    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}${R.ghost ? ` · ghost ${fmt(R.ghost.time)}` : ''}<br><span style="color:#ffd84a">◆</span>${R.haul.credits}${parts ? ` ${parts}` : ''} · Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}${missing ? `<br><span style="opacity:.6">${missing} chunks building</span>` : ''}`;
     const order = pos ? `<ol>${pos.rows.map((r, i) => `<li${r.you ? ' class="you"' : ''}><span class="num">${i + 1}</span><span style="color:${r.color}">${r.name}</span></li>`).join('')}</ol>` : '';
     return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: fmt(R.lapT), total: `Total ${fmt(R.total)}`, rest, order };
   }
+  const banked = (b) => (b ? `\nBanked ${b.credits} credits${Object.entries(b.parts).map(([k, n]) => ` · ${n} ${k}`).join('')} (×${b.mult}${b.purse ? `, purse ${b.purse}` : ''})` : '');
   function note(R, cfg, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, hullPct = Math.round((100 * R.hull) / cfg.hull), lap = Math.min(cfg.laps, R.laps.length + 1);
     if (R.phase === 'count') return { msg: R.t < 2.4 ? String(3 - Math.floor(R.t / 0.8)) : 'GO', big: true };
     if (R.phase === 'race' && R.total < 0.8) return { msg: 'GO', big: true };
     if (R.phase === 'race' && R.wrong > 0.8) return { msg: 'Wrong way', big: false };
-    if (R.phase === 'done') return { msg: `Finished ${pos ? `${nth(pos.place)} of ${pos.of} ` : ''}in ${fmt(R.total)}\nBest lap ${fmt(best)}${R.newBest ? ' · new best' : ''} · ${R.hits} hits · hull ${hullPct}%\nR to race again · Menu for another planet`, big: false };
-    if (R.phase === 'wreck') return { msg: `The hull gave out on lap ${lap}\nR to try again · Menu for another planet`, big: false };
+    if (R.phase === 'done') return { msg: `Finished ${pos ? `${nth(pos.place)} of ${pos.of} ` : ''}in ${fmt(R.total)}\nBest lap ${fmt(best)}${R.newBest ? ' · new best' : ''} · ${R.hits} hits · hull ${hullPct}%${banked(R.banked)}\nR to race again · Menu for the hangar or another planet`, big: false };
+    if (R.phase === 'wreck') return { msg: `The hull gave out on lap ${lap}${banked(R.banked)}\nR to try again · Menu for the hangar or another planet`, big: false };
     return { msg: '', big: false };
   }
 
-  return { lines, marks, ship, trail, streaks, sparks, dust, minimap, drag, pad, sides, hud, note };
+  return { PART, lines, marks, pickups, ship, trail, streaks, sparks, dust, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };
