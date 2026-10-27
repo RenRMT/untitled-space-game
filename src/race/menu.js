@@ -217,30 +217,30 @@ const Menu = (() => {
           b.setAttribute('aria-expanded', String(pick === id));
           return b;
         }));
-      node.replaceChildren(
-        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Hangar' }), el('h1', { className: 'ui-title', textContent: T.name }), el('p', { className: 'ui-note', textContent: T.note }), wallet(c)),
-        tabs, grid, pick ? detail(pick) : el('p', { className: 'ui-note rm-hint', textContent: 'Each tier is a choice of two: taking one closes the other. Every choice gives more than it takes.' }),
+      node.replaceChildren(...[
+        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Hangar' }), el('h1', { className: 'ui-title', textContent: T.name }), wallet(c)),
+        tabs, grid, pick ? detail(pick) : null,
         bench(), build(),
         el('footer', { className: 'rm-foot' }, respecBtn(), btn('Back', onBack, 'primary lg')),
-      );
+      ].filter(Boolean));
     }
     function detail(id) {
       const p = P[id], st = Career.status(c, id), other = Object.values(P).find((x) => x.fork === p.fork && x.id !== id);
       const cost = [`${st.credits} credits`, ...st.cost.map((x) => `${x.need} ${x.kind} (have ${x.have})`)].join(' · ');
-      const why = st.state === 'closed' ? `Closed: you took ${P[st.by].name}. Respec the tree to choose again.`
-        : st.state === 'locked' ? 'Needs a choice from the tier before.' : st.full ? 'The queue is full.' : !st.ok && st.state === 'available' ? 'Not enough credits or parts yet.' : '';
+      const why = st.state === 'closed' ? `Closed by ${P[st.by].name}`
+        : st.state === 'locked' ? 'Needs the tier before' : st.full ? 'Queue full' : !st.ok && st.state === 'available' ? 'Not enough credits or parts' : '';
       const act = st.state === 'available' ? btn(`Research · ${span(lab.timeOf(id) / 1000)}`, () => { if (Career.buy(c, id, now())) changed(); }, `primary wide${st.ok ? '' : ' disabled'}`)
         : st.state === 'active' || st.state === 'queued' ? btn(st.state === 'active' ? 'Cancel (half back)' : 'Cancel (all back)', () => { Career.cancel(c, id, now()); changed(); }, 'ghost wide') : null;
       if (act && st.state === 'available' && !st.ok) act.disabled = true;
       return el('div', { className: 'ui-card rm-detail' },
-        el('span', { className: 'ui-title', textContent: p.name }), el('p', { className: 'ui-note', textContent: p.note }), deltas(p.fx),
-        el('p', { className: 'ui-note', textContent: `Cost ${cost}` }),
-        st.state === 'available' || st.state === 'locked' ? el('p', { className: 'ui-note', textContent: `Rules out ${other.name}.` }) : null,
+        el('span', { className: 'ui-title', textContent: p.name }), deltas(p.fx),
+        el('p', { className: 'ui-note', textContent: cost }),
+        st.state === 'available' || st.state === 'locked' ? el('p', { className: 'ui-note', textContent: `Closes ${other.name}` }) : null,
         why ? el('p', { className: 'ui-note rm-why', textContent: why }) : null, act);
     }
     function bench() {
       const a = c.lab.active;
-      if (!a) return el('p', { className: 'ui-note rm-bench', textContent: 'Nothing building. Research goes on while the game is closed.' });
+      if (!a) return null;
       return el('div', { className: 'rm-bench' },
         el('span', { className: 'ui-label', textContent: `Building ${P[a.id].name} · ${span((a.end - now()) / 1000)} left` }),
         el('span', { className: 'ui-meter' }, el('span', { style: `--pct:${lab.progress(c.lab, now()) * 100}%` })),
@@ -248,7 +248,7 @@ const Menu = (() => {
     }
     function build() {
       const fx = Career.fx(c.lab.done);
-      return el('div', { className: 'rm-build' }, el('span', { className: 'ui-label', textContent: c.lab.done.length ? 'Your build against the stock ship' : 'Stock ship' }), c.lab.done.length ? deltas(fx) : null);
+      return c.lab.done.length ? el('div', { className: 'rm-build' }, el('span', { className: 'ui-label', textContent: 'Build' }), deltas(fx)) : null;
     }
     function respecBtn() {
       const done = c.lab.done.filter((id) => P[id].cat === tree).length, pend = lab.pending(c.lab).some((id) => P[id].cat === tree);

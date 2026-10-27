@@ -115,9 +115,8 @@
 .rm-detail { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
 .rm-detail .ui-title { font-size: 18px; }
 .rm-why { color: var(--warn, #ffb03a); }
-.rm-hint, .rm-bench { text-align: center; }
+.rm-bench { text-align: center; }
 .rm-bench { display: flex; flex-direction: column; gap: 6px; }
-.rm-bench.ui-note { display: block; }
 .rm-build { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .rm-build .ui-deltas { justify-content: center; }
 @media (max-width: 420px) { .rm-tree { gap: 6px; } .rm-tree .rm-node { min-height: 104px; padding: 6px; } .rm-node .lbl { font-size: 11px; } .rm-node .ui-deltas { font-size: 10px; } }
