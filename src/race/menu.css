@@ -88,3 +88,36 @@
 #hud-order li.you { color: var(--trim); font-weight: 700; }
 #hud-order li.you .num { color: var(--glass); }
 #menu-btn { pointer-events: auto; margin-left: auto; }
+
+/* The hangar (Menu.hangar): over everything like the title; the trees as tabs, a tree as a grid of
+   its tiers (a column each) and their two choices; the choice open below, then the bench (the one
+   building), the build against stock, and the footer. Scrolls on a phone. */
+.rm-hangar { justify-content: flex-start; gap: 12px; padding-left: 16px; padding-right: 16px; }
+.rm-hangar > * { width: min(100%, 640px); box-sizing: border-box; }
+.rm-hangar .rm-head .ui-title { font-size: 24px; }
+.rm-hangar { --part-coil: #ffb03a; --part-vane: #7df9ff; --part-cell: #8cff6a; --part-plate: #c8d2e6; }
+.rm-wallet { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 6px; font: 500 13px var(--mono); color: var(--hud); }
+.rm-wallet .ui-cr { color: #ffd84a; }
+.rm-part { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.rm-part > i { width: 8px; height: 8px; background: var(--part); }
+.rm-tabs { display: flex; gap: 6px; }
+.rm-tab { flex: 1 1 0; min-width: 0; }
+.rm-tab[aria-selected="true"] { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.rm-tree { display: grid; gap: 8px; align-items: stretch; }
+.rm-tier { text-align: center; grid-row: 1; }
+.rm-tree .rm-node { position: relative; min-height: 92px; padding: 8px; gap: 6px; justify-content: flex-start; }
+.rm-node .lbl { white-space: normal; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.rm-node .ui-deltas { font-size: 11px; gap: 0 8px; flex-direction: column; }
+.rm-node .ui-delta { white-space: normal; }
+.rm-tree .rm-node { min-width: 0; }
+.rm-node.closed { opacity: 0.45; }
+.rm-node.closed .ui-delta span { color: inherit; }
+.rm-detail { display: flex; flex-direction: column; gap: 6px; padding: 12px; }
+.rm-detail .ui-title { font-size: 18px; }
+.rm-why { color: var(--warn, #ffb03a); }
+.rm-hint, .rm-bench { text-align: center; }
+.rm-bench { display: flex; flex-direction: column; gap: 6px; }
+.rm-bench.ui-note { display: block; }
+.rm-build { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rm-build .ui-deltas { justify-content: center; }
+@media (max-width: 420px) { .rm-tree { gap: 6px; } .rm-tree .rm-node { min-height: 104px; padding: 6px; } .rm-node .lbl { font-size: 11px; } .rm-node .ui-deltas { font-size: 10px; } }

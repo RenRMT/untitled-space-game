@@ -17,7 +17,10 @@
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist),
 // ?ai=regular|advanced|expert|off (the rivals' level, the track's style by default; off: none),
-// ?track=regular|advanced|expert; with ?biome= or ?track= the race starts at once, past the title.
+// ?track=regular|advanced|expert; with ?biome= or ?track= the race starts at once, past the title;
+// ?fastresearch (the hangar's research 60× faster).
+// The career (Career): what you pick up (Pickups) is banked at the finish and spent in the hangar
+// (Menu.hangar), whose build tunes your ship; the track, its racing line and the rivals stay stock.
 // ES module; needs a browser.
 
 import { Art } from '../art/render.js';
@@ -26,6 +29,7 @@ import { ArtCulture } from '../art/culture.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
 import { Feedback } from '../core/feedback.js';
+import { Career } from './career.js';
 import { Config } from './config.js';
 import { Draw } from './draw.js';
 import { Dust } from './dust.js';
@@ -33,6 +37,7 @@ import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Line } from './line.js';
 import { Menu } from './menu.js';
+import { Pickups } from './pickups.js';
 import { Rival } from './rival.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
@@ -55,6 +60,8 @@ const BIOMES = {
 // HULL_ART) at the surface's size (flight/entities.js SHIP_SCALE).
 const SPEED = +q.get('speed') || TUNE.speed;
 let STATS = Config.stats(SPEED); // × the biome's (Config.BIOME), set with the track
+if (q.has('fastresearch')) Career.lab.config.speed = 60;
+const career = Career.load();
 // The camera: close in (the ground's speed on screen is what reads as fast), leading the ship by
 // `lead` seconds of its speed, `track` of the way along the track rather than its velocity, held
 // to `reach` of the screen's shorter side; pushing in a little at top speed (`pull`), and zoomed by
@@ -113,8 +120,12 @@ function build() {
   const mini = new Path2D();
   tr.pts.forEach((p, n) => (n ? mini.lineTo(p.x, p.y) : mini.moveTo(p.x, p.y)));
   mini.closePath();
-  G = { W, tr, b, seed: S.seed, track: STYLES[S.track], line: null, size: SIZE, whole: { x0: 0, x1: SIZE, y0: 0, y1: SIZE, cx: SIZE / 2, cy: SIZE / 2 }, hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
+  G = { W, tr, b, seed: S.seed, track: STYLES[S.track], line: null, pickups: null, size: SIZE, whole: { x0: 0, x1: SIZE, y0: 0, y1: SIZE, cx: SIZE / 2, cy: SIZE / 2 }, hw: Config.HW, talls: on.filter((p) => p.type === 'tall'), holes: on.filter((p) => p.type === 'hole'), looks: {}, mini };
   G.lines = Draw.lines(G);
+  // The racing line (Line) on this track and biome's handling, stock, worked out once: the rivals fly
+  // it, the chips lie along it.
+  G.line = Line.build(G.tr, { stats: STATS, handling: Run.tune(Config.biome(S.biome)).handling, r: R_SHIP });
+  G.pickups = Pickups.place(G.tr, G.line, S.seed, S.biome);
   restart();
 }
 function looks() {
@@ -122,12 +133,17 @@ function looks() {
 }
 function restart() {
   const bio = Config.biome(S.biome);
-  cfg = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio, ghostKey: `${TRACKS}.${S.biome}${bio.rev ? `~${bio.rev}` : ''}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}` };
+  Career.lab.settle(career.lab, Date.now());
+  const done = career.lab.done, tune = done.length ? Career.tune(done) : null, sig = Career.sig(done);
+  const stock = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio, ghostKey: null };
+  // Yours: the hangar's build on top (its ghost apart from the stock ship's), and the pickups.
+  cfg = {
+    ...stock, stats: tune ? Career.stats(STATS, tune) : STATS, hull: HULL * (tune ? tune.hull : 1), career: tune, pickups: G.pickups,
+    ghostKey: `${TRACKS}.${S.biome}${bio.rev ? `~${bio.rev}` : ''}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}${sig ? `.${sig}` : ''}`,
+  };
   const lv = level();
   R = Run.create(G, lv ? { ...cfg, grid: Rival.grid(Rival.PLAYER, G.tr.pts[0].hw) } : cfg);
-  // The racing line (Line) for the rivals, on this track and biome's handling, worked out once.
-  if (lv && !G.line) G.line = Line.build(G.tr, { stats: cfg.stats, handling: R.tune.handling, r: cfg.r });
-  pack = lv ? Rival.pack(G, cfg, G.line, lv, S.seed, (c) => Run.create(G, c)) : null;
+  pack = lv ? Rival.pack(G, stock, G.line, lv, S.seed, (c) => Run.create(G, c)) : null;
   Input.reset(R.craft.angle);
   dust = Dust.create(); dustCols = Dust.colours(G.b.type, Config.KINDS[S.biome]);
   fx = { trails: ART.engines.map(() => []), kick: 0, bank: 0, shake: 0, sx: 0, sy: 0, flash: 0 };
@@ -236,6 +252,7 @@ function render(time, a) {
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
   Draw.marks(ctx, v, px, time, G, R, ground);
+  Draw.pickups(ctx, v, px, time, G.pickups, R.got, ground);
   Draw.dust(ctx, v, px, dust.puffs, ground);
   const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
   if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
@@ -253,7 +270,7 @@ function render(time, a) {
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
   Draw.minimap(ctx, Wc, G, R, G.size, ghost, pack ? pack.racers.map((X) => ({ x: X.R.craft.x, y: X.R.craft.y, color: X.who.color })) : []);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
-  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, Run.DASH, R.drift, Run.DRIFT);
+  else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, R.tune.dash, R.drift, R.tune.drift);
   else Draw.drag(ctx, Input.drag, Input.maxDrag());
 
   // The HUD's text, ten times a second: the times as text, the rest only written when it changed.
@@ -302,7 +319,7 @@ function juice(dt, time) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
-const BUZZ = { boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
+const BUZZ = { chip: 4, crate: [10, 30, 18], boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
 function frame(t) {
   // Nothing to run yet, the ground building, or the title over it all: nothing to step or draw.
   if (!G || baking || Menu.up === 'title') { last = t; requestAnimationFrame(frame); return; }
@@ -313,6 +330,11 @@ function frame(t) {
   const ctl = Input.control();
   if (paused) { acc = 0; ctl.events.length = 0; }
   while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); if (pack) Rival.step(pack, G, R); acc -= Run.STEP; }
+  // The finish (or the wreck): the haul brought home, once.
+  if (!R.banked && (R.phase === 'done' || R.phase === 'wreck')) {
+    R.banked = Career.bank(career, R.haul, { place: pack ? Rival.standings(pack, G, R).place : null, wreck: R.phase === 'wreck', level: S.track });
+    Career.save(career);
+  }
   if (dustCols && !paused) Dust.step(dust, R.craft, { off: R.air ? 0 : R.off, slide: R.grip.sliding && !R.air, speed: cfg.stats.maxSpeed }, dustCols, Math.min(0.1, dtFrame));
   for (const k of R.fx) Feedback.vibrate(BUZZ[k]);
   juice(paused ? 0 : Math.min(0.1, dtFrame), t / 1000);
@@ -332,6 +354,7 @@ function toTitle() {
     planets: Object.entries(BIOMES).map(([id, b]) => ({ id, label: b.label, about: b.about, body: b.body })),
     levels: Object.entries(STYLES).map(([id, label]) => ({ id, label, about: ABOUT[id] })),
     biome: S.biome, level: S.track,
+    onHangar: () => hangar(toTitle),
     onPick: (biome, track) => {
       Menu.close();
       const same = G && S.biome === biome && S.track === track;
@@ -341,10 +364,16 @@ function toTitle() {
   });
 }
 function play() { paused = false; $('hud').hidden = false; }
+// The hangar (Menu.hangar): the career's research, saved on every change; back to `then`.
+function hangar(then) {
+  paused = true;
+  Menu.hangar({ career, now: () => Date.now(), onChange: () => Career.save(career), onBack: () => { Menu.close(); then(); } });
+}
 function menu() {
   if (Menu.up || !G) return;
   paused = true;
-  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle });
+  const over = R.phase === 'done' || R.phase === 'wreck';
+  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
 }
 // One at a time: what's asked while the ground is building is ignored.
 function busy(fn, then) {
@@ -368,6 +397,6 @@ Input.init(cv, {
   },
 });
 
-window.race = { S, Input, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
+window.race = { S, Input, career, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
 requestAnimationFrame(frame);
 if (q.has('biome') || q.has('track')) busy(newGround, play); else toTitle();

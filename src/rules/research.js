@@ -54,6 +54,7 @@
 
 import { Goods } from './goods.js';
 import { HullMods } from './hullmods.js';
+import { Lab } from './lab.js';
 import { Loadout } from './loadout.js';
 import { Logic } from './logic.js';
 import { Mods } from './mods.js';
@@ -270,7 +271,6 @@ const Research = (() => {
   const stationName = (type) => STATION_NAME[type] || type;
 
   const title = (id) => (PACKAGES[id].kind === 'logic' ? `${PACKAGES[id].name}@${PACKAGES[id].ver}` : PACKAGES[id].name);
-  const timeOf = (id) => (PACKAGES[id].time * 1000) / config.speed;
   const gives = (id) => {
     const p = PACKAGES[id];
     return [
@@ -297,118 +297,14 @@ const Research = (() => {
   }
   // Industry bonuses count from when their package finished, so work done offline gets them on time.
   const bonusAt = (lab, t, key) => lab.done.reduce((n, id) => n + ((lab.doneAt?.[id] ?? 0) <= t ? PACKAGES[id]?.industry?.[key] || 0 : 0), 0);
-  const empty = () => ({ done: [], doneAt: {}, active: null, queue: [] });
   const queueMax = (lab) => QUEUE_MAX + bonusAt(lab, Infinity, 'queue');
-  const pending = (lab) => [...(lab.active ? [lab.active.id] : []), ...lab.queue];
+  // The queue itself (rules/lab.js), over these packages.
+  const lab = Lab.create({ packages: PACKAGES, categories: CATEGORIES, queueMax, config });
+  const { timeOf, empty, status, enqueue, settle, cancel, grant, progress } = lab;
 
-  function status(id, lab, credits, have) {
-    const p = PACKAGES[id];
-    const cost = Object.entries(p.cost).filter(([k]) => k !== 'credits').map(([kind, need]) => ({ kind, need, have: have(kind) }));
-    const base = { needs: [], credits: p.cost.credits || 0, cost };
-    if (lab.done.includes(id)) return { ...base, state: 'done', ok: false };
-    if (lab.active?.id === id) return { ...base, state: 'active', ok: false };
-    if (lab.queue.includes(id)) return { ...base, state: 'queued', ok: false };
-    // A requirement still to build may be ahead of it in the queue.
-    const needs = p.requires.filter((r) => !lab.done.includes(r) && !pending(lab).includes(r));
-    const room = lab.queue.length < queueMax(lab) || !lab.active;
-    const ok = !needs.length && room && credits >= base.credits && cost.every((x) => x.have >= x.need);
-    return { ...base, needs, state: needs.length ? 'locked' : 'available', ok, full: !room };
-  }
-
-  function enqueue(lab, id, now) {
-    if (!PACKAGES[id] || lab.done.includes(id) || pending(lab).includes(id)) return false;
-    if (!lab.active) lab.active = { id, start: now, end: now + timeOf(id) };
-    else if (lab.queue.length < queueMax(lab)) lab.queue.push(id);
-    else return false;
-    return true;
-  }
-
-  function settle(lab, now) {
-    const finished = [];
-    while (lab.active && lab.active.end <= now) {
-      const { id, end } = lab.active;
-      lab.done.push(id);
-      (lab.doneAt ||= {})[id] = end;
-      finished.push(id);
-      const next = lab.queue.shift();
-      lab.active = next ? { id: next, start: end, end: end + timeOf(next) } : null;
-    }
-    return finished;
-  }
-
-  function cancel(lab, id, now) {
-    const out = [];
-    const i = lab.queue.indexOf(id);
-    if (i >= 0) {
-      lab.queue.splice(i, 1);
-      out.push({ id, refund: 1 });
-    } else if (lab.active?.id === id) {
-      const next = lab.queue.shift();
-      lab.active = next ? { id: next, start: now, end: now + timeOf(next) } : null;
-      out.push({ id, refund: 0.5 });
-    } else return out;
-    // Whatever was queued on top of it goes too.
-    for (let j = 0; j < lab.queue.length;) {
-      const q = lab.queue[j], ahead = [...lab.done, ...(lab.active ? [lab.active.id] : []), ...lab.queue.slice(0, j)];
-      if (PACKAGES[q].requires.every((r) => ahead.includes(r))) { j++; continue; }
-      lab.queue.splice(j, 1);
-      out.push({ id: q, refund: 1 });
-    }
-    // A requirement cancelled from under the one now building: it goes too.
-    if (lab.active && !PACKAGES[lab.active.id].requires.every((r) => lab.done.includes(r))) {
-      out.push(...cancel(lab, lab.active.id, now).map((x, k) => (k ? x : { ...x, refund: 1 })));
-    }
-    return out;
-  }
-
-  function grant(lab, id, now) {
-    if (!PACKAGES[id] || lab.done.includes(id)) return [];
-    const out = [];
-    const i = lab.queue.indexOf(id);
-    if (i >= 0) { lab.queue.splice(i, 1); out.push({ id, refund: 1 }); }
-    if (lab.active?.id === id) {
-      const next = lab.queue.shift();
-      lab.active = next ? { id: next, start: now, end: now + timeOf(next) } : null;
-      out.push({ id, refund: 1 });
-    }
-    lab.done.push(id);
-    (lab.doneAt ||= {})[id] = now;
-    return out;
-  }
-
-  function progress(lab, now) {
-    const a = lab.active;
-    if (!a) return 0;
-    return Math.max(0, Math.min(1, (now - a.start) / Math.max(1, a.end - a.start)));
-  }
-
-  // A group as a tree: a package's column is one past its furthest requirement in the group. Within
-  // a category, a package follows its requirement along the same row when the cell is free, and
-  // otherwise starts a row of its own.
+  // A group as a tree: a package's column is one past its furthest requirement in the group.
   const MAX_COLS = 4;
-  function layout(group) {
-    const list = LIST.filter((p) => CATEGORIES.find((k) => k.id === p.cat).group === group);
-    const ids = new Set(list.map((p) => p.id));
-    const col = {};
-    const colOf = (id) => (col[id] ??= PACKAGES[id].col ?? Math.max(-1, ...PACKAGES[id].requires.filter((r) => ids.has(r)).map(colOf)) + 1);
-    const nodes = [], lanes = [], taken = new Set(), rowOf = {};
-    let rows = 0;
-    for (const cat of CATEGORIES.filter((k) => k.group === group)) {
-      const inCat = list.filter((p) => p.cat === cat.id);
-      if (!inCat.length) continue;
-      lanes.push({ cat: cat.id, row: rows });
-      for (const p of inCat) {
-        const at = colOf(p.id);
-        const after = p.requires.find((r) => ids.has(r) && PACKAGES[r].cat === cat.id && col[r] === at - 1 && !taken.has(`${rowOf[r]}:${at}`));
-        const row = after ? rowOf[after] : rows++;
-        rowOf[p.id] = row;
-        taken.add(`${row}:${at}`);
-        nodes.push({ id: p.id, col: at, row });
-      }
-    }
-    const edges = list.flatMap((p) => p.requires.filter((r) => ids.has(r)).map((r) => [r, p.id]));
-    return { cols: Math.max(0, ...nodes.map((n) => n.col + 1)), rows, nodes, edges, lanes };
-  }
+  const layout = (group) => lab.layout(LIST.filter((p) => CATEGORIES.find((k) => k.id === p.cat).group === group));
 
   return {
     QUEUE_MAX, MAX_COLS, config, queueMax, GROUPS, CATEGORIES, PACKAGES, LIST, title, timeOf, gives, known, lineBonus, upgrades, bonusAt, blueprintFor, stationOf, stationName,
