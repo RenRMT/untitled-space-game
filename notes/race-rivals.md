@@ -91,7 +91,13 @@ expert). It sets:
 - how long a knock sets it back: up to 0.8 s at 0.
 
 Ship-to-ship contact is a soft knock: pushed apart, the closing speed traded, no hull damage. A ship
-mid-hop passes over. The knock is blamed on the ship doing more of the closing in the track's frame.
+mid-hop passes over. The knock is blamed on the ship doing more of the closing in the track's frame
+(along the track, all of it is the one behind's).
+
+Knocks spill pickups (`Pickups.DROP`, `Rival.step`): knock a rival and it may spill (45%) a few credit
+chips, or now and then (12%) a crate's part, just ahead of it for you to grab; a rival that knocks you
+may make you spill (45%) about a fifth of your credits and perhaps a part, round you. Spills fly out,
+can't be taken back for 0.8 s, blink out after 12 s, and each ship spills at most once in 1.5 s.
 
 Further ideas:
 - **Named rivals** with crew portraits (`art/crew.js`, `art/portraits.js`) and short barks at overtakes and the finish.

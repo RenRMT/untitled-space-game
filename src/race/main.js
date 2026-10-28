@@ -117,7 +117,7 @@ function faces() {
 // out by `punch` and streaks in from the edges, over `kick` s; the ship's bank into a turn (`bank` ×
 // its turn rate, rad/s, at most `maxBank`); and a shake (`shake`: px at most, by what set it off),
 // settling at `settle` a second. A screen asked to keep still (reduced motion) gets no punch or shake.
-const FX = { trail: 0.35, trailW: 3, trailFrom: 0.3, punch: 0.1, kick: 0.45, bank: 0.08, maxBank: 0.3, shake: { side: 3, land: 2.5, hit: 7, bump: 2, strike: 8 }, settle: 14 };
+const FX = { trail: 0.35, trailW: 3, trailFrom: 0.3, punch: 0.1, kick: 0.45, bank: 0.08, maxBank: 0.3, shake: { side: 3, land: 2.5, hit: 7, bump: 2, spill: 4, strike: 8 }, settle: 14 };
 const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let fx = null; // { trails: per engine [{ x, y, z, t, a, c }], kick: s of the punch left, bank, shake: px, sx, sy: px now, flash: R.flash a frame before }
 
@@ -292,6 +292,7 @@ function render(time, a) {
   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
   Draw.marks(ctx, v, px, time, G, R);
   Draw.pickups(ctx, v, px, time, G.pickups, R.got, ground, S.style);
+  Draw.pickups(ctx, v, px, time, R.drops, R.got, ground, S.style, R.total);
   Draw.dust(ctx, v, px, dust.puffs, ground);
   if (storm) Draw.storm(ctx, v, px, time, storm.strikes, ground);
   rivals(v, a, C, time, (Math.max(Wc, Hc) / zoom) * 1.2);
@@ -357,7 +358,7 @@ function juice(dt, time) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
-const BUZZ = { strike: [30, 40, 20], chip: 4, crate: [10, 30, 18], boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
+const BUZZ = { strike: [30, 40, 20], chip: 4, crate: [10, 30, 18], boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10, loot: [8, 20, 8], spill: [24, 30, 24] };
 function frame(t) {
   // Nothing to run yet, the ground building, or the title over it all: nothing to step or draw.
   if (!G || baking || Menu.covers()) { last = t; requestAnimationFrame(frame); return; }

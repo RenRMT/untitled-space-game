@@ -15,8 +15,11 @@
 //     grip: { slip, sliding } (Handling); drift: { t: s charged, level (0, 1, 2), boost: s of its boost
 //       left, k: the boost's top speed ×, on: sliding }
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
-//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', 'chip', 'crate', and 'bump' (another ship: Rival.step); the page empties it
+//       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', 'chip', 'crate', 'bump' (another ship: Rival.step), and 'loot' or 'spill' (a knock spilled
+//       a rival's pickups, or yours: Rival.step); the page empties it
 //     haul, got: what's been picked up this race (Pickups.collect: cfg.pickups) and their ids
+//     drops: what knocks have spilled on the track (Pickups.spill), picked up like cfg.pickups; null
+//       without cfg.pickups (a rival's run); biome: cfg.biome's id
 //   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, biome?, grid?, career?, pickups? }
 //     cam: null for none (a rival's run); grid: { back, side }, where
 //     on the grid it starts: units further back from the start, and across (+: the way −ty, tx)
@@ -87,6 +90,7 @@ const Run = (() => {
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
       r: cfg.r, tune: tune(cfg.biome, cfg.career), bump: cfg.career ? cfg.career.bump : BUMP, haul: Pickups.haul(), got: new Set(),
+      drops: cfg.pickups ? [] : null, dropN: 0, biome: cfg.biome ? cfg.biome.id : null,
     };
     R.dash = { charges: R.tune.dash.charges, refill: 0, t: 0, v: null, kind: null };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.
@@ -200,6 +204,11 @@ const Run = (() => {
     if (racing && !direct) drift(R, cfg, hit, air, dt);
     if (racing && D.charges < R.tune.dash.charges && (D.refill += dt) >= R.tune.dash.refill) { D.charges++; D.refill = 0; R.fx.push('charge'); }
     if (racing && cfg.pickups) for (const p of Pickups.collect(cfg.pickups, R.got, R.haul, C.x, C.y, cfg.r)) R.fx.push(p.kind === 'chip' ? 'chip' : 'crate');
+    if (racing && R.drops && R.drops.length) {
+      const took = Pickups.collect(R.drops, R.got, R.haul, C.x, C.y, cfg.r, R.total);
+      for (const p of took) R.fx.push(p.kind === 'chip' ? 'chip' : 'crate');
+      if (took.length || R.drops.some((p) => p.until <= R.total)) R.drops = R.drops.filter((p) => p.until > R.total && !R.got.has(p.id));
+    }
     // The hop: up and down again.
     H.cool = Math.max(0, H.cool - dt);
     if (air && (H.t += dt) >= hop.time) { H.t = -1; H.cool = hop.cool; R.fx.push('land'); }

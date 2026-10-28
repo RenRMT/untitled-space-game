@@ -4,8 +4,9 @@
 // drawDragIndicator draws it) or the halves held when steering by sides, and the HUD's text.
 //
 //   Draw.marks(ctx, v, px, time, G, R)   the rails, kerbs and pylons (G.lines), the start, the next checkpoint
-//   Draw.pickups(ctx, v, px, time, P, got, ground, style?)   what's on the track to pick up (Pickups.place),
-//     bobbing and turning, those in got (taken this race) left out; ground(v, x, y, z) -> [X, Y] | null
+//   Draw.pickups(ctx, v, px, time, P, got, ground, style?, now?)   what's on the track to pick up (Pickups.place,
+//     or spilled: Pickups.spill), bobbing and turning, those in got (taken this race) left out; ground(v, x, y, z)
+//     -> [X, Y] | null; now: the run's R.total, for a spill's flight out and its blinking before it's gone
 //   Draw.storm(ctx, v, px, time, strikes, ground)   lightning (Storm's strikes): a warning ring closing in on
 //     the ground, then the bolt down from the sky and its glow
 //   Draw.PART[part]   a salvage part's colour (its item's tint)
@@ -241,12 +242,19 @@ const Draw = (() => {
   // A pickup's item as a menu icon (art/icons.js): an image URL, size CSS px a side.
   const icon = (key, size = 16, style = 'lowpoly') => ItemIcons.url(ITEM[key].kind, style, size, look(key));
   const img = (key, size) => `<img class="rm-icon" src="${icon(key, size)}" alt="" width="${size}" height="${size}">`;
-  function pickups(ctx, v, px, time, P, got, ground, style = 'lowpoly') {
+  const SPILL = { arc: 40, blink: 2 }; // a spill's flight out (t0 to t1): its height at the top; it blinks its last blink s
+  function pickups(ctx, v, px, time, P, got, ground, style = 'lowpoly', now = 0) {
     if (!P) return;
     for (const p of P) {
       if (got.has(p.id)) continue;
-      const chip = p.kind === 'chip', bob = Math.sin(time * 3 + p.n) * 3, z = (chip ? 12 : 16) + bob;
-      const g = ground(v, p.x, p.y), at = ground(v, p.x, p.y, z);
+      let x = p.x, y = p.y, lift = 0;
+      if (p.t0 !== undefined) {
+        if (now > p.until || (p.until - now < SPILL.blink && Math.sin(now * 18) < 0)) continue;
+        const u = Math.min(1, Math.max(0, (now - p.t0) / (p.t1 - p.t0))), e = 1 - (1 - u) * (1 - u);
+        x = p.sx + (p.x - p.sx) * e; y = p.sy + (p.y - p.sy) * e; lift = SPILL.arc * Math.sin(Math.PI * u);
+      }
+      const chip = p.kind === 'chip', bob = Math.sin(time * 3 + p.n) * 3, z = (chip ? 12 : 16) + bob + lift;
+      const g = ground(v, x, y), at = ground(v, x, y, z);
       if (!g || !at) continue;
       const r = p.r * SIZE, c = RGB(HALO[p.kind]), ph = ((time / HALO.period + p.n * 0.137) % 1 + 1) % 1;
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
