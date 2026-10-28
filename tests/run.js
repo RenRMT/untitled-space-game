@@ -63,6 +63,7 @@ import { Pickups } from '../src/race/pickups.js';
 import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
+import * as RaceSw from '../tools/race-sw.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -3885,6 +3886,14 @@ test('race career: the build reaches the run (dash, drift, walls, hull), and the
   const shock = Career.tune(['chassis.1a', 'chassis.2b']), [, mounted] = knock(run(), run({ ...cfg, career: shock }));
   assert(mounted < stockB, 'shock mounts: knocked less');
   assert(ramA > 0);
+});
+
+test('race offline: race/sw.js keeps every file the race loads (npm run race:sw), the manifest and its icons among them', () => {
+  const files = RaceSw.raceFiles();
+  for (const f of ['./', 'manifest.webmanifest', '../src/race/main.js', '../src/ui/kit-lowpoly.css', '../assets/fonts/chakra-petch-latin-500-normal.woff2', '../assets/race-icon-512.png']) assert(files.includes(f), f);
+  assert(!files.some((f) => f.includes('/game/') || f.endsWith('sw.js')), 'nothing of the game, and not the worker itself');
+  const { current, wanted } = RaceSw.check();
+  assert.strictEqual(current, wanted, 'race/sw.js: the file list is out of date: npm run race:sw');
 });
 
 if (failed) {
