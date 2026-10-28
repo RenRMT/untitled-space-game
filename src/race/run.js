@@ -25,7 +25,7 @@
 //     career: Career.tune's, the hangar's build: × the handling, the walls, the dash and the drift (its
 //     stats are already in cfg.stats, its hull in cfg.hull); bump: its side-bump (Rival.step); none, stock
 //     pickups: Pickups.place's, picked up while racing
-//   R.tune: { handling, off, wall, hop, dash, drift } those numbers for this run; R.bump: { power, recoil }
+//   R.tune: { handling, off, wall, hop, dash, drift } those numbers for this run; R.bump: { power, recoil }; R.r: cfg.r
 //
 // Flying is Handling.step (the race's grip, slide and brake; Flight.step's Direct with ?mode=direct)
 // on the race's stats. Steering:
@@ -86,7 +86,7 @@ const Run = (() => {
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
-      tune: tune(cfg.biome, cfg.career), bump: cfg.career ? cfg.career.bump : BUMP, haul: Pickups.haul(), got: new Set(),
+      r: cfg.r, tune: tune(cfg.biome, cfg.career), bump: cfg.career ? cfg.career.bump : BUMP, haul: Pickups.haul(), got: new Set(),
     };
     R.dash = { charges: R.tune.dash.charges, refill: 0, t: 0, v: null, kind: null };
     // What the craft can hit (Contact): the way out of a wall is toward the nearest centreline point.

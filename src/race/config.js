@@ -7,12 +7,14 @@
 //   Config.map(style, biome?) -> { N, SIZE, TRACK } for a track style: the advanced and expert styles'
 //                            maps are bigger (N_ADV, N_EXP tiles), so their fingers can be thin and long against them;
 //                            a biome's track: its width, its mix of corners, sized for its craft's stats
-//   Config.BIOME, biome(id)  each biome's character (below): how the craft handles, the track's shape, the run-off and walls
+//   Config.BIOME, biome(id)  each biome's character (below): how the craft handles, the track's shape, the run-off and walls,
+//                            and its hazards (storm: lightning, Storm)
 //   Config.CARVE             the options Track.carve is called with (but kinds: Config.KINDS[biome])
 //   Config.KINDS             per biome: { track, off } ground kinds ('a' | 'b' | 'c', ArtSurface)
 //   Config.SHIP, STATS, TUNE, SPEED   the Courier as the game fits it; the race's stats (× TUNE, SPEED top speed;
 //                            stats(speed, biome): × the biome's too)
-//   Config.R_SHIP, HULL      the craft's collision radius on the surface; its hull
+//   Config.R_SHIP, HULL      the craft's collision radius on the surface (× GROWN); its hull
+//   Config.HULL_SIZE[hull]   × R_SHIP (and the drawing) for a heavier hull
 // ES module (`Config`); also runs in Node.
 
 import { Loadout } from '../rules/loadout.js';
@@ -24,7 +26,11 @@ const Config = (() => {
   // The ship: the Courier as the game fits and draws it (game/state.js SHIP), at the surface's size
   // (game/landing.js SURFACE_SCALE).
   const SHIP = Loadout.stats(Loadout.starter('courier'));
-  const SURFACE_SCALE = 0.85, R_SHIP = SHIP.radius * SURFACE_SCALE, HULL = SHIP.hull || 120;
+  // GROWN: the race's ships, drawn and colliding, larger than the game's surface flight has them (the
+  // tracks are laid out for the game's: TRACK's minHw).
+  const SURFACE_SCALE = 0.85, GROWN = 1.75 / 1.375, R_SHIP = SHIP.radius * SURFACE_SCALE * GROWN, HULL = SHIP.hull || 120;
+  // A heavier hull, × the light fighter's size: drawn and colliding (the rivals' by their level's hull too).
+  const HULL_SIZE = { 'fighter-light': 1, fighter: 1.08, 'fighter-heavy': 1.16 };
   // Racing is faster and grippier than the game's surface flight: in Cruise the velocity eases toward
   // the heading at the engine's acceleration, so more of it makes turns bite instead of float.
   const TUNE = { speed: 0.75, accel: 1.4, turn: 1.25 }; // × the ship's top speed, acceleration, turn rate
@@ -47,6 +53,7 @@ const Config = (() => {
   // - off: × how much the run-off takes from top speed (speed) and acceleration (grip) (Run's OFF)
   // - wall: × a wall's restitution and friction (Run's WALL), and the hull a hit dents (damage)
   // - hop: × the hop's time in the air and height (Run's HOP)
+  // - storm: lightning strikes (Storm.create's cfg), none without
   const BIOME = {
     terran: {},
     // Glare ice: little grip, slides that keep their speed and a weak brake; wide and sweeping, a soft run-off, slippery walls.
@@ -80,15 +87,16 @@ const Config = (() => {
       stats: { turn: 0.9, accel: 0.9 },
       track: { hw: 1.1, mix: { sweeper: 1.8, carousel: 1.5, hairpin: 0.5 }, chicanes: 0.6, salt: 3 },
       wall: { friction: 1.6, damage: 0.5 },
+      storm: { every: [1.6, 3.2], warn: 1.1, r: 70, damage: 14, slow: 0.45, you: 0.5, bolt: 0.35 },
     },
   };
   const biome = (id) => {
     const b = BIOME[id] || {};
-    return { id, stats: b.stats || {}, handling: b.handling || {}, track: b.track || {}, off: b.off || {}, wall: b.wall || {}, hop: b.hop || {} };
+    return { id, stats: b.stats || {}, handling: b.handling || {}, track: b.track || {}, off: b.off || {}, wall: b.wall || {}, hop: b.hop || {}, storm: b.storm || null };
   };
   const HW = 1.9 * T, RUNOFF = 1.25 * T, OPEN = 0.4 * T, STATS = stats();
   const TRACK = {
-    size: SIZE, hw: HW, minHw: 6 * R_SHIP, margin: 5 * T, gap: 2 * (RUNOFF + OPEN) + T, samples: 720, checks: 16,
+    size: SIZE, hw: HW, minHw: (6 * R_SHIP) / GROWN, margin: 5 * T, gap: 2 * (RUNOFF + OPEN) + T, samples: 720, checks: 16,
     speed: STATS.maxSpeed, rv: STATS.maxSpeed ** 2 / STATS.accel,
   };
   const map = (style = 'regular', id) => {
@@ -112,7 +120,7 @@ const Config = (() => {
     moon: { track: 'b', off: 'c' }, // mare; ejecta
     gas: { track: 'b', off: 'a' }, // haze; cloud deck (the walls are storm fronts)
   };
-  return { T, N, SIZE, N_ADV, N_EXP, map, BIOME, biome, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
+  return { T, N, SIZE, N_ADV, N_EXP, map, BIOME, biome, SHIP, SURFACE_SCALE, R_SHIP, HULL, HULL_SIZE, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
 })();
 
 export { Config };

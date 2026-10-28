@@ -35,9 +35,9 @@
 //     their slots on the grid (0: the front); Rival.PLAYER: your slot
 //   Rival.grid(slot, hw) -> { back, side }   a slot's place on the grid (Run's cfg.grid)
 //   Rival.pack(G, cfg, L, level, seed, run) -> pack   the rivals' runs: cfg, your run's (theirs are
-//     made from it); L: Line.build's racing line; run(cfg) -> R makes a run (Run.create, or Pilot.flat's)
+//     made from it, r × the level's hull's size: Config.HULL_SIZE); L: Line.build's racing line; run(cfg) -> R makes a run (Run.create, or Pilot.flat's)
 //   Rival.step(pack, G, R?)   one Run.STEP for every rival, then the ships pushed apart (R: yours, or none)
-//   Rival.ships(Rs, r, tr?)   runs' craft (radius r) that overlap pushed apart (tr: the track, to say whose knock it was)
+//   Rival.ships(Rs, r, tr?)   runs' craft (each its R.r, else r) that overlap pushed apart (tr: the track, to say whose knock it was)
 //   Rival.progress(G, R) -> laps   how far round a run is (laps done + the share of this one)
 //   Rival.standings(P, G, R) -> { place, of, rows: [{ id, name, color, done, prog, you? }] }   the order now
 //     (done: the finish time, or null), yours among them
@@ -48,6 +48,7 @@
 // ES module (`Rival`); also runs in Node.
 
 import { hashInt, mulberry32 } from '../core/rng.js';
+import { Config } from './config.js';
 import { Line } from './line.js';
 import { Pilot } from './pilot.js';
 import { Run } from './run.js';
@@ -100,12 +101,12 @@ const Rival = (() => {
   // ---------- A rival ----------
 
   function pack(G, cfg, L, level, seed, run) {
-    const tr = G.tr, S = tr.samples, lim = Line.lim(tr, Line.MARGIN * cfg.r);
+    const tr = G.tr, S = tr.samples, rad = cfg.r * (Config.HULL_SIZE[LEVELS[level].ship] || 1), lim = Line.lim(tr, Line.MARGIN * rad);
     const racers = field(seed, level).map((who, i) => {
       const c = CULTURES[who.id], r = mulberry32(hashInt(seed, i, 0x7a3e)), lv = LEVELS[level];
       const tw = c.twist === 'random' ? { turnRate: 0.95 + 0.1 * r() } : c.twist;
       const stats = { ...cfg.stats, maxSpeed: cfg.stats.maxSpeed * lv.speed, turnRate: cfg.stats.turnRate * (tw.turnRate ?? 1) };
-      const rcfg = { ...cfg, stats, race: cfg.laps, laps: Infinity, cam: null, assist: false, steer: 'point', grid: grid(who.slot, tr.pts[0].hw) };
+      const rcfg = { ...cfg, r: rad, stats, race: cfg.laps, laps: Infinity, cam: null, assist: false, steer: 'point', grid: grid(who.slot, tr.pts[0].hw) };
       const R = run(rcfg);
       if (tw.slide) { const h = R.tune.handling; R.tune.handling = { ...h, SLIDE: { ...h.SLIDE, grip: h.SLIDE.grip * tw.slide } }; }
       // Its own line: the racing line toward the centreline by its bias, and its weave.
@@ -252,7 +253,7 @@ const Rival = (() => {
 
   // Ships against ships: circles pushed apart, their speeds toward each other traded (a soft knock,
   // each × the other's R.bump.power and its own R.bump.recoil; no damage; one harder than BUMP is felt: R.fx 'bump', and counted: R.knocks, and R.struck for the
-  // ship that did more of the closing). A ship in the air passes over.
+  // ship that did more of the closing). A ship in the air passes over. Each its own radius (R.r), else r.
   const KNOCK = 0.3, BUMP = 40, UNIT = { power: 1, recoil: 1 };
   // Whose knock it was, in the track's frame (so that both racing along at speed doesn't count): the
   // one moving across toward the other, or the one behind closing faster along it.
@@ -268,8 +269,9 @@ const Rival = (() => {
       const A = Rs[i], B = Rs[j], a = A.craft, b = B.craft;
       if (A.air > 10 || B.air > 10) continue;
       const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-      if (d >= 2 * r || d === 0) continue;
-      const nx = dx / d, ny = dy / d, push = (2 * r - d) / 2;
+      const rr = (A.r ?? r) + (B.r ?? r);
+      if (d >= rr || d === 0) continue;
+      const nx = dx / d, ny = dy / d, push = (rr - d) / 2;
       a.x -= nx * push; a.y -= ny * push; b.x += nx * push; b.y += ny * push;
       const into = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
       if (into <= 0) continue;

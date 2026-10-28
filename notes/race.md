@@ -198,9 +198,12 @@ the game's own research.
   drift (charge times, boost), the dash (charges, refill, duration, boost, sidestep), the hull and the
   walls, and the side-bump (`Rival.ships`: the other ship's power × your recoil). The track, its
   racing line and the rivals stay stock.
-- The tracks' seed is the career's (`Career.empty(seed)`, 1 for a career from before it): the title's
-  Reroll, after a warning, starts a fresh career on a new one. (The best lap's ghost is gone: the
-  rivals are who you race now.)
+- Seeds: the career's is the pilot's (`Career.empty(seed)`, drawn at a new game): their name
+  (`Squad.designation`), android portrait and ship's look. Every race picked from the title is on a
+  track of a new seed, and every start (a restart too) draws the rivals a new one: their pace, lines,
+  ships' looks and portraits. The landing's New game, after a warning, starts a fresh career.
+- The hangar also sells the two hulls above the light fighter (`Career.SHIPS`: fighter, heavy
+  fighter), each a trade like the research, bought once and flown by choice.
 - Saved apart from the game (`race.career`), never touching the game's save.
 
 Alongside the phases, the menus (a first pass): the title (`src/race/menu.js`) in the Low-poly UI

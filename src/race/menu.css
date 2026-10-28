@@ -35,8 +35,22 @@
 .rm-foot .ui-btn { min-width: 140px; }
 @media (prefers-reduced-motion: reduce) { .rm-card { transition: none; } }
 
-/* The levels: gems on the planet's face, each with its plate (the name, and its gems for how hard). */
+/* The levels: gems on the planet's face, each joined by a dotted line to its plate beside the
+   planet (the name, and its gems for how hard). */
 .rm-globe { position: relative; flex: none; }
+.rm-globe .rm-planet { margin: 0; }
+.rm-links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.rm-links line { stroke: color-mix(in srgb, var(--gem) 55%, var(--trim)); stroke-width: 1.5; stroke-dasharray: 2 5; stroke-linecap: round; opacity: 0.55; }
+.rm-links line.on { stroke: var(--gem); stroke-width: 2; opacity: 1; }
+.rm-pin {
+  position: absolute; translate: -50% -50%; display: grid; place-items: center; width: var(--hit); height: var(--hit); padding: 0;
+  background: none; border: 0; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.rm-pin > i {
+  width: 12px; height: 12px; rotate: 45deg; box-shadow: 0 0 0 3px var(--sky), 0 0 0 4px color-mix(in srgb, var(--gem) 50%, var(--sky));
+  background: linear-gradient(90deg, color-mix(in srgb, var(--gem) 70%, #fff) 0 50%, var(--gem) 0);
+}
+.rm-pin.on > i { box-shadow: 0 0 0 3px var(--sky), 0 0 0 4px var(--gem), 0 0 14px 5px color-mix(in srgb, var(--gem) 60%, transparent); }
 .rm-dot {
   position: absolute; translate: -50% -50%; display: flex; align-items: center; gap: 8px; padding: 0; min-width: var(--hit); min-height: var(--hit);
   background: none; border: 0; cursor: pointer; color: var(--trim); font-family: var(--sans); -webkit-tap-highlight-color: transparent;
@@ -62,7 +76,6 @@
 /* The race's menu sheet. */
 .rm-sheet .body { gap: 12px; }
 .rm-where { font-size: 14px; }
-.rm-seed { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .rm-warn { margin: 0; color: var(--warn); }
 
 /* The HUD: the times at the top left; the standings, one under the other, at the bottom left and
@@ -85,7 +98,12 @@
 }
 #hud-order:empty { visibility: hidden; }
 #hud-order ol { display: flex; flex-direction: column; gap: 1px; margin: 0; padding: 0; list-style: none; }
-#hud-order li { white-space: nowrap; }
+#hud-order li { display: flex; align-items: center; white-space: nowrap; }
+.rm-face {
+  display: inline-block; width: 24px; height: 24px; background: #0b0e14 center / cover no-repeat;
+  box-shadow: inset 0 0 0 2px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.5); clip-path: var(--cut-s);
+}
+#hud-order li.you .rm-face { width: 28px; height: 28px; }
 #hud-order li .num { display: inline-block; width: 1.4em; color: var(--mute); }
 #hud-order li.you { color: var(--trim); font-weight: 700; }
 #hud-order li.you .num { color: var(--glass); }
@@ -121,3 +139,31 @@
 .rm-build { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .rm-build .ui-deltas { justify-content: center; }
 @media (max-width: 420px) { .rm-tree { gap: 6px; } .rm-tree .rm-node { min-height: 104px; padding: 6px; } .rm-node .lbl { font-size: 11px; } .rm-node .ui-deltas { font-size: 10px; } }
+
+/* The landing: the race's name over its menu, one button under the other. */
+.rm-menu { display: flex; flex-direction: column; gap: 10px; width: min(100% - 32px, 320px); }
+
+/* The controls and the profile: a page over everything like the title, a column of its parts. */
+.rm-page { justify-content: flex-start; padding-left: 16px; padding-right: 16px; }
+.rm-page > * { width: min(100%, 520px); box-sizing: border-box; }
+.rm-page > .ui-label { text-align: center; }
+.rm-opts { display: flex; gap: 6px; }
+.rm-opt { flex: 1 1 0; min-width: 0; }
+.rm-opt[aria-pressed="true"] { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.rm-page .rm-about { margin: 0 auto; }
+.rm-keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; font: 500 13px/1.4 var(--sans); color: var(--hud); }
+.rm-keys dt { font-family: var(--mono); color: var(--glass); white-space: nowrap; }
+.rm-keys dd { margin: 0; }
+.rm-profile { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 16px; padding: 16px; }
+.rm-face-l { clip-path: var(--cut-l6); background: #0b0e14; }
+.rm-profile .rm-keys { font-size: 15px; }
+
+/* The hangar's ships: a card a hull, its look over its numbers; the one flown lit. */
+.rm-ships { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; }
+.rm-hull { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px; text-align: center; }
+.rm-hull .ui-title { font-size: 16px; }
+.rm-hull .ui-deltas { font-size: 11px; flex-direction: column; gap: 0; }
+.rm-hull .ui-note { margin: 0; }
+.rm-hull.on { box-shadow: inset 0 0 0 2px var(--cyan); }
+.rm-ship { display: block; }
+@media (max-width: 420px) { .rm-tabs { flex-wrap: wrap; } .rm-tab { flex: 1 1 30%; } }

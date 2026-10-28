@@ -1,37 +1,48 @@
 // The race's menus, drawn in the Low-poly UI kit (src/ui/kit.css, kit-lowpoly.css, linked by
 // race/index.html; their classes only, never src/ui's code) with the race's own parts in menu.css:
+// - the landing: the race's name over Resume, New game (after a warning, if there's a career to
+//   lose), Controls and Profile; the controls (the steering, and what every key and gesture does)
+//   and the profile (your portrait, name, ship and seed) open from it.
 // - the title: the planets as cards in a row, scrolled left and right (swipe, the arrow keys, the
 //   ‹ › keys), each the planet itself (Art.drawPlanet, a moon by ArtBodies.drawMoon) in low-poly;
-//   picking one shows it large with the three levels as dots on its face (regular, advanced,
-//   expert), and Race starts it. Over the planets, the seed and Reroll (after a warning: the career
-//   starts over).
+//   picking one shows it large, the three levels (regular, advanced, expert) as points on its face,
+//   each joined by a dotted line to its label beside the planet, and Race starts it.
 // - in the race: one Menu button at the bottom right (Esc too), opening a sheet with Resume,
 //   Restart, Hangar and Main menu, under the planet and the track's seed (after the finish: Race
 //   again in place of Resume).
 // - the hangar: the career's research (Career), a tab per tree; each tree its three tiers of two
 //   choices (Lab's layout), a choice's gains and costs, what it rules out; the one building and the
-//   queue; the whole build against the stock ship; a tree stripped back (respec).
+//   queue; the whole build against the stock ship; a tree stripped back (respec). And a tab of
+//   ships: the hulls (Career.SHIPS), each bought once and flown by choice.
 //
-//   Menu.title({ planets, levels, biome, level, seed, onPick(biome, level), onHangar?, onReroll? })   the title, on the planet
-//     given, the seed over the planets; onReroll() -> the new seed, once the player has said yes to starting over
+//   Menu.landing({ canResume, progress, onResume, onNew, onControls, onProfile })   progress: a career to
+//     lose, so New game asks first
+//   Menu.controls({ mode, coarse, onMode(mode), onBack })   mode: Input.mode; coarse: a touch screen
+//   Menu.profile({ name, seed, portrait (ArtPortraits'), ship: { art, name }, onBack })
+//   Menu.title({ planets, levels, biome, level, onPick(biome, level), onHangar?, onBack? })   the title, on the planet given
 //     planets: [{ id, label, about, body: { kind: 'planet' | 'moon', type, ring? } }]; levels: [{ id, label, about }]
 //   Menu.pause({ planet, seed, onResume, onRestart, onMain, onHangar, over })   the sheet over the race (planet: its label;
 //     over: the run is done, so Race again rather than Resume)
-//   Menu.hangar({ career, now() -> ms, onChange(), onBack() })   the hangar; onChange after anything bought, cancelled or reset
+//   Menu.hangar({ career, now() -> ms, shipArt(hull) -> art, onChange(), onBack() })   the hangar; onChange after
+//     anything bought, cancelled, reset or flown
 //   Menu.close()        any one closed (the sheet's onResume isn't called)
-//   Menu.up             'title' | 'pause' | 'hangar' | null: what's open
+//   Menu.up             'landing' | 'controls' | 'profile' | 'title' | 'pause' | 'hangar' | null: what's open
+//   Menu.covers() -> bool   what's open hides the race (nothing to draw under it)
 //   Menu.key(key) -> handled   a key while a menu is up (Menu.up)
 // ES module (`Menu`); needs a browser.
 
 import { Art } from '../art/render.js';
 import { ArtBodies } from '../art/bodies.js';
+import { ArtPortraits } from '../art/portraits.js';
 import { Career } from './career.js';
 import { Draw } from './draw.js';
 
 const Menu = (() => {
-  const api = { up: null, title, pause, hangar, close, key };
-  // Where the levels sit on the planet's face (of its radius from the centre), and their gems' tier colours.
-  const SPOTS = [[-0.42, 0.3], [0.38, -0.12], [-0.08, -0.5]], GEMS = ['var(--t2)', 'var(--t3)', 'var(--t5)'];
+  const api = { up: null, landing, controls, profile, title, pause, hangar, close, key, covers: () => ['landing', 'controls', 'profile', 'title'].includes(api.up) };
+  // Where the levels sit on the planet's face (of its radius from the centre), where their labels sit
+  // beside it (the same), and their gems' tier colours. MAP: the room round the planet for the labels (px).
+  const SPOTS = [[-0.42, 0.3], [0.38, -0.12], [-0.08, -0.5]], LABELS = [[-0.95, 0.95], [1.12, 0.32], [0.62, -1.08]], GEMS = ['var(--t2)', 'var(--t3)', 'var(--t5)'];
+  const MAP = { x: 64, y: 34 };
   const bodies = {}; // the planets' bodies, kept so their sprites are (Art's cache keys them by object)
   let root = null, keys = null; // what's open, and its keys
 
@@ -68,17 +79,97 @@ const Menu = (() => {
     return keys ? keys(k) !== false : false;
   }
 
+  // ---------- The landing ----------
+
+  // A screen over everything (the title's look): a header, its body, a footer.
+  function screen(kind, cls, head, body, foot, onKey) {
+    const node = el('div', { className: `ui rm-title ${cls}` },
+      el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: head[0] }), el('h1', { className: 'ui-title', textContent: head[1] })),
+      ...body, foot ? el('footer', { className: 'rm-foot' }, ...foot) : null);
+    open(kind, node, onKey);
+    return node;
+  }
+
+  function landing({ canResume, progress, onResume, onNew, onControls, onProfile }) {
+    const resume = btn('Resume game', onResume, 'primary lg wide');
+    resume.disabled = !canResume;
+    const list = el('nav', { className: 'rm-menu' }, resume, btn('New game', () => (progress ? ask() : onNew()), 'lg wide'),
+      btn('Controls', onControls, 'lg wide'), btn('Profile', onProfile, 'lg wide'));
+    const node = screen('landing', 'rm-landing', ['Surface race', 'Race the planets'], [list], null, null);
+    // A new game, asked first when there's a career to lose.
+    const ask = () => {
+      const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'alertdialog' },
+        el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Start a new game?' }))),
+        el('div', { className: 'body' },
+          el('p', { className: 'ui-note rm-warn', textContent: 'You get a new pilot, and your progress starts over: your credits, salvage parts, ships and all research are lost. This cannot be undone.' }),
+          btn('New game', onNew, 'warn lg wide'), btn('Cancel', () => shut(), 'ghost lg wide')));
+      sheet.setAttribute('aria-label', 'Start a new game');
+      const scrim = el('div', { className: 'ui ui-scrim', onclick: (e) => { if (e.target === scrim) shut(); } }, sheet);
+      const shut = () => { scrim.remove(); keys = null; list.querySelector('.ui-btn:not([disabled])').focus(); };
+      node.append(scrim);
+      keys = (k) => { if (k === 'Escape' || k === 'Backspace') shut(); else return false; };
+      sheet.querySelector('.ui-btn.ghost').focus();
+    };
+    list.querySelector('.ui-btn:not([disabled])').focus();
+  }
+
+  // The controls: how to steer (Input's modes), and what every key and gesture does.
+  const STEER = [
+    { id: 'pad', label: 'Stick', about: 'A stick in a band along the bottom of the screen: its angle steers, its reach sets the speed; back into its middle brakes.' },
+    { id: 'point', label: 'Drag', about: 'Drag anywhere: the drag points the way, its length sets the speed. Letting go keeps the course.' },
+    { id: 'sides', label: 'Sides', about: 'The ship flies itself at full speed: hold the left half of the screen to turn left, the right half to turn right.' },
+  ];
+  const KEYS = [
+    ['W A S D / arrows', 'Fly that way (Sides: A, D turn; S brakes)'], ['X', 'Brake'], ['Space · tap', 'Hop'],
+    ['Shift · flick forward', 'Boost'], ['Q / E · flick sideways', 'Sidestep'], ['Flick back', 'Airbrake'],
+    ['Esc', 'Pause menu'], ['R', 'Restart'], ['N', 'New track'],
+  ];
+  function controls({ mode, coarse, onMode, onBack }) {
+    const about = el('p', { className: 'ui-note rm-about' });
+    const opts = STEER.map((m) => btn(m.label, () => set(m.id), 'rm-opt'));
+    const set = (id) => {
+      mode = id; onMode(id);
+      opts.forEach((b, i) => b.setAttribute('aria-pressed', String(STEER[i].id === id)));
+      about.textContent = STEER.find((m) => m.id === id).about;
+    };
+    const table = el('dl', { className: 'rm-keys' }, KEYS.flatMap(([k, what]) => [el('dt', { textContent: k }), el('dd', { textContent: what })]));
+    screen('controls', 'rm-page', ['Controls', 'How to fly'], [
+      el('span', { className: 'ui-label', textContent: coarse ? 'Steering · touch' : 'Steering · mouse or touch' }),
+      el('div', { className: 'rm-opts', role: 'group' }, opts), about, table,
+    ], [btn('Back', onBack, 'primary lg')], (k) => { if (k === 'Escape' || k === 'Backspace') onBack(); else return false; });
+    set(mode);
+  }
+
+  // The profile: your portrait, name, ship and seed.
+  function profile({ name, seed, portrait, ship, onBack }) {
+    const face = el('canvas', { className: 'rm-face-l' }), hull = el('canvas', { className: 'rm-ship' });
+    screen('profile', 'rm-page', ['Profile', name], [
+      el('div', { className: 'ui-card rm-profile' },
+        face,
+        el('dl', { className: 'rm-keys' },
+          el('dt', { textContent: 'Pilot' }), el('dd', { textContent: name }),
+          el('dt', { textContent: 'Ship' }), el('dd', { textContent: ship.name }),
+          el('dt', { textContent: 'Seed' }), el('dd', {}, el('span', { className: 'num', textContent: String(seed) }))),
+        hull),
+    ], [btn('Back', onBack, 'primary lg')], (k) => { if (k === 'Escape' || k === 'Backspace') onBack(); else return false; });
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const fit = (cv, size) => { cv.width = cv.height = Math.round(size * dpr); cv.style.width = cv.style.height = `${size}px`; const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, size / 2 * dpr, size / 2 * dpr); return g; };
+    const g = fit(face, 140);
+    g.scale(1.4, 1.4); ArtPortraits.draw(g, portrait, 'lowpoly', { texel: 2 });
+    const h = fit(hull, 140), k = 56 / ship.art.radius;
+    h.scale(k, k); Art.drawAsset(h, ship.art, 'lowpoly', { angle: -Math.PI / 2, t: 0, thrust: 0.6 });
+  }
+
   // ---------- The title ----------
 
-  function title({ planets, levels, biome, level, seed, onPick, onHangar, onReroll }) {
+  function title({ planets, levels, biome, level, onPick, onHangar, onBack }) {
     let at = Math.max(0, planets.findIndex((p) => p.id === biome));
     const node = el('div', { className: 'ui rm-title' });
     const home = () => {
       const row = el('div', { className: 'rm-cards' }), cards = planets.map((p, i) => {
         const cv = el('canvas', { className: 'rm-planet' });
         const card = el('button', { type: 'button', className: 'rm-card', onclick: () => (i === at ? levelsOf(i) : go(i)) },
-          cv, el('span', { className: 'ui-label', textContent: `Planet ${i + 1} of ${planets.length}` }),
-          el('span', { className: 'ui-title', textContent: p.label }), el('span', { className: 'ui-note', textContent: p.about }));
+          cv, el('span', { className: 'ui-title', textContent: p.label }), el('span', { className: 'ui-note', textContent: p.about }));
         card.setAttribute('aria-label', `${p.label}: ${p.about}`);
         requestAnimationFrame(() => paint(cv, p, Math.min(220, innerWidth * 0.5)));
         return card;
@@ -106,59 +197,63 @@ const Menu = (() => {
       const next = el('button', { type: 'button', className: 'ui-iconbtn rm-arrow', textContent: '›', onclick: () => go(at + 1) });
       prev.setAttribute('aria-label', 'Previous planet'); next.setAttribute('aria-label', 'Next planet');
       node.replaceChildren(
-        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Surface race' }), el('h1', { className: 'ui-title', textContent: 'Choose a planet' }),
-          onReroll ? el('span', { className: 'rm-seed' }, el('span', { className: 'ui-label' }, 'Seed ', el('span', { className: 'num', textContent: String(seed) })), btn('Reroll', reroll, 'ghost sm')) : null),
+        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Surface race' }), el('h1', { className: 'ui-title', textContent: 'Choose a planet' })),
         el('div', { className: 'rm-row' }, prev, row, next),
-        el('footer', { className: 'rm-foot' }, onHangar ? btn('Hangar', onHangar, 'ghost lg') : null, btn('Select', () => levelsOf(at), 'primary lg')),
+        el('footer', { className: 'rm-foot' }, onBack ? btn('Back', onBack, 'ghost lg') : null, onHangar ? btn('Hangar', onHangar, 'ghost lg') : null, btn('Select', () => levelsOf(at), 'primary lg')),
       );
       keys = (k) => {
         if (k === 'ArrowLeft' || k === 'a') go(at - 1);
         else if (k === 'ArrowRight' || k === 'd') go(at + 1);
         else if (k === 'Enter') levelsOf(at);
+        else if ((k === 'Escape' || k === 'Backspace') && onBack) onBack();
         else return false;
       };
       mark();
       requestAnimationFrame(() => go(at, false));
     };
 
-    // A new seed, asked first over the title: it starts the career over.
-    const reroll = () => {
-      const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'alertdialog' },
-        el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Reroll the seed?' }),
-          el('span', { className: 's rm-where' }, 'Seed ', el('span', { className: 'num', textContent: String(seed) })))),
-        el('div', { className: 'body' },
-          el('p', { className: 'ui-note rm-warn', textContent: 'Every planet gets new tracks, and your progress starts over: your credits, salvage parts and all research are lost. This cannot be undone.' }),
-          btn('Reroll and reset', () => { seed = onReroll(); home(); }, 'warn lg wide'), btn('Cancel', () => home(), 'ghost lg wide')));
-      sheet.setAttribute('aria-label', 'Reroll the seed');
-      const scrim = el('div', { className: 'ui ui-scrim', onclick: (e) => { if (e.target === scrim) home(); } }, sheet);
-      node.append(scrim);
-      keys = (k) => { if (k === 'Escape' || k === 'Backspace') home(); else return false; };
-      sheet.querySelector('.ui-btn.ghost').focus();
-    };
-
-    // The planet large, the levels as dots on it.
+    // The planet large, the levels as points on it, each joined to its label beside the planet by a
+    // dotted line (an SVG under the labels, over the planet).
     const levelsOf = (i) => {
       const p = planets[i];
       let lv = Math.max(0, levels.findIndex((l) => l.id === level));
-      const size = Math.min(340, innerWidth - 48, innerHeight * 0.48), cv = el('canvas', { className: 'rm-planet' });
+      const size = Math.min(340, innerWidth - 2 * MAP.x - 16, innerHeight * 0.46), cv = el('canvas', { className: 'rm-planet' });
+      const W = size + 2 * MAP.x, H = size + 2 * MAP.y, r = size * 0.44, spot = ([x, y]) => [W / 2 + x * r, H / 2 + y * r];
       const about = el('p', { className: 'ui-note rm-about' });
+      const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('class', 'rm-links'); svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('aria-hidden', 'true');
+      const links = levels.map((l, n) => {
+        const [x1, y1] = spot(SPOTS[n]), [x2, y2] = spot(LABELS[n]), ln = document.createElementNS(NS, 'line');
+        Object.entries({ x1, y1, x2, y2 }).forEach(([k, v]) => ln.setAttribute(k, v));
+        ln.style.setProperty('--gem', GEMS[n]);
+        svg.append(ln);
+        return ln;
+      });
+      const place = (e, xy) => { const [x, y] = spot(xy); e.style.left = `${x}px`; e.style.top = `${y}px`; };
       const dots = levels.map((l, n) => {
+        const d = el('button', { type: 'button', className: 'rm-pin', onclick: () => pick(n) }, el('i'));
+        place(d, SPOTS[n]); d.style.setProperty('--gem', GEMS[n]);
+        d.setAttribute('aria-hidden', 'true'); d.tabIndex = -1;
+        return d;
+      });
+      const tags = levels.map((l, n) => {
         const d = el('button', { type: 'button', className: 'rm-dot', onclick: () => pick(n) },
-          el('i', {}), el('span', { className: 'rm-dot-l' }, el('b', { textContent: l.label }), el('span', { className: 'rm-gems' }, ...levels.map((_, g) => el('i', { className: g <= n ? 'on' : '' })))));
-        d.style.left = `${50 + SPOTS[n][0] * 44}%`; d.style.top = `${50 + SPOTS[n][1] * 44}%`;
-        d.style.setProperty('--gem', GEMS[n]);
+          el('span', { className: 'rm-dot-l' }, el('b', { textContent: l.label }), el('span', { className: 'rm-gems' }, ...levels.map((_, g) => el('i', { className: g <= n ? 'on' : '' })))));
+        place(d, LABELS[n]); d.style.setProperty('--gem', GEMS[n]);
         d.setAttribute('aria-label', `${l.label}: ${l.about}`);
         return d;
       });
       const pick = (n) => {
         lv = (n + levels.length) % levels.length; level = levels[lv].id;
-        dots.forEach((d, m) => { d.classList.toggle('on', m === lv); d.setAttribute('aria-pressed', m === lv); });
+        [dots, tags, links].forEach((L) => L.forEach((d, m) => d.classList.toggle('on', m === lv)));
+        tags.forEach((d, m) => d.setAttribute('aria-pressed', m === lv));
         about.textContent = levels[lv].about;
       };
       const race = () => onPick(p.id, levels[lv].id);
+      cv.style.margin = `${MAP.y}px ${MAP.x}px`;
       node.replaceChildren(
         el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: p.label }), el('h1', { className: 'ui-title', textContent: 'Choose a level' })),
-        el('div', { className: 'rm-globe', style: `width:${size}px;height:${size}px` }, cv, ...dots),
+        el('div', { className: 'rm-globe', style: `width:${W}px;height:${H}px` }, cv, svg, ...dots, ...tags),
         about,
         el('footer', { className: 'rm-foot' }, btn('Back', () => { biome = p.id; home(); }, 'ghost lg'), btn('Race', race, 'primary lg')),
       );
@@ -206,23 +301,30 @@ const Menu = (() => {
     const rows = Object.entries(fx).filter(([, f]) => f).map(([k, f]) => ({ k, f, good: Career.FX[k].dir * f > 0 })).sort((a, b) => b.good - a.good);
     return el('span', { className: 'ui-deltas' }, rows.map((r) => el('span', { className: 'ui-delta' }, `${Career.FX[r.k].label} `, el('span', { className: r.good ? 'up' : 'down', textContent: amount(r.k, r.f) }))));
   }
+  const SHIPS_TAB = { id: 'ships', name: 'Ships' };
   const wallet = (c) => el('div', { className: 'rm-wallet' },
     el('span', { className: 'ui-cr' }, el('i'), String(c.credits)),
     ...Career.PARTS.map((p) => el('span', { className: 'rm-part' }, el('img', { className: 'rm-icon', src: Draw.icon(p, 20), alt: '', width: 20, height: 20 }), `${c.parts[p] || 0} ${p}`)));
 
-  function hangar({ career: c, now, onChange, onBack }) {
+  function hangar({ career: c, now, shipArt, onChange, onBack }) {
     let tree = Career.TREES[0].id, pick = null;
     const node = el('div', { className: 'ui rm-title rm-hangar' });
     const lab = Career.lab, P = Career.PACKAGES;
     const changed = () => { onChange(); draw(); };
     function draw() {
       lab.settle(c.lab, now());
-      const T = Career.TREES.find((t) => t.id === tree), list = Object.values(P).filter((p) => p.cat === tree), L = lab.layout(list);
-      const tabs = el('div', { className: 'rm-tabs', role: 'tablist' }, Career.TREES.map((t) => {
+      const tabs = el('div', { className: 'rm-tabs', role: 'tablist' }, [...Career.TREES, SHIPS_TAB].map((t) => {
         const b = el('button', { type: 'button', className: 'ui-btn sm rm-tab', role: 'tab', onclick: () => { tree = t.id; pick = null; draw(); } }, el('span', { textContent: t.name }));
         b.setAttribute('aria-selected', String(t.id === tree));
         return b;
       }));
+      if (tree === SHIPS_TAB.id) {
+        node.replaceChildren(
+          el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Hangar' }), el('h1', { className: 'ui-title', textContent: SHIPS_TAB.name }), wallet(c)),
+          ...[tabs, ships(), build(), el('footer', { className: 'rm-foot' }, btn('Back', onBack, 'primary lg'))].filter(Boolean));
+        return;
+      }
+      const T = Career.TREES.find((t) => t.id === tree), list = Object.values(P).filter((p) => p.cat === tree), L = lab.layout(list);
       const grid = el('div', { className: 'rm-tree', style: `grid-template-columns:repeat(${L.cols},minmax(0,1fr))` },
         ...Array.from({ length: L.cols }, (_, i) => el('span', { className: 'ui-label rm-tier', style: `grid-column:${i + 1}`, textContent: `Tier ${i + 1}` })),
         ...L.nodes.map(({ id, col, row }) => {
@@ -257,6 +359,27 @@ const Menu = (() => {
         st.state === 'available' || st.state === 'locked' ? el('p', { className: 'ui-note', textContent: `Closes ${other.name}` }) : null,
         why ? el('p', { className: 'ui-note rm-why', textContent: why }) : null, act);
     }
+    // The hulls: each its look, what it changes, its price; bought once, then flown by choice.
+    function ships() {
+      return el('div', { className: 'rm-ships' }, Object.values(Career.SHIPS).map((S) => {
+        const st = Career.shipStatus(c, S.id), cv = el('canvas', { className: 'rm-ship' });
+        const cost = [S.cost.credits ? `${S.cost.credits} credits` : null, ...Career.PARTS.filter((k) => S.cost[k]).map((k) => `${S.cost[k]} ${k}`)].filter(Boolean).join(' · ');
+        const act = st.flown ? btn('Flying', null, 'wide') : st.owned ? btn('Fly', () => { Career.fly(c, S.id); changed(); }, 'primary wide')
+          : btn('Buy', () => { if (Career.buyShip(c, S.id)) changed(); }, 'primary wide');
+        if (st.flown || (!st.owned && !st.ok)) act.disabled = true;
+        requestAnimationFrame(() => {
+          const dpr = Math.min(2, devicePixelRatio || 1), size = 96, g = cv.getContext('2d'), art = shipArt(S.id), k = 38 / art.radius;
+          cv.width = cv.height = size * dpr; cv.style.width = cv.style.height = `${size}px`;
+          g.setTransform(dpr * k, 0, 0, dpr * k, (size * dpr) / 2, (size * dpr) / 2);
+          Art.drawAsset(g, art, 'lowpoly', { angle: -Math.PI / 2, t: 0, thrust: 0 });
+        });
+        return el('div', { className: `ui-card rm-hull${st.flown ? ' on' : ''}` }, cv,
+          el('span', { className: 'ui-title', textContent: S.name }),
+          Object.keys(S.fx).length ? deltas(S.fx) : el('span', { className: 'ui-note', textContent: 'Stock' }),
+          !st.owned ? el('p', { className: 'ui-note', textContent: cost }) : null,
+          st.why ? el('p', { className: 'ui-note rm-why', textContent: st.why }) : null, act);
+      }));
+    }
     function bench() {
       const a = c.lab.active;
       if (!a) return null;
@@ -266,8 +389,8 @@ const Menu = (() => {
         c.lab.queue.length ? el('span', { className: 'ui-note', textContent: `Then ${c.lab.queue.map((q) => P[q].name).join(', ')}` }) : null);
     }
     function build() {
-      const fx = Career.fx(c.lab.done);
-      return c.lab.done.length ? el('div', { className: 'rm-build' }, el('span', { className: 'ui-label', textContent: 'Build' }), deltas(fx)) : null;
+      const fx = Career.fx(c.lab.done, c.ship);
+      return Object.keys(fx).length ? el('div', { className: 'rm-build' }, el('span', { className: 'ui-label', textContent: 'Build' }), deltas(fx)) : null;
     }
     function respecBtn() {
       const done = c.lab.done.filter((id) => P[id].cat === tree).length, pend = lab.pending(c.lab).some((id) => P[id].cat === tree);

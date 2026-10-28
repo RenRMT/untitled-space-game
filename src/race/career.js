@@ -4,7 +4,9 @@
 // two choices, one ruling out the other. Every choice is a trade, like the game's mods
 // (rules/mods.js): it gives more than it takes (VALUE: by W, its gains at least RATIO × its costs),
 // so the question is which ship to build, not whether to upgrade. A tree can be stripped back
-// (respec) for a fee, its parts half refunded. Kept apart from the game's save (race.career).
+// (respec) for a fee, its parts half refunded. The hangar also sells the two hulls above the light
+// fighter you start in (SHIPS), each a trade like the rest, flown once bought. Kept apart from the
+// game's save (race.career).
 //
 //   Career.TREES                [{ id, name, part, note }]: the trees, in order, each paid in its own part
 //   Career.PARTS                the salvage kinds ('coil', 'vane', 'cell', 'plate')
@@ -12,13 +14,19 @@
 //   Career.FX[key]              { label, dir (+1: more is better, −1: less), w (its worth for VALUE) }
 //   Career.value(fx) -> { gain, cost }   by W: what a choice gives and takes
 //   Career.lab                  the lab's rules (Lab.create) over the packages; Career.lab.config.speed (?fastresearch)
-//   Career.empty(seed?) -> career    { version, seed, credits, parts: { [part]: n }, lab }   seed: the tracks' (every
-//                planet's track and its pickups, at every level, are the seed's), 1 by default
-//   Career.reroll(career, rnd?) -> career   a fresh career on a new seed (1 .. SEEDS, not career's): everything else starts over
-//   Career.load(), save(career) the career from and to the browser's storage (race.career), the lab settled
+//   Career.empty(seed?) -> career    { version, seed, credits, parts: { [part]: n }, lab, ships: [id], ship }   seed: the
+//                pilot's (their name, portrait and ship's look), drawn at random (1 .. SEEDS) by default;
+//                ships: the hulls bought (SHIPS), ship: the one flown
+//   Career.SHIPS[id]            { id, name, cost: { credits, [part]: n }, fx, needs (the hull bought before) }
+//   Career.STOCK                the hull you start in
+//   Career.buyShip(career, id) -> bool   paid and kept; fly(career, id) -> bool   flown from now on
+//   Career.shipStatus(career, id) -> { owned, flown, ok (can buy), why }
+//   Career.roll(rnd?) -> seed   a random seed, 1 .. SEEDS (the pilot's; the page's for each race's track and rivals)
+//   Career.load(), save(career) the career from and to the browser's storage (race.career), the lab settled;
+//                saved() -> bool: one has been saved
 //   Career.from(data, now) -> career   a saved one (or null) brought up to date and settled
-//   Career.fx(done) -> { [key]: total }   what's done adds up to
-//   Career.tune(done) -> { stats, handling, drift, dash, hull, wall, bump }: × (or + for charges) on
+//   Career.fx(done, ship?) -> { [key]: total }   what's done adds up to, and the hull's
+//   Career.tune(done, ship?) -> { stats, handling, drift, dash, hull, wall, bump }: × (or + for charges) on
 //                the stock run's numbers, clamped (CLAMP); the identity with nothing done
 //   Career.stats(stats, tune) -> stats   the race's stats (Config.stats) × the tune's
 //   Career.buy(career, id, now) -> bool   paid and queued; cancel(career, id, now) -> refunds
@@ -103,6 +111,13 @@ const Career = (() => {
       time: TIME[tier], cost: { credits: CREDITS[tier], [part]: PARTS_NEED[tier] },
     };
   }
+  // The hulls above the light fighter: tougher and harder-hitting, a little slower to get going.
+  const STOCK = 'fighter-light';
+  const SHIPS = {
+    'fighter-light': { id: 'fighter-light', name: 'Light fighter', cost: {}, fx: {}, needs: null },
+    fighter: { id: 'fighter', name: 'Fighter', cost: { credits: 1500, coil: 3, vane: 3, cell: 3, plate: 3 }, fx: { hull: 0.3, bumpPower: 0.2, speed: 0.03, accel: -0.03 }, needs: 'fighter-light' },
+    'fighter-heavy': { id: 'fighter-heavy', name: 'Heavy fighter', cost: { credits: 5000, coil: 6, vane: 6, cell: 6, plate: 6 }, fx: { hull: 0.6, bumpPower: 0.4, bumpRecoil: -0.3, wallDamage: -0.2, speed: 0.05, accel: -0.06, turn: -0.03 }, needs: 'fighter' },
+  };
   const lab = Lab.create({ packages: PACKAGES, categories: TREES, queueMax: () => 2, config: { speed: 1 } });
 
   function value(eff) {
@@ -114,14 +129,15 @@ const Career = (() => {
     return { gain, cost };
   }
 
-  const empty = (seed = 1) => ({ version: MIGRATIONS.length, seed, credits: 0, parts: Object.fromEntries(PARTS.map((p) => [p, 0])), lab: lab.empty() });
-  // A fresh career on a new seed (SEEDS of them), never the one it was on.
   const SEEDS = 99999;
-  const reroll = (c, rnd = Math.random) => empty(1 + ((c.seed + Math.floor(rnd() * (SEEDS - 1))) % SEEDS));
+  const roll = (rnd = Math.random) => 1 + Math.floor(rnd() * SEEDS);
+  const empty = (seed = roll()) => ({ version: MIGRATIONS.length, seed, credits: 0, parts: Object.fromEntries(PARTS.map((p) => [p, 0])), lab: lab.empty(), ships: [STOCK], ship: STOCK });
   // A saved career (or null) brought up to date: what a table no longer has dropped, the lab settled.
   function from(data, now = Date.now()) {
     const c = data && typeof data === 'object' ? Save.migrate(data, MIGRATIONS) : empty();
-    c.seed = Number.isInteger(c.seed) && c.seed > 0 ? c.seed : 1; // a career from before the seed was kept: the first
+    c.seed = Number.isInteger(c.seed) && c.seed > 0 ? c.seed : roll(); // a career from before the seed was kept: a new one
+    c.ships = [STOCK, ...(Array.isArray(c.ships) ? c.ships : []).filter((id) => SHIPS[id] && id !== STOCK)];
+    c.ship = c.ships.includes(c.ship) ? c.ship : STOCK;
     c.credits = Number.isFinite(c.credits) ? c.credits : 0;
     c.parts = { ...empty().parts, ...(c.parts || {}) };
     const l = { ...lab.empty(), ...(c.lab || {}) }, known = (id) => !!PACKAGES[id];
@@ -132,15 +148,15 @@ const Career = (() => {
   const load = (now = Date.now()) => from(Store.getJSON(KEY, null), now);
   const save = (c) => Store.setJSON(KEY, c);
 
-  function fx(done) {
+  function fx(done, ship) {
     const out = {};
-    for (const id of done) for (const [k, f] of Object.entries(PACKAGES[id]?.fx || {})) out[k] = (out[k] || 0) + f;
+    for (const e of [...done.map((id) => PACKAGES[id]?.fx), SHIPS[ship]?.fx]) for (const [k, f] of Object.entries(e || {})) out[k] = (out[k] || 0) + f;
     return out;
   }
   const CLAMP = [0.5, 2];
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-  function tune(done) {
-    const s = fx(done), m = (k) => clamp(1 + (s[k] || 0), CLAMP[0], CLAMP[1]);
+  function tune(done, ship) {
+    const s = fx(done, ship), m = (k) => clamp(1 + (s[k] || 0), CLAMP[0], CLAMP[1]);
     return {
       stats: { maxSpeed: m('speed'), accel: m('accel'), turnRate: m('turn') },
       handling: { GRIP: m('grip'), BRAKE: m('brake'), on: m('slideOn') },
@@ -186,6 +202,24 @@ const Career = (() => {
     return true;
   }
 
+  function shipStatus(c, id) {
+    const S = SHIPS[id], owned = c.ships.includes(id), flown = c.ship === id;
+    const short = Object.entries(S.cost).some(([k, n]) => (k === 'credits' ? c.credits : c.parts[k] || 0) < n);
+    const why = owned ? '' : S.needs && !c.ships.includes(S.needs) ? `Needs the ${SHIPS[S.needs].name}` : short ? 'Not enough credits or parts' : '';
+    return { owned, flown, ok: !owned && !why, why };
+  }
+  function buyShip(c, id) {
+    if (!SHIPS[id] || !shipStatus(c, id).ok) return false;
+    pay(c, SHIPS[id].cost, -1);
+    c.ships.push(id);
+    return true;
+  }
+  function fly(c, id) {
+    if (!c.ships.includes(id)) return false;
+    c.ship = id;
+    return true;
+  }
+
   const MULT = { first: 1.5, podium: 1.25, finish: 1, wreck: 0.5 };
   const PURSE = { regular: 60, advanced: 100, expert: 150 };
   function bank(c, haul, { place = null, wreck = false, level = 'regular' } = {}) {
@@ -199,7 +233,7 @@ const Career = (() => {
     return { mult, purse, credits, parts };
   }
 
-  return { KEY, TREES, PARTS, PACKAGES, FX, RATIO, RESPEC, MULT, PURSE, CLAMP, SEEDS, lab, value, empty, reroll, from, load, save, fx, tune, stats, status, buy, cancel, respec, bank };
+  return { KEY, TREES, PARTS, PACKAGES, FX, RATIO, RESPEC, MULT, PURSE, CLAMP, SEEDS, SHIPS, STOCK, lab, value, roll, empty, from, saved: () => Store.getJSON(KEY, null) !== null, shipStatus, buyShip, fly, load, save, fx, tune, stats, status, buy, cancel, respec, bank };
 })();
 
 export { Career };

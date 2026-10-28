@@ -10,8 +10,8 @@
 //   P: [{ id, kind: 'chip' | 'crate' | 'rare', x, y, r, n (its centreline point), credits, part, parts }]
 //   Pickups.haul() -> { credits: 0, parts: {} }   an empty haul
 //   Pickups.collect(P, got, haul, x, y, r) -> [pickup]   what a craft of radius r at x, y picks up
-//                now (got: a Set of the ids taken this race), into the haul
-//   Pickups.CHIP, CRATE, RARE, TRAILS, CRATES
+//                now (got: a Set of the ids taken this race), into the haul: within GRAB × a pickup's r
+//   Pickups.CHIP, CRATE, RARE, TRAILS, CRATES, GRAB
 // ES module (`Pickups`); also runs in Node.
 
 import { mulberry32 } from '../core/rng.js';
@@ -19,6 +19,7 @@ import { mulberry32 } from '../core/rng.js';
 const Pickups = (() => {
   const CHIP = { r: 12, credits: 5 }, CRATE = { r: 18, parts: 1 }, RARE = { r: 20, parts: 2, credits: 25 };
   const TRAILS = 6, PER_TRAIL = 5, SPACING = 6, CRATES = 4, CLEAR = 40; // CLEAR: points either side of the start kept empty
+  const GRAB = 1.6; // × a pickup's r: how near counts as picked up (drawn smaller than r: Draw.pickups)
   const PARTS = ['coil', 'vane', 'cell', 'plate'];
   const LEAN = { desert: 'coil', ice: 'vane', lava: 'plate', moon: 'cell', gas: 'vane', terran: null };
   const wrap = (n, m) => ((n % m) + m) % m;
@@ -68,7 +69,7 @@ const Pickups = (() => {
     const out = [];
     for (const p of P) {
       if (got.has(p.id)) continue;
-      const dx = p.x - x, dy = p.y - y, d = p.r + r;
+      const dx = p.x - x, dy = p.y - y, d = p.r * GRAB + r;
       if (dx * dx + dy * dy > d * d) continue;
       got.add(p.id);
       h.credits += p.credits;
@@ -78,7 +79,7 @@ const Pickups = (() => {
     return out;
   }
 
-  return { CHIP, CRATE, RARE, TRAILS, CRATES, LEAN, place, haul, collect };
+  return { CHIP, CRATE, RARE, TRAILS, CRATES, GRAB, LEAN, place, haul, collect };
 })();
 
 export { Pickups };
