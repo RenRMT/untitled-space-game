@@ -7,9 +7,9 @@
 // This module wires the page: builds a track, runs it a fixed step at a time (Run) and draws it
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
-// centreline, passed in order. It opens on the landing (Menu): resume, a new game, the controls,
-// your profile; then a planet, then a level; in the race the Menu button (or Esc) pauses it, to
-// restart or go back to the landing. R restarts, N a new track.
+// centreline, passed in order. It opens on the landing (Menu): resume (on to the planets), a new game,
+// the controls, your profile; then a planet, then a level; in the race the Menu button (or Esc) pauses
+// it, to restart or go back to the landing. R restarts, N a new track.
 // Seeds: yours (the career's, drawn once at a new game: your name, portrait and ship's look); a race's
 // track, drawn afresh each time one is picked from the title; the rivals', drawn afresh each start.
 // Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
@@ -388,15 +388,15 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-// The landing (Menu): Resume (the race left paused, else the career on to the title), New game (a
-// career afresh: a new pilot), the controls and your profile.
+// The landing (Menu): Resume (the career on to the title, to pick a planet; a race left paused there
+// is dropped for it), New game (a career afresh: a new pilot), the controls and your profile.
 const live = () => !!(G && R && (R.phase === 'count' || R.phase === 'race'));
 function toLanding() {
   paused = true;
   $('hud').hidden = true; note.textContent = '';
   Menu.landing({
     canResume: live() || Career.saved(), progress: Career.saved(),
-    onResume: () => { Menu.close(); if (live()) play(); else toTitle(); },
+    onResume: () => { Menu.close(); toTitle(); },
     onNew: () => {
       career = Career.empty(); Career.save(career);
       if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]);
