@@ -7,13 +7,14 @@
 // This module wires the page: builds a track, runs it a fixed step at a time (Run) and draws it
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
-// centreline, passed in order; your best lap's ghost flies beside you. It opens on the title (Menu):
+// centreline, passed in order; It opens on the title (Menu):
 // a planet, then a level; in the race the Menu button (or Esc) pauses it, to restart or go back to
 // the title. R restarts, N a new track.
 // Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
 // default on touch screens, the view framed above it, View), point (the game's drag; the default
 // with a mouse), or sides (it flies itself; hold a half to turn). Tap to hop, flick to dash.
-// Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed=, ?laps=,
+// Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed= (the career's by default: Career;
+// the title's Reroll starts a career on a new one), ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist),
 // ?ai=regular|advanced|expert|off (the rivals' level, the track's style by default; off: none),
@@ -33,7 +34,6 @@ import { Career } from './career.js';
 import { Config } from './config.js';
 import { Draw } from './draw.js';
 import { Dust } from './dust.js';
-import { Ghost } from './ghost.js';
 import { Input } from './input.js';
 import { Line } from './line.js';
 import { Menu } from './menu.js';
@@ -43,16 +43,16 @@ import { Run } from './run.js';
 import { Track } from './track.js';
 import { View } from './view.js';
 
-const q = new URLSearchParams(location.search), { T, TRACKS, SHIP, R_SHIP, HULL, TUNE } = Config;
+const q = new URLSearchParams(location.search), { T, SHIP, R_SHIP, HULL, TUNE } = Config;
 if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 // The biomes, each with the planet the title shows for it (Menu: Art's planet types, a moon's).
 const BIOMES = {
-  desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; deep sand off the track', body: { kind: 'planet', type: 'desert' } },
+  desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; long straights, deep sand off them', body: { kind: 'planet', type: 'desert' } },
   ice: { type: 'ice', label: 'Ice', about: 'Little grip, long slides; wide sweeping bends', body: { kind: 'planet', type: 'ice' } },
   lava: { type: 'lava', label: 'Lava', about: 'Grippy, narrow and technical; the walls hurt', body: { kind: 'planet', type: 'lava' } },
   terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on', body: { kind: 'planet', type: 'terran' } },
-  moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity: long hops, slow to pick up', body: { kind: 'moon', type: 'grey' } },
+  moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity, long hops; a wide crater-rim loop', body: { kind: 'moon', type: 'grey' } },
   gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls', body: { kind: 'planet', type: 'gas' } },
 };
 
@@ -61,7 +61,7 @@ const BIOMES = {
 const SPEED = +q.get('speed') || TUNE.speed;
 let STATS = Config.stats(SPEED); // × the biome's (Config.BIOME), set with the track
 if (q.has('fastresearch')) Career.lab.config.speed = 60;
-const career = Career.load();
+let career = Career.load();
 // The camera: close in (the ground's speed on screen is what reads as fast), leading the ship by
 // `lead` seconds of its speed, `track` of the way along the track rather than its velocity, held
 // to `reach` of the screen's shorter side; pushing in a little at top speed (`pull`), and zoomed by
@@ -95,7 +95,7 @@ const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the 
 // 'expert' (folded in on itself, sharp corners, few long straights)
 const STYLES = { regular: 'Regular', advanced: 'Advanced', expert: 'Expert' };
 const ABOUT = { regular: 'Flowing bends to learn the planet on; the rivals in light fighters', advanced: 'Irregular, like a real circuit; the rivals in fighters', expert: 'Folded in on itself: sharp corners, few straights; the rivals in heavy fighters' };
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || 1, track: STYLES[q.get('track')] ? q.get('track') : 'regular', ai: q.get('ai') === 'off' || Rival.LEVELS[q.get('ai')] ? q.get('ai') : null };
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || career.seed, track: STYLES[q.get('track')] ? q.get('track') : 'regular', ai: q.get('ai') === 'off' || Rival.LEVELS[q.get('ai')] ? q.get('ai') : null };
 const level = () => (S.ai === 'off' ? null : S.ai || S.track); // the rivals' level: ?ai=, else the track's style
 Input.mode = ['pad', 'point', 'sides'].includes(q.get('steer')) ? q.get('steer') : coarse ? 'pad' : 'point';
 Input.stopOnRelease = MODE === 'direct';
@@ -134,13 +134,11 @@ function looks() {
 function restart() {
   const bio = Config.biome(S.biome);
   Career.lab.settle(career.lab, Date.now());
-  const done = career.lab.done, tune = done.length ? Career.tune(done) : null, sig = Career.sig(done);
-  const stock = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio, ghostKey: null };
-  // Yours: the hangar's build on top (its ghost apart from the stock ship's), and the pickups.
+  const done = career.lab.done, tune = done.length ? Career.tune(done) : null;
+  const stock = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio };
+  // Yours: the hangar's build on top, and the pickups.
   cfg = {
-    ...stock, stats: tune ? Career.stats(STATS, tune) : STATS, hull: HULL * (tune ? tune.hull : 1), career: tune, pickups: G.pickups,
-    ghostKey: `${TRACKS}.${S.biome}${bio.rev ? `~${bio.rev}` : ''}.${S.seed}.${SPEED}${S.track === 'regular' ? '' : `.${S.track}`}${sig ? `.${sig}` : ''}`,
-  };
+    ...stock, stats: tune ? Career.stats(STATS, tune) : STATS, hull: HULL * (tune ? tune.hull : 1), career: tune, pickups: G.pickups };
   const lv = level();
   R = Run.create(G, lv ? { ...cfg, grid: Rival.grid(Rival.PLAYER, G.tr.pts[0].hw) } : cfg);
   pack = lv ? Rival.pack(G, stock, G.line, lv, S.seed, (c) => Run.create(G, c)) : null;
@@ -251,11 +249,9 @@ function render(time, a) {
   const got = tiles.layers(detailRect(v), 0), layers = [far, ...got];
   ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
   SurfaceGlobe.drawFlat(ctx, layers, v, { dpr: dpr * zoom, under: bg });
-  Draw.marks(ctx, v, px, time, G, R, ground);
-  Draw.pickups(ctx, v, px, time, G.pickups, R.got, ground);
+  Draw.marks(ctx, v, px, time, G, R);
+  Draw.pickups(ctx, v, px, time, G.pickups, R.got, ground, S.style);
   Draw.dust(ctx, v, px, dust.puffs, ground);
-  const ghost = R.phase === 'race' ? Ghost.at(R.ghost, R.lapT) : null;
-  if (ghost) Draw.ship(ctx, v, BODY, { ...ghost, thrust: 0.6 }, { style: S.style, time, alpha: 0.35 });
   rivals(v, a, C, time, (Math.max(Wc, Hc) / zoom) * 1.2);
   // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
   const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
@@ -268,7 +264,7 @@ function render(time, a) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (at) Draw.streaks(ctx, Wc, Hc, at[0] * zoom, at[1] * zoom, punch(), time);
   if (R.flash > 0 || R.burn) { ctx.fillStyle = R.flash > 0 ? `rgba(255,60,40,${R.flash})` : `rgba(255,120,30,${0.12 + 0.06 * Math.sin(time * 20)})`; ctx.fillRect(0, 0, Wc, Hc); }
-  Draw.minimap(ctx, Wc, G, R, G.size, ghost, pack ? pack.racers.map((X) => ({ x: X.R.craft.x, y: X.R.craft.y, color: X.who.color })) : []);
+  Draw.minimap(ctx, Wc, G, R, G.size, pack ? pack.racers.map((X) => ({ x: X.R.craft.x, y: X.R.craft.y, color: X.who.color })) : []);
   if (Input.mode === 'sides') Draw.sides(ctx, Wc, Hc, Input.held);
   else if (Input.mode === 'pad') Draw.pad(ctx, Input.pad, Input.home(), Input.maxDrag(), Input.PAD.inner, R.dash, R.tune.dash, R.drift, R.tune.drift);
   else Draw.drag(ctx, Input.drag, Input.maxDrag());
@@ -353,11 +349,12 @@ function toTitle() {
   Menu.title({
     planets: Object.entries(BIOMES).map(([id, b]) => ({ id, label: b.label, about: b.about, body: b.body })),
     levels: Object.entries(STYLES).map(([id, label]) => ({ id, label, about: ABOUT[id] })),
-    biome: S.biome, level: S.track,
+    biome: S.biome, level: S.track, seed: S.seed,
     onHangar: () => hangar(toTitle),
+    onReroll: () => { career = Career.reroll(career); Career.save(career); S.seed = career.seed; return S.seed; },
     onPick: (biome, track) => {
       Menu.close();
-      const same = G && S.biome === biome && S.track === track;
+      const same = G && G.seed === S.seed && S.biome === biome && S.track === track;
       S.biome = biome; S.track = track;
       busy(() => { if (same) restart(); else return newGround(); }, play);
     },
@@ -397,6 +394,6 @@ Input.init(cv, {
   },
 });
 
-window.race = { S, Input, career, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
+window.race = { S, Input, get career() { return career; }, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
 requestAnimationFrame(frame);
 if (q.has('biome') || q.has('track')) busy(newGround, play); else toTitle();

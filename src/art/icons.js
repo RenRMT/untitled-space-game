@@ -1,7 +1,7 @@
 // Item icons for menus: an item type's own art (art/items.js), drawn by the game's renderer in
 // the current art style onto a small canvas and kept as an image URL.
-// ItemIcons.url(kind, style, size) -> data URL of a size x size (CSS pixels) icon, sharp on
-// high-DPI screens. Each kind/style/size is drawn once and reused.
+// ItemIcons.url(kind, style, size, o?) -> data URL of a size x size (CSS pixels) icon, sharp on
+// high-DPI screens; o: ArtItems.create's { shape, color }. Each kind/style/size/o is drawn once and reused.
 // Items differ a lot in shape (a long ingot, a squat canister), so each is drawn once to find
 // where its art actually lands, then again scaled and centred to fill the icon.
 // ES module (`ItemIcons`); needs a browser.
@@ -52,11 +52,11 @@ const ItemIcons = (() => {
     return cv.getContext('2d', read ? { willReadFrequently: true } : undefined);
   }
 
-  function url(kind, style = 'line', size = 28) {
+  function url(kind, style = 'line', size = 28, o = {}) {
     const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
-    const key = `${kind}|${style}|${size}|${dpr}`;
+    const key = `${kind}|${style}|${size}|${dpr}|${o.shape ?? ''}|${o.color || ''}`;
     if (cache.has(key)) return cache.get(key);
-    const bp = ArtItems.create(kind, 1);
+    const bp = ArtItems.create(kind, 1, o);
     const px = Math.round(size * dpr);
     const texel = Math.max(1, Math.round(config.texelPx * dpr));
     // First pass, on a canvas twice the size so nothing is cut off: the item's radius spans

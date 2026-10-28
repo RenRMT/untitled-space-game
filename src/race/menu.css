@@ -62,6 +62,8 @@
 /* The race's menu sheet. */
 .rm-sheet .body { gap: 12px; }
 .rm-where { font-size: 14px; }
+.rm-seed { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.rm-warn { margin: 0; color: var(--warn); }
 
 /* The HUD: the times at the top left; the standings, one under the other, at the bottom left and
    the Menu button at the bottom right, either side of the stick on a phone. Only the button takes
@@ -95,11 +97,10 @@
 .rm-hangar { justify-content: flex-start; gap: 12px; padding-left: 16px; padding-right: 16px; }
 .rm-hangar > * { width: min(100%, 640px); box-sizing: border-box; }
 .rm-hangar .rm-head .ui-title { font-size: 24px; }
-.rm-hangar { --part-coil: #ffb03a; --part-vane: #7df9ff; --part-cell: #8cff6a; --part-plate: #c8d2e6; }
 .rm-wallet { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 14px; margin-top: 6px; font: 500 13px var(--mono); color: var(--hud); }
 .rm-wallet .ui-cr { color: #ffd84a; }
 .rm-part { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
-.rm-part > i { width: 8px; height: 8px; background: var(--part); }
+.rm-icon { display: inline-block; vertical-align: -4px; margin-right: 2px; }
 .rm-tabs { display: flex; gap: 6px; }
 .rm-tab { flex: 1 1 0; min-width: 0; }
 .rm-tab[aria-selected="true"] { outline: 2px solid var(--cyan); outline-offset: -2px; }

@@ -51,7 +51,6 @@ import { ScreenFx } from '../src/rules/screen-fx.js';
 import { Config as RaceConfig } from '../src/race/config.js';
 import { Track } from '../src/race/track.js';
 import { Contact } from '../src/race/contact.js';
-import { Ghost } from '../src/race/ghost.js';
 import { Input as RaceInput } from '../src/race/input.js';
 import { Run } from '../src/race/run.js';
 import { Handling } from '../src/race/handling.js';
@@ -3193,7 +3192,7 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
   assert.strictEqual(ScreenFx.sputter(0, 0.05, 1), 0, 'no thrust, no flame');
 });
 
-// The race (src/race/, notes/race.md): the track's loop, sliding along walls, the ghost.
+// The race (src/race/, notes/race.md): the track's loop, sliding along walls.
 const RACE = RaceConfig.TRACK;
 test('race track: a closed loop inside the map, never too narrow, its bends wider than the track, checkpoints in order', () => {
   for (const style of ['regular', 'advanced', 'expert']) for (let seed = 1; seed <= 20; seed++) {
@@ -3388,7 +3387,7 @@ test('race maneuvers: the brake, a boost, a sidestep, an airbrake, charges, and 
   // Flat open ground (no walls), flown at full speed into the race from the start.
   const { N } = RaceConfig, tr = Track.loop(1, RaceConfig.TRACK), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
   const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr };
-  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: true, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 }, ghostKey: 'test' };
+  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: true, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 } };
   const top = cfg.stats.maxSpeed, speed = (R) => Math.hypot(R.craft.vx, R.craft.vy);
   // Steered along the track, as a player would.
   const run = (R, ctl, s) => { for (let t = 0; t < s; t += Run.STEP) { const p = tr.pts[Track.ahead(tr, R.n, 150)]; ctl.angle = Math.atan2(p.ty, p.tx); Run.step(R, G, cfg, ctl); } };
@@ -3485,7 +3484,7 @@ test('race drift: a slide held at speed charges a level, the grip back gives a b
   // Open ground, as if all of it were track (the run-off would lose the charge).
   const { N } = RaceConfig, tr = Track.loop(1, RaceConfig.TRACK), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
   const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr };
-  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: false, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 }, ghostKey: 'test' };
+  const cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 3, mode: 'cruise', steer: 'pad', assist: false, cam: { lead: 0.6, pull: 0, track: 0.6, wide: 1, tight: 1 } };
   const top = cfg.stats.maxSpeed, speed = (R) => Math.hypot(R.craft.vx, R.craft.vy), fx = [];
   const R = Run.create(G, cfg), ctl = { angle: R.craft.angle, speed: 1, brake: false, events: [] };
   const run = (s, aim) => { for (let t = 0; t < s; t += Run.STEP) { ctl.angle = aim(); Run.step(R, G, cfg, ctl); R.off = 0; fx.push(...R.fx); R.fx.length = 0; } };
@@ -3547,14 +3546,13 @@ test('race biomes: terran is the standard, every number as it is without a biome
   assert.deepStrictEqual(RaceConfig.stats(undefined, 'terran'), RaceConfig.STATS);
   const tr = Track.loop(3, RaceConfig.map('regular', 'terran').TRACK), base = Track.loop(3, RaceConfig.TRACK);
   assert.deepStrictEqual(tr.pts, base.pts, 'the same track');
-  const G = { W: {}, tr }, cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {}, ghostKey: null };
+  const G = { W: {}, tr }, cfg = { stats: RaceConfig.STATS, ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {} };
   assert.deepStrictEqual(Run.create(G, { ...cfg, biome: RaceConfig.biome('terran') }).tune, Run.create(G, cfg).tune, 'the same handling, run-off, walls and hop');
-  assert.strictEqual(RaceConfig.biome('terran').rev, 0, 'its ghosts keep their key');
   for (const id of Object.keys(RaceConfig.BIOME)) assert(RaceConfig.KINDS[id], `${id} has its ground kinds`);
 });
 
 test('race biomes: each its own handling, track and run-off, and every one drivable', () => {
-  const G = { W: {}, tr: Track.loop(1, RaceConfig.TRACK) }, base = { ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {}, ghostKey: null };
+  const G = { W: {}, tr: Track.loop(1, RaceConfig.TRACK) }, base = { ship: RaceConfig.SHIP, hull: 100, r: RaceConfig.R_SHIP, laps: 1, mode: 'cruise', steer: 'pad', assist: true, cam: {} };
   const tune = (id) => Run.create(G, { ...base, stats: RaceConfig.stats(undefined, id), biome: RaceConfig.biome(id) }).tune;
   const T = Object.fromEntries(Object.keys(RaceConfig.BIOME).map((id) => [id, tune(id)]));
   // Ice: the nose held square, the velocity swings round slower than on terran.
@@ -3583,22 +3581,33 @@ test('race biomes: each its own handling, track and run-off, and every one driva
   }
 });
 
-test('race ghost: a lap recorded at its rate and flown back between its samples', () => {
-  const rec = Ghost.recorder(), STEP = 1 / 120;
-  for (let t = 0; t < 2; t += STEP) rec.add(t, { x: t * 100, y: 50, angle: 3.1 + t * 0.1 });
-  const g = rec.lap(2);
-  assert.strictEqual(g.time, 2);
-  assert(Math.abs(g.s.length / 3 - 2 * Ghost.RATE) <= 1, `${g.s.length / 3} samples`);
-  const p = Ghost.at(g, 1.01);
-  assert(Math.abs(p.x - 101) < 1.5 && p.y === 50, `between samples: ${p.x}`);
-  assert.strictEqual(Ghost.at(g, 5), null, 'past its end');
-  assert.strictEqual(Ghost.at(null, 1), null);
-  // Turning past π goes the short way round.
-  const rec2 = Ghost.recorder();
-  rec2.add(0, { x: 0, y: 0, angle: 3.1 }); rec2.add(1 / 30, { x: 0, y: 0, angle: -3.1 }); rec2.add(2 / 30, { x: 0, y: 0, angle: -3.1 });
-  const mid = Ghost.at(rec2.lap(0.1), 0.5 / 30);
-  assert(Math.abs(Math.cos(mid.angle) + 1) < 0.01, `the short way: ${mid.angle}`);
-  assert.strictEqual(rec.lap(1).s.length, 0, 'a lap starts afresh');
+test('race biomes: desert, moon and gas lay out their own loops, not the terran loop for the same seed', () => {
+  const loop = (id, seed, style = 'regular') => Track.loop(seed, RaceConfig.map(style, id).TRACK);
+  const box = (tr) => { const xs = tr.pts.map((p) => p.x), ys = tr.pts.map((p) => p.y); return (Math.max(...xs) - Math.min(...xs)) / (Math.max(...ys) - Math.min(...ys)); };
+  const corners = (tr) => tr.corners.filter((c) => c.type !== 'chicane' && c.type !== 'esses').length;
+  const shape = { desert: { w: 0, k: 0 }, moon: { w: 0, k: 0 }, terran: { w: 0, k: 0 } };
+  for (let seed = 1; seed <= 6; seed++) {
+    const T = Object.fromEntries(['terran', 'desert', 'moon', 'gas'].map((id) => [id, loop(id, seed)]));
+    for (const id of ['desert', 'moon', 'gas']) assert.notDeepStrictEqual(T[id].pts.slice(0, 40).map((p) => Math.round(p.x)), T.terran.pts.slice(0, 40).map((p) => Math.round(p.x)), `${id} seed ${seed}`);
+    for (const id of Object.keys(shape)) { shape[id].w += box(T[id]); shape[id].k += corners(T[id]); }
+    assert.notDeepStrictEqual(loop('desert', seed, 'advanced').pts.slice(0, 40).map((p) => Math.round(p.x)), loop('terran', seed, 'advanced').pts.slice(0, 40).map((p) => Math.round(p.x)), `advanced desert seed ${seed}`);
+  }
+  assert(shape.desert.w < shape.terran.w && shape.desert.k < shape.terran.k, `desert stretched with fewer corners: ${shape.desert.w.toFixed(2)}, ${shape.desert.k} to ${shape.terran.w.toFixed(2)}, ${shape.terran.k}`);
+  assert(shape.moon.w > shape.terran.w && shape.moon.k > shape.terran.k, `the moon round with more bends: ${shape.moon.w.toFixed(2)}, ${shape.moon.k} to ${shape.terran.w.toFixed(2)}, ${shape.terran.k}`);
+});
+
+test('race career: the seed of the tracks kept with it, a reroll a fresh career on another', () => {
+  assert.strictEqual(Career.empty().seed, 1);
+  const old = Career.empty(); delete old.seed; old.credits = 50;
+  const c = Career.from(old);
+  assert.strictEqual(c.seed, 1, 'a career from before the seed: the first');
+  assert.strictEqual(c.credits, 50);
+  for (const rnd of [() => 0, () => 0.5, () => 0.999999]) {
+    const n = Career.reroll(c, rnd);
+    assert(n.seed !== c.seed && n.seed >= 1 && n.seed <= Career.SEEDS && Number.isInteger(n.seed), `seed ${n.seed}`);
+    assert.deepStrictEqual({ ...n, seed: 1 }, Career.empty(), 'everything else starts over');
+  }
+  assert.notStrictEqual(Career.reroll(Career.empty(Career.SEEDS), () => 0).seed, Career.SEEDS);
 });
 
 test('race line: inside the track, on the inside at the apexes, and faster than the centreline', () => {
@@ -3742,8 +3751,6 @@ test('race career: the tune is stock with nothing done, and every build stays wi
   const st = { ...RaceConfig.STATS }, out = Career.stats(st, Career.tune(['drive.1a']));
   assert(Math.abs(out.maxSpeed / st.maxSpeed - 1.06) < 1e-9 && Math.abs(out.accel / st.accel - 0.98) < 1e-9);
   assert.deepStrictEqual(st, RaceConfig.STATS, 'the stock stats untouched');
-  assert.strictEqual(Career.sig([]), '');
-  assert.strictEqual(Career.sig(['drive.2b', 'drive.1a']), 'd1ad2b');
 });
 
 test('race career: paid when queued, the fork closed, built on the real clock (offline too), stripped back for a fee', () => {

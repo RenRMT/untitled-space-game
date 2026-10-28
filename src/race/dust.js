@@ -1,6 +1,6 @@
 // Dust kicked up off the craft's tail: a cloud in the run-off's colour while it's off the track,
 // and a lighter trail in the track's colour while it slides on it. Only drawn, never flown: the run
-// (Run.step) doesn't see it, so ghosts and lap times don't depend on it, and it may use Math.random.
+// (Run.step) doesn't see it, so lap times don't depend on it, and it may use Math.random.
 //
 //   const D = Dust.create()
 //   Dust.step(D, craft, { off, slide, speed }, cols, dt)   craft: { x, y, vx, vy, angle }; off: 0..1

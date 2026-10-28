@@ -1,12 +1,12 @@
 // A run on a track: the countdown, flying it a fixed step at a time, what it hits, laps by
-// checkpoints passed in order, the best lap's ghost, and the camera following.
+// checkpoints passed in order, and the camera following.
 //
 //   const R = Run.create(G, cfg)    G: the track and its surface ({ W, tr }); cfg: below
 //   Run.step(R, G, cfg, control, dt)   one fixed step (control: Input.control())
 //   Run.STEP                        the step (s)
 //   Run.tune(biome?, career?)       a run's R.tune, without making one
 //   R: { phase: 'count' | 'race' | 'done' | 'wreck', t, total, lapT, laps, next, n, hull, hits,
-//        wrong, off (0 on the track .. 1 off it), slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam, ghost, newBest,
+//        wrong, off (0 on the track .. 1 off it), slow, burn, flash, craft, prev, cam: { lx, ly, zf }, pcam,
 //        dash: { charges, refill, t, v, kind }, hop: { t, cool }, air, pair, grip, drift, fx }
 //     prev, pcam, pair: the craft's { x, y, angle }, the camera and the craft's height a step before, to draw them between steps
 //     dash: charges (DASH.charges at most, one back every DASH.refill s), t: s of the burst left,
@@ -17,8 +17,8 @@
 //     fx: what happened this step for the page to answer (haptics): 'boost', 'side', 'airbrake',
 //       'hop', 'land', 'charge', 'slide', 'drift1', 'drift2', 'driftBoost', 'chip', 'crate', and 'bump' (another ship: Rival.step); the page empties it
 //     haul, got: what's been picked up this race (Pickups.collect: cfg.pickups) and their ids
-//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, ghostKey, biome?, grid?, career?, pickups? }
-//     cam: null for none (a rival's run); ghostKey: null to keep no ghost; grid: { back, side }, where
+//   cfg: { stats, ship, hull, r, laps, mode, steer, assist, cam, biome?, grid?, career?, pickups? }
+//     cam: null for none (a rival's run); grid: { back, side }, where
 //     on the grid it starts: units further back from the start, and across (+: the way −ty, tx)
 //     biome: Config.biome(id), its character: the handling (Handling.tune), the run-off (OFF), the
 //     walls (WALL, and × the hull a hit dents) and the hop (HOP) × its numbers; none, as they are
@@ -57,7 +57,6 @@ import { ArtSurface } from '../art/surface.js';
 import { Collide } from '../flight/collide.js';
 import { Flight } from '../flight/flight.js';
 import { Contact } from './contact.js';
-import { Ghost } from './ghost.js';
 import { Handling } from './handling.js';
 import { Pickups } from './pickups.js';
 import { Track } from './track.js';
@@ -85,7 +84,6 @@ const Run = (() => {
     const R = {
       phase: 'count', t: 0, total: 0, lapT: 0, laps: [], next: 1, n, hull: cfg.hull, hits: 0, wrong: 0, slow: false, burn: false, flash: 0, off: 0, stats: { ...cfg.stats },
       craft, prev: { x: craft.x, y: craft.y, angle: craft.angle }, cam: { lx: 0, ly: 0, zf: 1 }, pcam: { lx: 0, ly: 0, zf: 1 },
-      rec: Ghost.recorder(), ghost: cfg.ghostKey ? Ghost.load(cfg.ghostKey) : null, newBest: false,
       grip: { slip: 0, sliding: false }, drift: { t: 0, level: 0, boost: 0, k: 1, on: false },
       hop: { t: -1, cool: 0 }, air: 0, pair: 0, fx: [],
       tune: tune(cfg.biome, cfg.career), bump: cfg.career ? cfg.career.bump : BUMP, haul: Pickups.haul(), got: new Set(),
@@ -217,7 +215,6 @@ const Run = (() => {
     if (cfg.cam) camera(R, G, cfg, dt);
     if (!racing) return;
     R.total += dt; R.lapT += dt;
-    R.rec.add(R.lapT, C);
     const pt = tr.pts[R.n];
     R.wrong = C.vx * pt.tx + C.vy * pt.ty < -60 ? R.wrong + dt : 0;
     if ((R.n - tr.cps[R.next] + tr.samples) % tr.samples < tr.samples / 8) {
@@ -248,9 +245,7 @@ const Run = (() => {
   }
 
   function lap(R, cfg) {
-    const g = R.rec.lap(R.lapT);
     R.laps.push(R.lapT); R.lapT = 0;
-    if (cfg.ghostKey && (!R.ghost || g.time < R.ghost.time)) { R.ghost = g; R.newBest = true; Ghost.save(cfg.ghostKey, g); }
     if (R.laps.length >= cfg.laps) R.phase = 'done';
   }
 

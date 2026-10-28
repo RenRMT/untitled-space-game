@@ -5,7 +5,8 @@
 // in it while their containers stay neutral. Every category has its own shapes; a component
 // type names the variant it uses.
 //
-//   ArtItems.create(typeId, seed) -> blueprint (type 'item'; kind, category 'loot' | 'trade', rarity, label)
+//   ArtItems.create(typeId, seed, { shape?, color? }) -> blueprint (type 'item'; kind, category 'loot' | 'trade',
+//     rarity, label); shape: a component's variant other than its type's; color: [h, s, l] other than its type's
 //
 // ES module (`ArtItems`); also runs in Node (the tests).
 
@@ -259,12 +260,14 @@ const ArtItems = (() => {
   // Shape names per category (the variant a component type uses is in rules/goods.js).
   const SHAPES = Object.fromEntries(Object.entries(LOOT_BUILD).map(([id, vs]) => [id, vs.map((v) => v[0])]));
 
-  function create(kind, seed = 1) {
-    const type = G.type(kind);
-    if (!type) throw new Error(`Unknown item: ${kind}`);
+  function create(kind, seed = 1, o = {}) {
+    const base = G.type(kind);
+    if (!base) throw new Error(`Unknown item: ${kind}`);
+    const type = { ...base, ...(o.shape !== undefined && { shape: o.shape }), ...(o.color && { color: o.color }) };
     const s = seed >>> 0;
     const r = mulberry32(hashInt(s, 7, kind.length * 131 + kind.charCodeAt(0)));
-    const id = `item:${kind}:${s}`; // items have no culture: the type and seed make one
+    // Items have no culture: the type and seed make one (and a variant or colour asked for).
+    const id = `item:${kind}:${s}${o.shape !== undefined ? `:v${o.shape}` : ''}${o.color ? `:${o.color.join(',')}` : ''}`;
     const loot = LOOT_BUILD[type.category];
     let b;
     if (loot) {
