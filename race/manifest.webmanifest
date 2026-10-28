@@ -1,0 +1,17 @@
+{
+  "id": "exo-drift",
+  "name": "Exo Drift",
+  "short_name": "Exo Drift",
+  "description": "Lap races on generated planets, in the Courier, against a rival from each culture.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
+  "icons": [
+    { "src": "../assets/race-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "../assets/race-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "../assets/race-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

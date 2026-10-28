@@ -47,6 +47,13 @@ planet chosen from cards scrolled sideways, then a level (regular, advanced, exp
 the race one Menu button pauses it, to restart or go back to the title. Its parameters are listed at
 the top of `src/race/main.js`; `notes/race.md` is the plan.
 
+The race installs as its own app, Exo Drift (`race/manifest.webmanifest`, its icons
+`assets/race-icon*`), and plays offline once opened: `race/sw.js` keeps a copy of every file the
+race loads, fetched from the network first while there is one. Its file list is written by
+`npm run race:sw` (`tools/race-sw.js`, following the page's links and imports); run it after adding
+or removing a file the race loads, as `npm test` fails while the list is out of date. Installing
+needs HTTPS (or localhost).
+
 ## Code layout
 
 `index.html` loads `src/main.js`. Each layer imports only from the layers below it:
@@ -64,7 +71,7 @@ the top of `src/race/main.js`; `notes/race.md` is the plan.
 | `src/rules/` | items, markets, mining (asteroids, gas pockets and surface deposits), hazards in space and on surfaces (`hazards.js`), ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, security levels |
 | `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
-| `assets/` | the fonts (OFL, served with the game) and the app icons; `manifest.webmanifest` makes the game installable |
+| `assets/` | the fonts (OFL, served with the game) and the app icons, the game's and the race's (`race-icon*`); `manifest.webmanifest` makes the game installable, `race/manifest.webmanifest` the race |
 
 Modules under `src/game/` import each other freely. None of them does anything as it loads beyond
 declaring its names: each part's wiring (event listeners, settings, actions, panel hooks) is in its

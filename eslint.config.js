@@ -20,6 +20,11 @@ export default [
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*'], message: 'src/race imports src/core, art, flight and rules only (notes/race.md).' }] }] },
   },
   {
+    // The race's service worker: a worker's globals, not a page's.
+    files: ['race/sw.js'],
+    languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
+  },
+  {
     files: ['tests/**/*.js', 'tools/**/*.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...globals.node, ...globals.browser } },
     rules: { 'no-unused-vars': ['error', { args: 'none', caughtErrors: 'none' }] },

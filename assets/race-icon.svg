@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The race's app icon (race/manifest.webmanifest): the Courier in the Low-poly style, drifting
+       through a bend of the track, its dash trail behind it. Kept inside the middle 80% so it can be
+       masked to any shape. Also the source of the PNG icons (race-icon-180/192/512.png, rendered from
+       this file). -->
+  <rect width="512" height="512" fill="#05060a"/>
+  <!-- The bend: ground, then the track with its kerbs and the racing line. -->
+  <path d="M-20 560 C 40 340, 250 200, 560 180" fill="none" stroke="#11161d" stroke-width="300"/>
+  <path d="M-20 560 C 40 340, 250 200, 560 180" fill="none" stroke="#1f2833" stroke-width="170"/>
+  <g fill="none" stroke="#7a8696" stroke-width="9" stroke-dasharray="30 20">
+    <path d="M-100 530 C -30 260, 220 110, 560 95"/>
+    <path d="M60 580 C 110 410, 290 290, 560 265"/>
+  </g>
+  <path d="M-20 560 C 40 340, 250 200, 560 180" fill="none" stroke="#7df9ff" stroke-width="5" stroke-dasharray="10 18" opacity="0.4"/>
+  <!-- The dash trail, along the bend behind the ship. -->
+  <path d="M60 470 C 110 360, 170 310, 214 288" fill="none" stroke="#7df9ff" stroke-width="30" stroke-linecap="round" opacity="0.16"/>
+  <path d="M84 440 C 128 360, 176 318, 214 294" fill="none" stroke="#7df9ff" stroke-width="10" stroke-linecap="round" opacity="0.6"/>
+  <!-- The Courier, its nose out of the bend (drifting): facets lit from the upper left. -->
+  <g transform="translate(272 252) rotate(64) scale(1.2)">
+    <path d="M0 -112 L-80 92 L0 56 Z" fill="#e6ecf2"/>
+    <path d="M0 -112 L80 92 L0 56 Z" fill="#7a8696"/>
+    <path d="M0 -112 L-34 30 L0 14 Z" fill="#c3cbd5"/>
+    <path d="M0 -112 L34 30 L0 14 Z" fill="#5a6574"/>
+    <path d="M0 -50 L-14 2 L0 -6 L14 2 Z" fill="#7df9ff"/>
+    <path d="M-80 92 L0 56 L80 92 L0 74 Z" fill="#2f5aa0"/>
+    <path d="M-20 70 L0 124 L20 70 L0 80 Z" fill="#ffb347"/>
+  </g>
+</svg>
