@@ -89,11 +89,11 @@
 .rm-where { font-size: 14px; }
 .rm-warn { margin: 0; color: var(--warn); }
 
-/* The HUD: no backing but the minimap's (drawn on the canvas), shadowed lettering instead. The times
-   at the top left, under a raised plate of the lap and a glass one of the place; the standings, only
-   portraits in place order, down the left in the room under the times, as large as it lets them (to a
-   cap, small on an upright screen); the Menu button at the bottom right. Only the button takes a touch: the
-   rest lets it through to the track (and the stick). */
+/* The HUD: no backing but the minimap's (drawn on the canvas), shadowed lettering instead. At the top
+   left two rows: a raised plate of the lap beside the lap's time, then the best lap, the haul and the
+   hull; the standings, only portraits in place order, up from the bottom left beside the stick, as
+   large as the room under the times lets them (to a cap, small on an upright screen); the Menu button
+   at the bottom right. Only the button takes a touch: the rest lets it through to the track (and the stick). */
 #hud[hidden] { display: none; }
 #hud {
   position: fixed; inset: 0; z-index: 2; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; pointer-events: none;
@@ -101,24 +101,21 @@
 }
 .rm-read { font: 500 12px/1.5 var(--sans); color: var(--hud); pointer-events: none; text-shadow: 0 1px 2px #000, 0 0 6px rgba(0, 0, 0, 0.85); }
 .rm-read .num { color: var(--glass); }
-#hud-times { justify-self: start; display: flex; flex-direction: column; align-items: flex-start; }
-.rm-lap { display: flex; gap: 6px; margin-bottom: 10px; text-shadow: none; }
-.rm-lap > span {
-  padding: 5px 12px 4px; font: 700 14px/1.2 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap;
-  --lipc: var(--lip); background: var(--plate); color: var(--plate-ink); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc);
+#hud-times { justify-self: start; display: grid; grid-template-columns: auto auto; align-items: center; gap: 4px 10px; }
+#hud-lap {
+  padding: 5px 10px 4px; font: 700 13px/1.2 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; white-space: nowrap; text-shadow: none;
+  --lipc: var(--lip); background: var(--plate); color: var(--plate-ink); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc); margin-bottom: 4px;
 }
-#hud-place { --lipc: color-mix(in srgb, var(--glass) 62%, var(--sky)); background: var(--plate-glass); color: var(--sky); font-family: var(--mono); font-weight: 600; letter-spacing: 0.04em; }
-#hud-place[hidden] { display: none; }
-#hud-time { font: 600 30px/1.1 var(--mono); letter-spacing: -0.01em; color: var(--glass); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.75), 0 0 10px color-mix(in srgb, var(--glass) 35%, transparent), 0 0 4px #000; }
-#hud-total { font: 500 13px/1.5 var(--mono); }
-#hud-rest { color: var(--trim); font-size: 11px; }
+#hud-time { font: 600 26px/1 var(--mono); letter-spacing: -0.01em; color: var(--glass); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.75), 0 0 10px color-mix(in srgb, var(--glass) 35%, transparent), 0 0 4px #000; }
+#hud-rest { grid-column: 1 / -1; color: var(--trim); font-size: 11px; white-space: nowrap; }
+#hud-rest .num { font: 500 11px var(--mono); }
 #hud-foot { grid-area: 3 / 1; display: flex; align-items: flex-end; gap: 10px; pointer-events: none; }
-#hud-order { grid-area: 2 / 1 / 4; min-height: 0; pointer-events: none; }
+#hud-order { grid-area: 2 / 1 / 4; container-type: size; display: grid; align-content: end; min-height: 0; pointer-events: none; }
 #hud-order ol {
-  display: grid; grid-auto-rows: minmax(0, 1fr); gap: 5px; height: 100%; max-height: calc(var(--n, 6) * (var(--face, 112px) + 5px) - 5px); margin: 0; padding: 0; list-style: none;
+  display: grid; grid-auto-rows: minmax(0, 1fr); gap: 5px; height: min(100cqh, calc(var(--n, 6) * (var(--face, 112px) + 5px) - 5px)); margin: 0; padding: 0; list-style: none;
 }
 #hud-order li { display: flex; min-height: 0; }
-@media (orientation: portrait) { #hud-order ol { --face: 40px; } } /* a phone upright: kept small, clear of the track */
+@media (orientation: portrait) { #hud-order ol { --face: 40px; } } /* a phone upright: kept small */
 .rm-face {
   display: inline-block; width: 24px; height: 24px; background: #0b0e14 center / cover no-repeat;
   box-shadow: inset 0 0 0 2px var(--c), 0 0 0 1px rgba(0, 0, 0, 0.5); clip-path: var(--cut-s);
