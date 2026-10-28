@@ -76,13 +76,15 @@ let career = Career.load();
 const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3, track: 0.6, wide: 0.93, tight: 1.06 };
 // Ships are drawn DRAW × as large as they collide (R_SHIP), a heavier hull larger in both (HULL_SIZE).
 const DRAW = 1.25 * 1.375, { HULL_SIZE } = Config;
-// You fly an Android ship, the hull the hangar's (Career.SHIPS), its look your seed's; the rivals their
-// own cultures' ships in their colours (Rival.CULTURES), the hull by the level (light, fighter, heavy),
-// their looks the start's rival seed's (S.rivals).
-const XENO = ArtCulture.xeno(1), HUMAN = Object.fromEntries(ArtCulture.HUMAN.map((id, i) => [id, ArtCulture.create(id, 11 + i, Rival.CULTURES[id].color)]));
-const CULTURE = { ...HUMAN, drifter: ArtCulture.kitbash(Object.values(HUMAN), 14, Rival.CULTURES.drifter.color), alien: XENO.alien };
+// You fly an Android ship, the hull the hangar's (Career.SHIPS), its look and its culture's (android())
+// your seed's; the rivals their own cultures' ships in their colours (Rival.CULTURES), the hull by
+// the level (light, fighter, heavy), their looks the start's rival seed's (S.rivals).
+const ALIEN = ArtCulture.xeno(1).alien, HUMAN = Object.fromEntries(ArtCulture.HUMAN.map((id, i) => [id, ArtCulture.create(id, 11 + i, Rival.CULTURES[id].color)]));
+const CULTURE = { ...HUMAN, drifter: ArtCulture.kitbash(Object.values(HUMAN), 14, Rival.CULTURES.drifter.color), alien: ALIEN };
+let xenoKey = null, XENO = null; // your Android culture, for the career's seed
+const android = () => (xenoKey === career.seed ? XENO : (xenoKey = career.seed, XENO = ArtCulture.xeno(career.seed).android));
 const sized = (art, hull) => ({ art, k: (R_SHIP * DRAW * (HULL_SIZE[hull] || 1)) / art.radius, r: R_SHIP, z: ArtSurface.FLY });
-const shipArt = (hull) => ArtBlueprints.create(hull, XENO.android, career.seed);
+const shipArt = (hull) => ArtBlueprints.create(hull, android(), career.seed);
 let ART = null, BODY = null, artKey = ''; // yours: pilot() makes them for the career's seed and hull
 function pilot() {
   const key = `${career.ship}.${career.seed}`;
@@ -102,7 +104,7 @@ function faceURL(portrait, size = 64) {
   ArtPortraits.draw(g, portrait, 'lowpoly', { texel: 2 });
   return c.toDataURL();
 }
-const youFace = () => ArtCrew.create(career.seed, XENO.android);
+const youFace = () => ArtCrew.create(career.seed, android());
 let youURL = null, youKey = 0;
 function faces() {
   if (youKey !== career.seed) { youKey = career.seed; youURL = faceURL(youFace()); }

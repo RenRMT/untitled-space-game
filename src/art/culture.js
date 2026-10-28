@@ -48,9 +48,9 @@ const ArtCulture = (() => {
       colors: { hull: '#7a5a6e', hull2: '#4a3048', trim: '#c9a883', glass: '#9dff6a', light: '#c4ff5a', flame: '#9dff6a', panel: '#5a7a3a', wing: '#8e6470', engine: '#2a1a24', strut: '#5a3a4e' },
     },
     android: {
-      label: 'Android', note: 'Machine geometry with no crew to house: stepped right-angle hulls, detached vane wings and floating cargo cubes, sensor slits for cockpits, circuit traces; monolith stations ringed by orbiting cubes.',
+      label: 'Android', note: 'Machine geometry with no crew to house: stepped right-angle hulls, a halo ring wing on struts and floating cargo cubes, sensor slits for cockpits, circuit traces; monolith stations ringed by orbiting cubes.',
       hull: 'synth', round: [0, 0], length: [1.0, 1.1], width: [0.9, 1.0], span: [0.9, 1.1], sweep: [0, 0],
-      wings: ['vanes', 'halo'], engines: [2, 2], greeble: [0.2, 0.4], asym: [0, 0], stripes: [1, 2],
+      wings: ['halo'], engines: [2, 2], greeble: [0.2, 0.4], asym: [0, 0], stripes: [1, 2],
       insignia: ['square'], station: 'monolith', arrays: 'none',
       colors: { hull: '#22262d', hull2: '#3a4048', trim: '#e8ecf0', glass: '#e6f6ff', light: '#5ad8ff', flame: '#9ae8ff', panel: '#14181e', wing: '#2c3139', engine: '#0c0e12', strut: '#4a515b' },
     },
