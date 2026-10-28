@@ -96,7 +96,7 @@ const rivalBody = (w) => RIVAL_BODY[w.id] ||= sized(ArtBlueprints.create(w.art, 
 // The standings' portraits (ArtCrew; yours an android's), drawn once into images and set as CSS
 // backgrounds by culture (.rm-face[data-f]).
 const faceSheet = document.head.appendChild(document.createElement('style'));
-function faceURL(portrait, size = 64) {
+function faceURL(portrait, size = 128) {
   const c = document.createElement('canvas'), g = c.getContext('2d');
   c.width = c.height = size;
   g.fillStyle = '#0b0e14'; g.fillRect(0, 0, size, size);
@@ -279,7 +279,7 @@ function paceFrame(t, dt) {
   pace.at = t; pace.ts.length = 0;
 }
 
-const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudTotal = document.getElementById('hud-total'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
+const hudLap = document.getElementById('hud-lap'), hudPlace = document.getElementById('hud-place'), hudTime = document.getElementById('hud-time'), hudTotal = document.getElementById('hud-total'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
 let hudAt = -1, hudText = '', hudPos = '', pos = null; // pos: the standings (Rival.standings), with the HUD's text
 function render(time, a) {
   const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
@@ -318,6 +318,7 @@ function render(time, a) {
     pos = pack ? Rival.standings(pack, G, R) : null;
     const h = Draw.hud(G, R, cfg, got.missing, pos);
     if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
+    if (hudPlace.textContent !== h.place) { hudPlace.textContent = h.place; hudPlace.hidden = !h.place; }
     hudTime.textContent = h.time; hudTotal.textContent = h.total;
     if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
     if (h.order !== hudPos) hudOrder.innerHTML = hudPos = h.order;
