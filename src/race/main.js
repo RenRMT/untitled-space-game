@@ -96,7 +96,7 @@ const rivalBody = (w) => RIVAL_BODY[w.id] ||= sized(ArtBlueprints.create(w.art, 
 // The standings' portraits (ArtCrew; yours an android's), drawn once into images and set as CSS
 // backgrounds by culture (.rm-face[data-f]).
 const faceSheet = document.head.appendChild(document.createElement('style'));
-function faceURL(portrait, size = 64) {
+function faceURL(portrait, size = 128) {
   const c = document.createElement('canvas'), g = c.getContext('2d');
   c.width = c.height = size;
   g.fillStyle = '#0b0e14'; g.fillRect(0, 0, size, size);
@@ -227,15 +227,14 @@ async function bake() {
   for (let d = 0; d < tr.len; d += BAKE.step) { const p = tr.pts[Track.ahead(tr, 0, d)]; rects.push(rectAt(p.x, p.y)); }
   rects.push(WHOLE);
   baking = true;
-  for (const rect of rects) {
+  for (const [i, rect] of rects.entries()) {
     while (tiles.layers(rect, BAKE.slice).missing) {
       const [done, all] = total();
-      document.body.dataset.busy = `Building track… ${Math.round((100 * done) / all)}%`;
+      loading(i === 0 ? 'Surveying the grid' : i < rects.length - 1 ? 'Charting the course' : 'Mapping the run-off', done / all);
       await new Promise((r) => setTimeout(r, 0));
     }
   }
   for (const L of tiles.layers(WHOLE, 0)) ctx.drawImage(L.canvas, 0, 0, 1, 1);
-  delete document.body.dataset.busy;
   baking = false;
 }
 // A track's chunks let go, their canvases emptied (a browser may hold a dropped canvas's memory
@@ -279,7 +278,7 @@ function paceFrame(t, dt) {
   pace.at = t; pace.ts.length = 0;
 }
 
-const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudTotal = document.getElementById('hud-total'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
+const hudLap = document.getElementById('hud-lap'), hudTime = document.getElementById('hud-time'), hudRest = document.getElementById('hud-rest'), hudOrder = document.getElementById('hud-order');
 let hudAt = -1, hudText = '', hudPos = '', pos = null; // pos: the standings (Rival.standings), with the HUD's text
 function render(time, a) {
   const dpr = Math.min(DPRS[dprAt], devicePixelRatio || 1), Wc = innerWidth, Hc = innerHeight, bg = Art.config.bg;
@@ -318,7 +317,7 @@ function render(time, a) {
     pos = pack ? Rival.standings(pack, G, R) : null;
     const h = Draw.hud(G, R, cfg, got.missing, pos);
     if (hudLap.textContent !== h.lap) hudLap.textContent = h.lap;
-    hudTime.textContent = h.time; hudTotal.textContent = h.total;
+    hudTime.textContent = h.time;
     if (h.rest !== hudText) hudRest.innerHTML = hudText = h.rest;
     if (h.order !== hudPos) hudOrder.innerHTML = hudPos = h.order;
   }
@@ -450,8 +449,17 @@ function menu() {
   Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toLanding, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
 }
 // One at a time: what's asked while the ground is building is ignored.
+// The panel over the track while busy: the survey's uplink, the planet, the level and the course (the
+// seed), the step it's on and how far (0 .. 1; null: no meter to fill, only a moment).
+function loading(step, f = null) {
+  $('load-planet').textContent = BIOMES[S.biome].label; $('load-level').textContent = `${STYLES[S.track]} circuit`;
+  $('load-seed').textContent = `Course ${String(S.seed % 1e5).padStart(5, '0')}`;
+  $('load-step').textContent = step; $('load-pct').textContent = f === null ? '' : `${Math.round(100 * f)}%`;
+  $('load-bar').style.setProperty('--pct', `${f === null ? 0 : 100 * f}%`);
+}
 function busy(fn, then) {
   if (document.body.classList.contains('busy')) return;
+  loading('Clearing the grid');
   document.body.classList.add('busy');
   setTimeout(async () => { await fn(); document.body.classList.remove('busy'); then?.(); }, 30);
 }

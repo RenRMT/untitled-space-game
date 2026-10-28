@@ -12,17 +12,23 @@
     #view { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
     #note { position: fixed; left: 0; right: 0; top: 30%; text-align: center; font: 600 15px/1.4 var(--sans); letter-spacing: 0.04em; pointer-events: none; text-shadow: 0 1px 3px #000; white-space: pre-line; }
     #note.big { font-size: 64px; }
-    body.busy::after { content: 'Building track…'; position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; background: #05060acc; font: 600 15px var(--sans); letter-spacing: 0.08em; }
-    body.busy[data-busy]::after { content: attr(data-busy); }
   </style>
 </head>
 <body>
   <canvas id="view"></canvas>
   <div id="note"></div>
+  <div id="load" class="ui" role="status" aria-live="polite">
+    <div class="rm-load">
+      <div class="rm-load-head"><span class="ui-label">Survey uplink</span><span id="load-seed" class="num"></span></div>
+      <div class="rm-load-where"><span id="load-planet" class="ui-title"></span><span id="load-level" class="ui-tag"></span></div>
+      <div class="rm-load-read"><span id="load-step"></span><span id="load-pct" class="num"></span></div>
+      <span class="ui-meter"><span id="load-bar"></span></span>
+    </div>
+  </div>
   <div id="hud" class="ui" hidden>
-    <div id="hud-times" class="rm-read"><span id="hud-lap"></span><span id="hud-time" class="num"></span><span id="hud-total" class="num"></span><span id="hud-rest"></span></div>
+    <div id="hud-times" class="rm-read"><span id="hud-lap"></span><span id="hud-time" class="num"></span><span id="hud-rest"></span></div>
+    <div id="hud-order"></div>
     <div id="hud-foot">
-      <div id="hud-order" class="rm-read"></div>
       <button id="menu-btn" type="button" class="ui-btn ghost" aria-label="Race menu"><span>Menu</span></button>
     </div>
   </div>

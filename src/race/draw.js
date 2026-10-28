@@ -25,9 +25,9 @@
 //   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   sparks off the tail while a slide has
 //     charged a level, coloured by it (R.drift); z: the ship's height
 //   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
-//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, total, rest, order }   text ×3, html, html (the standings, '' with no rivals:
-//     each a portrait, .rm-face[data-f=its id], the page's to set); missing: chunks still building
-//     in view; pos: Rival.standings(), the place and the order, when there are rivals
+//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, rest, order }   text ×2, html (one line: the best lap, or what's
+//     wrong while it is, the haul and the hull), html (the standings, '' with no rivals: each a portrait in place order,
+//     .rm-face[data-f=its id], the page's to set); missing: chunks still building in view; pos: Rival.standings(), when there are rivals
 //   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …; at the end,
 //     what was banked: R.banked, Career.bank's)
 // ES module (`Draw`); needs a browser.
@@ -503,10 +503,11 @@ const Draw = (() => {
   const nth = (n) => `${n}${['th', 'st', 'nd', 'rd'][n % 100 > 10 && n % 100 < 14 ? 0 : n % 10] || 'th'}`;
   function hud(G, R, cfg, missing, pos) {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
-    const parts = Object.entries(R.haul.parts).map(([k, n]) => `${img(k, 16)}${n}`).join(' ');
-    const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}<br>${img('chip', 16)}${R.haul.credits}${parts ? ` ${parts}` : ''} · Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}${missing ? `<br><span style="opacity:.6">${missing} chunks building</span>` : ''}`;
-    const order = pos ? `<ol>${pos.rows.map((r, i) => `<li${r.you ? ' class="you"' : ''}><span class="num">${i + 1}</span><i class="rm-face" data-f="${r.id}" style="--c:${r.color}" title="${r.name}" aria-label="${r.name}"></i></li>`).join('')}</ol>` : '';
-    return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: fmt(R.lapT), total: `Total ${fmt(R.total)}`, rest, order };
+    const parts = Object.entries(R.haul.parts).map(([k, n]) => `${img(k, 14)}${n}`).join(' ');
+    const wrong = R.burn ? 'Burning' : R.off > 0.5 ? 'Off the track' : R.slow ? 'Slowed' : '';
+    const rest = `${wrong ? `<span style="color:#ffb03a">${wrong}</span>` : `Best <span class="num">${best === null ? '–' : fmt(best)}</span>`} · ${img('chip', 14)}${R.haul.credits}${parts ? ` ${parts}` : ''} · Hull <span class="num">${hullPct}%</span>${missing ? ` <span style="opacity:.6">· ${missing}…</span>` : ''}`;
+    const order = pos ? `<ol style="--n:${pos.rows.length}">${pos.rows.map((r) => `<li${r.you ? ' class="you"' : ''}><i class="rm-face" data-f="${r.id}" style="--c:${r.color}" title="${r.name}" aria-label="${r.name}"></i></li>`).join('')}</ol>` : '';
+    return { lap: `Lap ${lap}/${cfg.laps}`, time: fmt(R.lapT), rest, order };
   }
   const banked = (b) => (b ? `\nBanked ${b.credits} credits${Object.entries(b.parts).map(([k, n]) => ` · ${n} ${k}`).join('')} (×${b.mult}${b.purse ? `, purse ${b.purse}` : ''})` : '');
   function note(R, cfg, pos) {
