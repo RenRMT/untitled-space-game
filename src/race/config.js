@@ -13,7 +13,6 @@
 //   Config.SHIP, STATS, TUNE, SPEED   the Courier as the game fits it; the race's stats (× TUNE, SPEED top speed;
 //                            stats(speed, biome): × the biome's too)
 //   Config.R_SHIP, HULL      the craft's collision radius on the surface; its hull
-//   Config.TRACKS            the tracks' and the handling's version: a seed's ghost is kept only for the track and handling it was flown with
 // ES module (`Config`); also runs in Node.
 
 import { Loadout } from '../rules/loadout.js';
@@ -22,7 +21,6 @@ const Config = (() => {
   const T = 64, N = 76, SIZE = N * T; // ArtSurface.T; the surface, tiles a side; world units a side
   const N_ADV = 90, LAP_ADV = [26, 38]; // the advanced style's tiles a side, and the lap its layouts are scored for (s)
   const N_EXP = 90, LAP_EXP = [28, 40]; // the expert style's
-  const TRACKS = 5; // 5: grip, slide and brake (Handling)
   // The ship: the Courier as the game fits and draws it (game/state.js SHIP), at the surface's size
   // (game/landing.js SURFACE_SCALE).
   const SHIP = Loadout.stats(Loadout.starter('courier'));
@@ -40,11 +38,12 @@ const Config = (() => {
   // Its corners are sized against the craft's top speed and its turning circle there (rv, v²/a), at
   // the race's own speed (not ?speed=, so a seed's track stays the same).
   // Each biome's character: × today's numbers, a missing one as it is. Terran is the standard, the
-  // track to learn on, so it has none. rev: the biome's own version, in its ghosts' key (so changing
-  // one biome's character leaves the others' ghosts).
+  // track to learn on, so it has none.
   // - stats: × the craft's top speed, acceleration, turn rate (speed, accel, turn)
   // - handling: × Handling.config's GRIP, LIFT, BRAKE, and the slide's on, off, grip, scrub
-  // - track: × the half-width (hw); mix: × each kind of corner's odds (Track.loop); chicanes: × a wiggle's odds of being one
+  // - track: × the half-width (hw); mix: × each kind of corner's odds (Track.loop); chicanes: × a wiggle's odds of being one;
+  //   ring: the regular layout's polygon (Track.loop's ring: corners, pulled in, how far out, squeezed across);
+  //   salt: its own layouts, so a seed isn't the same loop as on another planet of the same width
   // - off: × how much the run-off takes from top speed (speed) and acceleration (grip) (Run's OFF)
   // - wall: × a wall's restitution and friction (Run's WALL), and the hull a hit dents (damage)
   // - hop: × the hop's time in the air and height (Run's HOP)
@@ -52,38 +51,40 @@ const Config = (() => {
     terran: {},
     // Glare ice: little grip, slides that keep their speed and a weak brake; wide and sweeping, a soft run-off, slippery walls.
     ice: {
-      rev: 1, handling: { GRIP: 0.65, BRAKE: 0.6, on: 0.8, off: 0.8, scrub: 0.4 },
+      handling: { GRIP: 0.65, BRAKE: 0.6, on: 0.8, off: 0.8, scrub: 0.4 },
       track: { hw: 1.2, mix: { sweeper: 1.6, carousel: 2, hairpin: 0.4, square: 0.6 }, chicanes: 0.5 },
       off: { speed: 0.6 }, wall: { friction: 0.5 },
     },
-    // Hardpan in a dune sea: a looser rally feel; fast and flowing, deep sand off it, soft dune walls.
+    // Hardpan in a dune sea: a looser rally feel; a long, stretched speedway of few corners and long
+    // straights, deep sand off it, soft dune walls.
     desert: {
-      rev: 1, handling: { GRIP: 0.8, on: 0.85 },
-      track: { mix: { sweeper: 1.6, carousel: 1.3, hairpin: 0.6 }, chicanes: 0.5 },
+      handling: { GRIP: 0.8, on: 0.85 },
+      track: { mix: { sweeper: 1.6, carousel: 1.3, hairpin: 0.6 }, chicanes: 0.5, ring: { corners: [5, 7], pulled: [1, 2], out: [0.85, 1], across: 0.6 }, salt: 1 },
       off: { speed: 1.4 }, wall: { damage: 0.6 },
     },
     // An ash road through basalt: grippy and quick; narrow and technical, the run-off rough, the rock hard.
     lava: {
-      rev: 1, stats: { speed: 1.05 }, handling: { GRIP: 1.1 },
+      stats: { speed: 1.05 }, handling: { GRIP: 1.1 },
       track: { hw: 0.85, mix: { square: 1.5, hairpin: 1.5, decreasing: 1.3, sweeper: 0.6, carousel: 0.5 }, chicanes: 1.5 },
       off: { grip: 1.5 }, wall: { damage: 1.5 },
     },
-    // Low gravity: slow to pick up, light on the ground, long high hops; long flowing bends.
+    // Low gravity: slow to pick up, light on the ground, long high hops; a round crater-rim circuit,
+    // wide, of many linked flowing bends.
     moon: {
-      rev: 1, stats: { accel: 0.85 }, handling: { GRIP: 0.85 },
-      track: { mix: { carousel: 2, 'double-apex': 1.5, hairpin: 0.7 } },
+      stats: { accel: 0.85 }, handling: { GRIP: 0.85 },
+      track: { hw: 1.1, mix: { carousel: 2, 'double-apex': 1.5, hairpin: 0.7 }, ring: { corners: [11, 14], pulled: [4, 5], near: [0.5, 0.65], out: [0.85, 1], across: 1 }, salt: 2 },
       hop: { time: 1.8, h: 1.5 },
     },
     // A haze lane between storm fronts: floaty; wide open sweepers, walls that are soft but drag.
     gas: {
-      rev: 1, stats: { turn: 0.9, accel: 0.9 },
-      track: { hw: 1.1, mix: { sweeper: 1.8, carousel: 1.5, hairpin: 0.5 }, chicanes: 0.6 },
+      stats: { turn: 0.9, accel: 0.9 },
+      track: { hw: 1.1, mix: { sweeper: 1.8, carousel: 1.5, hairpin: 0.5 }, chicanes: 0.6, salt: 3 },
       wall: { friction: 1.6, damage: 0.5 },
     },
   };
   const biome = (id) => {
     const b = BIOME[id] || {};
-    return { id, rev: b.rev || 0, stats: b.stats || {}, handling: b.handling || {}, track: b.track || {}, off: b.off || {}, wall: b.wall || {}, hop: b.hop || {} };
+    return { id, stats: b.stats || {}, handling: b.handling || {}, track: b.track || {}, off: b.off || {}, wall: b.wall || {}, hop: b.hop || {} };
   };
   const HW = 1.9 * T, RUNOFF = 1.25 * T, OPEN = 0.4 * T, STATS = stats();
   const TRACK = {
@@ -97,6 +98,7 @@ const Config = (() => {
       N: n, SIZE: n * T,
       TRACK: {
         ...TRACK, size: n * T, style, ...(lap && { lap }), ...(t.hw && { hw: HW * t.hw }), ...(t.mix && { mix: t.mix }), ...(t.chicanes && { chicanes: t.chicanes }),
+        ...(t.ring && { ring: t.ring }), ...(t.salt && { salt: t.salt }),
         ...(st && { speed: st.maxSpeed, rv: st.maxSpeed ** 2 / st.accel }),
       },
     };
@@ -110,7 +112,7 @@ const Config = (() => {
     moon: { track: 'b', off: 'c' }, // mare; ejecta
     gas: { track: 'b', off: 'a' }, // haze; cloud deck (the walls are storm fronts)
   };
-  return { T, N, SIZE, N_ADV, N_EXP, map, BIOME, biome, TRACKS, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
+  return { T, N, SIZE, N_ADV, N_EXP, map, BIOME, biome, SHIP, SURFACE_SCALE, R_SHIP, HULL, TUNE, stats, STATS, HW, RUNOFF, TRACK, CARVE, KINDS };
 })();
 
 export { Config };

@@ -36,7 +36,7 @@ const Pilot = (() => {
   function flat(seed, opts, { laps = 2, biome } = {}) {
     const N = Math.round(opts.size / Config.T), tr = Track.loop(seed, opts), grid = (v) => Array.from({ length: N + 1 }, () => new Array(N + 1).fill(v));
     const G = { W: { w: N, h: N, C: grid(0), G: grid(0.5), G2: grid(0.5), props: {} }, tr }, FAR = Config.RUNOFF + Config.CARVE.open;
-    const cfg = { stats: biome ? Config.stats(Config.TUNE.speed, biome) : Config.STATS, ship: Config.SHIP, hull: 1e6, biome: biome && Config.biome(biome), r: Config.R_SHIP, laps, mode: 'cruise', steer: 'pad', assist: true, cam: null, ghostKey: null };
+    const cfg = { stats: biome ? Config.stats(Config.TUNE.speed, biome) : Config.STATS, ship: Config.SHIP, hull: 1e6, biome: biome && Config.biome(biome), r: Config.R_SHIP, laps, mode: 'cruise', steer: 'pad', assist: true, cam: null };
     const run = (c = cfg) => {
       const R = Run.create(G, c);
       R.world.blocked = (x, y, r) => Track.edgeDist(tr, x, y, R.n, 40).d + r > FAR;

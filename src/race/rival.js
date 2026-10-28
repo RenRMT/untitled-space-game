@@ -105,7 +105,7 @@ const Rival = (() => {
       const c = CULTURES[who.id], r = mulberry32(hashInt(seed, i, 0x7a3e)), lv = LEVELS[level];
       const tw = c.twist === 'random' ? { turnRate: 0.95 + 0.1 * r() } : c.twist;
       const stats = { ...cfg.stats, maxSpeed: cfg.stats.maxSpeed * lv.speed, turnRate: cfg.stats.turnRate * (tw.turnRate ?? 1) };
-      const rcfg = { ...cfg, stats, race: cfg.laps, laps: Infinity, cam: null, ghostKey: null, assist: false, steer: 'point', grid: grid(who.slot, tr.pts[0].hw) };
+      const rcfg = { ...cfg, stats, race: cfg.laps, laps: Infinity, cam: null, assist: false, steer: 'point', grid: grid(who.slot, tr.pts[0].hw) };
       const R = run(rcfg);
       if (tw.slide) { const h = R.tune.handling; R.tune.handling = { ...h, SLIDE: { ...h.SLIDE, grip: h.SLIDE.grip * tw.slide } }; }
       // Its own line: the racing line toward the centreline by its bias, and its weave.

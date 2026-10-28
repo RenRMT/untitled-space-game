@@ -33,7 +33,9 @@
 //     'regular' (the default), 'advanced' or 'expert'; mix: × each kind of corner's odds ({ sweeper: 1.5,
 //     hairpin: 0.4, … }, a biome's; kinks are by how little a corner turns, not picked); chicanes: × the odds a
 //     wiggle is a chicane rather than esses; lap: the lap a layout is scored for, [shortest,
-//     longest] s at top speed (default 20–28 s regular, 22–32 s advanced, 28–40 s expert)
+//     longest] s at top speed (default 20–28 s regular, 22–32 s advanced, 28–40 s expert); ring: the
+//     regular style's polygon ({ corners, pulled, near, out, across }: RING's, a biome's); salt: a
+//     biome's own layouts (the same seed laid out afresh)
 //   tr: { pts: [{ x, y, hw, tx, ty, k, side }], len, ds, cps, samples, from, corners, score }   (tx, ty: the way round; k:
 //     the curvature there, 1 / the bend's radius; side: the way it bends, −1 or +1 (+1: the way the
 //     angle grows, clockwise on screen); ds: the length a point; cps: the checkpoints' indices, the
@@ -101,9 +103,12 @@ const Track = (() => {
   }
 
   const SAFE = 2; // the tightest bend's radius, at least this many half-widths (the inside wall stays a wall)
-  const TRIES = 40, KEEP = 6, CORNERS = [7, 11], ACROSS = 0.85, WIDE = 0.85; // layouts tried; good ones scored, the best kept; corners a layout; squeezed across by; and no wider than this of the room
+  const TRIES = 40, KEEP = 6, WIDE = 0.85; // layouts tried; good ones scored, the best kept; no wider than this of the room
   const LAP = [20, 28]; // the lap a layout is scored for (s at top speed), unless asked for another
-  const TURN = 2.7, PULLED = [3, 4], NEAR = [0.3, 0.5], OUT = [0.75, 1]; // the sharpest corner (radians); corners pulled in; how far out they and the rest are
+  const TURN = 2.7; // the sharpest corner (radians)
+  // The regular style's polygon (ring()), unless a biome asks for another (o.ring): corners a layout;
+  // corners pulled in; how far out they and the rest are; squeezed across by.
+  const RING = { corners: [7, 11], pulled: [3, 4], near: [0.3, 0.5], out: [0.75, 1], across: 0.85 };
   // Each kind of corner (or a wiggle in a straight): the track's width there, × hw.
   const WIDTH = { kink: 1, sweeper: 1.15, square: 1.05, hairpin: 1, 'double-apex': 1.1, decreasing: 1, carousel: 1.15, chicane: 0.9, esses: 0.95 };
   const INSERTS = 2, LEAD = 1, REFIT = 1.05; // wiggles in the longest straights at most; the straight kept either side of one, × the turning circle; the most a layout is scaled up after its corners are rounded
@@ -164,7 +169,9 @@ const Track = (() => {
 
   function loop(seed, o) {
     const { size, hw, minHw = 0, margin = 0, gap = hw, samples: S = 720, checks = 16, rv = 2.7 * hw, style = 'regular' } = o;
-    const st = tilt(STYLE[style] || STYLE.regular, o), lap = o.lap || st.lap, cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks)), env = { size, hw, minHw, margin, gap, S, cps, rv, st };
+    if (o.salt) return loop(seed + o.salt * 100003, { ...o, salt: 0 });
+    const st = tilt(STYLE[style] || STYLE.regular, o), lap = o.lap || st.lap, cps = Array.from({ length: checks }, (_, k) => Math.round((k * S) / checks));
+    const env = { size, hw, minHw, margin, gap, S, cps, rv, st, ring: { ...RING, ...o.ring } };
     let best = null;
     for (let t = 0, kept = 0; t < st.tries && kept < st.keep; t++) {
       const V = st.lay(seed, t, env), tr = V && corners(V, seed, t, env);
@@ -189,15 +196,15 @@ const Track = (() => {
 
   // The regular style's polygon: corners round the middle, a few of them pulled in (so the loop
   // bends both ways), fitted to the map.
-  function ring(seed, t, { size, hw, minHw, margin }) {
+  function ring(seed, t, { size, hw, minHw, margin, ring: L }) {
     const rl = rng(seed, t, 1);
-    const K = CORNERS[0] + Math.floor(rl() * (CORNERS[1] - CORNERS[0] + 1)), rot = rl() * TAU;
-    const nIn = PULLED[0] + Math.floor(rl() * (PULLED[1] - PULLED[0] + 1)), pulled = new Set();
+    const K = L.corners[0] + Math.floor(rl() * (L.corners[1] - L.corners[0] + 1)), rot = rl() * TAU;
+    const nIn = L.pulled[0] + Math.floor(rl() * (L.pulled[1] - L.pulled[0] + 1)), pulled = new Set();
     for (let k = 0; k < 20 && pulled.size < nIn; k++) { const i = Math.floor(rl() * K); if (!pulled.has((i + 1) % K) && !pulled.has((i + K - 1) % K)) pulled.add(i); }
     const V = [];
     for (let i = 0; i < K; i++) {
-      const th = rot + ((i + 0.6 * (rl() - 0.5)) / K) * TAU, [a, b] = pulled.has(i) ? NEAR : OUT, d = a + (b - a) * rl();
-      V.push({ x: Math.cos(th) * d * ACROSS, y: Math.sin(th) * d });
+      const th = rot + ((i + 0.6 * (rl() - 0.5)) / K) * TAU, [a, b] = pulled.has(i) ? L.near : L.out, d = a + (b - a) * rl();
+      V.push({ x: Math.cos(th) * d * L.across, y: Math.sin(th) * d });
     }
     fit(V, size, margin + 1.25 * Math.max(hw, minHw));
     return V;
@@ -562,7 +569,7 @@ const Track = (() => {
     const c = size / 2, waves = [2, 3, 4, 5].map((k, n) => ({ k, a: [0.15, 0.1, 0.06, 0.035][n] * (0.6 + 0.8 * r()), p: r() * TAU })), ks = [];
     for (let n = 0; n < S; n++) { const th = (n / S) * TAU; ks.push(1 + waves.reduce((s, w) => s + w.a * Math.sin(w.k * th + w.p), 0)); }
     const R0 = (c - 1.25 * hw - margin) / Math.max(...ks);
-    const pts = ks.map((k, n) => { const th = (n / S) * TAU; return { x: c + Math.cos(th) * R0 * k * ACROSS, y: c + Math.sin(th) * R0 * k, hw }; });
+    const pts = ks.map((k, n) => { const th = (n / S) * TAU; return { x: c + Math.cos(th) * R0 * k * RING.across, y: c + Math.sin(th) * R0 * k, hw }; });
     const tr = shape({ pts, samples: S, cps });
     for (let pass = 0; pass < 200 && minRadius(tr).r < SAFE; pass++) { smooth(pts, 8); shape(tr); }
     widths(tr, hw, minHw);

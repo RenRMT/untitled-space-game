@@ -12,14 +12,15 @@
 //   Career.FX[key]              { label, dir (+1: more is better, −1: less), w (its worth for VALUE) }
 //   Career.value(fx) -> { gain, cost }   by W: what a choice gives and takes
 //   Career.lab                  the lab's rules (Lab.create) over the packages; Career.lab.config.speed (?fastresearch)
-//   Career.empty() -> career    { version, credits, parts: { [part]: n }, lab }
+//   Career.empty(seed?) -> career    { version, seed, credits, parts: { [part]: n }, lab }   seed: the tracks' (every
+//                planet's track and its pickups, at every level, are the seed's), 1 by default
+//   Career.reroll(career, rnd?) -> career   a fresh career on a new seed (1 .. SEEDS, not career's): everything else starts over
 //   Career.load(), save(career) the career from and to the browser's storage (race.career), the lab settled
 //   Career.from(data, now) -> career   a saved one (or null) brought up to date and settled
 //   Career.fx(done) -> { [key]: total }   what's done adds up to
 //   Career.tune(done) -> { stats, handling, drift, dash, hull, wall, bump }: × (or + for charges) on
 //                the stock run's numbers, clamped (CLAMP); the identity with nothing done
 //   Career.stats(stats, tune) -> stats   the race's stats (Config.stats) × the tune's
-//   Career.sig(done) -> ''      a short tag of the build, for the ghost's key ('' when stock)
 //   Career.buy(career, id, now) -> bool   paid and queued; cancel(career, id, now) -> refunds
 //   Career.respec(career, tree, now) -> bool   the tree stripped back: RESPEC credits per tier done
 //                (none to undo what's still building), parts half back for what was done, the rest as cancel
@@ -113,10 +114,14 @@ const Career = (() => {
     return { gain, cost };
   }
 
-  const empty = () => ({ version: MIGRATIONS.length, credits: 0, parts: Object.fromEntries(PARTS.map((p) => [p, 0])), lab: lab.empty() });
+  const empty = (seed = 1) => ({ version: MIGRATIONS.length, seed, credits: 0, parts: Object.fromEntries(PARTS.map((p) => [p, 0])), lab: lab.empty() });
+  // A fresh career on a new seed (SEEDS of them), never the one it was on.
+  const SEEDS = 99999;
+  const reroll = (c, rnd = Math.random) => empty(1 + ((c.seed + Math.floor(rnd() * (SEEDS - 1))) % SEEDS));
   // A saved career (or null) brought up to date: what a table no longer has dropped, the lab settled.
   function from(data, now = Date.now()) {
     const c = data && typeof data === 'object' ? Save.migrate(data, MIGRATIONS) : empty();
+    c.seed = Number.isInteger(c.seed) && c.seed > 0 ? c.seed : 1; // a career from before the seed was kept: the first
     c.credits = Number.isFinite(c.credits) ? c.credits : 0;
     c.parts = { ...empty().parts, ...(c.parts || {}) };
     const l = { ...lab.empty(), ...(c.lab || {}) }, known = (id) => !!PACKAGES[id];
@@ -147,7 +152,6 @@ const Career = (() => {
     };
   }
   const stats = (st, t) => ({ ...st, maxSpeed: st.maxSpeed * t.stats.maxSpeed, accel: st.accel * t.stats.accel, turnRate: st.turnRate * t.stats.turnRate });
-  const sig = (done) => [...done].sort().map((id) => id.replace(/^(\w)\w*\.(\d)/, '$1$2')).join('');
 
   const have = (c) => (kind) => c.parts[kind] || 0;
   const status = (c, id) => lab.status(id, c.lab, c.credits, have(c));
@@ -195,7 +199,7 @@ const Career = (() => {
     return { mult, purse, credits, parts };
   }
 
-  return { KEY, TREES, PARTS, PACKAGES, FX, RATIO, RESPEC, MULT, PURSE, CLAMP, lab, value, empty, from, load, save, fx, tune, stats, sig, status, buy, cancel, respec, bank };
+  return { KEY, TREES, PARTS, PACKAGES, FX, RATIO, RESPEC, MULT, PURSE, CLAMP, SEEDS, lab, value, empty, reroll, from, load, save, fx, tune, stats, status, buy, cancel, respec, bank };
 })();
 
 export { Career };

@@ -69,8 +69,10 @@ Each biome races differently, not only looks different: one profile per biome in
 (`Config.BIOME`), each number × the standard one, read by the track (`Config.map(style, biome)`:
 width and the odds of each kind of corner, `Track.loop`'s `mix` and `chicanes`), the handling
 (`Handling.tune`) and the run (`Run`'s `R.tune`: run-off, walls, hop). **Terran is the standard**, the
-track to learn on: it has no profile, so its tracks, feel and ghosts are as they were. A biome's
-`rev` goes in its ghosts' key, so retuning one leaves the others' ghosts. `npm run tracks -- --biome=ice --fly`
+track to learn on: it has no profile, so its tracks and feel are as they were. Desert, moon and gas
+lay out their own loops for a seed (`ring`: the regular layout's polygon, a stretched speedway on
+desert and a round crater rim on the moon; `salt`: their own layouts at every level), so a seed isn't
+the same loop on every planet of a width. `npm run tracks -- --biome=ice --fly`
 measures one.
 
 | Biome | Handling | Track | Run-off and walls |
@@ -195,7 +197,10 @@ the game's own research.
 - **What a build changes:** the race's stats, the handling (grip, brake, when a slide starts), the
   drift (charge times, boost), the dash (charges, refill, duration, boost, sidestep), the hull and the
   walls, and the side-bump (`Rival.ships`: the other ship's power × your recoil). The track, its
-  racing line and the rivals stay stock; a build's ghost is kept apart from the stock ship's.
+  racing line and the rivals stay stock.
+- The tracks' seed is the career's (`Career.empty(seed)`, 1 for a career from before it): the title's
+  Reroll, after a warning, starts a fresh career on a new one. (The best lap's ghost is gone: the
+  rivals are who you race now.)
 - Saved apart from the game (`race.career`), never touching the game's save.
 
 Alongside the phases, the menus (a first pass): the title (`src/race/menu.js`) in the Low-poly UI

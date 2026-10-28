@@ -3,7 +3,8 @@
 // - the title: the planets as cards in a row, scrolled left and right (swipe, the arrow keys, the
 //   ‹ › keys), each the planet itself (Art.drawPlanet, a moon by ArtBodies.drawMoon) in low-poly;
 //   picking one shows it large with the three levels as dots on its face (regular, advanced,
-//   expert), and Race starts it.
+//   expert), and Race starts it. Over the planets, the seed and Reroll (after a warning: the career
+//   starts over).
 // - in the race: one Menu button at the bottom right (Esc too), opening a sheet with Resume,
 //   Restart, Hangar and Main menu, under the planet and the track's seed (after the finish: Race
 //   again in place of Resume).
@@ -11,7 +12,8 @@
 //   choices (Lab's layout), a choice's gains and costs, what it rules out; the one building and the
 //   queue; the whole build against the stock ship; a tree stripped back (respec).
 //
-//   Menu.title({ planets, levels, biome, level, onPick(biome, level), onHangar? })   the title, on the planet given
+//   Menu.title({ planets, levels, biome, level, seed, onPick(biome, level), onHangar?, onReroll? })   the title, on the planet
+//     given, the seed over the planets; onReroll() -> the new seed, once the player has said yes to starting over
 //     planets: [{ id, label, about, body: { kind: 'planet' | 'moon', type, ring? } }]; levels: [{ id, label, about }]
 //   Menu.pause({ planet, seed, onResume, onRestart, onMain, onHangar, over })   the sheet over the race (planet: its label;
 //     over: the run is done, so Race again rather than Resume)
@@ -24,6 +26,7 @@
 import { Art } from '../art/render.js';
 import { ArtBodies } from '../art/bodies.js';
 import { Career } from './career.js';
+import { Draw } from './draw.js';
 
 const Menu = (() => {
   const api = { up: null, title, pause, hangar, close, key };
@@ -67,7 +70,7 @@ const Menu = (() => {
 
   // ---------- The title ----------
 
-  function title({ planets, levels, biome, level, onPick, onHangar }) {
+  function title({ planets, levels, biome, level, seed, onPick, onHangar, onReroll }) {
     let at = Math.max(0, planets.findIndex((p) => p.id === biome));
     const node = el('div', { className: 'ui rm-title' });
     const home = () => {
@@ -103,7 +106,8 @@ const Menu = (() => {
       const next = el('button', { type: 'button', className: 'ui-iconbtn rm-arrow', textContent: '›', onclick: () => go(at + 1) });
       prev.setAttribute('aria-label', 'Previous planet'); next.setAttribute('aria-label', 'Next planet');
       node.replaceChildren(
-        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Surface race' }), el('h1', { className: 'ui-title', textContent: 'Choose a planet' })),
+        el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: 'Surface race' }), el('h1', { className: 'ui-title', textContent: 'Choose a planet' }),
+          onReroll ? el('span', { className: 'rm-seed' }, el('span', { className: 'ui-label' }, 'Seed ', el('span', { className: 'num', textContent: String(seed) })), btn('Reroll', reroll, 'ghost sm')) : null),
         el('div', { className: 'rm-row' }, prev, row, next),
         el('footer', { className: 'rm-foot' }, onHangar ? btn('Hangar', onHangar, 'ghost lg') : null, btn('Select', () => levelsOf(at), 'primary lg')),
       );
@@ -115,6 +119,21 @@ const Menu = (() => {
       };
       mark();
       requestAnimationFrame(() => go(at, false));
+    };
+
+    // A new seed, asked first over the title: it starts the career over.
+    const reroll = () => {
+      const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'alertdialog' },
+        el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Reroll the seed?' }),
+          el('span', { className: 's rm-where' }, 'Seed ', el('span', { className: 'num', textContent: String(seed) })))),
+        el('div', { className: 'body' },
+          el('p', { className: 'ui-note rm-warn', textContent: 'Every planet gets new tracks, and your progress starts over: your credits, salvage parts and all research are lost. This cannot be undone.' }),
+          btn('Reroll and reset', () => { seed = onReroll(); home(); }, 'warn lg wide'), btn('Cancel', () => home(), 'ghost lg wide')));
+      sheet.setAttribute('aria-label', 'Reroll the seed');
+      const scrim = el('div', { className: 'ui ui-scrim', onclick: (e) => { if (e.target === scrim) home(); } }, sheet);
+      node.append(scrim);
+      keys = (k) => { if (k === 'Escape' || k === 'Backspace') home(); else return false; };
+      sheet.querySelector('.ui-btn.ghost').focus();
     };
 
     // The planet large, the levels as dots on it.
@@ -189,7 +208,7 @@ const Menu = (() => {
   }
   const wallet = (c) => el('div', { className: 'rm-wallet' },
     el('span', { className: 'ui-cr' }, el('i'), String(c.credits)),
-    ...Career.PARTS.map((p) => el('span', { className: 'rm-part', style: `--part:var(--part-${p})` }, el('i'), `${c.parts[p] || 0} ${p}`)));
+    ...Career.PARTS.map((p) => el('span', { className: 'rm-part' }, el('img', { className: 'rm-icon', src: Draw.icon(p, 20), alt: '', width: 20, height: 20 }), `${c.parts[p] || 0} ${p}`)));
 
   function hangar({ career: c, now, onChange, onBack }) {
     let tree = Career.TREES[0].id, pick = null;
