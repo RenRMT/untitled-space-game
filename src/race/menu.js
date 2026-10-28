@@ -8,7 +8,7 @@
 //   picking one shows it large, the three levels (regular, advanced, expert) as points on its face,
 //   each joined by a dotted line to its label beside the planet, and Race starts it.
 // - in the race: one Menu button at the bottom right (Esc too), opening a sheet with Resume,
-//   Restart, Hangar and Main menu, under the planet and the track's seed (after the finish: Race
+//   Restart, Hangar, Change planet and Main menu, under the planet and the track's seed (after the finish: Race
 //   again in place of Resume).
 // - the hangar: the career's research (Career), a tab per tree; each tree its three tiers of two
 //   choices (Lab's layout), a choice's gains and costs, what it rules out; the one building and the
@@ -21,8 +21,8 @@
 //   Menu.profile({ name, seed, portrait (ArtPortraits'), ship: { art, name }, onBack })
 //   Menu.title({ planets, levels, biome, level, onPick(biome, level), onHangar?, onBack? })   the title, on the planet given
 //     planets: [{ id, label, about, body: { kind: 'planet' | 'moon', type, ring? } }]; levels: [{ id, label, about }]
-//   Menu.pause({ planet, seed, onResume, onRestart, onMain, onHangar, over })   the sheet over the race (planet: its label;
-//     over: the run is done, so Race again rather than Resume)
+//   Menu.pause({ planet, seed, onResume, onRestart, onPlanets, onMain, onHangar, over })   the sheet over the race (planet: its label;
+//     onPlanets: back to the title, to pick another; over: the run is done, so Race again rather than Resume)
 //   Menu.hangar({ career, now() -> ms, shipArt(hull) -> art, onChange(), onBack() })   the hangar; onChange after
 //     anything bought, cancelled, reset or flown
 //   Menu.close()        any one closed (the sheet's onResume isn't called)
@@ -279,13 +279,14 @@ const Menu = (() => {
 
   // ---------- In the race ----------
 
-  function pause({ planet, seed, onResume, onRestart, onMain, onHangar, over = false }) {
+  function pause({ planet, seed, onResume, onRestart, onPlanets, onMain, onHangar, over = false }) {
     const resume = () => { close(); if (over) onRestart(); else onResume(); };
     const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'dialog' },
       el('div', { className: 'head' }, el('div', { className: 'titles' }, el('span', { className: 't', textContent: 'Paused' }),
         el('span', { className: 's rm-where' }, el('span', { textContent: planet }), ' · seed ', el('span', { className: 'num', textContent: String(seed) })))),
       el('div', { className: 'body' }, btn(over ? 'Race again' : 'Resume', resume, 'primary lg wide'), over ? null : btn('Restart', () => { close(); onRestart(); }, 'lg wide'),
-        onHangar ? btn('Hangar', () => { close(); onHangar(); }, 'lg wide') : null, btn('Main menu', () => { close(); onMain(); }, 'ghost lg wide')));
+        onHangar ? btn('Hangar', () => { close(); onHangar(); }, 'lg wide') : null,
+        onPlanets ? btn('Change planet', () => { close(); onPlanets(); }, 'lg wide') : null, btn('Main menu', () => { close(); onMain(); }, 'ghost lg wide')));
     sheet.setAttribute('aria-label', 'Race menu');
     const scrim = el('div', { className: 'ui ui-scrim', onclick: (e) => { if (e.target === scrim) resume(); } }, sheet);
     open('pause', scrim, (k) => {
