@@ -7,14 +7,15 @@
 // This module wires the page: builds a track, runs it a fixed step at a time (Run) and draws it
 // between steps, the ground in chunks (SurfaceGlobe.tiles), every one of them built before the
 // countdown (bake) and kept, so none is ever built while flying. Laps count by checkpoints along the
-// centreline, passed in order; It opens on the title (Menu):
-// a planet, then a level; in the race the Menu button (or Esc) pauses it, to restart or go back to
-// the title. R restarts, N a new track.
+// centreline, passed in order. It opens on the landing (Menu): resume, a new game, the controls,
+// your profile; then a planet, then a level; in the race the Menu button (or Esc) pauses it, to
+// restart or go back to the landing. R restarts, N a new track.
+// Seeds: yours (the career's, drawn once at a new game: your name, portrait and ship's look); a race's
+// track, drawn afresh each time one is picked from the title; the rivals', drawn afresh each start.
 // Drawn low-poly, on flat ground. Steering (Input): pad (a stick in a band along the bottom; the
 // default on touch screens, the view framed above it, View), point (the game's drag; the default
 // with a mouse), or sides (it flies itself; hold a half to turn). Tap to hop, flick to dash.
-// Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed= (the career's by default: Career;
-// the title's Reroll starts a career on a new one), ?laps=,
+// Query parameters: ?biome=desert|ice|lava|terran|moon|gas, ?seed= (the track's; random by default), ?laps=,
 // ?speed= (× the ship's top speed; the game flies surfaces at 0.5, races at TUNE.speed),
 // ?mode=direct (no drift; letting go stops), ?steer=pad|point|sides, ?assist=0 (no steering assist),
 // ?ai=regular|advanced|expert|off (the rivals' level, the track's style by default; off: none),
@@ -26,10 +27,15 @@
 
 import { Art } from '../art/render.js';
 import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtCrew } from '../art/crew.js';
 import { ArtCulture } from '../art/culture.js';
+import { ArtPortraits } from '../art/portraits.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
 import { Feedback } from '../core/feedback.js';
+import { hashInt } from '../core/rng.js';
+import { Store } from '../core/store.js';
+import { Squad } from '../rules/squad.js';
 import { Career } from './career.js';
 import { Config } from './config.js';
 import { Draw } from './draw.js';
@@ -40,6 +46,7 @@ import { Menu } from './menu.js';
 import { Pickups } from './pickups.js';
 import { Rival } from './rival.js';
 import { Run } from './run.js';
+import { Storm } from './storm.js';
 import { Track } from './track.js';
 import { View } from './view.js';
 
@@ -48,12 +55,12 @@ if (T !== ArtSurface.T) throw new Error('Config.T is not ArtSurface.T');
 const LAPS = Math.max(1, +q.get('laps') || 3), MODE = q.get('mode') === 'direct' ? 'direct' : 'cruise';
 // The biomes, each with the planet the title shows for it (Menu: Art's planet types, a moon's).
 const BIOMES = {
+  terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on', body: { kind: 'planet', type: 'terran' } },
   desert: { type: 'desert', label: 'Desert', about: 'Loose and fast; long straights, deep sand off them', body: { kind: 'planet', type: 'desert' } },
   ice: { type: 'ice', label: 'Ice', about: 'Little grip, long slides; wide sweeping bends', body: { kind: 'planet', type: 'ice' } },
   lava: { type: 'lava', label: 'Lava', about: 'Grippy, narrow and technical; the walls hurt', body: { kind: 'planet', type: 'lava' } },
-  terran: { type: 'terran', label: 'Terran', about: 'The standard track: the one to learn on', body: { kind: 'planet', type: 'terran' } },
   moon: { type: 'moon-grey', label: 'Moon', about: 'Low gravity, long hops; a wide crater-rim loop', body: { kind: 'moon', type: 'grey' } },
-  gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls', body: { kind: 'planet', type: 'gas' } },
+  gas: { type: 'gas', label: 'Gas giant', about: 'Floaty; wide open bends, soft storm walls, lightning', body: { kind: 'planet', type: 'gas' } },
 };
 
 // The ship (Config): the Courier as the game fits it, drawn as the game draws it (game/options.js
@@ -67,21 +74,48 @@ let career = Career.load();
 // to `reach` of the screen's shorter side; pushing in a little at top speed (`pull`), and zoomed by
 // the bends ahead: `wide` on a straight, `tight` in a bend.
 const CAM = { zoom: 1.3, lead: 0.6, pull: 0.04, reach: 0.3, track: 0.6, wide: 0.93, tight: 1.06 };
-const SHIP_SCALE = 1.375, { SURFACE_SCALE } = Config;
-// You fly an Android light fighter; the rivals their own cultures' ships in their colours (Rival.CULTURES),
-// the hull by the level (light, fighter, heavy), each the same size as yours.
+// Ships are drawn DRAW × as large as they collide (R_SHIP), a heavier hull larger in both (HULL_SIZE).
+const DRAW = 1.25 * 1.375, { HULL_SIZE } = Config;
+// You fly an Android ship, the hull the hangar's (Career.SHIPS), its look your seed's; the rivals their
+// own cultures' ships in their colours (Rival.CULTURES), the hull by the level (light, fighter, heavy),
+// their looks the start's rival seed's (S.rivals).
 const XENO = ArtCulture.xeno(1), HUMAN = Object.fromEntries(ArtCulture.HUMAN.map((id, i) => [id, ArtCulture.create(id, 11 + i, Rival.CULTURES[id].color)]));
 const CULTURE = { ...HUMAN, drifter: ArtCulture.kitbash(Object.values(HUMAN), 14, Rival.CULTURES.drifter.color), alien: XENO.alien };
-const sized = (art) => ({ art, k: (SHIP.radius * 1.25 * SHIP_SCALE * SURFACE_SCALE) / art.radius, r: R_SHIP, z: ArtSurface.FLY });
-const ART = ArtBlueprints.create('fighter-light', XENO.android, 3), BODY = sized(ART);
-const RIVAL_BODY = {}; // by hull (the level's: Rival.LEVELS ship) and culture, made when first raced
-const rivalBody = (w) => RIVAL_BODY[`${w.art}.${w.id}`] ||= sized(ArtBlueprints.create(w.art, CULTURE[w.id], 5));
+const sized = (art, hull) => ({ art, k: (R_SHIP * DRAW * (HULL_SIZE[hull] || 1)) / art.radius, r: R_SHIP, z: ArtSurface.FLY });
+const shipArt = (hull) => ArtBlueprints.create(hull, XENO.android, career.seed);
+let ART = null, BODY = null, artKey = ''; // yours: pilot() makes them for the career's seed and hull
+function pilot() {
+  const key = `${career.ship}.${career.seed}`;
+  if (key !== artKey) { artKey = key; ART = shipArt(career.ship); BODY = sized(ART, career.ship); }
+}
+const cultureSeed = (id, salt) => hashInt(S.rivals, Object.keys(Rival.CULTURES).indexOf(id), salt);
+let RIVAL_BODY = {}; // by culture, for this start's rival seed, made when first raced
+const rivalBody = (w) => RIVAL_BODY[w.id] ||= sized(ArtBlueprints.create(w.art, CULTURE[w.id], cultureSeed(w.id, 0x5e1f)), w.art);
+// The standings' portraits (ArtCrew; yours an android's), drawn once into images and set as CSS
+// backgrounds by culture (.rm-face[data-f]).
+const faceSheet = document.head.appendChild(document.createElement('style'));
+function faceURL(portrait, size = 64) {
+  const c = document.createElement('canvas'), g = c.getContext('2d');
+  c.width = c.height = size;
+  g.fillStyle = '#0b0e14'; g.fillRect(0, 0, size, size);
+  g.translate(size / 2, size / 2); g.scale(size / 100, size / 100);
+  ArtPortraits.draw(g, portrait, 'lowpoly', { texel: 2 });
+  return c.toDataURL();
+}
+const youFace = () => ArtCrew.create(career.seed, XENO.android);
+let youURL = null, youKey = 0;
+function faces() {
+  if (youKey !== career.seed) { youKey = career.seed; youURL = faceURL(youFace()); }
+  const rules = [`.rm-face[data-f="you"]{background-image:url(${youURL})}`];
+  if (pack) for (const X of pack.racers) rules.push(`.rm-face[data-f="${X.who.id}"]{background-image:url(${faceURL(ArtCrew.create(cultureSeed(X.who.id, 0xface), CULTURE[X.who.id]))})}`);
+  faceSheet.textContent = rules.join('\n');
+}
 // What sells the speed (drawn only, like the dust): the engines' trails (`trail` s of where they were,
 // `trailW` wide at the engine, strong from `trailFrom` of top speed up); a boost's punch, the camera
 // out by `punch` and streaks in from the edges, over `kick` s; the ship's bank into a turn (`bank` ×
 // its turn rate, rad/s, at most `maxBank`); and a shake (`shake`: px at most, by what set it off),
 // settling at `settle` a second. A screen asked to keep still (reduced motion) gets no punch or shake.
-const FX = { trail: 0.35, trailW: 3, trailFrom: 0.3, punch: 0.1, kick: 0.45, bank: 0.08, maxBank: 0.3, shake: { side: 3, land: 2.5, hit: 7, bump: 2 }, settle: 14 };
+const FX = { trail: 0.35, trailW: 3, trailFrom: 0.3, punch: 0.1, kick: 0.45, bank: 0.08, maxBank: 0.3, shake: { side: 3, land: 2.5, hit: 7, bump: 2, strike: 8 }, settle: 14 };
 const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 let fx = null; // { trails: per engine [{ x, y, z, t, a, c }], kick: s of the punch left, bank, shake: px, sx, sy: px now, flash: R.flash a frame before }
 
@@ -95,13 +129,15 @@ const BAKE = { step: 500, slice: 30 }; // the bake: a rect every step along the 
 // 'expert' (folded in on itself, sharp corners, few long straights)
 const STYLES = { regular: 'Regular', advanced: 'Advanced', expert: 'Expert' };
 const ABOUT = { regular: 'Flowing bends to learn the planet on; the rivals in light fighters', advanced: 'Irregular, like a real circuit; the rivals in fighters', expert: 'Folded in on itself: sharp corners, few straights; the rivals in heavy fighters' };
-const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'desert', style: 'lowpoly', seed: +q.get('seed') || career.seed, track: STYLES[q.get('track')] ? q.get('track') : 'regular', ai: q.get('ai') === 'off' || Rival.LEVELS[q.get('ai')] ? q.get('ai') : null };
+const S = { biome: BIOMES[q.get('biome')] ? q.get('biome') : 'terran', style: 'lowpoly', seed: +q.get('seed') || Career.roll(), rivals: 1, track: STYLES[q.get('track')] ? q.get('track') : 'regular', ai: q.get('ai') === 'off' || Rival.LEVELS[q.get('ai')] ? q.get('ai') : null };
 const level = () => (S.ai === 'off' ? null : S.ai || S.track); // the rivals' level: ?ai=, else the track's style
-Input.mode = ['pad', 'point', 'sides'].includes(q.get('steer')) ? q.get('steer') : coarse ? 'pad' : 'point';
+const STEERS = ['pad', 'point', 'sides'], steerSaved = Store.get('race.steer', null); // the controls' choice, kept
+Input.mode = STEERS.includes(q.get('steer')) ? q.get('steer') : STEERS.includes(steerSaved) ? steerSaved : coarse ? 'pad' : 'point';
 Input.stopOnRelease = MODE === 'direct';
 let G = null; // the track and its surface: { W, tr, b, seed, track (its style's name), size (the map's side), whole (all of it, as a rect), hw, talls, holes, looks: { style: { far, tiles } }, mini }
 let R = null; // the run on it
 let pack = null; // the rivals' runs (Rival.pack), or null with ?ai=off
+let storm = null; // the biome's lightning (Storm), or null
 let dust = Dust.create(), dustCols = null; // the dust off the craft (drawn only), and its colours on this ground
 let cfg = null; // what the run flies by (Run)
 let baking = false; // the ground is being built: the run waits
@@ -134,14 +170,18 @@ function looks() {
 function restart() {
   const bio = Config.biome(S.biome);
   Career.lab.settle(career.lab, Date.now());
-  const done = career.lab.done, tune = done.length ? Career.tune(done) : null;
+  pilot();
+  S.rivals = Career.roll(); RIVAL_BODY = {};
+  const done = career.lab.done, tune = done.length || career.ship !== Career.STOCK ? Career.tune(done, career.ship) : null;
   const stock = { stats: STATS, ship: SHIP, hull: HULL, r: R_SHIP, laps: LAPS, mode: MODE, steer: Input.mode, assist: q.get('assist') !== '0', cam: CAM, biome: bio };
   // Yours: the hangar's build on top, and the pickups.
   cfg = {
-    ...stock, stats: tune ? Career.stats(STATS, tune) : STATS, hull: HULL * (tune ? tune.hull : 1), career: tune, pickups: G.pickups };
+    ...stock, r: R_SHIP * HULL_SIZE[career.ship], stats: tune ? Career.stats(STATS, tune) : STATS, hull: HULL * (tune ? tune.hull : 1), career: tune, pickups: G.pickups };
   const lv = level();
   R = Run.create(G, lv ? { ...cfg, grid: Rival.grid(Rival.PLAYER, G.tr.pts[0].hw) } : cfg);
-  pack = lv ? Rival.pack(G, stock, G.line, lv, S.seed, (c) => Run.create(G, c)) : null;
+  pack = lv ? Rival.pack(G, stock, G.line, lv, S.rivals, (c) => Run.create(G, c)) : null;
+  storm = bio.storm ? Storm.create(bio.storm, S.rivals) : null;
+  faces();
   Input.reset(R.craft.angle);
   dust = Dust.create(); dustCols = Dust.colours(G.b.type, Config.KINDS[S.biome]);
   fx = { trails: ART.engines.map(() => []), kick: 0, bank: 0, shake: 0, sx: 0, sy: 0, flash: 0 };
@@ -252,6 +292,7 @@ function render(time, a) {
   Draw.marks(ctx, v, px, time, G, R);
   Draw.pickups(ctx, v, px, time, G.pickups, R.got, ground, S.style);
   Draw.dust(ctx, v, px, dust.puffs, ground);
+  if (storm) Draw.storm(ctx, v, px, time, storm.strikes, ground);
   rivals(v, a, C, time, (Math.max(Wc, Hc) / zoom) * 1.2);
   // A hop lifts the ship (its shadow falls further off) and draws it a little larger.
   const body = C.air ? { ...BODY, z: BODY.z + C.air, k: BODY.k * (1 + C.air / 160) } : BODY;
@@ -315,17 +356,22 @@ function juice(dt, time) {
 // of them, after a stall), and is drawn the rest of the way to the next.
 let last = 0, acc = 0;
 // What the run's events feel like (Feedback.vibrate: Android browsers; nothing on iPhones).
-const BUZZ = { chip: 4, crate: [10, 30, 18], boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
+const BUZZ = { strike: [30, 40, 20], chip: 4, crate: [10, 30, 18], boost: 22, side: 14, airbrake: [12, 30, 12], hop: 8, land: 16, charge: [6, 50, 6], slide: 6, drift1: [8, 40, 8], drift2: [8, 30, 8, 30, 8], driftBoost: 26, bump: 10 };
 function frame(t) {
   // Nothing to run yet, the ground building, or the title over it all: nothing to step or draw.
-  if (!G || baking || Menu.up === 'title') { last = t; requestAnimationFrame(frame); return; }
+  if (!G || baking || Menu.covers()) { last = t; requestAnimationFrame(frame); return; }
   if (last) paceFrame(t, t - last);
   const dtFrame = (t - last) / 1000 || 0;
   acc += Math.min(0.1, dtFrame); last = t;
   cfg.steer = Input.mode;
   const ctl = Input.control();
   if (paused) { acc = 0; ctl.events.length = 0; }
-  while (acc >= Run.STEP) { Run.step(R, G, cfg, ctl); if (pack) Rival.step(pack, G, R); acc -= Run.STEP; }
+  while (acc >= Run.STEP) {
+    Run.step(R, G, cfg, ctl);
+    if (pack) Rival.step(pack, G, R);
+    if (storm) Storm.step(storm, G, pack ? [R, ...pack.racers.map((X) => X.R)] : [R], Run.STEP);
+    acc -= Run.STEP;
+  }
   // The finish (or the wreck): the haul brought home, once.
   if (!R.banked && (R.phase === 'done' || R.phase === 'wreck')) {
     R.banked = Career.bank(career, R.haul, { place: pack ? Rival.standings(pack, G, R).place : null, wreck: R.phase === 'wreck', level: S.track });
@@ -342,35 +388,64 @@ function frame(t) {
 // ---------- Controls ----------
 
 const $ = (id) => document.getElementById(id);
-// The title (Menu): a planet, then a level; the race on them, built only if it's not the one there.
+// The landing (Menu): Resume (the race left paused, else the career on to the title), New game (a
+// career afresh: a new pilot), the controls and your profile.
+const live = () => !!(G && R && (R.phase === 'count' || R.phase === 'race'));
+function toLanding() {
+  paused = true;
+  $('hud').hidden = true; note.textContent = '';
+  Menu.landing({
+    canResume: live() || Career.saved(), progress: Career.saved(),
+    onResume: () => { Menu.close(); if (live()) play(); else toTitle(); },
+    onNew: () => {
+      career = Career.empty(); Career.save(career);
+      if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]);
+      G = R = pack = storm = null;
+      Menu.close(); toTitle();
+    },
+    onControls: () => Menu.controls({
+      mode: Input.mode, coarse,
+      onMode: (m) => { Input.mode = m; Store.set('race.steer', m); },
+      onBack: toLanding,
+    }),
+    onProfile: () => Menu.profile({
+      name: Squad.designation(career.seed), seed: career.seed, portrait: youFace(),
+      ship: { art: shipArt(career.ship), name: Career.SHIPS[career.ship].name },
+      onBack: toLanding,
+    }),
+  });
+}
+// The title (Menu): a planet, then a level; the race on them, on a track of a new seed (?seed=: that one).
+const FIXED = q.has('seed');
 function toTitle() {
   paused = true;
   $('hud').hidden = true; note.textContent = '';
   Menu.title({
     planets: Object.entries(BIOMES).map(([id, b]) => ({ id, label: b.label, about: b.about, body: b.body })),
     levels: Object.entries(STYLES).map(([id, label]) => ({ id, label, about: ABOUT[id] })),
-    biome: S.biome, level: S.track, seed: S.seed,
+    biome: S.biome, level: S.track,
     onHangar: () => hangar(toTitle),
-    onReroll: () => { career = Career.reroll(career); Career.save(career); S.seed = career.seed; return S.seed; },
+    onBack: () => { Menu.close(); toLanding(); },
     onPick: (biome, track) => {
       Menu.close();
-      const same = G && G.seed === S.seed && S.biome === biome && S.track === track;
+      const same = FIXED && G && S.biome === biome && S.track === track;
+      if (!FIXED) S.seed = Career.roll();
       S.biome = biome; S.track = track;
       busy(() => { if (same) restart(); else return newGround(); }, play);
     },
   });
 }
 function play() { paused = false; $('hud').hidden = false; }
-// The hangar (Menu.hangar): the career's research, saved on every change; back to `then`.
+// The hangar (Menu.hangar): the career's research and hulls, saved on every change; back to `then`.
 function hangar(then) {
   paused = true;
-  Menu.hangar({ career, now: () => Date.now(), onChange: () => Career.save(career), onBack: () => { Menu.close(); then(); } });
+  Menu.hangar({ career, now: () => Date.now(), shipArt, onChange: () => Career.save(career), onBack: () => { Menu.close(); then(); } });
 }
 function menu() {
   if (Menu.up || !G) return;
   paused = true;
   const over = R.phase === 'done' || R.phase === 'wreck';
-  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toTitle, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
+  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toLanding, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
 }
 // One at a time: what's asked while the ground is building is ignored.
 function busy(fn, then) {
@@ -379,7 +454,7 @@ function busy(fn, then) {
   setTimeout(async () => { await fn(); document.body.classList.remove('busy'); then?.(); }, 30);
 }
 function newGround() { if (G) for (const k of Object.keys(G.looks)) free(G.looks[k]); build(); return bake(); }
-const newTrack = () => busy(() => { S.seed++; return newGround(); });
+const newTrack = () => busy(() => { S.seed = Career.roll(); return newGround(); });
 $('menu-btn').onclick = menu;
 // The screen's safe area at the bottom (a phone's home bar), which the stick's band keeps clear of.
 const safe = Object.assign(document.createElement('div'), { style: 'position:fixed;left:0;bottom:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none' });
@@ -394,6 +469,6 @@ Input.init(cv, {
   },
 });
 
-window.race = { S, Input, get career() { return career; }, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; } }; // to poke at from the console
+window.race = { S, Input, get career() { return career; }, get G() { return G; }, get R() { return R; }, get cfg() { return cfg; }, get pack() { return pack; }, get storm() { return storm; } }; // to poke at from the console
 requestAnimationFrame(frame);
-if (q.has('biome') || q.has('track')) busy(newGround, play); else toTitle();
+if (q.has('biome') || q.has('track')) busy(newGround, play); else toLanding();

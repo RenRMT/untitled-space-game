@@ -6,6 +6,8 @@
 //   Draw.marks(ctx, v, px, time, G, R)   the rails, kerbs and pylons (G.lines), the start, the next checkpoint
 //   Draw.pickups(ctx, v, px, time, P, got, ground, style?)   what's on the track to pick up (Pickups.place),
 //     bobbing and turning, those in got (taken this race) left out; ground(v, x, y, z) -> [X, Y] | null
+//   Draw.storm(ctx, v, px, time, strikes, ground)   lightning (Storm's strikes): a warning ring closing in on
+//     the ground, then the bolt down from the sky and its glow
 //   Draw.PART[part]   a salvage part's colour (its item's tint)
 //   Draw.icon(key, size?, style?) -> image URL   a pickup's item as an icon: key 'chip' or a part
 //   Draw.lines(G) -> { edges, kerbs, pylons }   the edges, kerbs and pylons on the ground, worked out once a track (G.lines)
@@ -23,7 +25,8 @@
 //   Draw.sparks(ctx, v, px, body, z, drift, time, ground)   sparks off the tail while a slide has
 //     charged a level, coloured by it (R.drift); z: the ship's height
 //   Draw.dust(ctx, v, px, puffs, ground)   dust puffs ({ x, y, z, r, t, life, a, col }: Dust.puffs)
-//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, total, rest, order }   text ×3, html, html (the standings, '' with no rivals); missing: chunks still building
+//   Draw.hud(G, R, cfg, missing, pos?) -> { lap, time, total, rest, order }   text ×3, html, html (the standings, '' with no rivals:
+//     each a portrait, .rm-face[data-f=its id], the page's to set); missing: chunks still building
 //     in view; pos: Rival.standings(), the place and the order, when there are rivals
 //   Draw.note(R, cfg, pos?) -> { msg, big }       the message over the track (the countdown, …; at the end,
 //     what was banked: R.banked, Career.bank's)
@@ -232,6 +235,7 @@ const Draw = (() => {
   const PART = { coil: '#ffb03a', vane: '#7df9ff', cell: '#8cff6a', plate: '#c8d2e6' };
   const ITEM = { chip: { kind: 'iron', color: [46, 0.95, 0.58] }, coil: { kind: 'drive-components', shape: 2 }, cell: { kind: 'drive-components', shape: 1 }, vane: { kind: 'hull-components', shape: 1 }, plate: { kind: 'hull-components', shape: 0 } };
   const HALO = { crate: '#ffcf5a', rare: '#c77dff', chip: '#ffd84a', period: 1.8 };
+  const SIZE = 0.7; // × a pickup's r, drawn (its reach is wider: Pickups.GRAB)
   const itemArt = {}, look = (key) => ({ shape: ITEM[key].shape, color: ITEM[key].color || ArtUtil.toHsl(PART[key]) });
   const art = (key) => (itemArt[key] ||= ArtItems.create(ITEM[key].kind, 1, look(key)));
   // A pickup's item as a menu icon (art/icons.js): an image URL, size CSS px a side.
@@ -244,14 +248,14 @@ const Draw = (() => {
       const chip = p.kind === 'chip', bob = Math.sin(time * 3 + p.n) * 3, z = (chip ? 12 : 16) + bob;
       const g = ground(v, p.x, p.y), at = ground(v, p.x, p.y, z);
       if (!g || !at) continue;
-      const r = p.r, c = RGB(HALO[p.kind]), ph = ((time / HALO.period + p.n * 0.137) % 1 + 1) % 1;
+      const r = p.r * SIZE, c = RGB(HALO[p.kind]), ph = ((time / HALO.period + p.n * 0.137) % 1 + 1) % 1;
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(g[0], g[1], r * 0.8, r * 0.8 * v.ct, 0, 0, TAU); ctx.fill();
       ctx.save(); ctx.globalCompositeOperation = 'lighter';
       glow(ctx, at, r * (chip ? 1.6 : 2.2), c, chip ? 0.35 : 0.45);
       ctx.restore();
       if (!chip) {
-        const R0 = r + 6;
+        const R0 = r + 4;
         ctx.save(); ctx.strokeStyle = `rgb(${c})`; ctx.lineWidth = 1.5 * px;
         ctx.globalAlpha = 0.55 + 0.1 * Math.sin((ph + 0.25) * TAU);
         ctx.beginPath(); ctx.ellipse(g[0], g[1], R0, R0 * v.ct, 0, 0, TAU); ctx.stroke();
@@ -264,6 +268,46 @@ const Draw = (() => {
       Art.drawAsset(ctx, bp, style, { angle: time * (chip ? 1.4 : 0.6) + p.n, t: time });
       ctx.restore();
     }
+  }
+
+  // Lightning: while it's coming, a ring on the ground and a second closing in on it, brighter as it
+  // nears; when it hits, a jagged bolt (a fresh one 30 times a second) from high over the spot, a
+  // glow on the ground, fading over its `bolt` s.
+  const BOLT = { h: 900, segs: 12, jag: 26, rgb: '214,226,255', glow: '185,140,255' };
+  function storm(ctx, v, px, time, strikes, ground) {
+    if (!strikes || !strikes.length) return;
+    ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    for (const s of strikes) {
+      const g = ground(v, s.x, s.y);
+      if (!g) continue;
+      if (s.t > 0) {
+        const f = Math.min(1, s.t / s.warn), a = 0.45 + 0.4 * (1 - f) + 0.15 * Math.sin(time * 24);
+        ctx.fillStyle = `rgba(${BOLT.glow},${0.1 + 0.15 * (1 - f)})`;
+        ctx.beginPath(); ctx.ellipse(g[0], g[1], s.r, s.r * v.ct, 0, 0, TAU); ctx.fill();
+        ctx.strokeStyle = `rgba(${BOLT.rgb},${a})`; ctx.lineWidth = 2 * px; ctx.setLineDash([8 * px, 6 * px]);
+        ctx.beginPath(); ctx.ellipse(g[0], g[1], s.r, s.r * v.ct, 0, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+        const k = 0.15 + 0.85 * f;
+        ctx.lineWidth = 3 * px;
+        ctx.beginPath(); ctx.ellipse(g[0], g[1], s.r * k, s.r * k * v.ct, 0, 0, TAU); ctx.stroke();
+        continue;
+      }
+      const life = Math.max(0, 1 + s.t / s.bolt);
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      glow(ctx, g, s.r * 2.2, BOLT.glow, 0.8 * life);
+      const seed = s.seed + Math.floor(time * 30), h = (i, k) => { const x = Math.sin((i * 7 + k + seed) * 12.9898) * 43758.5453; return x - Math.floor(x); };
+      const pts = [];
+      for (let i = 0; i <= BOLT.segs; i++) {
+        const f = i / BOLT.segs, j = i && i < BOLT.segs ? BOLT.jag : 0;
+        const q = ground(v, s.x + (h(i, 1) - 0.5) * j * 2, s.y + (h(i, 2) - 0.5) * j, BOLT.h * (1 - f));
+        if (q) pts.push(q);
+      }
+      for (const [w, a] of [[9, 0.35], [3.5, 0.9]]) {
+        ctx.strokeStyle = `rgba(${a > 0.5 ? '255,255,255' : BOLT.glow},${a * life})`; ctx.lineWidth = w * px;
+        ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+      }
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   // The ship at flight height, its shadow below and to the side: the ship's own outline (drawn into
@@ -461,7 +505,7 @@ const Draw = (() => {
     const best = R.laps.length ? Math.min(...R.laps) : null, lap = Math.min(cfg.laps, R.laps.length + 1), hullPct = Math.round((100 * R.hull) / cfg.hull);
     const parts = Object.entries(R.haul.parts).map(([k, n]) => `${img(k, 16)}${n}`).join(' ');
     const rest = `Best ${best === null ? '–' : fmt(best)} · last ${R.laps.length ? fmt(R.laps[R.laps.length - 1]) : '–'}<br>${img('chip', 16)}${R.haul.credits}${parts ? ` ${parts}` : ''} · Hull ${hullPct}% · hits ${R.hits}${R.off > 0.5 || R.slow ? ` · <span style="color:#ffb03a">${R.burn ? 'burning' : R.off > 0.5 ? 'off the track' : 'slowed'}</span>` : ''}${missing ? `<br><span style="opacity:.6">${missing} chunks building</span>` : ''}`;
-    const order = pos ? `<ol>${pos.rows.map((r, i) => `<li${r.you ? ' class="you"' : ''}><span class="num">${i + 1}</span><span style="color:${r.color}">${r.name}</span></li>`).join('')}</ol>` : '';
+    const order = pos ? `<ol>${pos.rows.map((r, i) => `<li${r.you ? ' class="you"' : ''}><span class="num">${i + 1}</span><i class="rm-face" data-f="${r.id}" style="--c:${r.color}" title="${r.name}" aria-label="${r.name}"></i></li>`).join('')}</ol>` : '';
     return { lap: `Lap ${lap}/${cfg.laps}${pos ? ` · P${pos.place}/${pos.of}` : ''}`, time: fmt(R.lapT), total: `Total ${fmt(R.total)}`, rest, order };
   }
   const banked = (b) => (b ? `\nBanked ${b.credits} credits${Object.entries(b.parts).map(([k, n]) => ` · ${n} ${k}`).join('')} (×${b.mult}${b.purse ? `, purse ${b.purse}` : ''})` : '');
@@ -475,7 +519,7 @@ const Draw = (() => {
     return { msg: '', big: false };
   }
 
-  return { PART, icon, lines, marks, pickups, ship, trail, streaks, sparks, dust, minimap, drag, pad, sides, hud, note };
+  return { PART, icon, lines, marks, pickups, storm, ship, trail, streaks, sparks, dust, minimap, drag, pad, sides, hud, note };
 })();
 
 export { Draw };

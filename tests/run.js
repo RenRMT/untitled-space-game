@@ -60,6 +60,7 @@ import { Rival } from '../src/race/rival.js';
 import { Dust } from '../src/race/dust.js';
 import { Career } from '../src/race/career.js';
 import { Pickups } from '../src/race/pickups.js';
+import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
 
@@ -3596,18 +3597,30 @@ test('race biomes: desert, moon and gas lay out their own loops, not the terran 
   assert(shape.moon.w > shape.terran.w && shape.moon.k > shape.terran.k, `the moon round with more bends: ${shape.moon.w.toFixed(2)}, ${shape.moon.k} to ${shape.terran.w.toFixed(2)}, ${shape.terran.k}`);
 });
 
-test('race career: the seed of the tracks kept with it, a reroll a fresh career on another', () => {
-  assert.strictEqual(Career.empty().seed, 1);
-  const old = Career.empty(); delete old.seed; old.credits = 50;
+test("race career: the pilot's seed drawn once and kept, the hulls bought and flown", () => {
+  const seeds = [() => 0, () => 0.5, () => 0.999999].map((rnd) => Career.roll(rnd));
+  assert(seeds.every((n) => Number.isInteger(n) && n >= 1 && n <= Career.SEEDS), `seeds ${seeds}`);
+  assert.strictEqual(Career.empty(7).seed, 7);
+  const old = Career.empty(); delete old.seed; delete old.ships; delete old.ship; old.credits = 50;
   const c = Career.from(old);
-  assert.strictEqual(c.seed, 1, 'a career from before the seed: the first');
+  assert(Number.isInteger(c.seed) && c.seed >= 1, 'a career from before the seed: a new one');
   assert.strictEqual(c.credits, 50);
-  for (const rnd of [() => 0, () => 0.5, () => 0.999999]) {
-    const n = Career.reroll(c, rnd);
-    assert(n.seed !== c.seed && n.seed >= 1 && n.seed <= Career.SEEDS && Number.isInteger(n.seed), `seed ${n.seed}`);
-    assert.deepStrictEqual({ ...n, seed: 1 }, Career.empty(), 'everything else starts over');
+  assert.deepStrictEqual([c.ships, c.ship], [[Career.STOCK], Career.STOCK], 'a career from before the hulls: the stock one');
+  assert.strictEqual(Career.from(JSON.parse(JSON.stringify(c))).seed, c.seed, 'kept');
+  for (const S of Object.values(Career.SHIPS)) {
+    const v = Career.value(S.fx);
+    assert(v.gain >= Career.RATIO * v.cost, `${S.id}: gains ${v.gain.toFixed(3)} against costs ${v.cost.toFixed(3)}`);
   }
-  assert.notStrictEqual(Career.reroll(Career.empty(Career.SEEDS), () => 0).seed, Career.SEEDS);
+  const k = Career.empty(1);
+  assert(!Career.buyShip(k, 'fighter'), 'nothing to pay with');
+  k.credits = 1e5; for (const p of Career.PARTS) k.parts[p] = 100;
+  assert(!Career.buyShip(k, 'fighter-heavy'), 'the fighter first');
+  assert(!Career.fly(k, 'fighter'), 'not bought');
+  assert(Career.buyShip(k, 'fighter') && Career.buyShip(k, 'fighter-heavy'));
+  assert.strictEqual(k.credits, 1e5 - 1500 - 5000);
+  assert(!Career.buyShip(k, 'fighter'), 'once');
+  assert(Career.fly(k, 'fighter-heavy') && k.ship === 'fighter-heavy');
+  assert(Career.tune([], 'fighter-heavy').hull > Career.tune([]).hull, 'the hull counts in the tune');
 });
 
 test('race line: inside the track, on the inside at the apexes, and faster than the centreline', () => {
@@ -3808,6 +3821,29 @@ test('race pickups: the same for a seed, on the track, chips on the line, crates
     assert(crates.every((p) => fromLine(p) > 2 * RaceConfig.R_SHIP), 'crates off it');
     assert(crates.every((p) => Career.PARTS.includes(p.part)));
   }
+});
+
+test('race storm: lightning only on the gas giant, called ahead, striking only those under it once it lands', () => {
+  assert(RaceConfig.biome('gas').storm && !RaceConfig.biome('terran').storm, 'the gas giant has lightning; terran none');
+  const { G, cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 }), cs = RaceConfig.biome('gas').storm;
+  const A = run(cfg), B = run(cfg), st = Storm.create(cs, 3);
+  for (let t = 0; t < cs.every[1] + 0.1; t += Run.STEP) Storm.step(st, G, [A, B], Run.STEP);
+  assert.strictEqual(st.strikes.length, 0, 'none in the countdown');
+  A.phase = B.phase = 'race';
+  for (let t = 0; t < cs.every[1] + 0.1 && !st.strikes.length; t += Run.STEP) Storm.step(st, G, [A, B], Run.STEP);
+  const s = st.strikes[0];
+  assert(s && s.t > 0, 'called, with a warning first');
+  assert(Track.edgeDist(G.tr, s.x, s.y).d <= 0, 'on the track');
+  st.wait = Infinity;
+  Object.assign(A.craft, { x: s.x, y: s.y, vx: 300, vy: 0 }); Object.assign(B.craft, { x: s.x + 5 * s.r, y: s.y });
+  const hull = [A.hull, B.hull];
+  Storm.step(st, G, [A, B], s.t / 2);
+  assert.strictEqual(A.hull, hull[0], 'not before it lands');
+  Storm.step(st, G, [A, B], s.t);
+  assert(A.hull === hull[0] - cs.damage && A.fx.includes('strike') && A.craft.vx < 300, 'struck: hull and speed lost');
+  assert.strictEqual(B.hull, hull[1], 'out of reach: untouched');
+  Storm.step(st, G, [A, B], Run.STEP);
+  assert.strictEqual(A.hull, hull[0] - cs.damage, 'once');
 });
 
 test('race pickups: picked up once and only while racing; a lap flown along the line brings some home', () => {
