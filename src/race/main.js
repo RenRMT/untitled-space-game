@@ -446,7 +446,7 @@ function menu() {
   if (Menu.up || !G) return;
   paused = true;
   const over = R.phase === 'done' || R.phase === 'wreck';
-  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toLanding, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
+  Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onPlanets: toTitle, onMain: toLanding, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
 }
 // One at a time: what's asked while the ground is building is ignored.
 // The panel over the track while busy: the survey's uplink, the planet, the level and the course (the

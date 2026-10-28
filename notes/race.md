@@ -213,5 +213,5 @@ Alongside the phases, the menus (a first pass): the title (`src/race/menu.js`) i
 kit: the planets as cards scrolled left and right, each drawn as the game draws it, then the level
 as one of three dots on the planet. In the race the top bar is gone: the times at the top left
 (the lap's, the total under it), the standings down the bottom left and one Menu button at the bottom
-right (Resume, Restart, Hangar, Main menu, under the planet and the seed; Race again after the finish), those two either side of the
+right (Resume, Restart, Hangar, Change planet, Main menu, under the planet and the seed; Race again after the finish), those two either side of the
 stick on a portrait phone.
