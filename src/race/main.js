@@ -227,15 +227,14 @@ async function bake() {
   for (let d = 0; d < tr.len; d += BAKE.step) { const p = tr.pts[Track.ahead(tr, 0, d)]; rects.push(rectAt(p.x, p.y)); }
   rects.push(WHOLE);
   baking = true;
-  for (const rect of rects) {
+  for (const [i, rect] of rects.entries()) {
     while (tiles.layers(rect, BAKE.slice).missing) {
       const [done, all] = total();
-      document.body.dataset.busy = `Building track… ${Math.round((100 * done) / all)}%`;
+      loading(i === 0 ? 'Surveying the grid' : i < rects.length - 1 ? 'Charting the course' : 'Mapping the run-off', done / all);
       await new Promise((r) => setTimeout(r, 0));
     }
   }
   for (const L of tiles.layers(WHOLE, 0)) ctx.drawImage(L.canvas, 0, 0, 1, 1);
-  delete document.body.dataset.busy;
   baking = false;
 }
 // A track's chunks let go, their canvases emptied (a browser may hold a dropped canvas's memory
@@ -450,8 +449,17 @@ function menu() {
   Menu.pause({ planet: BIOMES[S.biome].label, seed: S.seed, onResume: () => (paused = false), onRestart: () => busy(restart, play), onMain: toLanding, onHangar: () => hangar(over ? () => busy(restart, play) : menu), over });
 }
 // One at a time: what's asked while the ground is building is ignored.
+// The panel over the track while busy: the survey's uplink, the planet, the level and the course (the
+// seed), the step it's on and how far (0 .. 1; null: no meter to fill, only a moment).
+function loading(step, f = null) {
+  $('load-planet').textContent = BIOMES[S.biome].label; $('load-level').textContent = `${STYLES[S.track]} circuit`;
+  $('load-seed').textContent = `Course ${String(S.seed % 1e5).padStart(5, '0')}`;
+  $('load-step').textContent = step; $('load-pct').textContent = f === null ? '' : `${Math.round(100 * f)}%`;
+  $('load-bar').style.setProperty('--pct', `${f === null ? 0 : 100 * f}%`);
+}
 function busy(fn, then) {
   if (document.body.classList.contains('busy')) return;
+  loading('Clearing the grid');
   document.body.classList.add('busy');
   setTimeout(async () => { await fn(); document.body.classList.remove('busy'); then?.(); }, 30);
 }
