@@ -81,10 +81,11 @@ const Menu = (() => {
 
   // ---------- The landing ----------
 
-  // A screen over everything (the title's look): a header, its body, a footer.
+  // A screen over everything (the title's look): a header (a label and a title, or its own node), its
+  // body, a footer.
   function screen(kind, cls, head, body, foot, onKey) {
     const node = el('div', { className: `ui rm-title ${cls}` },
-      el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: head[0] }), el('h1', { className: 'ui-title', textContent: head[1] })),
+      Array.isArray(head) ? el('header', { className: 'rm-head' }, el('span', { className: 'ui-label', textContent: head[0] }), el('h1', { className: 'ui-title', textContent: head[1] })) : head,
       ...body, foot ? el('footer', { className: 'rm-foot' }, ...foot) : null);
     open(kind, node, onKey);
     return node;
@@ -95,7 +96,11 @@ const Menu = (() => {
     resume.disabled = !canResume;
     const list = el('nav', { className: 'rm-menu' }, resume, btn('New game', () => (progress ? ask() : onNew()), 'lg wide'),
       btn('Controls', onControls, 'lg wide'), btn('Profile', onProfile, 'lg wide'));
-    const node = screen('landing', 'rm-landing', ['Surface race', 'Race the planets'], [list], null, null);
+    // The game's name: a wordmark, Exo in glass, Drift in hull, over its subtitle.
+    const logo = el('header', { className: 'rm-head rm-logo' },
+      el('h1', { className: 'rm-word', ariaLabel: 'Exo Drift' }, el('span', { className: 'exo', textContent: 'Exo' }), el('span', { textContent: 'Drift' })),
+      el('span', { className: 'ui-label rm-sub', textContent: 'USG Planet Racer' }));
+    const node = screen('landing', 'rm-landing', logo, [list], null, null);
     // A new game, asked first when there's a career to lose.
     const ask = () => {
       const sheet = el('div', { className: 'ui-sheet rm-sheet', role: 'alertdialog' },

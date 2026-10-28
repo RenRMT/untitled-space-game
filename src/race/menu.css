@@ -11,6 +11,17 @@
 }
 .rm-head { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 0 16px; text-align: center; }
 .rm-head .ui-title { font-size: 28px; }
+/* The landing's wordmark: letters lit as plates (the kit's three bands, from the upper left), Exo in
+   glass and Drift in hull, raised on a lip; the subtitle a nameplate between two rules. */
+.rm-logo { gap: 12px; margin-bottom: 10px; }
+.rm-word {
+  display: flex; gap: 0.24em; margin: 0; font: 700 clamp(44px, 14vw, 72px)/0.95 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+  filter: drop-shadow(0 5px 0 var(--lip)) drop-shadow(0 0 22px color-mix(in srgb, var(--glass) 22%, transparent));
+}
+.rm-word span { background: var(--plate); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.rm-word .exo { background-image: var(--plate-glass); }
+.rm-sub { display: flex; align-items: center; gap: 12px; color: var(--trim); letter-spacing: 0.32em; }
+.rm-sub::before, .rm-sub::after { content: ''; width: 28px; height: 2px; background: var(--line-strong); }
 .rm-row { display: flex; align-items: center; gap: 4px; width: min(100%, 1100px); }
 .rm-arrow { flex: none; margin: 0 4px; }
 .rm-cards {

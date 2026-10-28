@@ -2,6 +2,9 @@
 
 Oct 24, 2026
 
+Named **Exo Drift** (store title "Exo Drift: USG Planet Racer"). Always two words: "Exodrift" is a
+crypto space MMO.
+
 The race (`race/index.html`, code in `src/race/`; it started as `tools/race.html`) is a lap race on
 a generated planet surface, flown in the game's own ship by the game's own rules: `Flight` (Cruise
 drift and the dash), `Collide`, `ArtSurface` and `SurfaceGlobe` (the ground, built in chunks), the
