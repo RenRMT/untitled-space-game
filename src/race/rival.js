@@ -36,20 +36,23 @@
 //   Rival.grid(slot, hw) -> { back, side }   a slot's place on the grid (Run's cfg.grid)
 //   Rival.pack(G, cfg, L, level, seed, run) -> pack   the rivals' runs: cfg, your run's (theirs are
 //     made from it, r × the level's hull's size: Config.HULL_SIZE); L: Line.build's racing line; run(cfg) -> R makes a run (Run.create, or Pilot.flat's)
-//   Rival.step(pack, G, R?)   one Run.STEP for every rival, then the ships pushed apart (R: yours, or none)
-//   Rival.ships(Rs, r, tr?)   runs' craft (each its R.r, else r) that overlap pushed apart (tr: the track, to say whose knock it was)
+//   Rival.step(pack, G, R?)   one Run.STEP for every rival, then the ships pushed apart (R: yours, or none);
+//     a knock between you and a rival may spill pickups (spills: the knocked rival's, or yours)
+//   Rival.ships(Rs, r, tr?, out?)   runs' craft (each its R.r, else r) that overlap pushed apart (tr: the track, to say
+//     whose knock it was); each knock felt pushed to out as { A, B, by }
 //   Rival.progress(G, R) -> laps   how far round a run is (laps done + the share of this one)
 //   Rival.standings(P, G, R) -> { place, of, rows: [{ id, name, color, done, prog, you? }] }   the order now
 //     (done: the finish time, or null), yours among them
 //   Rival.race(seed, opts, { level, biome, laps }) -> [{ id, time, pace, hits, knocks, struck, slips }]   a race of
 //     rivals alone, flown headless (Pilot.flat), for the tests and tools
-//   pack: { level, racers: [{ who, cfg, R, ai, ctl }] }; ai: { line: { off, v, time }, pace, best,
+//   pack: { level, rng (the spills'), racers: [{ who, cfg, R, ai, ctl }] }; ai: { line: { off, v, time }, pace, best,
 //     shift, slip, slips, finish (s, once its laps are done), … }
 // ES module (`Rival`); also runs in Node.
 
 import { hashInt, mulberry32 } from '../core/rng.js';
 import { Config } from './config.js';
 import { Line } from './line.js';
+import { Pickups } from './pickups.js';
 import { Pilot } from './pilot.js';
 import { Run } from './run.js';
 import { Track } from './track.js';
@@ -120,7 +123,7 @@ const Rival = (() => {
       };
       return { who, cfg: rcfg, R, ai, ctl: { angle: R.craft.angle, speed: 1, brake: false, keyed: true, events: [] } };
     });
-    return { level, racers };
+    return { level, racers, rng: mulberry32(hashInt(seed, 0, 0xd209)) };
   }
 
   // The first bend whose entry is ahead of point n.
@@ -236,7 +239,7 @@ const Rival = (() => {
 
   // ---------- The pack ----------
 
-  const prog = [];
+  const prog = [], knocks = [];
   function step(P, G, R) {
     const all = P.racers.map((X) => ({ R: X.R, prog: progress(G, X.R) }));
     if (R) all.push({ R, prog: progress(G, R) });
@@ -248,7 +251,25 @@ const Rival = (() => {
       Run.step(X.R, G, X.cfg, X.ctl);
       if (X.ai.finish === null && X.R.laps.length >= X.cfg.race) X.ai.finish = X.R.total;
     });
-    ships(all.map((o) => o.R), P.racers[0] ? P.racers[0].cfg.r : 0, G.tr);
+    knocks.length = 0;
+    ships(all.map((o) => o.R), P.racers[0] ? P.racers[0].cfg.r : 0, G.tr, knocks);
+    if (R && R.drops) for (const k of knocks) spills(P, G, R, k);
+  }
+
+  // A knock between you and a rival, yours: the rival may spill (Pickups.loot) just ahead of it, for
+  // you to pick up; theirs: you may spill some of your haul (Pickups.shed) round you. A ship spills
+  // at most once in Pickups.DROP.cool s (on your run's clock), however long the scrape.
+  function spills(P, G, R, { A, B, by }) {
+    if ((A !== R && B !== R) || !by || R.phase !== 'race') return;
+    const D = Pickups.DROP, X = by === R ? (A === R ? B : A) : R;
+    if (R.total - (X.spillT ?? -Infinity) < D.cool) return;
+    X.spillT = R.total;
+    if (P.rng() >= D.odds) return;
+    const you = X === R, what = you ? Pickups.shed(P.rng, R.haul) : Pickups.loot(P.rng, R.biome);
+    if (!what.credits && !Object.keys(what.parts).length) return;
+    const from = { x: X.craft.x, y: X.craft.y, n: X.n, ahead: you ? [-20, 60] : [30, 120] };
+    for (const p of Pickups.spill(G.tr, from, what, P.rng, R.total, () => `drop${R.dropN++}`)) R.drops.push(p);
+    R.fx.push(you ? 'spill' : 'loot');
   }
 
   // Ships against ships: circles pushed apart, their speeds toward each other traded (a soft knock,
@@ -259,12 +280,13 @@ const Rival = (() => {
   // one moving across toward the other, or the one behind closing faster along it.
   function blame(tr, A, B, nx, ny) {
     const p = tr.pts[A.n], a = A.craft, b = B.craft, nt = nx * p.tx + ny * p.ty, nc = -nx * p.ty + ny * p.tx;
-    const at = a.vx * p.tx + a.vy * p.ty, bt = b.vx * p.tx + b.vy * p.ty, m = (at + bt) / 2;
+    // Along it, the closing is all the one behind's (nt > 0: A is); across it, each its own.
+    const close = (a.vx - b.vx) * p.tx + (a.vy - b.vy) * p.ty;
     const ac = -a.vx * p.ty + a.vy * p.tx, bc = -b.vx * p.ty + b.vy * p.tx;
-    return (at - m) * nt + ac * nc > (bt - m) * -nt + bc * -nc ? A : B;
+    return (nt > 0 ? close * nt : 0) + ac * nc > (nt < 0 ? close * nt : 0) + bc * -nc ? A : B;
   }
 
-  function ships(Rs, r, tr) {
+  function ships(Rs, r, tr, out) {
     for (let i = 0; i < Rs.length; i++) for (let j = i + 1; j < Rs.length; j++) {
       const A = Rs[i], B = Rs[j], a = A.craft, b = B.craft;
       if (A.air > 10 || B.air > 10) continue;
@@ -282,6 +304,7 @@ const Rival = (() => {
       if (into <= BUMP) continue;
       for (const X of [A, B]) { X.fx.push('bump'); X.knocks = (X.knocks || 0) + 1; }
       if (by) by.struck = (by.struck || 0) + 1;
+      if (out) out.push({ A, B, by });
     }
   }
 

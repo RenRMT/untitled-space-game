@@ -3865,6 +3865,51 @@ test('race pickups: picked up once and only while racing; a lap flown along the 
   assert(F.haul.credits >= 5 * Pickups.CHIP.credits, `a lap picked up ${F.haul.credits} credits`);
 });
 
+test('race spills: knocking a rival may spill its pickups ahead of it; one knocking you, some of your haul', () => {
+  const { G, cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 }), probe = run();
+  const L = Line.build(G.tr, { stats: cfg.stats, handling: probe.tune.handling, r: cfg.r }), D = Pickups.DROP, odds = D.odds, part = D.part;
+  // What spills: a rival's chips or a part; yours out of your haul, nothing made or lost.
+  const rng = mulberry32(5);
+  for (let i = 0; i < 40; i++) {
+    const l = Pickups.loot(rng, 'lava'), ps = Object.values(l.parts);
+    assert(l.credits > 0 !== ps.length > 0 && l.credits <= D.chips[1] * Pickups.CHIP.credits && ps.every((n) => n === 1));
+    const h = { credits: 37, parts: { coil: 1 } }, s = Pickups.shed(rng, h);
+    assert(s.credits > 0 && h.credits + s.credits === 37 && h.parts.coil + (s.parts.coil || 0) === 1);
+  }
+  assert.deepStrictEqual(Pickups.shed(rng, Pickups.haul()), { credits: 0, parts: {} }, 'nothing held, nothing spilled');
+  // Spilled pickups: not before they're armed, not after they're gone.
+  const sp = Pickups.spill(G.tr, { x: 0, y: 0, n: 100, ahead: [0, 0] }, { credits: 12, parts: { vane: 1 } }, rng, 10, (() => { let k = 0; return () => `d${k++}`; })());
+  assert.deepStrictEqual(sp.map((p) => [p.kind, p.credits, p.part]), [['chip', 5, null], ['chip', 5, null], ['chip', 2, null], ['crate', 0, 'vane']]);
+  const at = sp[3], h = Pickups.haul();
+  assert.strictEqual(Pickups.collect(sp, new Set(), h, at.x, at.y, cfg.r, 10.1).length, 0, 'not armed yet');
+  assert.strictEqual(Pickups.collect(sp, new Set(), h, at.x, at.y, cfg.r, 10 + D.life + 1).length, 0, 'gone');
+  assert(Pickups.collect(sp, new Set(), h, at.x, at.y, cfg.r, 10 + D.arm).some((p) => p.part === 'vane') && h.parts.vane === 1);
+  // In a race: a ship closing on another along the track knocks it.
+  const knock = (you) => {
+    const P = Rival.pack(G, cfg, L, 'regular', 1, run), R = run({ ...cfg, pickups: [] }), X = P.racers[0];
+    for (const S of [R, X.R]) S.phase = 'race';
+    const p = G.tr.pts[X.R.n], [hit, by] = you ? [X.R, R] : [R, X.R];
+    Object.assign(by.craft, { x: hit.craft.x - p.tx * cfg.r, y: hit.craft.y - p.ty * cfg.r, vx: p.tx * 400, vy: p.ty * 400 });
+    R.haul = { credits: 40, parts: { cell: 2 } };
+    Rival.step(P, G, R);
+    return { R, P };
+  };
+  try {
+    D.odds = 1; D.part = 0;
+    const { R, P } = knock(true);
+    assert(R.drops.length >= D.chips[0] && R.drops.every((p) => p.kind === 'chip') && R.fx.includes('loot'), 'the rival spills chips');
+    assert.strictEqual(R.haul.credits, 40, 'yours untouched');
+    const n = R.drops.length;
+    Rival.step(P, G, R);
+    assert.strictEqual(R.drops.length, n, 'once for the one knock');
+    const { R: Y } = knock(false), lost = Y.drops.reduce((a, p) => a + p.credits, 0);
+    assert(Y.fx.includes('spill') && lost > 0 && Y.haul.credits + lost === 40, 'you spill some of your haul');
+    assert.strictEqual(Y.haul.parts.cell + Y.drops.filter((p) => p.part === 'cell').length, 2);
+    D.odds = 0;
+    assert.strictEqual(knock(true).R.drops.length, 0, 'only a chance');
+  } finally { D.odds = odds; D.part = part; }
+});
+
 test('race career: the build reaches the run (dash, drift, walls, hull), and the side-bump is lopsided', () => {
   const { cfg, run } = Pilot.flat(1, RaceConfig.TRACK, { laps: 1 });
   const t = Career.tune(['dash.1a', 'dash.2a', 'dash.3a', 'handling.1a', 'handling.2a', 'handling.3a', 'chassis.1a', 'chassis.2a', 'chassis.3b']);
