@@ -65,6 +65,8 @@ const Glyphs = (() => {
     BEN: '<path d="M4 4h9v9H4z"/><path d="M11 11h9v9h-9z"/>',
     SHY: '<path d="M3 13.5h18l-3 6H6z"/><path d="M8 13.5V8h8v5.5M12 8V3.5"/>',
     MOD: '<path d="M9 2.5v4.5M15 2.5v4.5"/><path d="M6 7h12v5a6 6 0 0 1-12 0z"/><path d="M12 18v3.5"/>',
+    // A star and the orbit round it (the idle game's system view, src/idle/).
+    ORB: '<circle cx="12" cy="12" r="2.6"/><path d="M19.4 8.2A8.5 8.5 0 1 1 15.8 4.4"/><circle cx="18" cy="6" r="1.8"/>',
     SYS: '<path d="M3.5 5h17v14h-17z"/><path d="M7 10l3 2-3 2M12.5 15H17"/>',
     CMB: '<path d="M20.5 3.5c-5 0-9 2.5-12 7.5l4.5 4.5c5-3 7.5-7 7.5-12z"/><path d="M8.5 11L5 10.5 3.5 12l4 1M13 15.5l.5 3.5-1.5 1.5-1-4M8 16l-3.5 3.5"/>',
     TAC: '<circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h4.5a3 3 0 0 0 0-6h-1a3 3 0 0 1 0-6H16"/>',

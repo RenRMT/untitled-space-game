@@ -21,9 +21,9 @@ export default [
   },
   {
     // The idle game (idle/, src/idle/) is built on the shared layers too: core, art, world and rules,
-    // never the game's own state or panels.
+    // and the game's UI kit (ui/kit.js and what it's built on), never the game's own state or panels.
     files: ['src/idle/**/*.js'],
-    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*'], message: 'src/idle imports src/core, art, world and rules only (notes/idle.md).' }] }] },
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*', '!**/ui/kit.js', '!**/ui/ui.js', '!**/ui/glyphs.js'], message: 'src/idle imports src/core, art, world, rules and the UI kit only (notes/idle.md).' }] }] },
   },
   {
     // The race's service worker: a worker's globals, not a page's.

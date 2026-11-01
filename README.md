@@ -56,7 +56,9 @@ needs HTTPS (or localhost).
 
 The idle game is a third page, `/idle/` (`idle/index.html`, code in `src/idle/`): an idle station
 builder (working title Waystation) on the game's production, haulers and restoration rules, run on
-the real clock while the page is closed. `?fresh` starts a new save and `?seed=` picks its system;
+the real clock while the page is closed. The system starts with nothing built: bodies are charted
+by survey and stations built in orbit round them, on a star-centred map in the Line style, with the
+game's UI kit for its screens. `?fresh` starts a new save and `?seed=` picks its system;
 `notes/idle.md` is the plan.
 
 ## Code layout

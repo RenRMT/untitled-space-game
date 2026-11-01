@@ -1,36 +1,50 @@
-// The idle game's rules (notes/idle.md): one seeded system (world/galaxy.js), its stations brought
-// back online one after another (rules/restoration.js over Config.PROJECTS), drills at the
-// extraction sites, production orders at the stations and the shuttles between them (rules/industry.js
-// over Config.RECIPES), and selling at the stations' markets (rules/economy.js). Everything runs
-// on the real clock through Industry's settle, so time away comes out the same as time watched.
+// The idle game's rules (notes/idle.md): one seeded system (world/galaxy.js) with nothing built in
+// it. Its bodies are charted one survey at a time; stations are built in orbit round charted bodies,
+// one after another (rules/restoration.js over Config.BUILDS); drills pull raw goods from charted
+// bodies; production orders run at the stations, shuttles carry goods between them (rules/industry.js
+// over Config.RECIPES), and the stations' markets buy (rules/economy.js). Everything runs on the real
+// clock through Industry's settle and the survey's end time, so time away comes out the same as time
+// watched.
 //
-// Extraction sites are stations as far as Industry is concerned: the asteroid field, each planet and
-// each moon has a stock (key `site:<kind><id>`, type 'site', process 'extract'), and a drill is an
-// order there running extract.<good>, a recipe with no inputs that stops while the site's stock is full.
-// A site takes as many orders as it has drills (env slotsAt), and its first drill gives it a shuttle
-// to the nearest online station that uses what it pulls (the waystation if none does).
+// Bodies are drill sites as far as Industry is concerned: the asteroid field, each planet and each
+// moon has a stock (key `site:<kind><id>`, type 'site', process 'extract'), and a drill is an order
+// there running extract.<good>, a recipe with no inputs that stops while the site's stock is full. A
+// site takes as many orders as it has drills (env slotsAt), and its first drill gives it a shuttle to
+// the nearest station that uses what it pulls (the waystation if none does). A station is where its
+// body is: travel times between them come from the bodies' places in the system.
 //
-//   IdleRules.industry, IdleRules.restoration   the Industry and Restoration instances
-//   IdleRules.world(seed) -> w        { seed, galaxy, stations: [station], sites: [site], byKey: Map }
-//     station: { key, name, type, kind: 'station', x, y, culture, seed, size, src (the galaxy's) }
-//     site:    { key, name, kind: 'field' | 'planet' | 'moon', type: 'site', x, y, goods: [kind], body (planet/moon) | null, parentType? }
-//   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, restored, drills: { [site key]: n }, economy, seen }
+//   IdleRules.industry, IdleRules.builds          the Industry and Restoration instances
+//   IdleRules.world(seed) -> w        { seed, galaxy, star, stations: [station], sites: [site], byKey: Map, waystation }
+//     station: { key, name, type, kind: 'station', build (its Config.BUILDS id), code, culture, seed, size, src (the galaxy's) }
+//     site:    { key, name, kind: 'field' | 'planet' | 'moon', type: 'site', x, y, goods: [kind], body (planet/moon) | null,
+//                parent (a moon's planet key) | null, ring (planets and the field: their orbit's place from the star, 0 first) }
+//   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, built: [build id], hosts: { [station key]: site key },
+//                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
+//                                       drills: { [site key]: n }, economy, seen }
 //   IdleRules.env(state) -> Industry env
-//   IdleRules.online(state, w, key) -> bool   (sites: always)
+//   IdleRules.online(state, w, key) -> bool   a station built, a site charted
+//   IdleRules.charted(state, key), surveyable(state, w, key) -> bool   (a moon once its planet is charted)
+//   IdleRules.surveyCost(state) -> credits, surveyTime(state, w, key) -> ms
+//   IdleRules.survey(state, w, key, now) -> bool   start one (one at a time)
+//   IdleRules.findAt(w, key) -> credits   what surveying that body turns up (0: nothing)
+//   IdleRules.hostOf(state, key) -> site key | null, berths(state, w, siteKey) -> { total, used, free }
+//   IdleRules.posOf(state, w, key) -> { x, y }   where a site or a built station is (world units)
+//   IdleRules.nextBuild(state) -> build | null, buildStatus(state, w, id)   Restoration.status, paid at the waystation
+//   IdleRules.build(state, w, id, siteKey, now) -> bool
+//   IdleRules.stationOf(w, buildId) -> station
 //   IdleRules.drillCost(state, site) -> credits
-//   IdleRules.buyDrill(state, w, siteKey, good, now) -> bool
+//   IdleRules.buyDrill(state, w, siteKey, good, now) -> bool   (once the waystation is built)
 //   IdleRules.setDrill(state, w, orderId, good, now) -> bool   what an existing drill pulls
 //   IdleRules.recipesAt(state, w, key) -> [recipe]   the orders a station (or site) can take
 //   IdleRules.place(state, w, key, recipe, now) -> order | null, cancel(state, w, orderId) -> bool (not drills)
 //   IdleRules.setShuttle(state, w, fromKey, toKey, now) -> route | null
 //   IdleRules.priceOf(state, w, stKey, kind, now) -> credits | null   what that station pays for one
 //   IdleRules.sell(state, w, stKey, kind, n, now) -> { sold, credits }
-//   IdleRules.nextProject(state) -> project | null, projectStatus(state, w, id)
-//   IdleRules.restore(state, w, id, now) -> bool   paid from the waystation's stock and credits
-//   IdleRules.settle(state, now, max?) -> { log, truncated }
+//   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }] }
 //   IdleRules.read(data) -> state | null   a saved state, checked lightly
 // ES module (`IdleRules`); also runs in Node (the tests).
 
+import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
@@ -42,28 +56,36 @@ import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 1;
+  const VERSION = 2;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
-  const restoration = Restoration.create({ list: Config.PROJECTS, online: Config.ONLINE });
+  const builds = Restoration.create({ list: Config.BUILDS, online: [] });
   const isSite = (key) => key.startsWith('site:');
   const uniq = (a) => [...new Set(a)];
 
   function world(seed) {
     const galaxy = Galaxy.generate(seed);
-    const stations = galaxy.stations.map((s) => ({ key: s.key, name: s.name, type: s.market.type, kind: 'station', x: s.x, y: s.y, culture: s.culture, seed: s.seed, size: s.size, src: s }));
+    const star = galaxy.stars[0];
+    const byType = new Map(Config.BUILDS.map((b) => [b.type, b]));
+    const stations = galaxy.stations.filter((s) => byType.has(s.market.type)).map((s) => {
+      const b = byType.get(s.market.type);
+      return { key: s.key, name: s.name, type: s.market.type, kind: 'station', build: b.id, code: b.code, culture: s.culture, seed: s.seed, size: s.size, src: s };
+    });
     const sites = [];
-    for (const f of galaxy.fields) sites.push({ key: `site:field${f.id}`, name: f.name, kind: 'field', type: 'site', x: f.x, y: f.y, goods: ['iron', 'silicates'], body: null });
+    for (const f of galaxy.fields) sites.push({ key: `site:field${f.id}`, name: f.name, kind: 'field', type: 'site', x: f.x, y: f.y, goods: ['iron', 'silicates'], body: null, parent: null, field: f });
     for (const p of galaxy.planets) {
       const goods = uniq(Hazards.surface('planet', p.type, p.seed).deposits.map(([k]) => k));
-      sites.push({ key: `site:planet${p.id}`, name: p.name, kind: 'planet', type: 'site', x: p.x, y: p.y, goods, body: p });
+      sites.push({ key: `site:planet${p.id}`, name: p.name, kind: 'planet', type: 'site', x: p.x, y: p.y, goods, body: p, parent: null });
     }
     for (const m of galaxy.moons) {
       const parentType = galaxy.planets[m.parent]?.type;
       const goods = uniq(Hazards.surface('moon', m.type, m.seed, parentType).deposits.map(([k]) => k));
-      sites.push({ key: `site:moon${m.id}`, name: m.name, kind: 'moon', type: 'site', x: m.x, y: m.y, goods, body: m, parentType });
+      sites.push({ key: `site:moon${m.id}`, name: m.name, kind: 'moon', type: 'site', x: m.x, y: m.y, goods, body: m, parent: `site:planet${m.parent}`, parentType });
     }
+    // The orbits, inner to outer: the planets' and the field's.
+    const fromStar = (s) => Math.hypot(s.x - star.x, s.y - star.y);
+    sites.filter((s) => s.kind !== 'moon').sort((a, b) => fromStar(a) - fromStar(b)).forEach((s, i) => { s.ring = i; });
     const byKey = new Map([...stations, ...sites].map((x) => [x.key, x]));
-    return { seed, galaxy, stations, sites, byKey, waystation: stations.find((s) => s.type === 'waystation') };
+    return { seed, galaxy, star, stations, sites, byKey, rings: sites.filter((s) => s.kind !== 'moon').length, waystation: stations.find((s) => s.type === 'waystation') };
   }
 
   function env(state) {
@@ -77,37 +99,128 @@ const IdleRules = (() => {
     };
   }
 
+  // ---------- Charting ----------
+
+  const charted = (state, key) => state.charted.includes(key);
+  function surveyable(state, w, key) {
+    const s = w.byKey.get(key);
+    return !!s && s.kind !== 'station' && !charted(state, key) && (!s.parent || charted(state, s.parent));
+  }
+  const surveysDone = (state) => Math.max(0, state.charted.length - 1); // the field is charted from the start
+  const surveyCost = (state) => Math.round((Config.SURVEY.credits * Config.SURVEY.growth ** surveysDone(state)) / 10) * 10;
+  function surveyTime(state, w, key) {
+    const s = w.byKey.get(key);
+    const near = Math.min(...state.charted.map((k) => dist(w.byKey.get(k), s)));
+    return Math.round((Config.SURVEY.secs + Config.SURVEY.perUnit * near) * 1000);
+  }
+  function survey(state, w, key, now) {
+    if (state.survey || !surveyable(state, w, key)) return false;
+    const cost = surveyCost(state);
+    if (state.credits < cost) return false;
+    state.credits -= cost;
+    state.survey = { key, at: now, end: now + surveyTime(state, w, key) };
+    return true;
+  }
+  // Seeded per body: whether its survey turns up a derelict, and what it's worth.
+  function findAt(w, key) {
+    const s = w.byKey.get(key);
+    if (!s || s.kind === 'field') return 0;
+    const r = mulberry32(hashInt(seedToInt(w.seed), seedToInt(key), 0xf1d));
+    if (r() >= Config.SURVEY.find) return 0;
+    const [a, b] = Config.SURVEY.findCredits, ring = s.ring ?? w.byKey.get(s.parent)?.ring ?? 0;
+    return Math.round(((a + r() * (b - a)) * (1 + ring / 2)) / 10) * 10;
+  }
+  function chartDue(state, w, now) {
+    const sv = state.survey;
+    if (!sv || now < sv.end) return [];
+    state.survey = null;
+    if (charted(state, sv.key)) return [];
+    state.charted.push(sv.key);
+    const find = findAt(w, sv.key);
+    if (find) { state.finds[sv.key] = find; state.credits += find; }
+    return [{ key: sv.key, find }];
+  }
+
+  // ---------- Places ----------
+
   const online = (state, w, key) => {
     const x = w.byKey.get(key);
-    return !!x && (x.kind !== 'station' || restoration.online(x.type, state.restored));
+    if (!x) return false;
+    return x.kind === 'station' ? builds.online(x.type, state.built) : charted(state, key);
   };
+  const hostOf = (state, key) => state.hosts[key] || null;
+  function posOf(state, w, key) {
+    const x = w.byKey.get(key);
+    if (!x) return null;
+    if (x.kind !== 'station') return { x: x.x, y: x.y };
+    const h = hostOf(state, key);
+    return h ? { x: w.byKey.get(h).x, y: w.byKey.get(h).y } : { x: x.src.x, y: x.src.y };
+  }
   const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-  const travel = (a, b) => Logistics.legTime(dist(a, b), Config.HAULER_SPEED);
+  const travel = (state, w, a, b) => Logistics.legTime(dist(posOf(state, w, a), posOf(state, w, b)), Config.HAULER_SPEED);
   const ref = (x) => ({ key: x.key, name: x.name, type: x.type });
+  function berths(state, w, siteKey) {
+    const s = w.byKey.get(siteKey), total = s ? Config.BERTHS[s.kind] || 0 : 0;
+    const used = Object.values(state.hosts).filter((h) => h === siteKey).length;
+    return { total, used, free: Math.max(0, total - used) };
+  }
+  const stationOf = (w, buildId) => w.stations.find((s) => s.build === buildId) || null;
 
   function setShuttle(state, w, fromKey, toKey, now) {
     const from = w.byKey.get(fromKey), to = toKey ? w.byKey.get(toKey) : null;
     if (!from || !online(state, w, fromKey) || (to && (to.kind !== 'station' || !online(state, w, toKey) || to === from))) return null;
-    return industry.setShuttle(state.industry, ref(from), to ? ref(to) : null, to ? travel(from, to) : 0, env(state), now);
+    return industry.setShuttle(state.industry, ref(from), to ? ref(to) : null, to ? travel(state, w, fromKey, toKey) : 0, env(state), now);
   }
 
-  // Where a site's goods go: the nearest online station with a process that uses one of them.
+  // Where a site's goods go: the nearest station with a process that uses one of them, else the
+  // waystation; null before the waystation is built.
+  const uses = (st, goods) => industry.processes(st.type).some((bay) => Object.values(Config.RECIPES).some((R) => R.bay === bay && goods.some((g) => g in R.in)));
   function shuttleTarget(state, w, site) {
-    const uses = (st) => industry.processes(st.type).some((bay) => Object.values(Config.RECIPES).some((R) => R.bay === bay && site.goods.some((g) => g in R.in)));
-    const at = w.stations.filter((st) => online(state, w, st.key) && uses(st)).sort((a, b) => dist(a, site) - dist(b, site));
-    return at[0] || w.waystation;
+    const at = w.stations.filter((st) => online(state, w, st.key) && uses(st, site.goods))
+      .sort((a, b) => dist(posOf(state, w, a.key), site) - dist(posOf(state, w, b.key), site));
+    return at[0] || (online(state, w, w.waystation.key) ? w.waystation : null);
   }
 
   function empty(w, now) {
-    const state = { version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), restored: [], drills: {}, economy: Economy.empty(), seen: now };
-    // The ore works starts on steel pipe, shuttled to the waystation.
-    const camp = w.stations.find((s) => s.type === 'mining camp');
-    if (camp) {
-      industry.place(state.industry, ref(camp), 'make.steel-pipe', null, env(state), now);
-      setShuttle(state, w, camp.key, w.waystation.key, now);
-    }
-    return state;
+    const field = w.sites.find((s) => s.kind === 'field');
+    return {
+      version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
+      charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), seen: now,
+    };
   }
+
+  // ---------- Building ----------
+
+  const nextBuild = (state) => builds.LIST.find((b) => !state.built.includes(b.id)) || null;
+  const wayStock = (state, w) => (online(state, w, w.waystation.key) ? industry.stockAt(state.industry, w.waystation.key) : {});
+  const buildStatus = (state, w, id) => builds.status(id, state.built, wayStock(state, w), state.credits);
+
+  function build(state, w, id, siteKey, now) {
+    const b = builds.PROJECTS[id], st = b && stationOf(w, id), site = w.byKey.get(siteKey);
+    if (!st || !site || site.kind === 'station' || !charted(state, siteKey) || !berths(state, w, siteKey).free) return false;
+    const r = builds.restore(id, state.built, wayStock(state, w), state.credits);
+    if (!r) return false;
+    for (const [kind, n] of Object.entries(r.take)) industry.withdraw(state.industry, w.waystation.key, kind, n);
+    state.credits -= r.credits;
+    state.built.push(id);
+    state.hosts[st.key] = siteKey;
+    if (b.shuttle && st !== w.waystation) setShuttle(state, w, st.key, w.waystation.key, now);
+    // The ore works starts on steel pipe.
+    if (st.type === 'mining camp') industry.place(state.industry, ref(st), 'make.steel-pipe', null, env(state), now);
+    // Drill sites that send to the waystation, or nowhere, send to this station instead if it uses
+    // what they pull.
+    for (const s of w.sites) {
+      if (!state.drills[s.key]) continue;
+      const r0 = industry.shuttle(state.industry, s.key), to = r0 ? r0.stops[1].station : null;
+      if (to && to !== w.waystation.key) continue;
+      const target = shuttleTarget(state, w, s);
+      if (target && target.key !== to) setShuttle(state, w, s.key, target.key, now);
+    }
+    industry.kick(state.industry, env(state), now);
+    return true;
+  }
+
+  // ---------- Drills ----------
 
   function drillCost(state, site) {
     const n = state.drills[site.key] || 0;
@@ -118,13 +231,13 @@ const IdleRules = (() => {
 
   function buyDrill(state, w, siteKey, good, now) {
     const site = w.byKey.get(siteKey);
-    if (!site || site.kind === 'station' || !site.goods.includes(good)) return false;
-    const cost = drillCost(state, site);
-    if (state.credits < cost) return false;
+    if (!site || site.kind === 'station' || !charted(state, siteKey) || !site.goods.includes(good)) return false;
+    const target = shuttleTarget(state, w, site), cost = drillCost(state, site);
+    if (!target || state.credits < cost) return false;
     state.credits -= cost;
     state.drills[siteKey] = (state.drills[siteKey] || 0) + 1;
     industry.place(state.industry, ref(site), `extract.${good}`, null, env(state), now);
-    if (!industry.shuttle(state.industry, siteKey)) setShuttle(state, w, siteKey, shuttleTarget(state, w, site).key, now);
+    if (!industry.shuttle(state.industry, siteKey)) setShuttle(state, w, siteKey, target.key, now);
     return true;
   }
 
@@ -133,6 +246,8 @@ const IdleRules = (() => {
     if (!site || site.kind === 'station' || !site.goods.includes(good)) return false;
     return industry.change(state.industry, orderId, `extract.${good}`, null, env(state), now);
   }
+
+  // ---------- Orders ----------
 
   function recipesAt(state, w, key) {
     const x = w.byKey.get(key);
@@ -151,6 +266,8 @@ const IdleRules = (() => {
     if (!o || isSite(o.station)) return false;
     return industry.cancel(state.industry, id);
   }
+
+  // ---------- Selling ----------
 
   // Trade goods sell at the station's market price (falling as it fills); gear, consumables and
   // salvage at a flat share of their price.
@@ -175,37 +292,33 @@ const IdleRules = (() => {
     return { sold, credits };
   }
 
-  const nextProject = (state) => restoration.LIST.find((p) => !state.restored.includes(p.id)) || null;
-  const projectStatus = (state, w, id) => restoration.status(id, state.restored, industry.stockAt(state.industry, w.waystation.key), state.credits);
-  function restore(state, w, id, now) {
-    const r = restoration.restore(id, state.restored, industry.stockAt(state.industry, w.waystation.key), state.credits);
-    if (!r) return false;
-    for (const [kind, n] of Object.entries(r.take)) industry.withdraw(state.industry, w.waystation.key, kind, n);
-    state.credits -= r.credits;
-    state.restored.push(id);
-    const p = restoration.PROJECTS[id];
-    if (p.shuttle) for (const st of w.stations.filter((s) => s.type === p.shuttle && s !== w.waystation)) setShuttle(state, w, st.key, w.waystation.key, now);
-    industry.kick(state.industry, env(state), now);
-    return true;
-  }
+  // ---------- Time ----------
 
-  function settle(state, now, max) {
+  // The survey is charted before production settles, so its find is in the credits from its end.
+  function settle(state, w, now, max) {
+    const found = chartDue(state, w, now);
     const r = industry.settle(state.industry, now, env(state), max);
     if (!r.truncated) state.seen = now;
-    return r;
+    return { ...r, charted: found };
   }
 
   function read(d) {
-    if (!d || typeof d !== 'object' || d.version !== VERSION || !d.industry || !Array.isArray(d.industry.orders)) return null;
+    if (!d || typeof d !== 'object' || d.version !== VERSION || !d.industry || !Array.isArray(d.industry.orders) || !Array.isArray(d.charted)) return null;
+    const obj = (x) => (x && typeof x === 'object' ? x : {});
     return {
       version: VERSION, seed: d.seed ?? 1, credits: Number.isFinite(d.credits) ? d.credits : Config.START_CREDITS,
-      industry: d.industry, restored: Array.isArray(d.restored) ? d.restored.filter((id) => restoration.PROJECTS[id]) : [],
-      drills: d.drills && typeof d.drills === 'object' ? d.drills : {}, economy: d.economy && typeof d.economy === 'object' ? d.economy : Economy.empty(),
+      industry: d.industry, built: Array.isArray(d.built) ? d.built.filter((id) => builds.PROJECTS[id]) : [], hosts: obj(d.hosts),
+      charted: d.charted, survey: d.survey && Number.isFinite(d.survey.end) ? d.survey : null, finds: obj(d.finds),
+      drills: obj(d.drills), economy: d.economy && typeof d.economy === 'object' ? d.economy : Economy.empty(),
       seen: Number.isFinite(d.seen) ? d.seen : 0,
     };
   }
 
-  return { VERSION, industry, restoration, isSite, world, env, online, empty, drillCost, buyDrill, setDrill, recipesAt, place, cancel, setShuttle, priceOf, sell, nextProject, projectStatus, restore, settle, read };
+  return {
+    VERSION, industry, builds, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
+    hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
+    place, cancel, setShuttle, priceOf, sell, settle, read,
+  };
 })();
 
 export { IdleRules };
