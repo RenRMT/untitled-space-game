@@ -38,7 +38,8 @@
 //                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
 //                                       drills: { [site key]: n }, economy, lab, contracts: { day, list: [contract] },
 //                                       autoSell: [kind], soldAt (the last auto-sell step settled to),
-//                                       sales: { ['<station key>|<kind>']: { n, at } } (gear sold lately), seen }
+//                                       sales: { ['<station key>|<kind>']: { n, at } } (gear sold lately), seen,
+//                                       earned (credits made in this system: sales, contracts, finds), legacy }
 //     contract: { id, kind, n, reward (before research's bonus), from (a faction's name), done }
 //   IdleRules.env(state) -> Industry env   with research's speed, room, order slots and drill rate
 //   IdleRules.bonusAt(state, t, key) -> n   a research bonus from what was done by t ('speed', 'storage',
@@ -83,6 +84,12 @@
 //   IdleRules.canAuto(state) -> bool (researched), autoFloor(state) -> share, setAuto(state, kind, on) -> bool
 //   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }], researched: [id],
 //     sold: { [kind]: { n, credits } } (auto-sold) }
+//   IdleRules.legacy(state) -> { jumps, points, systems: [{ seed, name, points, built, at }] }   kept from
+//     the systems left before (new systems: prestige); legacyBonus(state, 'speed' | 'pay') -> share added
+//   IdleRules.canJump(state) -> bool (every station built), jumpPoints(state) -> n   what leaving now earns
+//   IdleRules.nextSeed(state) -> seed   the next system's
+//   IdleRules.jump(state, w, now) -> { state, w } | null   a new system (rolled from nextSeed), nothing built,
+//     the legacy carried over with this one added to it
 //   IdleRules.read(data) -> state | null   a saved state, checked lightly
 // ES module (`IdleRules`); also runs in Node (the tests).
 
@@ -101,13 +108,18 @@ import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 5;
+  const VERSION = 6;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
   const builds = Restoration.create({ list: Config.BUILDS, online: [] });
   const P = Config.PACKAGES;
   // What's done adds from the moment it finished.
   const bonusOf = (labState, t, key) => labState.done.reduce((n, id) => n + ((labState.doneAt?.[id] ?? 0) <= t ? P[id]?.industry?.[key] || 0 : 0), 0);
   const bonusAt = (state, t, key) => bonusOf(state.lab, t, key);
+  // Legacy (new systems): kept from the systems left before, the same from start to end of this one.
+  const noLegacy = () => ({ jumps: 0, points: 0, systems: [] });
+  const legacy = (state) => state.legacy;
+  const legacyBonus = (state, key) => state.legacy.points * (Config.LEGACY[key] || 0);
+  const payMul = (state) => 1 + legacyBonus(state, 'pay');
   const lab = Lab.create({ packages: P, categories: Config.CATEGORIES, queueMax: (l) => Config.LAB_QUEUE + bonusOf(l, Infinity, 'queue'), config: Research.config });
   // Drills and the wreck field need no research.
   const DRILLS = Object.keys(Config.RECIPES).filter((id) => id.startsWith('extract.') || id.startsWith('salvage.'));
@@ -172,7 +184,7 @@ const IdleRules = (() => {
   function env(state) {
     return {
       recipe: (id) => Config.RECIPES[id],
-      speed: (t) => 1 + bonusAt(state, t, 'speed'),
+      speed: (t) => 1 + bonusAt(state, t, 'speed') + legacyBonus(state, 'speed'),
       room: (t) => bonusAt(state, t, 'storage'),
       slots: () => bonusAt(state, Infinity, 'bays'),
       slotsAt: (key) => (isSite(key) ? state.drills[key] || 0 : Config.STATION_SLOTS + bonusAt(state, Infinity, 'bays')),
@@ -220,7 +232,7 @@ const IdleRules = (() => {
     if (charted(state, sv.key)) return [];
     state.charted.push(sv.key);
     const find = findAt(w, sv.key);
-    if (find) { state.finds[sv.key] = find; state.credits += find; }
+    if (find) { state.finds[sv.key] = find; state.credits += find; state.earned += find; }
     return [{ key: sv.key, find }];
   }
 
@@ -269,7 +281,7 @@ const IdleRules = (() => {
     return {
       version: VERSION, seed: w.seed, layout: w.layout, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
       charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(),
-      contracts: { day: null, list: [] }, autoSell: [], soldAt: now, sales: {}, seen: now,
+      contracts: { day: null, list: [] }, autoSell: [], soldAt: now, sales: {}, seen: now, earned: 0, legacy: noLegacy(),
     };
   }
 
@@ -474,10 +486,10 @@ const IdleRules = (() => {
     const glut = 0.5 ** (glutOf(state, stKey, kind, now) / glutRule(kind).soft);
     if (traded(kind)) {
       const p = Economy.market(w.galaxy.seed, st.src, state.economy, now).goods.find((g) => g.kind === kind)?.sell;
-      return p == null ? null : Math.max(1, Math.round(p * glut));
+      return p == null ? null : Math.max(1, Math.round(p * glut * payMul(state)));
     }
     const item = Recipes.item(kind);
-    return item ? Math.max(1, Math.round(item.price * Config.GEAR_SALE * glut)) : null;
+    return item ? Math.max(1, Math.round(item.price * Config.GEAR_SALE * glut * payMul(state))) : null;
   }
   function sell(state, w, stKey, kind, n, now) {
     let sold = 0, credits = 0;
@@ -489,6 +501,7 @@ const IdleRules = (() => {
       credits += p;
     }
     state.credits += credits;
+    state.earned += credits;
     if (sold) industry.kick(state.industry, env(state), now); // room freed: blocked orders and haulers go on
     return { sold, credits };
   }
@@ -539,7 +552,7 @@ const IdleRules = (() => {
     state.contracts = { day, list };
   }
   const contracts = (state) => state.contracts.list;
-  const contractPay = (state, c) => Math.round(c.reward * (1 + bonusAt(state, Infinity, 'contractBonus')));
+  const contractPay = (state, c) => Math.round(c.reward * (1 + bonusAt(state, Infinity, 'contractBonus')) * payMul(state));
   function canDeliver(state, w, id) {
     const c = contracts(state).find((x) => x.id === id);
     return !!c && !c.done && (wayStock(state, w)[c.kind] || 0) >= c.n;
@@ -550,6 +563,7 @@ const IdleRules = (() => {
     industry.withdraw(state.industry, w.waystation.key, c.kind, c.n);
     c.done = true;
     state.credits += pay;
+    state.earned += pay;
     industry.kick(state.industry, env(state), now);
     return pay;
   }
@@ -579,6 +593,25 @@ const IdleRules = (() => {
       }
       if (n) { const x = sold[kind] || (sold[kind] = { n: 0, credits: 0 }); x.n += n; x.credits += credits; }
     }
+  }
+
+  // ---------- New systems (prestige) ----------
+
+  // Once every station is built, the player can leave for a new system: everything here stays
+  // behind (stations, drills, research, credits), and what was earned here becomes legacy points,
+  // kept for good. The next system is rolled from this one's seed and the jumps made, so it's fixed.
+  const canJump = (state) => !nextBuild(state);
+  const jumpPoints = (state) => Math.floor(Math.sqrt(Math.max(0, state.earned) / Config.LEGACY.per));
+  const nextSeed = (state) => 1 + (hashInt(seedToInt(state.seed), state.legacy.jumps + 1, 0x7a3) % 999999);
+  function jump(state, w, now) {
+    if (!canJump(state)) return null;
+    const points = jumpPoints(state), L = state.legacy;
+    const nw = world(nextSeed(state), LAYOUT), next = empty(nw, now);
+    next.legacy = {
+      jumps: L.jumps + 1, points: L.points + points,
+      systems: [...L.systems, { seed: state.seed, name: w.galaxy.name, points, built: state.built.length, at: now }],
+    };
+    return { state: next, w: nw };
   }
 
   // ---------- Time ----------
@@ -632,7 +665,13 @@ const IdleRules = (() => {
       sales: obj(d.sales),
       soldAt: Number.isFinite(d.soldAt) ? d.soldAt : Number.isFinite(d.seen) ? d.seen : 0,
       seen: Number.isFinite(d.seen) ? d.seen : 0,
+      earned: Number.isFinite(d.earned) ? d.earned : 0, legacy: readLegacy(d.legacy),
     };
+  }
+  function readLegacy(l) {
+    if (!l || typeof l !== 'object') return noLegacy();
+    const n = (x) => (Number.isFinite(x) && x > 0 ? Math.floor(x) : 0);
+    return { jumps: n(l.jumps), points: n(l.points), systems: Array.isArray(l.systems) ? l.systems.filter((x) => x && typeof x === 'object') : [] };
   }
 
   return {
@@ -640,7 +679,7 @@ const IdleRules = (() => {
     routeLimit, haulerLimit, routes, canRoute, carries, addRoute, removeRoute, fixes, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
     hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
     place, cancel, setShuttle, priceOf, sell, contracts, contractSlots, contractPay, canDeliver, deliver, canAuto, autoFloor, setAuto,
-    settle, read,
+    legacy, legacyBonus, canJump, jumpPoints, nextSeed, jump, settle, read,
   };
 })();
 

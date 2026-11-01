@@ -2,8 +2,10 @@
 // the targets in notes/idle.md (Numbers): when each station is built, and when the first gear of
 // each Mk comes out of the shipyard. The rules are the page's own (src/idle/rules.js), so what this
 // reports is what a player who plays like the script would see.
-//   node tools/idle-sim.js [--days=30] [--seed=1] [--layout=2] [--log]   (npm run idle:sim -- …)
+//   node tools/idle-sim.js [--days=30] [--seed=1] [--layout=2] [--legacy=0] [--log]   (npm run idle:sim -- …)
 // --layout=1 is the galaxy's own system, the same bodies for every seed (saves from before version 5).
+// --legacy=N plays a system after others, with N legacy points (new systems); the report says how
+// many leaving would earn, from the shipyard on.
 //
 // The player checks in every 2 minutes for the first half hour, every 15 minutes to the end of the
 // second hour, then every 3 hours, day and night. At each check-in, after settling to now, it:
@@ -24,7 +26,7 @@ import { Recipes } from '../src/rules/recipes.js';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const a = args.find((s) => s.startsWith(`--${k}=`)); return a ? +a.split('=')[1] : d; };
-const DAYS = opt('days', 30), SEED = opt('seed', 1), LAYOUT = opt('layout', R0.LAYOUT), LOG = args.includes('--log');
+const DAYS = opt('days', 30), SEED = opt('seed', 1), LAYOUT = opt('layout', R0.LAYOUT), LEGACY = opt('legacy', 0), LOG = args.includes('--log');
 const R = IdleRules, I = R.industry, MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR;
 const T0 = Date.UTC(2026, 10, 2, 8); // a Monday morning
 const LINE = 'deflector';
@@ -35,6 +37,7 @@ const PREFER = [
 ];
 
 const w = R.world(SEED, LAYOUT), state = R.empty(w, T0), way = w.waystation.key;
+state.legacy.points = LEGACY;
 const field = w.sites.find((s) => s.kind === 'field');
 const milestones = [], gearFirst = {}, income = {};
 const earn = (k, n) => { income[k] = (income[k] || 0) + n; };
@@ -212,10 +215,14 @@ const times = [];
 for (let t = 0; t < 30 * MIN; t += 2 * MIN) times.push(t);
 for (let t = 30 * MIN; t < 2 * HOUR; t += 15 * MIN) times.push(t);
 for (let t = 2 * HOUR; t <= DAYS * DAY; t += 3 * HOUR) times.push(t);
-for (const dt of times) turn(T0 + dt);
+const jumpAt = [];
+for (const dt of times) {
+  turn(T0 + dt);
+  if (R.canJump(state) && (dt % DAY === 2 * HOUR || !jumpAt.length)) jumpAt.push([T0 + dt, R.jumpPoints(state)]);
+}
 
 const built = milestones.filter(([, s]) => s.startsWith('built'));
-console.log(`Idle sim: seed ${SEED}, layout ${LAYOUT} (${w.galaxy.name}), ${DAYS} days, ${times.length} check-ins\n`);
+console.log(`Idle sim: seed ${SEED}, layout ${LAYOUT} (${w.galaxy.name}), ${DAYS} days, ${times.length} check-ins${LEGACY ? `, ${LEGACY} legacy points` : ''}\n`);
 console.log('Built:');
 for (const [t, s] of built) console.log(`  ${at(t).padEnd(10)} ${s.slice(6)}`);
 console.log('\nFirst gear:');
@@ -224,6 +231,10 @@ console.log(`\nAt the end: ${Math.round(state.credits).toLocaleString('en')} cr,
   `${Object.values(state.drills).reduce((a, b) => a + b, 0)} drills, ${state.lab.done.length} packages researched, ${R.routes(state).length} routes`);
 const T = { 'build.ore': 'within the first session (~5 min)', 'build.volatiles': 'day 1', 'build.shipyard': 'days 7–10' };
 console.log('\nTargets (notes/idle.md): ore works ' + T['build.ore'] + ', volatiles works ' + T['build.volatiles'] + ', shipyard ' + T['build.shipyard'] + ', first Mk V about week 3');
+if (jumpAt.length) {
+  const marks = jumpAt.filter(([t], i) => i === 0 || Math.round((t - T0) / DAY) % 5 === 0 || i === jumpAt.length - 1);
+  console.log('\nLegacy points for leaving:', marks.map(([t, n]) => `${at(t).split(' ')[0]} ${n}`).join(', '));
+}
 console.log('\nIncome:', Object.entries(income).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `${k} ${Math.round(n).toLocaleString('en')}`).join(', '));
 if (args.includes('--dump')) {
   console.log('\nStations:');

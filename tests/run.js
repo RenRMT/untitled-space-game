@@ -4306,6 +4306,47 @@ test('idle: contracts grow with the stations built, and some ask for the dearest
   assert(pay(7) > 2 * pay(2), `${pay(7)} vs ${pay(2)}`);
 });
 
+test('idle: a new system once every station is built: legacy from what was earned, kept for good, faster and better paid', () => {
+  const T = 1e12;
+  const s0 = IdleRules.empty(IdleRules.world(1), T);
+  assert(!IdleRules.canJump(s0) && !IdleRules.jump(s0, IdleRules.world(1), T), 'not before every station is built');
+  const { w, s } = idleBuilt(T);
+  assert.strictEqual(s.earned, 0, 'built, nothing earned yet');
+  // Earned counts sales, contracts and finds; spending doesn't take from it.
+  s.industry.stock[w.waystation.key] = { iron: 10 };
+  const sold = IdleRules.sell(s, w, w.waystation.key, 'iron', 10, T).credits;
+  assert(sold > 0 && s.earned === sold);
+  s.earned = 4e6;
+  assert(IdleRules.canJump(s));
+  assert.strictEqual(IdleRules.jumpPoints(s), 20);
+  const seed = IdleRules.nextSeed(s);
+  assert(seed >= 1 && seed !== s.seed && seed === IdleRules.nextSeed(s), 'the next system is fixed by this one');
+  const r = IdleRules.jump(s, w, T + 1);
+  assert.strictEqual(r.state.seed, seed);
+  assert.strictEqual(r.w.layout, IdleRules.LAYOUT);
+  assert.deepStrictEqual(r.state.built, []);
+  assert.strictEqual(r.state.credits, IdleConfig.START_CREDITS);
+  assert.deepStrictEqual(r.state.lab.done, []);
+  assert.strictEqual(r.state.earned, 0);
+  assert.strictEqual(r.state.legacy.jumps, 1);
+  assert.strictEqual(r.state.legacy.points, 20);
+  assert.strictEqual(r.state.legacy.systems[0].name, w.galaxy.name);
+  // The legacy speeds up every order and drill, and adds to what the markets pay.
+  const e0 = IdleRules.env(IdleRules.empty(r.w, T)), e1 = IdleRules.env(r.state);
+  assert(Math.abs(e1.speed(T) / e0.speed(T) - (1 + 20 * IdleConfig.LEGACY.speed)) < 1e-9);
+  const plain = IdleRules.empty(r.w, T);
+  for (const st of [plain, r.state]) { st.built = ['build.waystation']; st.hosts[r.w.waystation.key] = r.w.sites.find((x) => x.kind === 'field').key; }
+  const p0 = IdleRules.priceOf(plain, r.w, r.w.waystation.key, 'iron', T), p1 = IdleRules.priceOf(r.state, r.w, r.w.waystation.key, 'iron', T);
+  assert(p1 > p0, `${p1} vs ${p0}`);
+  // Saved and read back, the legacy stays; a version 5 save gains none.
+  const back = IdleRules.read(JSON.parse(JSON.stringify(r.state)));
+  assert.deepStrictEqual(back.legacy, r.state.legacy);
+  const old = JSON.parse(JSON.stringify(s));
+  delete old.legacy; delete old.earned; old.version = 5;
+  const migrated = IdleRules.read(Save.migrate(old, [() => {}, () => {}, () => {}, () => {}, () => {}, () => {}]));
+  assert(migrated && migrated.legacy.points === 0 && migrated.earned === 0);
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

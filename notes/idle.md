@@ -151,11 +151,27 @@ The sim's player also got better at what a player would do: it puts the deflecto
 | Shipyard | day 10 | day 12 | day 9 | day 9 | days 7–10 |
 | First Mk V | day 18 | day 21 | day 18 | day 18 | about week 3 |
 
-Still open: credits reach about 7M by day 30 (13M before). Up to the shipyard they're the gate now, but after it there's nothing left to spend them on. That's for new systems (prestige) to take up.
+Still open then: credits reach about 7M by day 30 (13M before). Up to the shipyard they're the gate now, but after it there's nothing left to spend them on. New systems (below) take that up: what's earned after the shipyard becomes legacy.
+
+## New systems (prestige)
+
+Once every station is built, the Build sheet offers to leave for a new system. Everything in this one stays behind (stations, drills, research, credits), and the credits earned here (sales, auto-sales, contracts and derelicts, never minus what was spent: `state.earned`) become **legacy points**, floor(√(earned / 10,000)), kept for good (`state.legacy`: jumps, points, and each system left). Each point adds 2% to every order's and drill's speed and 2% to what markets and contracts pay, in every system after (`Config.LEGACY`). The square root means staying keeps paying less and less, so moving on beats sitting on the credits, which is what the open point under Numbers needed.
+
+The next system is rolled from the one left and the jumps made (`IdleRules.nextSeed`), on the current layout, so it's fixed and not re-rollable by reloading. The page writes the new save and loads again on it. Leaving is asked twice (a Jump and a Stay under a warning).
+
+`npm run idle:sim -- --legacy=N` plays a system with N points, and the sim says how many leaving would earn from the shipyard on. Seed 1:
+
+| | No legacy | 30 points |
+| --- | --- | --- |
+| Transport hub | day 1 | 14 h |
+| Shipyard | day 10 | day 7 |
+| First Mk V | day 19 | day 17 |
+| Points for leaving at the shipyard / day 30 | 15 / 30 | 15 / 40 |
+
+So leaving at the shipyard earns about 15, and staying the month about 30; a second system with 30 comes about a third sooner, and earns more for staying.
 
 ## Later
 
-- **New systems (prestige):** move to a new seed, carrying over a permanent bonus based on what was built. The galaxy seeds are already deterministic.
 - Cultures as the system's owners, changing station art and the market mix.
 - Exo Drift cross-over: a race's parts traded for components. This would mean the two saves knowing about each other, so it stays optional.
 
@@ -165,6 +181,7 @@ Still open: credits reach about 7M by day 30 (13M before). Up to the shipyard th
 2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
 3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab); then contracts, the wreck field, auto-sell and trade research (save version 4).
 4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name. Built: the sim and a first pass of numbers (above), haptics through `Feedback`, and the PWA (`idle/manifest.webmanifest`, `assets/idle-icon*`, `idle/sw.js` from `tools/app-sw.js`, which now serves the race too). Haulers already fly on the map. Then the second pass: the build scene, the name (Cold Start), systems that differ by seed, and the balance points under Numbers.
-5. **Later:** new systems (prestige), and the extras above.
+5. **New systems** (done): leaving a system with every station built for a new one, with legacy points from what was earned (save version 6; version 5 saves start with none, and count earnings from then).
+6. **Later:** the extras above.
 
 **Since Phase 2:** the system starts empty and is charted by survey, and stations are built round bodies the player picks rather than restored where they stood; the page moved to the Line style and the game's UI kit, and the map to a star-centred schematic with orbits (save version 2; version 1 saves start again).

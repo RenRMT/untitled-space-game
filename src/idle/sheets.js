@@ -7,7 +7,9 @@
 //   shuttle; at the transport hub, its routes and a new one; at the waystation, today's contracts
 //   first, and once researched which goods it auto-sells,
 // - Survey: every body in the system, charted or not, and the survey under way,
-// - Build: the stations to build, in order, what each costs, and where the next can go,
+// - Build: the stations to build, in order, what each costs, and where the next can go; the legacy
+//   kept from systems left before, and once every station is built, leaving for a new system (asked
+//   twice: view.confirm),
 // - Chain: the production chains (Industry.pipelines), and what would mend them (IdleRules.fixes),
 // - Lab: the package building and the queue, then every package by category, to research,
 // - the survey's report (what was found), and the summary of time away.
@@ -447,8 +449,36 @@ const IdleSheets = (() => {
           }
         }
       }
+      body.push(...newSystem(state));
       const built = state.built.length;
       return { title: 'Build', kicker: w.galaxy.name, sub: `${built} of ${Config.BUILDS.length} stations built`, code: 'IND', body, tall: true };
+    }
+
+    // The legacy kept, and leaving for a new system once every station is built.
+    const pct = (x) => `+${Math.round(x * 100)}%`;
+    function newSystem(state) {
+      const L = IdleRules.legacy(state), out = [];
+      if (!IdleRules.canJump(state) && !L.points) return out;
+      out.push(Kit.head('New system', h('span', { class: 'aside' }, L.jumps ? `${L.jumps} left behind` : '')));
+      if (L.points) {
+        out.push(Kit.optionRow({
+          code: 'ORB', name: `Legacy: ${L.points} ${L.points === 1 ? 'point' : 'points'}`,
+          sub: `${pct(IdleRules.legacyBonus(state, 'speed'))} speed, ${pct(IdleRules.legacyBonus(state, 'pay'))} pay`,
+        }));
+      }
+      if (!IdleRules.canJump(state)) return out;
+      const pts = IdleRules.jumpPoints(state), after = { legacy: { ...L, points: L.points + pts } };
+      out.push(h('p', { class: 'ui-note' }, `Every station is built. Leave ${w.galaxy.name} for a new system: you start again with nothing built, and take ${pts} legacy ${pts === 1 ? 'point' : 'points'} (from the ${cr(state.earned)} earned here) for good.`));
+      out.push(Kit.optionRow({
+        code: 'ORB', name: `+${pts} ${pts === 1 ? 'point' : 'points'}`, current: !!pts,
+        sub: `Then ${pct(IdleRules.legacyBonus(after, 'speed'))} speed, ${pct(IdleRules.legacyBonus(after, 'pay'))} pay`,
+      }));
+      if (!view.confirm) out.push(Kit.button('Leave for a new system', go('view', { confirm: true }), { kind: 'primary', lg: true, wide: true }));
+      else {
+        out.push(Kit.callout('Stations, drills, research and credits stay behind. Only the legacy goes with you.', 'var(--warn)'));
+        out.push(h('div', { class: 'idle-acts' }, Kit.button('Stay', go('view', { confirm: false }), { kind: 'ghost', lg: true }), Kit.button('Jump', go('jump'), { kind: 'primary', lg: true })));
+      }
+      return out;
     }
 
     function report(v) {

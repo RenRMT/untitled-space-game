@@ -61,10 +61,12 @@ the save's seed): bodies are charted by survey and stations built in orbit round
 game's UI kit for its screens. Production chains run across the stations, with routes from the
 transport hub and a chain view that says what to mend, and a lab researches the game's blueprints,
 mods and industry. The waystation takes daily contracts and, once researched, auto-sells; the
-salvage yard picks components out of a wreck field. It installs as its own app, Cold Start
+salvage yard picks components out of a wreck field. Once every station is built, the player can
+leave for a new system, carrying legacy points (from the credits earned) that make the next one
+faster and better paid. It installs as its own app, Cold Start
 (`idle/manifest.webmanifest`, icons `assets/idle-icon*`), and plays offline once opened (`idle/sw.js`,
 its list written by `npm run idle:sw`). `npm run idle:sim` plays 30 days with a scripted player and
-says when each station is built and when the first gear of each Mk comes out (`tools/idle-sim.js`). `?fresh` starts a new save, `?seed=` picks its system (a random one otherwise) and `?fastresearch` runs
+says when each station is built, when the first gear of each Mk comes out and what leaving would earn (`tools/idle-sim.js`; `-- --legacy=N` starts with N points). `?fresh` starts a new save, `?seed=` picks its system (a random one otherwise) and `?fastresearch` runs
 the lab 60 times faster;
 `notes/idle.md` is the plan.
 

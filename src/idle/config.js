@@ -38,6 +38,9 @@
 //   Config.PROCESS                  the game's processes by station type, plus site: ['extract'] and the
 //     salvage yard's wreck field ('salvage')
 //   Config.BUILDS                   the stations to build, in order (Restoration.create's list; nothing online at first)
+//   Config.LEGACY { per, speed, pay }   new systems (prestige): leaving a system with every station built
+//     earns floor(sqrt(credits earned there / per)) legacy points; each point kept adds `speed` to every
+//     order's and drill's speed and `pay` to what markets and contracts pay, in every system after
 // ES module (`Config`); also runs in Node (the tests).
 
 import { Goods } from '../rules/goods.js';
@@ -191,8 +194,12 @@ const Config = (() => {
     },
   ];
 
+  // New systems: what leaving one with every station built earns, and what that's worth in the next.
+  // The square root makes a long stay pay less and less, so moving on beats sitting on the credits.
+  const LEGACY = { per: 1e4, speed: 0.02, pay: 0.02 };
+
   return {
-    START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, GEAR_MARKET, TRADE_MARKET,
+    LEGACY, START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, GEAR_MARKET, TRADE_MARKET,
     SWAP, swap, SALVAGE_TIME, RECIPES, PROCESS, RESEARCH, PACKAGES, CATEGORIES, LAB_QUEUE, ROUTES, CONTRACTS, AUTO_SELL, BUILDS,
   };
 })();

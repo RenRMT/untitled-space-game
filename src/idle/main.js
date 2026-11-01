@@ -8,7 +8,7 @@
 // so a long absence never freezes the page, then says what happened; settles every second; draws
 // the system every frame (map.js); keeps the header (the next thing to do, the credits) and the tab
 // bar (System, Survey, Build, Chain, Lab, Market: the game's UI kit, ui/kit.js) up to date; opens a sheet for
-// what's tapped (sheets.js) and carries out what its buttons ask. Query parameters: ?fresh (a new
+// what's tapped (sheets.js) and carries out what its buttons ask, and leaving for a new system. Query parameters: ?fresh (a new
 // save), ?seed= (a new save's system), ?fastresearch (the lab 60 times faster).
 // ES module; needs a browser.
 
@@ -127,7 +127,7 @@ function hint() {
     if (s.credits) short.push('credits');
     return { text: `${nb.name}: needs ${short.join(', ')}`, open: () => openTab('build') };
   }
-  return { text: 'All stations built', open: () => openTab('build') };
+  return { text: 'Leave for a new system', open: () => openTab('build') };
 }
 let hintOpen = null;
 $('hint').addEventListener('click', () => hintOpen?.());
@@ -249,6 +249,7 @@ function act(name, a) {
     case 'survey':
       if (IdleRules.survey(state, w, a.key, t) && a.open) { selected = a.key; map.focus(a.key); sheets.show({ kind: 'site', key: a.key }, state, t); }
       break;
+    case 'jump': jump(t); return;
     case 'build':
       if (IdleRules.build(state, w, a.id, a.site, t)) {
         Feedback.emit('built');
@@ -260,6 +261,20 @@ function act(name, a) {
   save.change();
   bar();
   sheets.refresh(state, t);
+}
+
+// ---------- A new system ----------
+
+// Leaving for a new system (prestige): the new state is written at once and the page loads again on
+// it, without ?fresh or ?seed= (which would throw it away).
+function jump(t) {
+  const r = IdleRules.jump(state, w, t);
+  if (!r) return;
+  ready = false;
+  state = r.state;
+  IdleSave.write(state);
+  Feedback.emit('built');
+  location.replace(location.pathname);
 }
 
 // ---------- The build scene ----------
@@ -303,4 +318,4 @@ await catchUp();
 ready = true;
 setInterval(tick, 1000);
 requestAnimationFrame(frame);
-if (loaded.fresh) pick(w.sites.find((s) => s.kind === 'field')?.key || null);
+if (loaded.fresh || !state.built.length) pick(w.sites.find((s) => s.kind === 'field')?.key || null);
