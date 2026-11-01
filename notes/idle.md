@@ -117,6 +117,22 @@ Start from the game's recipe times (refining 20 s, parts 30 s, gear 2 min to 2 h
 | Shipyard | days 7–10 |
 | First Mk V gear | about week 3 |
 
+**As built (Phase 4, first pass):** `npm run idle:sim` (`tools/idle-sim.js`, about 2 minutes for 30 days). Its player checks in every 2 minutes for the first half hour, every 15 minutes to the second hour, then every 3 hours. It builds, sells what it doesn't keep, takes the chain's fixes, keeps orders going for what the next station and research need, drills, surveys and researches in a fixed order. Seed 1 after this pass:
+
+| Milestone | Sim | Target |
+| --- | --- | --- |
+| Ore works | 4 min | ~5 min |
+| Volatiles works | 1 h 15 | day 1 |
+| Transport hub | 17 h | |
+| Salvage yard | day 3 | |
+| Fabricator | day 5 | |
+| Shipyard | day 10 | days 7–10 |
+| First Mk V | day 11 | about week 3 |
+
+Changes it called for (the first run had the shipyard in 20 hours): the later stations cost far more (60k to 1.5M credits, with up to 95 goods, under the waystation's 100 room); the game's packages take 4× the time and 25× the credits here (`Config.RESEARCH`); and gear, consumables and components sold at a station halve in price for every 6 sold there lately (`Config.GEAR_MARKET`), where before the bench was an endless mint at a flat 0.8 of the price.
+
+Still open: credits pile up (about 13M by day 30), because trade goods sold by the thousand still fetch the game's floor price, so goods gate progress and credits barely do. Mk V comes the day after the shipyard, because the blueprints are researched before it is built. Contracts pay too little to matter later on. Every seed tried (1–3) gives the same bodies and deposits under different names, which matters for new systems (prestige).
+
 ## Later
 
 - **New systems (prestige):** move to a new seed, carrying over a permanent bonus based on what was built. The galaxy seeds are already deterministic.
@@ -128,7 +144,7 @@ Start from the game's recipe times (refining 20 s, parts 30 s, gear 2 min to 2 h
 1. **Groundwork** (done): the `Industry.create` and `Restoration.create` factories, with tests showing the game is unchanged. Then `idle/` and `src/idle/` with the lint rule, the save, and a bare system view.
 2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
 3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab); then contracts, the wreck field, auto-sell and trade research (save version 4).
-4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name.
+4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name. Built: the sim and a first pass of numbers (above), haptics through `Feedback`, and the PWA (`idle/manifest.webmanifest`, `assets/idle-icon*`, `idle/sw.js` from `tools/app-sw.js`, which now serves the race too). Haulers already fly on the map. Still to do: the build scene, the name, and the open balance points under Numbers.
 5. **Later:** new systems (prestige), and the extras above.
 
 **Since Phase 2:** the system starts empty and is charted by survey, and stations are built round bodies the player picks rather than restored where they stood; the page moved to the Line style and the game's UI kit, and the map to a star-centred schematic with orbits (save version 2; version 1 saves start again).

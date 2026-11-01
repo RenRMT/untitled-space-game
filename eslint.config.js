@@ -26,7 +26,7 @@ export default [
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*', '!**/ui/kit.js', '!**/ui/ui.js', '!**/ui/glyphs.js'], message: 'src/idle imports src/core, art, world, rules and the UI kit only (notes/idle.md).' }] }] },
   },
   {
-    // The race's service worker: a worker's globals, not a page's.
+    // The race's and the idle game's service workers: a worker's globals, not a page's.
     files: ['race/sw.js', 'idle/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
   },
