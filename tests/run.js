@@ -4021,12 +4021,14 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
     assert(IdleRules.drillCost(s, field) > 0);
     assert(!IdleRules.industry.shuttle(s.industry, field.key), 'no shuttle until one is bought');
     const shuttle = IdleRules.shuttleCost(s);
+    assert(!IdleRules.buyShuttle(s, w, field.key, T), `not for less than ${shuttle}`);
+    s.credits += shuttle; // as if some iron was hauled by hand and sold
     assert(IdleRules.buyShuttle(s, w, field.key, T), 'bought');
     assert.strictEqual(IdleRules.industry.shuttle(s.industry, field.key).stops[1].station, w.waystation.key);
     assert(!IdleRules.buyShuttle(s, w, field.key, T), 'one a link');
     const cost = IdleRules.surveyCost(s);
     assert(IdleRules.survey(s, w, planet.key, T));
-    assert.strictEqual(s.credits, IdleConfig.START_CREDITS - shuttle - cost);
+    assert.strictEqual(s.credits, IdleConfig.START_CREDITS - cost);
     assert(!IdleRules.survey(s, w, w.sites.find((x) => x.kind === 'planet' && x !== planet).key, T), 'one survey at a time');
     const charted = [];
     for (let i = 1; i <= steps; i++) {
@@ -4038,7 +4040,7 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   const s = play(1);
   assert.deepStrictEqual(play(9), s, 'in slices and steps: the same');
   assert(IdleRules.charted(s, planet.key) && IdleRules.surveyable(s, w, `site:moon${planet.body.moons[0]}`), 'its moons can be surveyed now');
-  assert.strictEqual(s.credits, IdleConfig.START_CREDITS - IdleConfig.SHUTTLE.base - IdleRules.surveyCost(IdleRules.empty(w, T)) + IdleRules.findAt(w, planet.key), 'what the survey found is paid');
+  assert.strictEqual(s.credits, IdleConfig.START_CREDITS - IdleRules.surveyCost(IdleRules.empty(w, T)) + IdleRules.findAt(w, planet.key), 'what the survey found is paid');
   const way = w.waystation.key, t = T + 3 * 3600e3;
   assert((IdleRules.industry.stockAt(s.industry, way).iron || 0) > 0, 'iron reached the waystation');
   const c0 = s.credits, { sold, credits } = IdleRules.sell(s, w, way, 'iron', 20, t);
