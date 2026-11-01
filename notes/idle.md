@@ -176,6 +176,29 @@ Still open then: credits reach about 7M by day 30 (13M before). Up to the shipya
 - Hand-sent haulers fly on the map like shuttles.
 - Save version 7. Older saves keep their shuttles and get a foreman at every station built, so nothing they had stops.
 
+**Numbers after this pass.** The sim's player:
+- hauls by hand from every place with goods and no shuttle;
+- buys a link's shuttle at twice its price (the field's first at the price);
+- runs finished batches again;
+- hires a foreman once it has twice the credits;
+- researches the probes, the clerk and Haulage in its order.
+
+Haulage moved to the transport hub's logistics (after Route planning I, 40k cr, 12 h), because at the waystation it came within a day and made every shuttle free. The later foremen cost half the first guess. The manual phase is short, as the research says it should be: 1 to 3 haulers by hand before the first shuttle.
+
+| Milestone | Seed 1 | Seed 2 | Seed 3 | Layout 1 | 30 legacy | Before |
+| --- | --- | --- | --- | --- | --- | --- |
+| First shuttle | 4 min | 8 min | 4 min | 6 min | 4 min | |
+| Ore works | 4 min | 6 min | 4 min | 4 min | 4 min | 4 min |
+| First foreman | 26 min | 1 h | 28 min | 26 min | 20 min | |
+| Volatiles works | 2 h | 8 h | 1 h 15 | 8 h | 1 h | 1 h 15 to 1 h 30 |
+| Probes / clerk | 5 h / 8 h | 5 h / 11 h | 5 h / 8 h | 5 h / 8 h | 5 h / 8 h | |
+| Transport hub | day 1 | day 2 | day 1 | day 1 | day 1 | day 1 |
+| Haulage | day 2 | day 3 | day 2 | day 2 | day 2 | |
+| Shipyard | day 11 | day 13 | day 10 | day 10 | day 6 | days 9 to 12 |
+| First Mk V | day 19 | day 21 | day 19 | day 19 | day 17 | days 18 to 21 |
+
+The 8 h volatiles works on seed 2 and layout 1 is the sim's check-ins: they come every 3 hours after the second hour. The late stations come about a day later than before, because the credits spent on automation slow the hub's 60k. The first day now has a beat every hour or few: shuttles, the first foremen, the probes and the clerk. That is the gap `notes/idle-research.md` found.
+
 ## New systems (prestige)
 
 Once every station is built, the Build sheet offers to leave for a new system. Everything in this one stays behind (stations, drills, research, credits), and the credits earned here (sales, auto-sales, contracts and derelicts, never minus what was spent: `state.earned`) become **legacy points**, floor(√(earned / 10,000)), kept for good (`state.legacy`: jumps, points, and each system left). Each point adds 2% to every order's and drill's speed and 2% to what markets and contracts pay, in every system after (`Config.LEGACY`). The square root means staying keeps paying less and less, so moving on beats sitting on the credits, which is what the open point under Numbers needed.

@@ -179,10 +179,10 @@ const Config = (() => {
       'build.waystation': { credits: 1500 },
       'build.ore': { credits: 1000 },
       'build.volatiles': { credits: 4000, 'steel-pipe': 10 },
-      'build.transport': { credits: 12000, 'steel-pipe': 15, hydrazine: 10 },
-      'build.salvage': { credits: 30000, 'carbon-fibre': 15, hydrazine: 15 },
-      'build.fabricator': { credits: 60000, 'steel-pipe': 20, hydrazine: 20 },
-      'build.shipyard': { credits: 90000, electronics: 15, 'carbon-fibre': 20 },
+      'build.transport': { credits: 8000, 'steel-pipe': 15, hydrazine: 10 },
+      'build.salvage': { credits: 15000, 'carbon-fibre': 15, hydrazine: 15 },
+      'build.fabricator': { credits: 30000, 'steel-pipe': 20, hydrazine: 20 },
+      'build.shipyard': { credits: 45000, electronics: 15, 'carbon-fibre': 20 },
     },
   };
 
