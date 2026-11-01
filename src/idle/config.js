@@ -10,6 +10,8 @@
 //     and the odds and size of what it may turn up
 //   Config.BERTHS[body kind] -> how many stations can orbit one body of that kind
 //   Config.GEAR_SALE                share of an item's price (gear, consumables) a station pays for it
+//   Config.GEAR_MARKET { soft, halfLife }   that price halves for every `soft` of it sold there lately;
+//     what was sold counts for half every halfLife ms
 //   Config.SWAP[component] -> good  what the idle game asks for in place of a salvaged component in
 //     costs and recipes (only the salvage yard's wreck field turns them out, late, so nothing before
 //     it asks for one); Config.swap(counts) -> counts with those swapped
@@ -27,6 +29,7 @@
 //     the item's price, and how many of an item one asks for (by its kind)
 //   Config.AUTO_SELL { step, floor }  auto-sell (trade.auto*): every step ms, the waystation sells the
 //     goods picked for it while their price is at least floor × their usual price (lower with research)
+//   Config.RESEARCH { time, credits }   how much longer and dearer the game's packages are here
 //   Config.LAB_QUEUE                packages that can wait behind the one building (more with ind.lab.*)
 //   Config.ROUTES { routes, haulers } routes the transport hub runs, and haulers on each, before research
 //   Config.PROCESS                  the game's processes by station type, plus site: ['extract'] and the
@@ -58,6 +61,7 @@ const Config = (() => {
   // Stations a body has room for in orbit (its berths): the field and the planets two, a moon one.
   const BERTHS = { field: 2, planet: 2, moon: 1 };
   const GEAR_SALE = 0.8;
+  const GEAR_MARKET = { soft: 6, halfLife: 4 * 3600e3 };
 
   // Salvaged components, which the idle game can't get yet, and what it asks for instead.
   const SWAP = {
@@ -87,12 +91,15 @@ const Config = (() => {
   // The lab: the game's research that means something here (gear blueprints, mods, industry and
   // logistics; not squad logic, hull refits or tuning), paid in credits and goods from the
   // waystation's stock, plus Extraction.
+  // The game's packages take RESEARCH.time times as long here, and RESEARCH.credits times the
+  // credits: an idle system's markets pay far more over a week than a pilot earns.
   const KINDS = ['blueprint', 'mods', 'industry'];
+  const RESEARCH = { time: 4, credits: 25 };
   const PACKAGES = {};
   for (const p of Object.values(Research.PACKAGES)) {
     if (!KINDS.includes(p.kind) || p.hidden) continue;
     const { credits = 0, ...goods } = p.cost;
-    PACKAGES[p.id] = { ...p, cost: { credits, ...swap(goods) } };
+    PACKAGES[p.id] = { ...p, time: p.time * RESEARCH.time, cost: { credits: credits * RESEARCH.credits, ...swap(goods) } };
   }
   const M = 60, H = 3600;
   const EXTRACT = [
@@ -146,34 +153,34 @@ const Config = (() => {
     },
     {
       id: 'build.volatiles', name: 'Volatiles works', type: 'minor', shuttle: 'minor', code: 'VOL',
-      goods: { 'steel-pipe': 6, 'carbon-fibre': 2 }, credits: 1000, requires: ['build.ore'],
+      goods: { 'steel-pipe': 20, 'carbon-fibre': 10 }, credits: 5000, requires: ['build.ore'],
       note: 'Deuterium → hydrazine.',
     },
     {
       id: 'build.transport', name: 'Transport hub', type: 'transport hub', shuttle: null, code: 'CRG',
-      goods: { 'steel-pipe': 12, 'carbon-fibre': 6, hydrazine: 4 }, credits: 6000, requires: ['build.volatiles'],
+      goods: { 'steel-pipe': 30, 'carbon-fibre': 15, hydrazine: 15 }, credits: 60000, requires: ['build.volatiles'],
       note: 'Runs routes between stations.',
     },
     {
       id: 'build.salvage', name: 'Salvage yard', type: 'salvage yard', shuttle: 'salvage yard', code: 'RCY',
-      goods: { 'steel-pipe': 12, hydrazine: 8, 'titanium-ore': 4 }, credits: 15000, requires: ['build.transport'],
+      goods: { 'steel-pipe': 30, hydrazine: 25, 'titanium-ore': 20 }, credits: 200000, requires: ['build.transport'],
       note: 'Salvages components from wrecks and recycles them.',
     },
     {
       id: 'build.fabricator', name: 'Fabricator', type: 'major', shuttle: 'major', code: 'FAB',
-      goods: { 'steel-pipe': 12, 'carbon-fibre': 10, hydrazine: 6, 'rare-earths': 4 }, credits: 30000, requires: ['build.salvage'],
+      goods: { 'steel-pipe': 25, 'carbon-fibre': 25, hydrazine: 20, 'rare-earths': 20 }, credits: 500000, requires: ['build.salvage'],
       note: 'Makes electronics for Mk II+ gear.',
     },
     {
       id: 'build.shipyard', name: 'Shipyard', type: 'capital', shuttle: 'capital', code: 'SHY',
-      goods: { electronics: 10, 'steel-pipe': 16, tungsten: 6, 'titanium-ore': 6 }, credits: 60000, requires: ['build.fabricator'],
+      goods: { electronics: 30, 'steel-pipe': 25, tungsten: 20, 'titanium-ore': 20 }, credits: 1500000, requires: ['build.fabricator'],
       note: 'Assembles Mk II+ gear and mods.',
     },
   ];
 
   return {
-    START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE,
-    SWAP, swap, SALVAGE_TIME, RECIPES, PROCESS, PACKAGES, CATEGORIES, LAB_QUEUE, ROUTES, CONTRACTS, AUTO_SELL, BUILDS,
+    START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, GEAR_MARKET,
+    SWAP, swap, SALVAGE_TIME, RECIPES, PROCESS, RESEARCH, PACKAGES, CATEGORIES, LAB_QUEUE, ROUTES, CONTRACTS, AUTO_SELL, BUILDS,
   };
 })();
 

@@ -1,6 +1,6 @@
 // The race's service worker (registered by race/index.html; its scope is /race/): keeps a copy of
 // every file the race loads, so the installed race (race/manifest.webmanifest) starts offline.
-// - Install: fetches the whole list (FILES, written by `npm run race:sw`, tools/race-sw.js) past
+// - Install: fetches the whole list (FILES, written by `npm run race:sw`, tools/app-sw.js) past
 //   the browser's cache, so a new version is cached whole.
 // - Fetch: network first, so an online player always gets the files as served (never a mix of old
 //   and new modules); the copy when the network fails, or is slower than SLOW ms and a copy is kept.

@@ -36,7 +36,8 @@
 //   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, built: [build id], hosts: { [station key]: site key },
 //                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
 //                                       drills: { [site key]: n }, economy, lab, contracts: { day, list: [contract] },
-//                                       autoSell: [kind], soldAt (the last auto-sell step settled to), seen }
+//                                       autoSell: [kind], soldAt (the last auto-sell step settled to),
+//                                       sales: { ['<station key>|<kind>']: { n, at } } (gear sold lately), seen }
 //     contract: { id, kind, n, reward (before research's bonus), from (a faction's name), done }
 //   IdleRules.env(state) -> Industry env   with research's speed, room, order slots and drill rate
 //   IdleRules.bonusAt(state, t, key) -> n   a research bonus from what was done by t ('speed', 'storage',
@@ -239,7 +240,7 @@ const IdleRules = (() => {
     return {
       version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
       charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(),
-      contracts: { day: null, list: [] }, autoSell: [], soldAt: now, seen: now,
+      contracts: { day: null, list: [] }, autoSell: [], soldAt: now, sales: {}, seen: now,
     };
   }
 
@@ -427,14 +428,19 @@ const IdleRules = (() => {
   // ---------- Selling ----------
 
   // Trade goods sell at the station's market price (falling as it fills); gear, consumables and
-  // salvage at a flat share of their price.
+  // salvage at a share of their price that halves with every Config.GEAR_MARKET.soft sold there
+  // lately (what was sold counts for half every halfLife), so the bench is no endless mint.
   const traded = (kind) => !!Goods.type(kind) && !Goods.isSalvage(kind);
+  const glutOf = (state, stKey, kind, now) => {
+    const x = state.sales[`${stKey}|${kind}`];
+    return x ? x.n * 0.5 ** (Math.max(0, now - x.at) / Config.GEAR_MARKET.halfLife) : 0;
+  };
   function priceOf(state, w, stKey, kind, now) {
     const st = w.byKey.get(stKey);
     if (!st || st.kind !== 'station' || !online(state, w, stKey)) return null;
     if (traded(kind)) return Economy.market(w.galaxy.seed, st.src, state.economy, now).goods.find((g) => g.kind === kind)?.sell ?? null;
     const item = Recipes.item(kind);
-    return item ? Math.round(item.price * Config.GEAR_SALE) : null;
+    return item ? Math.max(1, Math.round(item.price * Config.GEAR_SALE * 0.5 ** (glutOf(state, stKey, kind, now) / Config.GEAR_MARKET.soft))) : null;
   }
   function sell(state, w, stKey, kind, n, now) {
     let sold = 0, credits = 0;
@@ -442,6 +448,7 @@ const IdleRules = (() => {
       const p = priceOf(state, w, stKey, kind, now);
       if (p == null || industry.withdraw(state.industry, stKey, kind, 1) !== 1) break;
       if (traded(kind)) Economy.trade(state.economy, w.galaxy.seed, w.byKey.get(stKey).src, kind, 1, now);
+      else state.sales[`${stKey}|${kind}`] = { n: glutOf(state, stKey, kind, now) + 1, at: now };
       credits += p;
     }
     state.credits += credits;
@@ -578,6 +585,7 @@ const IdleRules = (() => {
       lab: readLab(d.lab),
       contracts: d.contracts && Array.isArray(d.contracts.list) ? { day: d.contracts.day ?? null, list: d.contracts.list.filter((c) => c && Recipes.item(c.kind)) } : { day: null, list: [] },
       autoSell: Array.isArray(d.autoSell) ? d.autoSell.filter((k) => Recipes.item(k)) : [],
+      sales: obj(d.sales),
       soldAt: Number.isFinite(d.soldAt) ? d.soldAt : Number.isFinite(d.seen) ? d.seen : 0,
       seen: Number.isFinite(d.seen) ? d.seen : 0,
     };

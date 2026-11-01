@@ -50,7 +50,7 @@ the top of `src/race/main.js`; `notes/race.md` is the plan.
 The race installs as its own app, Exo Drift (`race/manifest.webmanifest`, its icons
 `assets/race-icon*`), and plays offline once opened: `race/sw.js` keeps a copy of every file the
 race loads, fetched from the network first while there is one. Its file list is written by
-`npm run race:sw` (`tools/race-sw.js`, following the page's links and imports); run it after adding
+`npm run race:sw` (`tools/app-sw.js`, following the page's links and imports); run it after adding
 or removing a file the race loads, as `npm test` fails while the list is out of date. Installing
 needs HTTPS (or localhost).
 
@@ -61,7 +61,10 @@ by survey and stations built in orbit round them, on a star-centred map in the L
 game's UI kit for its screens. Production chains run across the stations, with routes from the
 transport hub and a chain view that says what to mend, and a lab researches the game's blueprints,
 mods and industry. The waystation takes daily contracts and, once researched, auto-sells; the
-salvage yard picks components out of a wreck field. `?fresh` starts a new save, `?seed=` picks its system and `?fastresearch` runs
+salvage yard picks components out of a wreck field. It installs as its own app, Waystation
+(`idle/manifest.webmanifest`, icons `assets/idle-icon*`), and plays offline once opened (`idle/sw.js`,
+its list written by `npm run idle:sw`). `npm run idle:sim` plays 30 days with a scripted player and
+says when each station is built and when the first gear of each Mk comes out (`tools/idle-sim.js`). `?fresh` starts a new save, `?seed=` picks its system and `?fastresearch` runs
 the lab 60 times faster;
 `notes/idle.md` is the plan.
 

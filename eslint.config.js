@@ -27,7 +27,7 @@ export default [
   },
   {
     // The race's service worker: a worker's globals, not a page's.
-    files: ['race/sw.js'],
+    files: ['race/sw.js', 'idle/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
   },
   {

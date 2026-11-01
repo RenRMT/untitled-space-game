@@ -63,7 +63,7 @@ import { Pickups } from '../src/race/pickups.js';
 import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
-import * as RaceSw from '../tools/race-sw.js';
+import * as AppSw from '../tools/app-sw.js';
 import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
 import { ArtStationRoles } from '../src/art/station-roles.js';
@@ -3937,14 +3937,22 @@ test('race career: the build reaches the run (dash, drift, walls, hull), and the
 });
 
 test('race offline: race/sw.js keeps every file the race loads (npm run race:sw), the manifest and its icons among them', () => {
-  const files = RaceSw.raceFiles();
+  const files = AppSw.appFiles('race');
   for (const f of ['./', 'manifest.webmanifest', '../src/race/main.js', '../src/ui/kit-lowpoly.css', '../assets/fonts/chakra-petch-latin-500-normal.woff2', '../assets/race-icon-512.png']) assert(files.includes(f), f);
   assert(!files.some((f) => f.includes('/game/') || f.endsWith('sw.js')), 'nothing of the game, and not the worker itself');
-  const { current, wanted } = RaceSw.check();
+  const { current, wanted } = AppSw.check('race');
   assert.strictEqual(current, wanted, 'race/sw.js: the file list is out of date: npm run race:sw');
 });
 
 // ---------- The idle game (src/idle/, notes/idle.md) ----------
+
+test('idle offline: idle/sw.js keeps every file the idle game loads (npm run idle:sw), the manifest and its icons among them', () => {
+  const files = AppSw.appFiles('idle');
+  for (const f of ['./', 'manifest.webmanifest', '../src/idle/main.js', '../src/ui/kit-line.css', '../assets/idle-icon-512.png', '../assets/idle-icon-180.png']) assert(files.includes(f), f);
+  assert(!files.some((f) => f.includes('/game/') || f.includes('/race/') || f.endsWith('sw.js')), 'nothing of the game or the race, and not the worker itself');
+  const { current, wanted } = AppSw.check('idle');
+  assert.strictEqual(current, wanted, 'idle/sw.js: the file list is out of date: npm run idle:sw');
+});
 
 test('Industry.create: a recipe with no inputs (a drill) fills its site to the room it has, then waits for a shuttle', () => {
   const recipes = { ...Recipes.RECIPES, 'extract.iron': { id: 'extract.iron', bay: 'extract', in: {}, out: { iron: 1 }, time: 10, unlock: null } };
@@ -4044,9 +4052,8 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   assert((IdleRules.industry.stockAt(s.industry, way)['steel-pipe'] || 0) > 0, 'pipe reached the waystation');
   // The volatiles works round the charted planet, paid from the waystation's stock.
   IdleRules.sell(s, w, way, 'steel-pipe', 100, t + 3600e3); // room for what it costs
-  IdleRules.industry.deposit(s.industry, way, 'steel-pipe', 6, IdleRules.env(s), t + 3600e3);
-  IdleRules.industry.deposit(s.industry, way, 'carbon-fibre', 2, IdleRules.env(s), t + 3600e3);
-  s.credits += 1000;
+  for (const [k, n] of Object.entries(IdleConfig.BUILDS[2].goods)) IdleRules.industry.deposit(s.industry, way, k, n, IdleRules.env(s), t + 3600e3);
+  s.credits += IdleConfig.BUILDS[2].credits;
   assert.strictEqual(IdleRules.buildStatus(s, w, 'build.volatiles').id, 'ready');
   assert(IdleRules.build(s, w, 'build.volatiles', planet.key, t + 3600e3));
   const minor = IdleRules.stationOf(w, 'build.volatiles');
@@ -4063,12 +4070,13 @@ function idleBuilt(T) {
   const w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
   const planets = w.sites.filter((x) => x.kind === 'planet');
   s.charted.push(...planets.map((x) => x.key));
-  s.credits = 1e6;
   const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
   IdleConfig.BUILDS.forEach((b, i) => {
-    s.industry.stock[w.waystation.key] = { 'steel-pipe': 50, 'carbon-fibre': 50, hydrazine: 50, 'titanium-ore': 50, 'rare-earths': 50, electronics: 50, tungsten: 50 };
+    s.industry.stock[w.waystation.key] = { ...b.goods };
+    s.credits += b.credits;
     assert(IdleRules.build(s, w, b.id, hosts[i], T), b.id);
   });
+  s.credits = 1e6;
   return { w, s, field };
 }
 
