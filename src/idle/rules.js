@@ -29,11 +29,12 @@
 // fixed to the clock, so time away comes out the same however it's settled.
 //
 //   IdleRules.industry, IdleRules.builds, IdleRules.lab   the Industry, Restoration and Lab instances
-//   IdleRules.world(seed) -> w        { seed, galaxy, star, stations: [station], sites: [site], byKey: Map, waystation }
+//   IdleRules.world(seed, layout = 1) -> w   { seed, layout, galaxy, star, stations: [station], sites: [site], byKey: Map, waystation }
 //     station: { key, name, type, kind: 'station', build (its Config.BUILDS id), code, culture, seed, size, src (the galaxy's) }
 //     site:    { key, name, kind: 'field' | 'planet' | 'moon', type: 'site', x, y, goods: [kind], body (planet/moon) | null,
 //                parent (a moon's planet key) | null, ring (planets and the field: their orbit's place from the star, 0 first) }
-//   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, built: [build id], hosts: { [station key]: site key },
+//   IdleRules.LAYOUT                  the layout new saves get (world)
+//   IdleRules.empty(w, now) -> state  { version, seed, layout, credits, industry, built: [build id], hosts: { [station key]: site key },
 //                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
 //                                       drills: { [site key]: n }, economy, lab, contracts: { day, list: [contract] },
 //                                       autoSell: [kind], soldAt (the last auto-sell step settled to),
@@ -100,7 +101,7 @@ import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 4;
+  const VERSION = 5;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
   const builds = Restoration.create({ list: Config.BUILDS, online: [] });
   const P = Config.PACKAGES;
@@ -114,8 +115,36 @@ const IdleRules = (() => {
   const isSite = (key) => key.startsWith('site:');
   const uniq = (a) => [...new Set(a)];
 
-  function world(seed) {
-    const galaxy = Galaxy.generate(seed);
+  // Layout 1 is the galaxy's own system: one planet of each type and one moon of each, the same
+  // bodies for every seed. Layout 2 (new saves) rolls the system's make-up from the seed: 5 to 7
+  // planets of types picked with repeats (hot ones inside, giants outside) and their moons, rolled
+  // again until every raw good the chain needs is on some body and every station has its place.
+  const LAYOUT = 2;
+  const PLANET_TYPES = ['lava', 'desert', 'terran', 'ice', 'gas', 'blue'];
+  const MOON_TYPES = ['grey', 'ice', 'rust', 'dark', 'sulfur'];
+  const MOONS = { gas: [0, 3], blue: [0, 2], terran: [0, 1], ice: [0, 1], desert: [0, 1], lava: [0, 0] };
+  const NEEDED = ['iron', 'silicates', 'deuterium', 'titanium-ore', 'tungsten', 'rare-earths', 'sulfur'];
+  function makeup(seed, attempt) {
+    const r = mulberry32(hashInt(seedToInt(seed), attempt, 0x1a7));
+    const n = 5 + Math.floor(r() * 3);
+    const planets = Array.from({ length: n }, () => PLANET_TYPES[Math.floor(r() * PLANET_TYPES.length)])
+      .sort((a, b) => PLANET_TYPES.indexOf(a) - PLANET_TYPES.indexOf(b));
+    const moons = [...MOON_TYPES, ...MOON_TYPES.map(() => MOON_TYPES[Math.floor(r() * MOON_TYPES.length)])];
+    for (let i = moons.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [moons[i], moons[j]] = [moons[j], moons[i]]; }
+    const counts = Object.fromEntries(Object.entries(MOONS).map(([k, [a, b]]) => { const c = a + Math.floor(r() * (b - a + 1)); return [k, [c, c]]; }));
+    return { galaxy: { system: { kinds: { planets, moons }, moons: counts } } };
+  }
+  function world(seed, layout = 1) {
+    if (layout >= 2) {
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const w = layoutOf(seed, Galaxy.generate(seed, makeup(seed, attempt)), layout);
+        const goods = new Set(w.sites.flatMap((x) => x.goods));
+        if (w.stations.length === Config.BUILDS.length && w.waystation && NEEDED.every((g) => goods.has(g))) return w;
+      }
+    }
+    return layoutOf(seed, Galaxy.generate(seed), 1);
+  }
+  function layoutOf(seed, galaxy, layout) {
     const star = galaxy.stars[0];
     const byType = new Map(Config.BUILDS.map((b) => [b.type, b]));
     const stations = galaxy.stations.filter((s) => byType.has(s.market.type)).map((s) => {
@@ -137,7 +166,7 @@ const IdleRules = (() => {
     const fromStar = (s) => Math.hypot(s.x - star.x, s.y - star.y);
     sites.filter((s) => s.kind !== 'moon').sort((a, b) => fromStar(a) - fromStar(b)).forEach((s, i) => { s.ring = i; });
     const byKey = new Map([...stations, ...sites].map((x) => [x.key, x]));
-    return { seed, galaxy, star, stations, sites, byKey, rings: sites.filter((s) => s.kind !== 'moon').length, waystation: stations.find((s) => s.type === 'waystation') };
+    return { seed, layout, galaxy, star, stations, sites, byKey, rings: sites.filter((s) => s.kind !== 'moon').length, waystation: stations.find((s) => s.type === 'waystation') };
   }
 
   function env(state) {
@@ -238,7 +267,7 @@ const IdleRules = (() => {
   function empty(w, now) {
     const field = w.sites.find((s) => s.kind === 'field');
     return {
-      version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
+      version: VERSION, seed: w.seed, layout: w.layout, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
       charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(),
       contracts: { day: null, list: [] }, autoSell: [], soldAt: now, sales: {}, seen: now,
     };
@@ -427,20 +456,28 @@ const IdleRules = (() => {
 
   // ---------- Selling ----------
 
-  // Trade goods sell at the station's market price (falling as it fills); gear, consumables and
-  // salvage at a share of their price that halves with every Config.GEAR_MARKET.soft sold there
-  // lately (what was sold counts for half every halfLife), so the bench is no endless mint.
+  // Trade goods sell at the station's market price (falling as it fills), and gear, consumables and
+  // salvage at a share of their price; either way that halves with every `soft` of it sold there
+  // lately (what was sold counts for half every halfLife: Config.TRADE_MARKET for trade goods,
+  // GEAR_MARKET for the rest), so neither the drills nor the bench are an endless mint.
   const traded = (kind) => !!Goods.type(kind) && !Goods.isSalvage(kind);
+  const glutRule = (kind) => (traded(kind)
+    ? { soft: Config.TRADE_MARKET.soft[Goods.type(kind).rarity] || Config.TRADE_MARKET.soft[1], halfLife: Config.TRADE_MARKET.halfLife }
+    : Config.GEAR_MARKET);
   const glutOf = (state, stKey, kind, now) => {
     const x = state.sales[`${stKey}|${kind}`];
-    return x ? x.n * 0.5 ** (Math.max(0, now - x.at) / Config.GEAR_MARKET.halfLife) : 0;
+    return x ? x.n * 0.5 ** (Math.max(0, now - x.at) / glutRule(kind).halfLife) : 0;
   };
   function priceOf(state, w, stKey, kind, now) {
     const st = w.byKey.get(stKey);
     if (!st || st.kind !== 'station' || !online(state, w, stKey)) return null;
-    if (traded(kind)) return Economy.market(w.galaxy.seed, st.src, state.economy, now).goods.find((g) => g.kind === kind)?.sell ?? null;
+    const glut = 0.5 ** (glutOf(state, stKey, kind, now) / glutRule(kind).soft);
+    if (traded(kind)) {
+      const p = Economy.market(w.galaxy.seed, st.src, state.economy, now).goods.find((g) => g.kind === kind)?.sell;
+      return p == null ? null : Math.max(1, Math.round(p * glut));
+    }
     const item = Recipes.item(kind);
-    return item ? Math.max(1, Math.round(item.price * Config.GEAR_SALE * 0.5 ** (glutOf(state, stKey, kind, now) / Config.GEAR_MARKET.soft))) : null;
+    return item ? Math.max(1, Math.round(item.price * Config.GEAR_SALE * glut)) : null;
   }
   function sell(state, w, stKey, kind, n, now) {
     let sold = 0, credits = 0;
@@ -448,7 +485,7 @@ const IdleRules = (() => {
       const p = priceOf(state, w, stKey, kind, now);
       if (p == null || industry.withdraw(state.industry, stKey, kind, 1) !== 1) break;
       if (traded(kind)) Economy.trade(state.economy, w.galaxy.seed, w.byKey.get(stKey).src, kind, 1, now);
-      else state.sales[`${stKey}|${kind}`] = { n: glutOf(state, stKey, kind, now) + 1, at: now };
+      state.sales[`${stKey}|${kind}`] = { n: glutOf(state, stKey, kind, now) + 1, at: now };
       credits += p;
     }
     state.credits += credits;
@@ -481,16 +518,23 @@ const IdleRules = (() => {
     for (const key of Object.keys(state.drills)) for (const g of w.byKey.get(key)?.goods || []) kinds.add(g);
     return [...kinds].filter((k) => Recipes.item(k)?.price).sort();
   }
+  // Stations built past the ore works, at the day's start: what a day's contracts grow with.
+  const grownBy = (state) => 1 + Config.CONTRACTS.perStation * Math.max(0, state.built.length - 2);
   function rollContracts(state, w, now) {
     const day = dayOf(now);
     if (state.contracts.day === day) return;
-    const r = mulberry32(hashInt(seedToInt(w.seed), day, 0xc0d));
-    const pool = wanted(state, w, day * DAY), list = [];
-    for (let i = 0; i < contractSlots(state, day * DAY) && pool.length; i++) {
-      const kind = pool.splice(Math.floor(r() * pool.length), 1)[0], it = Recipes.item(kind);
-      const [a, b] = Config.CONTRACTS.size[it.kind] || [1, 3];
-      const n = a + Math.floor(r() * (b - a + 1));
-      list.push({ id: `${day}.${i}`, kind, n, reward: Math.round((it.price * n * Config.CONTRACTS.bonus) / 10) * 10, from: FROM[Math.floor(r() * FROM.length)], done: false });
+    const r = mulberry32(hashInt(seedToInt(w.seed), day, 0xc0d)), C = Config.CONTRACTS;
+    const pool = wanted(state, w, day * DAY), list = [], grow = grownBy(state);
+    const price = (k) => Recipes.item(k).price;
+    const slots = contractSlots(state, day * DAY), top = Math.round(slots * C.top);
+    for (let i = 0; i < slots && pool.length; i++) {
+      // The first `top` slots ask for one of the dearest third of what's on offer.
+      const from = i < top ? [...pool].sort((a, b) => price(b) - price(a)).slice(0, Math.max(1, Math.ceil(pool.length / 3))) : pool;
+      const kind = from[Math.floor(r() * from.length)], it = Recipes.item(kind);
+      pool.splice(pool.indexOf(kind), 1);
+      const [a, b] = C.size[it.kind] || [1, 3];
+      const n = Math.max(1, Math.round((a + Math.floor(r() * (b - a + 1))) * (it.kind === 'good' || it.kind === 'component' ? grow : 1)));
+      list.push({ id: `${day}.${i}`, kind, n, reward: Math.round((it.price * n * C.bonus * grow) / 10) * 10, from: FROM[Math.floor(r() * FROM.length)], done: false });
     }
     state.contracts = { day, list };
   }
@@ -578,7 +622,7 @@ const IdleRules = (() => {
     if (!d || typeof d !== 'object' || d.version !== VERSION || !d.industry || !Array.isArray(d.industry.orders) || !Array.isArray(d.charted)) return null;
     const obj = (x) => (x && typeof x === 'object' ? x : {});
     return {
-      version: VERSION, seed: d.seed ?? 1, credits: Number.isFinite(d.credits) ? d.credits : Config.START_CREDITS,
+      version: VERSION, seed: d.seed ?? 1, layout: Number.isInteger(d.layout) ? Math.min(d.layout, LAYOUT) : 1, credits: Number.isFinite(d.credits) ? d.credits : Config.START_CREDITS,
       industry: d.industry, built: Array.isArray(d.built) ? d.built.filter((id) => builds.PROJECTS[id]) : [], hosts: obj(d.hosts),
       charted: d.charted, survey: d.survey && Number.isFinite(d.survey.end) ? d.survey : null, finds: obj(d.finds),
       drills: obj(d.drills), economy: d.economy && typeof d.economy === 'object' ? d.economy : Economy.empty(),
@@ -592,7 +636,7 @@ const IdleRules = (() => {
   }
 
   return {
-    VERSION, industry, builds, lab, bonusAt, known, researchStatus, research, cancelResearch, pause, raise, change, lineage,
+    VERSION, LAYOUT, industry, builds, lab, bonusAt, known, researchStatus, research, cancelResearch, pause, raise, change, lineage,
     routeLimit, haulerLimit, routes, canRoute, carries, addRoute, removeRoute, fixes, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
     hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
     place, cancel, setShuttle, priceOf, sell, contracts, contractSlots, contractPay, canDeliver, deliver, canAuto, autoFloor, setAuto,

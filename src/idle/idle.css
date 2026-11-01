@@ -51,6 +51,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 }
 #load[hidden] { display: none; }
 
+/* The build scene's card: under the header, over the map, while a station goes up. */
+.idle-scene {
+  position: fixed; z-index: 7; left: 50%; bottom: calc(var(--nav-h, 70px) + 24px); transform: translateX(-50%);
+  width: min(360px, calc(100% - 32px)); box-sizing: border-box; padding: 12px 16px; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--cyan); border-left-width: 3px; animation: idle-scene-in 0.4s ease-out;
+}
+.idle-scene[hidden] { display: none; }
+.idle-scene .k { font: 400 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--cyan); }
+.idle-scene .n { margin-top: 2px; font: 700 18px/1.2 var(--sans); letter-spacing: 0.04em; text-transform: uppercase; color: var(--bright); }
+.idle-scene .s { margin-top: 2px; font-size: 13px; color: var(--dim); }
+@keyframes idle-scene-in { from { opacity: 0; transform: translate(-50%, 12px); } }
+@media (prefers-reduced-motion: reduce) { .idle-scene { animation: none; } }
+
 /* An order's input: where it comes from, and the fix when it isn't coming. */
 .idle-in { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .idle-in .sub { min-width: 0; }

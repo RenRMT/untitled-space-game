@@ -252,7 +252,7 @@ function act(name, a) {
     case 'build':
       if (IdleRules.build(state, w, a.id, a.site, t)) {
         Feedback.emit('built');
-        pick(IdleRules.stationOf(w, a.id).key);
+        buildScene(a.id);
       }
       break;
     default: return;
@@ -260,6 +260,24 @@ function act(name, a) {
   save.change();
   bar();
   sheets.refresh(state, t);
+}
+
+// ---------- The build scene ----------
+
+// A station just built: the sheet makes way, the map plays its scene (map.built) under a card that
+// names it, and then its sheet opens. A tap on the map or the card ends it early.
+function buildScene(id) {
+  const st = IdleRules.stationOf(w, id), b = Config.BUILDS.find((x) => x.id === id), card = $('scene');
+  selected = st.key;
+  sheets.show(null, state, now());
+  tabs();
+  card.replaceChildren(h('div', { class: 'k' }, 'Station online'), h('div', { class: 'n' }, st.name), h('div', { class: 's' }, `${b.name} · ${b.note}`));
+  card.hidden = false;
+  card.onclick = () => map.skip();
+  map.built(st.key, () => {
+    card.hidden = true;
+    if (selected === st.key) pick(st.key);
+  });
 }
 
 // ---------- Running ----------

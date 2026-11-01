@@ -9,6 +9,9 @@
 // Shuttles' haulers fly between where their stops are now, and what was just made floats up from
 // where it was made. Drag to pan, pinch or the wheel to zoom, tap a thing to pick it; a picked
 // thing is followed, zoomed in on, and kept clear of the sheet over the bottom of the screen.
+// A station just built has its scene: the camera comes to it, a scaffold ring and brackets go up
+// round its berth, the station fades in and settles, and a pulse goes out as it comes online; a
+// tap ends it early.
 //
 //   IdleMap.create(canvas, w, { onPick(key | null) }) -> map
 //     map.draw(state, now, selected)   one frame
@@ -16,6 +19,8 @@
 //     map.focus(key | null)            follow and zoom in on that thing; null: the whole system
 //     map.inset(top, bottom)           the screen px the bar and the sheet cover (kept clear)
 //     map.resize()                     after the canvas's size changed
+//     map.built(key, onDone)           the build scene for that station; onDone() once it ends (or is tapped)
+//     map.skip()                       end the build scene now; map.scene: whether one is playing
 // ES module (`IdleMap`); needs a browser.
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -38,6 +43,7 @@ const IdleMap = (() => {
   const STATION_PERIOD = 70;
   const FIELD = 24; // the field's rocks lie within this of its centre
   const FLOAT = 1600; // ms a floater rises
+  const SCENE = 3200; // ms the build scene lasts
   const INK = '#7df9ff', DIM = 'rgba(125, 249, 255, 0.55)', FAINT = 'rgba(125, 249, 255, 0.16)', CHALK = '#e9eef2', AMBER = '#ffcf5a';
 
   // Planets and moons too small for their art: dots in the game map's colours (ui/map.js).
@@ -170,6 +176,8 @@ const IdleMap = (() => {
     function draw(state, now, selected) {
       placeStations(state);
       if (pending && byKey.has(pending)) focus(pending);
+      // The build scene comes in closer than a pick does, once the station has its place.
+      if (scene?.close && !pending && byKey.has(scene.key)) { follow = byKey.get(scene.key); want.k = Math.min(fitK * 14, focusK(follow) * 2.2); scene.close = false; }
       Art.beginFrame();
       const t = now / 1000, perf = performance.now(), dt = Math.min(0.1, (perf - last) / 1000);
       last = perf;
@@ -236,10 +244,13 @@ const IdleMap = (() => {
         else if (it.kind === 'planet') body(it, p, rpx, Math.atan2(c0.y - p.y, c0.x - p.x));
         else body(it, p, rpx);
       }
+      const sf = scene ? (perf - scene.t0) / SCENE : 0;
       for (const it of stationAt.values()) {
         const p = toScreen(pos.get(it.key)), rpx = it.r * k;
-        stationIcon(it, p, rpx, pos.get(it.key).a + Math.PI / 2, t);
+        if (scene && it.key === scene.key) sceneIcon(it, p, rpx, pos.get(it.key).a + Math.PI / 2, t, Math.min(1, sf));
+        else stationIcon(it, p, rpx, pos.get(it.key).a + Math.PI / 2, t);
       }
+      if (scene && sf >= 1) end();
 
       // The survey under way: the probe's sweep round its body, and how far along it is.
       if (state.survey) {
@@ -386,6 +397,58 @@ const IdleMap = (() => {
       ctx.restore();
     }
 
+    // ---------- The build scene ----------
+
+    let scene = null; // { key, t0, onDone }
+    const ease = (x) => 1 - (1 - x) ** 3;
+    const easeBack = (x) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2;
+    function built(key, onDone) {
+      if (scene) end();
+      scene = { key, t0: performance.now(), onDone, close: true };
+      focus(key);
+    }
+    function end() {
+      const s0 = scene;
+      scene = null;
+      s0?.onDone?.();
+    }
+    // The station under construction, in place of its icon: up to 0.5 the scaffold (a dashed ring
+    // drawn round, four brackets closing in, the station a ghost inside); to 0.8 the station fading
+    // in and settling to its size; then a pulse going out.
+    function sceneIcon(it, p, rpx, angle, t, f) {
+      const R = Math.max(12, rpx * 1.9);
+      ctx.save();
+      ctx.strokeStyle = INK; ctx.lineWidth = 1.2;
+      const a = ease(Math.min(1, f / 0.5)), fade = f < 0.8 ? 1 : Math.max(0, 1 - (f - 0.8) / 0.2);
+      ctx.globalAlpha = fade;
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath(); ctx.arc(p.x, p.y, R, -Math.PI / 2, -Math.PI / 2 + a * TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      const spin = (performance.now() / 1600) % TAU, d = R * (1.5 - 0.35 * a), arm = Math.max(4, R * 0.35);
+      for (let i = 0; i < 4; i++) {
+        const q = spin + (i * Math.PI) / 2, cx = p.x + Math.cos(q) * d, cy = p.y + Math.sin(q) * d;
+        ctx.beginPath();
+        ctx.moveTo(cx + Math.cos(q + 2.2) * arm, cy + Math.sin(q + 2.2) * arm);
+        ctx.lineTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(q - 2.2) * arm, cy + Math.sin(q - 2.2) * arm);
+        ctx.stroke();
+      }
+      ctx.restore();
+      const g = f < 0.5 ? 0 : Math.min(1, (f - 0.5) / 0.3);
+      ctx.save();
+      ctx.globalAlpha = 0.25 + 0.75 * g;
+      stationIcon(it, p, Math.max(6, rpx * (0.55 + 0.45 * easeBack(g))), angle, t);
+      ctx.restore();
+      if (f > 0.75) {
+        const q = Math.min(1, (f - 0.75) / 0.25);
+        ctx.save();
+        ctx.strokeStyle = INK; ctx.lineWidth = 2 * (1 - q) + 0.5;
+        ctx.globalAlpha = 1 - q;
+        ctx.beginPath(); ctx.arc(p.x, p.y, R * (1 + 2.2 * ease(q)), 0, TAU); ctx.stroke();
+        ctx.restore();
+      }
+    }
+
     function haulerPos(r, h, now, pos) {
       if (h.next == null) return null;
       const n = r.stops.length, to = pos.get(r.stops[h.stop].station), from = pos.get(r.stops[(h.stop - 1 + n) % n].station);
@@ -460,7 +523,7 @@ const IdleMap = (() => {
       const p = pointers.get(e.pointerId);
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
-      if (!pointers.size && !moved && downAt) onPick(pick(p.x, p.y));
+      if (!pointers.size && !moved && downAt) { if (scene) end(); else onPick(pick(p.x, p.y)); }
       if (!pointers.size) downAt = null;
     };
     canvas.addEventListener('pointerup', up);
@@ -469,7 +532,7 @@ const IdleMap = (() => {
 
     resize();
     cam.k = want.k = fitK;
-    return { draw, made, resize, focus, inset, pick };
+    return { draw, made, resize, focus, inset, pick, built, skip: () => scene && end(), get scene() { return !!scene; } };
   }
 
   return { create };
