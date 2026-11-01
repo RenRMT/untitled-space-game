@@ -49,11 +49,13 @@ This is the one mechanic that's new. In the game, the player mines raw goods by 
 - Extractors are bought with credits and then upgraded. Each level adds speed, and the price grows by about ×1.15 per level, the usual idle curve. The table lives in `src/idle/config.js`.
 - Salvage: the salvage yard has a **wreck field** extractor that slowly turns out the four component kinds, weighted by `Goods.pick`.
 
+**As built (Phase 2):** each extraction site is a station as far as `Industry` is concerned: the asteroid field, each planet and each moon has its own stock (key `site:<kind><id>`, type `site`, process `extract`). A drill is an order there running `extract.<good>`. A site takes as many orders as it has drills (the env's `slotsAt`), and holds 40 (`roomAt`). Its first drill gives it a shuttle to the nearest online station that uses what it pulls, or the waystation when none does. So drills, shuttles, the full-storage cap and time away all come out of `Industry.settle` with nothing new. For now a drill is a fixed rate, and more drills are the upgrade; levels can come later. The wreck field is still to do.
+
 ## Stations and restoration
 
 There's one seeded system per save (`SolarSystem` from a seed). Its stations are the game's: the waystation, mining camp, minor station (volatiles), transport hub, salvage yard, major station (fabricator) and capital (shipyard), in that order. They follow the same project chain as `Restoration.LIST`, re-costed for the idle game, because the game's costs assume goods carried in a hold.
 
-- At the start, the waystation (bench and market) and the mining camp (ore works, plus one iron drill) are online.
+- At the start, the waystation (bench and market) and the mining camp (ore works, already making steel pipe and shuttling it to the waystation) are online. The field's first drill is free. The game's first project (the ore works' shuttle) is dropped, so the chain starts at the volatiles works.
 - Each project costs goods held at the waystation plus credits, and brings its station online along with a shuttle. Restoring the transport hub unlocks free-form routes.
 - When a station is restored it plays a short scene: the dark hull lights up, as `art/station-roles.js` drawn in low-poly. This is the game's main reward moment.
 
@@ -112,8 +114,8 @@ Start from the game's recipe times (refining 20 s, parts 30 s, gear 2 min to 2 h
 
 ## Phases
 
-1. **Groundwork:** the `Industry.create` and `Restoration.create` factories, with tests showing the game is unchanged. Then `idle/` and `src/idle/` with the lint rule, the save, and a bare system view.
-2. **The core loop:** extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet.
+1. **Groundwork** (done): the `Industry.create` and `Restoration.create` factories, with tests showing the game is unchanged. Then `idle/` and `src/idle/` with the lint rule, the save, and a bare system view.
+2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
 3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab.
 4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name.
 5. **Later:** new systems (prestige), and the extras above.

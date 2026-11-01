@@ -64,6 +64,9 @@ import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
 import * as RaceSw from '../tools/race-sw.js';
+import { Config as IdleConfig } from '../src/idle/config.js';
+import { IdleRules } from '../src/idle/rules.js';
+import { ArtStationRoles } from '../src/art/station-roles.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -3939,6 +3942,94 @@ test('race offline: race/sw.js keeps every file the race loads (npm run race:sw)
   assert(!files.some((f) => f.includes('/game/') || f.endsWith('sw.js')), 'nothing of the game, and not the worker itself');
   const { current, wanted } = RaceSw.check();
   assert.strictEqual(current, wanted, 'race/sw.js: the file list is out of date: npm run race:sw');
+});
+
+// ---------- The idle game (src/idle/, notes/idle.md) ----------
+
+test('Industry.create: a recipe with no inputs (a drill) fills its site to the room it has, then waits for a shuttle', () => {
+  const recipes = { ...Recipes.RECIPES, 'extract.iron': { id: 'extract.iron', bay: 'extract', in: {}, out: { iron: 1 }, time: 10, unlock: null } };
+  const I = Industry.create({ recipes, process: { ...Industry.PROCESS, site: ['extract'] } });
+  const SITE = { key: 'site:a', name: 'A Field', type: 'site' }, T = 1e12;
+  const env = { ...I.env(Research.empty()), slotsAt: (k) => (k === SITE.key ? 1 : 1), roomAt: (k) => (k === SITE.key ? -80 : 0) };
+  const run = (steps) => {
+    const state = I.empty();
+    assert(I.place(state, SITE, 'extract.iron', null, env, T));
+    assert(!I.place(state, SITE, 'extract.iron', null, env, T), 'one drill: one order');
+    assert(!Industry.canMake('site', 'make.steel-pipe') && !I.canMake('site', 'make.steel-pipe') && I.canMake('site', 'extract.iron'));
+    for (let i = 1; i <= steps; i++) I.settle(state, T + (3600e3 * i) / steps, env);
+    return state;
+  };
+  const one = run(1);
+  assert.strictEqual(I.stockAt(one, SITE.key).iron, 20, 'the site holds 100 − 80');
+  assert.strictEqual(I.status(one, one.orders[0]).id, 'blocked', 'full: the drill waits');
+  assert.deepStrictEqual(run(37), one, 'settled in steps: the same');
+  // A shuttle takes it away, and drilling goes on.
+  const t = T + 3600e3;
+  I.setShuttle(one, SITE, CAMP, 20e3, env, t);
+  I.settle(one, t + 600e3, env);
+  assert((I.stockAt(one, CAMP.key).iron || 0) > 0, 'iron delivered');
+  assert(one.orders[0].made > 20, 'drilling went on');
+});
+
+test('Restoration.create: another project list, the game\'s untouched', () => {
+  const R = Restoration.create({ list: [{ id: 'a', name: 'A', type: 'minor', shuttle: null, goods: { iron: 2 }, credits: 10, requires: [] }], online: ['waystation'] });
+  assert(!R.online('mining camp', []) && Restoration.online('mining camp', []));
+  assert.strictEqual(R.status('a', [], { iron: 1 }, 50).id, 'short');
+  assert.deepStrictEqual(R.restore('a', [], { iron: 2 }, 50), { take: { iron: 2 }, credits: 10 });
+  assert(R.online('minor', ['a']));
+});
+
+test('idle: the system, its sites and the stations\' art roles', () => {
+  const w = IdleRules.world(1);
+  assert.strictEqual(w.stations.length, 7);
+  assert.strictEqual(w.waystation.type, 'waystation');
+  assert(w.sites.some((s) => s.kind === 'field' && s.goods.includes('iron')));
+  assert.strictEqual(w.sites.filter((s) => s.kind === 'planet').length, w.galaxy.planets.length);
+  for (const s of w.sites) for (const g of s.goods) assert(IdleConfig.RECIPES[`extract.${g}`], g);
+  for (const st of w.stations) assert(ArtStationRoles.ROLE_OF[st.type] || ['mining camp', 'salvage yard'].includes(st.type), st.type);
+  for (const p of IdleConfig.PROJECTS) assert(!p.type || w.stations.some((s) => s.type === p.type), p.id);
+});
+
+test('idle: drill, ship, refine, sell and restore; time away comes out the same however it is settled', () => {
+  const w = IdleRules.world(1), T = 1e12;
+  const play = (steps) => {
+    const s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+    assert.strictEqual(IdleRules.drillCost(s, field), 0, 'the first drill is free');
+    assert(IdleRules.buyDrill(s, w, field.key, 'iron', T));
+    assert(IdleRules.drillCost(s, field) > 0);
+    assert(!IdleRules.place(s, w, w.stations.find((x) => x.type === 'minor').key, 'make.hydrazine', T), 'offline stations take no orders');
+    for (let i = 1; i <= steps; i++) {
+      while (IdleRules.settle(s, T + (3 * 3600e3 * i) / steps, 500).truncated);
+    }
+    return s;
+  };
+  const s = play(1);
+  assert.deepStrictEqual(play(9), s, 'in slices and steps: the same');
+  const way = w.waystation.key, stock = IdleRules.industry.stockAt(s.industry, way);
+  assert(stock['steel-pipe'] > 0, 'pipe reached the waystation');
+  const t = T + 3 * 3600e3, p0 = IdleRules.priceOf(s, w, way, 'steel-pipe', t), c0 = s.credits;
+  const { sold, credits } = IdleRules.sell(s, w, way, 'steel-pipe', 20, t);
+  assert.strictEqual(sold, 20);
+  assert.strictEqual(s.credits, c0 + credits);
+  assert(IdleRules.priceOf(s, w, way, 'steel-pipe', t) < p0, 'selling drives the price down');
+  // The first project: pipe, fibre (a silicates drill and a fibre order at the camp) and credits.
+  const p = IdleRules.nextProject(s), camp = w.stations.find((x) => x.type === 'mining camp');
+  assert.strictEqual(p.id, 'restore.volatiles');
+  assert.notStrictEqual(IdleRules.projectStatus(s, w, p.id).id, 'ready');
+  assert(IdleRules.buyDrill(s, w, w.sites.find((x) => x.kind === 'field').key, 'silicates', t));
+  assert(IdleRules.place(s, w, camp.key, 'make.carbon-fibre', t));
+  IdleRules.sell(s, w, way, 'steel-pipe', 100, t); // room at the waystation for the fibre
+  s.credits += p.credits;
+  while (IdleRules.settle(s, t + 3600e3).truncated);
+  IdleRules.industry.deposit(s.industry, way, 'steel-pipe', 6, IdleRules.env(s), t + 3600e3);
+  assert.strictEqual(IdleRules.projectStatus(s, w, p.id).id, 'ready');
+  assert(IdleRules.restore(s, w, p.id, t + 3600e3));
+  const minor = w.stations.find((x) => x.type === 'minor');
+  assert(IdleRules.online(s, w, minor.key));
+  assert(IdleRules.industry.shuttle(s.industry, minor.key), 'restored with a shuttle to the waystation');
+  assert(IdleRules.place(s, w, minor.key, 'make.hydrazine', t + 3600e3));
+  // A save read back is the same state.
+  assert.deepStrictEqual(IdleRules.read(JSON.parse(JSON.stringify(s))), JSON.parse(JSON.stringify(s)));
 });
 
 if (failed) {

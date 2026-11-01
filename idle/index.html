@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en" data-ui="lowpoly">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#05060a">
+  <title>Waystation</title>
+  <!-- The idle station builder (notes/idle.md). Its own manifest, icons and offline copy come later. -->
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../src/ui/kit.css">
+  <link rel="stylesheet" href="../src/ui/kit-lowpoly.css">
+  <link rel="stylesheet" href="../src/idle/idle.css">
+</head>
+<body>
+  <canvas id="map"></canvas>
+  <header id="bar" class="ui">
+    <span class="ui-title">Waystation</span>
+    <span id="credits" class="num"></span>
+    <button id="restore-btn" class="ui-btn ghost" type="button"></button>
+  </header>
+  <section id="sheet" class="ui" hidden></section>
+  <div id="load" class="ui" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="../src/idle/main.js"></script>
+</body>
+</html>

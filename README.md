@@ -54,8 +54,10 @@ race loads, fetched from the network first while there is one. Its file list is 
 or removing a file the race loads, as `npm test` fails while the list is out of date. Installing
 needs HTTPS (or localhost).
 
-A third page is planned: an idle station builder (working title Waystation) on the game's production,
-haulers and restoration rules. `notes/idle.md` is the plan; nothing of it is built yet.
+The idle game is a third page, `/idle/` (`idle/index.html`, code in `src/idle/`): an idle station
+builder (working title Waystation) on the game's production, haulers and restoration rules, run on
+the real clock while the page is closed. `?fresh` starts a new save and `?seed=` picks its system;
+`notes/idle.md` is the plan.
 
 ## Code layout
 
