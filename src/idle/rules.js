@@ -9,9 +9,17 @@
 // Bodies are drill sites as far as Industry is concerned: the asteroid field, each planet and each
 // moon has a stock (key `site:<kind><id>`, type 'site', process 'extract'), and a drill is an order
 // there running extract.<good>, a recipe with no inputs that stops while the site's stock is full. A
-// site takes as many orders as it has drills (env slotsAt), and its first drill gives it a shuttle to
-// the nearest station that uses what it pulls (the waystation if none does). A station is where its
-// body is: travel times between them come from the bodies' places in the system.
+// site takes as many orders as it has drills (env slotsAt). A station is where its body is: travel
+// times between them come from the bodies' places in the system.
+//
+// Manual, then automated (notes/idle.md): a site's goods go to the nearest station that uses them
+// (the waystation if none does), and a station's to the waystation, but only by hand at first: the
+// player sends a hauler (sendHaul), which takes what's there and arrives after the trip. A shuttle
+// bought for the link (buyShuttle; free with Haulage research, which also gives new links theirs)
+// carries it from then on. Orders at a station run a batch and wait to be run again (rerun) until a
+// foreman is hired there (hireForeman); contracts are delivered by hand until the contract clerk
+// (research) does it at the clock's steps; surveys are picked by hand until the probe network
+// (research) starts them there.
 //
 // The lab (rules/lab.js over Config.PACKAGES) researches blueprints, mods, industry, logistics and
 // extraction, paid from the credits and the waystation's stock; a package can be queued once the
@@ -39,7 +47,10 @@
 //                                       drills: { [site key]: n }, economy, lab, contracts: { day, list: [contract] },
 //                                       autoSell: [kind], soldAt (the last auto-sell step settled to),
 //                                       sales: { ['<station key>|<kind>']: { n, at } } (gear sold lately), seen,
-//                                       earned (credits made in this system: sales, contracts, finds), legacy }
+//                                       earned (credits made in this system: sales, contracts, finds), legacy,
+//                                       hauls: [haul], foremen: [build id], keep: [contract id] (the clerk leaves them),
+//                                       autoSurvey (the probes on) }
+//     haul: { from, to (keys), load: { [kind]: n }, at, end }   a hauler sent by hand, arriving at end
 //     contract: { id, kind, n, reward (before research's bonus), from (a faction's name), done }
 //   IdleRules.env(state) -> Industry env   with research's speed, room, order slots and drill rate
 //   IdleRules.bonusAt(state, t, key) -> n   a research bonus from what was done by t ('speed', 'storage',
@@ -76,14 +87,23 @@
 //       and used at another that nothing carries;
 //     { kind: 'order', key, recipe, good, for }: an input no order makes, and a station that can;
 //     { kind: 'build', type, good, for }: an input no built station can make
-//   IdleRules.setShuttle(state, w, fromKey, toKey, now) -> route | null
+//   IdleRules.setShuttle(state, w, fromKey, toKey, now) -> route | null   (unpaid: buyShuttle pays for a new one)
+//   IdleRules.haulTarget(state, w, key) -> station | null   where a place's goods go; haulable(state, key) -> counts
+//   IdleRules.haulOf(state, key) -> haul | null, canHaul(state, w, key) -> bool, sendHaul(state, w, key, now) -> haul | null
+//   IdleRules.haulage(state, t?) -> bool, shuttleCost(state) -> credits, buyShuttle(state, w, key, now, toKey?) -> route | null
+//   IdleRules.batchOf(state, w, key, recipe) -> runs | null   an order's batch there (null: it goes on)
+//   IdleRules.rerun(state, w, orderId, now) -> bool   a finished batch, again
+//   IdleRules.hasForeman(state, w, key) -> bool, foremanStatus(state, w, buildId) -> { id: 'locked' | 'done' | 'short' | 'ready',
+//     ok, credits, goods, short: [{ kind, need, have }] }, hireForeman(state, w, buildId, now) -> bool
+//   IdleRules.hasClerk(state, t?), hasProbes(state, t?) -> bool; setKeep(state, contractId, on), setAutoSurvey(state, on) -> bool
 //   IdleRules.priceOf(state, w, stKey, kind, now) -> credits | null   what that station pays for one
 //   IdleRules.sell(state, w, stKey, kind, n, now) -> { sold, credits }
 //   IdleRules.contracts(state) -> [contract] today's; contractSlots(state), contractPay(state, c) -> credits
 //   IdleRules.canDeliver(state, w, id) -> bool, deliver(state, w, id, now) -> credits | 0   from the waystation
 //   IdleRules.canAuto(state) -> bool (researched), autoFloor(state) -> share, setAuto(state, kind, on) -> bool
 //   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }], researched: [id],
-//     sold: { [kind]: { n, credits } } (auto-sold) }
+//     sold: { [kind]: { n, credits } } (auto-sold), delivered: [{ id, kind, n, credits }] (by the clerk) }
+//     log: Industry's, plus a hauler sent by hand arriving: { haul (where from), key, name, at, delivered }
 //   IdleRules.legacy(state) -> { jumps, points, systems: [{ seed, name, points, built, at }] }   kept from
 //     the systems left before (new systems: prestige); legacyBonus(state, 'speed' | 'pay') -> share added
 //   IdleRules.canJump(state) -> bool (every station built), jumpPoints(state) -> n   what leaving now earns
@@ -108,7 +128,7 @@ import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 6;
+  const VERSION = 7;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
   const builds = Restoration.create({ list: Config.BUILDS, online: [] });
   const P = Config.PACKAGES;
@@ -282,6 +302,7 @@ const IdleRules = (() => {
       version: VERSION, seed: w.seed, layout: w.layout, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
       charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(),
       contracts: { day: null, list: [] }, autoSell: [], soldAt: now, sales: {}, seen: now, earned: 0, legacy: noLegacy(),
+      hauls: [], foremen: [], keep: [], autoSurvey: true,
     };
   }
 
@@ -300,15 +321,16 @@ const IdleRules = (() => {
     state.credits -= r.credits;
     state.built.push(id);
     state.hosts[st.key] = siteKey;
-    if (b.shuttle && st !== w.waystation) setShuttle(state, w, st.key, w.waystation.key, now);
+    if (b.shuttle && st !== w.waystation && haulage(state, now)) setShuttle(state, w, st.key, w.waystation.key, now);
     // The ore works starts on steel pipe.
-    if (st.type === 'mining camp') industry.place(state.industry, ref(st), 'make.steel-pipe', null, env(state), now);
-    // Drill sites that send to the waystation, or nowhere, send to this station instead if it uses
-    // what they pull.
+    if (st.type === 'mining camp') industry.place(state.industry, ref(st), 'make.steel-pipe', batchOf(state, w, st.key, 'make.steel-pipe'), env(state), now);
+    // Drill sites whose shuttle sends to the waystation (or that have none, with Haulage done) send
+    // to this station instead if it uses what they pull. Hauling by hand goes there too (haulTarget).
     for (const s of w.sites) {
       if (!state.drills[s.key]) continue;
       const r0 = industry.shuttle(state.industry, s.key), to = r0 ? r0.stops[1].station : null;
       if (to && to !== w.waystation.key) continue;
+      if (!to && !haulage(state, now)) continue;
       const target = shuttleTarget(state, w, s);
       if (target && target.key !== to) setShuttle(state, w, s.key, target.key, now);
     }
@@ -333,7 +355,7 @@ const IdleRules = (() => {
     state.credits -= cost;
     state.drills[siteKey] = (state.drills[siteKey] || 0) + 1;
     industry.place(state.industry, ref(site), `extract.${good}`, null, env(state), now);
-    if (!industry.shuttle(state.industry, siteKey)) setShuttle(state, w, siteKey, target.key, now);
+    if (!industry.shuttle(state.industry, siteKey) && haulage(state, now)) setShuttle(state, w, siteKey, target.key, now);
     return true;
   }
 
@@ -356,7 +378,7 @@ const IdleRules = (() => {
   function place(state, w, key, recipe, now) {
     const x = w.byKey.get(key);
     if (!x || x.kind !== 'station' || !online(state, w, key) || !known(state).has(recipe)) return null;
-    return industry.place(state.industry, ref(x), recipe, null, env(state), now);
+    return industry.place(state.industry, ref(x), recipe, batchOf(state, w, key, recipe), env(state), now);
   }
   const orderOf = (state, id) => state.industry.orders.find((x) => x.id === id) || null;
   function cancel(state, w, id) {
@@ -379,11 +401,112 @@ const IdleRules = (() => {
   function change(state, w, id, recipe, now) {
     const o = orderOf(state, id);
     if (!o || isSite(o.station) || o.recipe === recipe || !known(state).has(recipe)) return false;
-    return industry.change(state.industry, id, recipe, null, env(state), now);
+    return industry.change(state.industry, id, recipe, batchOf(state, w, o.station, recipe), env(state), now);
   }
   function lineage(state, w, id) {
     const o = orderOf(state, id);
     return o ? industry.lineage(state.industry, o.recipe, known(state), o.station) : [];
+  }
+
+  // ---------- Batches and foremen ----------
+
+  // Without a foreman, an order at a station runs a batch (about FOREMAN.batch of work) and waits to
+  // be run again; with one, it goes on while its inputs last. Drills and the wreck field have no
+  // batches: buying them is already the automation.
+  const hasForeman = (state, w, key) => { const x = w.byKey.get(key); return !!x && x.kind === 'station' && state.foremen.includes(x.build); };
+  function batchOf(state, w, key, recipe) {
+    const R = Config.RECIPES[recipe];
+    if (!R || isSite(key) || R.bay === 'salvage' || hasForeman(state, w, key)) return null;
+    return Math.max(Config.FOREMAN.minRuns, Math.round(Config.FOREMAN.batch / (R.time * 1000)));
+  }
+  // A finished batch, run again.
+  function rerun(state, w, id, now) {
+    const o = orderOf(state, id);
+    if (!o || isSite(o.station) || o.left !== 0) return false;
+    return industry.change(state.industry, id, o.recipe, batchOf(state, w, o.station, o.recipe), env(state), now);
+  }
+  // What a station's foreman costs, and whether it can be paid: { id: 'locked' | 'done' | 'short' | 'ready', ok, credits, goods, short: [{ kind, need, have }] }.
+  function foremanStatus(state, w, buildId) {
+    const c = Config.FOREMAN.cost[buildId];
+    if (!c || !state.built.includes(buildId)) return { id: 'locked', ok: false, credits: 0, goods: {}, short: [] };
+    const { credits = 0, ...goods } = c;
+    if (state.foremen.includes(buildId)) return { id: 'done', ok: false, credits, goods, short: [] };
+    const have = wayStock(state, w);
+    const short = Object.entries(goods).filter(([k, n]) => (have[k] || 0) < n).map(([kind, need]) => ({ kind, need, have: have[kind] || 0 }));
+    const ok = !short.length && state.credits >= credits;
+    return { id: ok ? 'ready' : 'short', ok, credits, goods, short };
+  }
+  function hireForeman(state, w, buildId, now) {
+    const f = foremanStatus(state, w, buildId);
+    if (!f.ok) return false;
+    state.credits -= f.credits;
+    for (const [kind, n] of Object.entries(f.goods)) industry.withdraw(state.industry, w.waystation.key, kind, n);
+    state.foremen.push(buildId);
+    // Its station's orders go on from now: a finished batch starts again.
+    for (const o of industry.at(state.industry, stationOf(w, buildId).key)) o.left = null;
+    industry.kick(state.industry, env(state), now);
+    return true;
+  }
+
+  // ---------- Hauling: by hand, then shuttles ----------
+
+  // A link is carried on its own once its shuttle is bought (Config.SHUTTLE; free with Haulage,
+  // which also gives new stations and drill sites theirs). Until then the player sends a hauler by
+  // hand: it takes what's there (up to HAUL.cap) and arrives after the trip, settled at that moment.
+  const haulage = (state, t = Infinity) => bonusAt(state, t, 'haulage') > 0;
+  const shuttleCount = (state) => state.industry.routes.filter((r) => r.shuttle).length;
+  const shuttleCost = (state) => (haulage(state) ? 0 : Math.round((Config.SHUTTLE.base * Config.SHUTTLE.growth ** shuttleCount(state)) / 10) * 10);
+  // Where a place's goods go: a site's to the nearest station that uses them (shuttleTarget); a
+  // station's that sends by shuttle (Config.BUILDS) to the waystation; null for anywhere else.
+  function haulTarget(state, w, key) {
+    const x = w.byKey.get(key);
+    if (!x || !online(state, w, key)) return null;
+    if (x.kind !== 'station') return shuttleTarget(state, w, x);
+    return builds.PROJECTS[x.build]?.shuttle && x !== w.waystation && online(state, w, w.waystation.key) ? w.waystation : null;
+  }
+  // What a hauler takes: all of a site's stock, and what a station's orders make.
+  function haulable(state, key) {
+    const stock = industry.stockAt(state.industry, key);
+    const made = isSite(key) ? null : new Set(industry.at(state.industry, key).flatMap((o) => Object.keys(Config.RECIPES[o.recipe]?.out || {})));
+    return Object.fromEntries(Object.entries(stock).filter(([k, n]) => n > 0 && (!made || made.has(k))).sort(([a], [b]) => (a < b ? -1 : 1)));
+  }
+  const haulOf = (state, key) => state.hauls.find((h) => h.from === key) || null;
+  function canHaul(state, w, key) {
+    return !haulOf(state, key) && !!haulTarget(state, w, key) && Object.keys(haulable(state, key)).length > 0;
+  }
+  function sendHaul(state, w, key, now) {
+    if (!canHaul(state, w, key)) return null;
+    const to = haulTarget(state, w, key), load = {};
+    let room = Config.HAUL.cap;
+    for (const [kind, n] of Object.entries(haulable(state, key))) {
+      if (room <= 0) break;
+      const k = industry.withdraw(state.industry, key, kind, Math.min(n, room));
+      if (k > 0) { load[kind] = k; room -= k; }
+    }
+    const h = { from: key, to: to.key, load, at: now, end: now + travel(state, w, key, to.key) };
+    state.hauls.push(h);
+    industry.kick(state.industry, env(state), now); // room freed: a full drill site goes on
+    return h;
+  }
+  // A hauler sent by hand arrives: what fits goes into the stock there, the rest back where it came
+  // from. Its log line is a delivery, like a shuttle's.
+  function arrive(state, w, h) {
+    const e = env(state), delivered = {};
+    for (const [kind, n] of Object.entries(h.load)) {
+      const k = industry.deposit(state.industry, h.to, kind, n, e, h.end);
+      if (k > 0) delivered[kind] = k;
+      if (n > k) industry.deposit(state.industry, h.from, kind, n - k, e, h.end);
+    }
+    state.hauls = state.hauls.filter((x) => x !== h);
+    return { haul: h.from, key: h.to, name: w.byKey.get(h.to)?.name || h.to, at: h.end, delivered };
+  }
+  // A shuttle for a link that has none: paid, then running to `toKey` (by default where its goods go).
+  function buyShuttle(state, w, key, now, toKey = null) {
+    const to = toKey ? w.byKey.get(toKey) : haulTarget(state, w, key), cost = shuttleCost(state);
+    if (!to || industry.shuttle(state.industry, key) || state.credits < cost) return null;
+    const r = setShuttle(state, w, key, to.key, now);
+    if (r) state.credits -= cost;
+    return r;
   }
 
   // ---------- Routes (the transport hub) ----------
@@ -550,6 +673,7 @@ const IdleRules = (() => {
       list.push({ id: `${day}.${i}`, kind, n, reward: Math.round((it.price * n * C.bonus * grow) / 10) * 10, from: FROM[Math.floor(r() * FROM.length)], done: false });
     }
     state.contracts = { day, list };
+    state.keep = [];
   }
   const contracts = (state) => state.contracts.list;
   const contractPay = (state, c) => Math.round(c.reward * (1 + bonusAt(state, Infinity, 'contractBonus')) * payMul(state));
@@ -566,6 +690,43 @@ const IdleRules = (() => {
     state.earned += pay;
     industry.kick(state.industry, env(state), now);
     return pay;
+  }
+
+  // ---------- The contract clerk ----------
+
+  // Once researched, at every step of the clock the clerk delivers each open contract the waystation
+  // can spare, keeping back what the next station needs, and skipping those the player keeps.
+  const hasClerk = (state, t = Infinity) => bonusAt(state, t, 'clerk') > 0;
+  function setKeep(state, id, on) {
+    if (!contracts(state).some((c) => c.id === id)) return false;
+    state.keep = on ? uniq([...state.keep, id]) : state.keep.filter((x) => x !== id);
+    return true;
+  }
+  function autoDeliver(state, w, t, out) {
+    const have = { ...wayStock(state, w) };
+    for (const [kind, n] of Object.entries(nextBuild(state)?.goods || {})) have[kind] = (have[kind] || 0) - n;
+    for (const c of contracts(state)) {
+      if (c.done || state.keep.includes(c.id) || (have[c.kind] || 0) < c.n) continue;
+      const credits = deliver(state, w, c.id, t);
+      if (credits) { have[c.kind] -= c.n; out.push({ id: c.id, kind: c.kind, n: c.n, credits }); }
+    }
+  }
+
+  // ---------- The probe network ----------
+
+  // Once researched (and while it's on), at every step of the clock with no survey under way, a
+  // survey starts on the signal that's quickest to chart, while the credits cover twice its cost.
+  const hasProbes = (state, t = Infinity) => bonusAt(state, t, 'probes') > 0;
+  function setAutoSurvey(state, on) {
+    if (!hasProbes(state)) return false;
+    state.autoSurvey = !!on;
+    return true;
+  }
+  function autoSurvey(state, w, t) {
+    if (state.survey || state.credits < 2 * surveyCost(state)) return null;
+    const open = w.sites.filter((x) => surveyable(state, w, x.key)).map((x) => ({ key: x.key, ms: surveyTime(state, w, x.key) }))
+      .sort((a, b) => a.ms - b.ms || (a.key < b.key ? -1 : 1));
+    return open.length && survey(state, w, open[0].key, t) ? open[0].key : null;
   }
 
   // ---------- Auto-sell ----------
@@ -616,30 +777,35 @@ const IdleRules = (() => {
 
   // ---------- Time ----------
 
-  // The survey is charted before production settles, so its find is in the credits from its end.
-  // With auto-sell on, production settles to each step of the clock in turn, and sells there.
+  // Production settles from one moment to the next that matters, in order: a survey's end, a
+  // hauler sent by hand arriving, and, while something runs on its own (auto-sell, the clerk, the
+  // probes), every step of the clock, where it acts. All of them are fixed times, so time away comes
+  // out the same however it's settled. Contracts roll over at the first moment of each day.
+  const stepping = (state, t) => (state.autoSell.length > 0 && canAuto(state, t)) || hasClerk(state, t) || (state.autoSurvey && hasProbes(state, t));
   function settle(state, w, now, max = Industry.MAX_EVENTS) {
     const researched = lab.settle(state.lab, now);
-    const found = chartDue(state, w, now);
-    if (online(state, w, w.waystation.key)) rollContracts(state, w, now);
-    const e = env(state), log = [], sold = {}, STEP = Config.AUTO_SELL.step;
-    const out = (truncated) => ({ log, truncated, charted: found, researched, sold });
-    if (state.autoSell.length && canAuto(state, now)) {
-      for (;;) {
-        const b = (Math.floor(state.soldAt / STEP) + 1) * STEP;
-        if (b > now) break;
-        const left = max - log.length;
-        if (left <= 0) return out(true);
-        const r = industry.settle(state.industry, b, e, left);
-        log.push(...r.log);
-        if (r.truncated) return out(true);
-        if (canAuto(state, b)) autoSell(state, w, b, sold);
+    const e = env(state), log = [], sold = {}, delivered = [], found = [], STEP = Config.STEP;
+    const out = (truncated) => ({ log, truncated, charted: found, researched, sold, delivered });
+    const steps = stepping(state, now);
+    for (;;) {
+      const step = steps ? (Math.floor(state.soldAt / STEP) + 1) * STEP : Infinity;
+      const b = Math.min(now, step, state.survey ? state.survey.end : Infinity, ...state.hauls.map((h) => h.end));
+      const left = max - log.length;
+      if (left <= 0) return out(true);
+      const r = industry.settle(state.industry, b, e, left);
+      log.push(...r.log);
+      if (r.truncated) return out(true);
+      found.push(...chartDue(state, w, b));
+      for (const h of state.hauls.filter((x) => x.end <= b).sort((x, y) => x.end - y.end || (x.from < y.from ? -1 : 1))) log.push(arrive(state, w, h));
+      if (online(state, w, w.waystation.key)) rollContracts(state, w, b);
+      if (b === step) {
+        if (state.autoSell.length && canAuto(state, b)) autoSell(state, w, b, sold);
+        if (hasClerk(state, b) && online(state, w, w.waystation.key)) autoDeliver(state, w, b, delivered);
+        if (state.autoSurvey && hasProbes(state, b)) autoSurvey(state, w, b);
         state.soldAt = b;
       }
+      if (b >= now) break;
     }
-    const r = industry.settle(state.industry, now, e, Math.max(1, max - log.length));
-    log.push(...r.log);
-    if (r.truncated) return out(true);
     state.seen = state.soldAt = now;
     return out(false);
   }
@@ -666,6 +832,10 @@ const IdleRules = (() => {
       soldAt: Number.isFinite(d.soldAt) ? d.soldAt : Number.isFinite(d.seen) ? d.seen : 0,
       seen: Number.isFinite(d.seen) ? d.seen : 0,
       earned: Number.isFinite(d.earned) ? d.earned : 0, legacy: readLegacy(d.legacy),
+      hauls: Array.isArray(d.hauls) ? d.hauls.filter((h) => h && typeof h.from === 'string' && typeof h.to === 'string' && h.load && typeof h.load === 'object' && Number.isFinite(h.end)) : [],
+      foremen: Array.isArray(d.foremen) ? d.foremen.filter((id) => builds.PROJECTS[id]) : [],
+      keep: Array.isArray(d.keep) ? d.keep.filter((x) => typeof x === 'string') : [],
+      autoSurvey: d.autoSurvey !== false,
     };
   }
   function readLegacy(l) {
@@ -679,6 +849,8 @@ const IdleRules = (() => {
     routeLimit, haulerLimit, routes, canRoute, carries, addRoute, removeRoute, fixes, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
     hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
     place, cancel, setShuttle, priceOf, sell, contracts, contractSlots, contractPay, canDeliver, deliver, canAuto, autoFloor, setAuto,
+    batchOf, rerun, hasForeman, foremanStatus, hireForeman, haulage, shuttleCost, haulTarget, haulable, haulOf, canHaul, sendHaul, buyShuttle,
+    hasClerk, setKeep, hasProbes, setAutoSurvey,
     legacy, legacyBonus, canJump, jumpPoints, nextSeed, jump, settle, read,
   };
 })();
