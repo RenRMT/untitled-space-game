@@ -28,7 +28,8 @@
 //   Industry.STORAGE, SLOTS, LOYALTY { required, start }, MAX_EVENTS
 //   Industry.env(lab) -> env                 times, room and slots, given the research done (rules/research.js);
 //     an env may also have slotsAt(station key) -> n, the orders that station takes (over slots(env)),
-//     and roomAt(station key) -> n, room added to (or, below 0, taken from) that station's stock
+//     and roomAt(station key, t) -> n, room added to (or, below 0, taken from) that station's stock,
+//     and rate(recipe id, t) -> n, a further speed for that recipe's runs started at t (1: none)
 //   Industry.canMake(station type, recipe id), slots(env), at(state, key) -> [order]
 //   Industry.trusted(loyalty, key)           whether a station takes orders ({ [key]: n })
 //   Industry.capacity(state, env, t, key?)   room in each station's stock (key: that one's, with env.roomAt)
@@ -111,12 +112,12 @@ function create(tables = {}) {
   const at = (state, key) => state.orders.filter((o) => o.station === key);
   const trusted = (loyalty, key) => (loyalty?.[key] ?? LOYALTY.start) >= LOYALTY.required;
 
-  const capacity = (state, e, t, key) => STORAGE.base + e.room(t) + (key != null && e.roomAt ? e.roomAt(key) : 0);
+  const capacity = (state, e, t, key) => STORAGE.base + e.room(t) + (key != null && e.roomAt ? e.roomAt(key, t) : 0);
   const used = (state, key) => total(stockAt(state, key));
   const reserved = (state, key) => at(state, key).reduce((n, o) => n + (o.next != null ? total(RECIPES[o.recipe].out) : 0), 0);
   const free = (state, key, e, t) => Math.max(0, capacity(state, e, t, key) - used(state, key) - reserved(state, key));
 
-  const runTime = (o, e, t) => Math.round((e.recipe(o.recipe).time * 1000) / (e.speed(t) * Research.config.speed));
+  const runTime = (o, e, t) => Math.round((e.recipe(o.recipe).time * 1000) / (e.speed(t) * (e.rate ? e.rate(o.recipe, t) : 1) * Research.config.speed));
 
   const missing = (state, R, key) => Object.entries(R.in).find(([k, n]) => (stockAt(state, key)[k] || 0) < n)?.[0] ?? null;
   // Whether a run would overfill its station's stock (a run that makes no more than it takes always fits).

@@ -2,16 +2,22 @@
 // meters, choices; drawn in the Line style by ui/kit-line.css), one at a time:
 // - a body's: uncharted, the survey that charts it; charted, its deposits and drills, its stock and
 //   shuttle, the stations in orbit round it, and building the next station there,
-// - a station's: its stock (sold here, at the market's price), its orders and a new one, its shuttle,
+// - a station's: its stock (sold here, at the market's price), its orders (each with where its inputs
+//   come from, and a fix where one is missing; pause, priority, switching recipe) and a new one, its
+//   shuttle; at the transport hub, its routes and a new one,
 // - Survey: every body in the system, charted or not, and the survey under way,
 // - Build: the stations to build, in order, what each costs, and where the next can go,
+// - Chain: the production chains (Industry.pipelines), and what would mend them (IdleRules.fixes),
+// - Lab: the package building and the queue, then every package by category, to research,
 // - the survey's report (what was found), and the summary of time away.
 // Each is rebuilt from the state when what it shows changes (compared as markup, so a tap is never
 // lost to a refresh); the meters and the time left move every frame on their own (progress()). A
 // button names what it does through act(name, args), which the page (main.js) carries out.
 //
 //   IdleSheets.create(layer, w, { act(name, args), onClose() }) -> sheets
-//     sheets.show(view | null, state, now)   view: { kind: 'site' | 'station' | 'survey' | 'build' | 'report' | 'away', key?, ... }
+//     sheets.show(view | null, state, now)   view: { kind: 'site' | 'station' | 'survey' | 'build' | 'chain' | 'lab' | 'report' | 'away',
+//       key?, ... }; a station's may have switching: an order id (its recipes, to switch that order to)
+//       and draft: { from, to, kinds } (a new route at the hub)
 //     sheets.refresh(state, now)             rebuild if anything shown changed
 //     sheets.progress(now)                   move the meters and the time left
 //     sheets.view, sheets.top                what's open; the sheet's top edge on screen (px), or null
@@ -37,12 +43,18 @@ const IdleSheets = (() => {
   const MOON = { grey: 'Grey moon', ice: 'Ice moon', rust: 'Rust moon', dark: 'Dark moon', sulfur: 'Sulfur moon' };
   const ORDINAL = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
   const PROCESS_LABEL = { ...Object.fromEntries(Object.values(Recipes.BAYS).map((b) => [b.id, b.label])), extract: 'Drills' };
+  // Where an order's input comes from (Industry.lineage's source).
+  const SOURCE = { storage: 'in stock', order: 'made here', route: 'on its way here', away: 'made elsewhere, not brought here', raw: 'drilled nowhere yet', stage: 'nothing makes it' };
+  const CAT_CODE = { ext: 'MIN', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD', 'mods.weapons': 'MOD', 'mods.systems': 'MOD' };
+  const LAB_STATE = { done: ['Done', 'good'], active: ['Building', 'cyan'], queued: ['Queued', 'cyan'], locked: ['Locked', 'dim'], closed: ['Closed', 'dim'] };
+  const buildOfType = (type) => Config.BUILDS.find((b) => b.type === type) || null;
 
   // An item's icon: a good's own art in the Line style (art/icons.js); gear its slot's line icon, a
   // consumable its own, as the game's station screen shows them. Its name is beside it.
   const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN', utility: 'UTL' };
   function itemIcon(kind, size = 32) {
     const it = Recipes.item(kind);
+    if (it && it.kind === 'mod') return Kit.icon('MOD', size, { code: 'MOD' });
     if (it && (it.kind === 'gear' || it.kind === 'consumable')) { const code = it.code || SLOT_CODE[it.slot] || 'PKG'; return Kit.icon(code, size, { code, tier: it.tier }); }
     return h('img', { class: 'icon', src: ItemIcons.url(kind, 'line', size), alt: '', 'aria-hidden': 'true', width: size, height: size, draggable: 'false' });
   }
@@ -55,7 +67,7 @@ const IdleSheets = (() => {
   const left = (to) => h('span', { class: 'num', 'data-left': to });
 
   function create(layer, w, { act, onClose }) {
-    let view = null, sheet = null, last = '', shownId = '';
+    let view = null, sheet = null, last = '', shownId = '', nowAt = 0;
     const go = (name, args = {}) => () => act(name, args);
     const kindLine = (s) => (s.kind === 'planet' ? PLANET[s.body.type] || 'Planet' : s.kind === 'moon' ? MOON[s.body.type] || 'Moon' : KIND[s.kind]);
     const where = (s) => (s.kind === 'moon' ? `round ${w.byKey.get(s.parent).name}` : `the ${ORDINAL[s.ring] || `${s.ring + 1}th`} orbit`);
@@ -79,15 +91,44 @@ const IdleSheets = (() => {
       ];
     }
 
-    function orderRow(state, o, extra) {
+    const placeName = (key) => w.byKey.get(key)?.name || key;
+    const FIX_VERB = { route: 'Route', shuttle: 'Shuttle', order: 'Order', build: 'Build' };
+    function fixText(f) {
+      if (f.kind === 'route') return `Route ${nameOf(f.good).toLowerCase()} to ${placeName(f.to)}`;
+      if (f.kind === 'shuttle') return `Shuttle ${placeName(f.from)} to ${placeName(f.to)}`;
+      if (f.kind === 'order') return `Make ${nameOf(f.good).toLowerCase()} at ${placeName(f.key)}`;
+      const b = buildOfType(f.type);
+      return b ? `Build the ${b.name.toLowerCase()}` : `Nothing here makes ${nameOf(f.good).toLowerCase()}`;
+    }
+    const fixButton = (f) => Kit.button(FIX_VERB[f.kind], go('fix', { fix: f }), { kind: f.kind === 'build' ? 'ghost' : 'primary', disabled: f.kind === 'build' && !f.type, title: fixText(f), aria: fixText(f) });
+    // The fix for an input of an order at a station, if the chain has one.
+    const fixFor = (fixes, key, kind) => fixes.find((f) => f.good === kind && (f.kind === 'route' || f.kind === 'shuttle' ? f.to === key : f.for === key)) || null;
+
+    function orderRow(state, o, extra, fixes = []) {
       const R = Config.RECIPES[o.recipe], st = I.status(state.industry, o), [label, tone] = STATUS[st.id];
       const what = st.missing ? `${label} ${nameOf(st.missing)}` : label;
-      const out = Object.keys(R.out)[0];
+      const out = Object.keys(R.out)[0], drill = R.bay === 'extract';
+      const lines = [];
+      if (!drill) {
+        // Where each input comes from, and the fix for one that isn't coming.
+        for (const x of IdleRules.lineage(state, w, o.id)) {
+          const fix = x.source === 'storage' || x.source === 'order' || x.source === 'route' ? null : fixFor(fixes, o.station, x.kind);
+          lines.push(h('div', { class: 'idle-in' },
+            h('span', { class: 'sub' }, `${nameOf(x.kind)} ${Math.min(x.have, x.need)}/${x.need} · ${fix ? fixText(fix) : SOURCE[x.source]}`),
+            fix ? fixButton(fix) : null));
+        }
+      }
+      const mine = state.industry.orders.filter((x) => x.station === o.station), first = mine[0] === o;
+      const action = drill ? null : Kit.button('✕', go('cancel', { id: o.id }), { kind: 'ghost', aria: 'Cancel this order', title: 'Cancel' });
+      const controls = drill ? null : h('span', { class: 'idle-acts idle-ctl' },
+        Kit.button(o.paused ? 'Resume' : 'Pause', go('pause', { id: o.id, paused: !o.paused }), { kind: 'ghost' }),
+        Kit.button('Switch', go('view', { switching: o.id }), { kind: 'ghost', aria: 'Make something else here' }),
+        first ? null : Kit.button('▲ First', go('raise', { id: o.id }), { kind: 'ghost', aria: 'Ahead of the order before it: it gets inputs first' }));
       return Kit.optionRow({
         icon: itemIcon(out), name: counts(R.out), tag: what, tagTone: tone.replace(/^var\(--|\)$/g, ''),
-        sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(R.time)} a run · ${o.made} made`,
-        extra: [runMeter(o.at, o.next), extra || null],
-        action: R.bay === 'extract' ? null : Kit.button('✕', go('cancel', { id: o.id }), { kind: 'ghost', aria: 'Cancel this order', title: 'Cancel' }),
+        sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(I.runTime(o, IdleRules.env(state), nowAt) / 1000)} a run · ${o.made} made`,
+        extra: [runMeter(o.at, o.next), ...lines, controls, extra || null],
+        action,
       });
     }
 
@@ -174,23 +215,152 @@ const IdleSheets = (() => {
       const st = w.byKey.get(key), b = Config.BUILDS.find((x) => x.type === st.type), host = w.byKey.get(IdleRules.hostOf(state, key));
       const procs = I.processes(st.type).map((p) => PROCESS_LABEL[p]).join(', ') || (st.type === 'transport hub' ? 'Routes' : 'Market');
       const body = [...stockBlock(state, key, now, true)];
-      const orders = I.at(state.industry, key), slots = IdleRules.env(state).slotsAt(key);
+      const orders = I.at(state.industry, key), slots = IdleRules.env(state).slotsAt(key), fixes = IdleRules.fixes(state, w);
+      const switching = orders.find((o) => o.id === view.switching) || null;
       if (I.processes(st.type).length) {
         body.push(Kit.head('Orders', h('span', { class: 'aside' }, `${orders.length} / ${slots}`)));
-        for (const o of orders) body.push(orderRow(state, o));
-        if (orders.length < slots) {
-          body.push(Kit.head('New order'));
+        for (const o of orders) body.push(orderRow(state, o, null, fixes));
+        if (switching || orders.length < slots) {
+          body.push(Kit.head(switching ? `Switch: ${counts(Config.RECIPES[switching.recipe].out)} to` : 'New order',
+            switching ? Kit.button('Keep it', go('view', { switching: null }), { kind: 'ghost' }) : null));
           for (const R of IdleRules.recipesAt(state, w, key)) {
-            const out = Object.keys(R.out)[0];
+            if (switching && R.id === switching.recipe) continue;
+            const out = Object.keys(R.out)[0], it = Recipes.item(out);
             body.push(Kit.optionRow({
-              icon: itemIcon(out), name: counts(R.out), sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(R.time)} a run`,
-              action: Kit.button('Order', go('place', { key, recipe: R.id })),
+              icon: itemIcon(out), name: counts(R.out), tier: it?.kind === 'gear' ? it.tier : undefined,
+              sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(R.time)} a run`,
+              action: switching ? Kit.button('Switch', go('change', { id: switching.id, recipe: R.id })) : Kit.button('Order', go('place', { key, recipe: R.id })),
             }));
           }
+          const later = Object.values(Config.RECIPES).filter((R) => R.unlock && I.canMake(st.type, R.id) && !IdleRules.known(state).has(R.id)).length;
+          if (later) body.push(h('p', { class: 'ui-note' }, `${later} more to research in the lab.`));
         }
       }
+      if (st.type === 'transport hub') body.push(...routesBlock(state));
       if (st !== w.waystation) body.push(...shuttleBlock(state, key));
       return { title: st.name, kicker: b.name, sub: `${procs} · in orbit round ${host ? host.name : '—'}`, code: b.code, body };
+    }
+
+    // The transport hub's routes, and a new one: from where, to where, carrying what.
+    function routesBlock(state) {
+      const list = IdleRules.routes(state), limit = IdleRules.routeLimit(state);
+      const out = [Kit.head('Routes', h('span', { class: 'aside' }, `${list.length} / ${limit}`))];
+      for (const r of list) {
+        out.push(Kit.optionRow({
+          code: 'TRD', name: r.name, sub: `${IdleRules.carries(r).map(nameOf).join(', ')} · ${r.haulers.length} hauler${r.haulers.length === 1 ? '' : 's'} of ${r.cap}`,
+          action: Kit.button('✕', go('route-remove', { id: r.id }), { kind: 'ghost', aria: 'Stop this route', title: 'Stop' }),
+        }));
+      }
+      if (!list.length) out.push(h('p', { class: 'ui-empty' }, 'No routes yet: a route carries chosen goods from one place to another, beside the shuttles.'));
+      const d = view.draft || {};
+      const places = [...w.stations, ...w.sites].filter((x) => IdleRules.online(state, w, x.key) && (x.kind === 'station' || state.drills[x.key]));
+      out.push(Kit.head('New route'));
+      if (list.length >= limit && !(d.from && d.to && list.some((r) => r.stops[0].station === d.from && r.stops[1].station === d.to))) {
+        out.push(h('p', { class: 'ui-note' }, 'Every route is taken: research route planning for more, or add goods to a route between the same two places.'));
+      }
+      out.push(h('span', { class: 'ui-label' }, 'From'), Kit.choices(places.map((x) => ({ id: x.key, label: x.name, on: x.key === d.from })), (id) => act('view', { draft: { from: id, to: d.to === id ? null : d.to, kinds: [] } }), { label: 'From' }));
+      if (d.from) {
+        const made = new Set([...I.at(state.industry, d.from).flatMap((o) => Object.keys(Config.RECIPES[o.recipe].out)), ...Object.keys(I.stockAt(state.industry, d.from))]);
+        const kinds = d.kinds || [];
+        out.push(h('span', { class: 'ui-label' }, 'To'), Kit.choices(w.stations.filter((x) => x.key !== d.from && IdleRules.online(state, w, x.key)).map((x) => ({ id: x.key, label: x.name, on: x.key === d.to })), (id) => act('view', { draft: { ...d, to: id } }), { label: 'To' }));
+        out.push(h('span', { class: 'ui-label' }, 'Carrying'));
+        if (made.size) out.push(Kit.choices([...made].map((k) => ({ id: k, label: nameOf(k), on: kinds.includes(k) })), (k) => act('view', { draft: { ...d, kinds: kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k] } }), { label: 'Carrying' }));
+        else out.push(h('p', { class: 'ui-empty' }, 'Nothing is made or kept there yet.'));
+        out.push(Kit.button('Start the route', go('route-add', { from: d.from, to: d.to, kinds }), { kind: 'primary', wide: true, disabled: !d.to || !kinds.length }));
+      }
+      return out;
+    }
+
+    function chain(state) {
+      const groups = I.pipelines(state.industry), fixes = IdleRules.fixes(state, w), orders = state.industry.orders;
+      const by = (id) => orders.find((o) => o.id === id);
+      const body = [h('p', { class: 'ui-note' }, 'Every order, linked by what one makes and another uses. A link between two places needs a shuttle or a route to carry the good.')];
+      if (fixes.length) {
+        body.push(Kit.head('To mend', h('span', { class: 'aside' }, `${fixes.length}`)));
+        for (const f of fixes) {
+          const why = f.kind === 'route' || f.kind === 'shuttle'
+            ? `${nameOf(f.good)} is made at ${placeName(f.from)}, used at ${placeName(f.to)}`
+            : `${placeName(f.for)} needs ${nameOf(f.good).toLowerCase()}, and nothing makes it`;
+          body.push(Kit.optionRow({ icon: itemIcon(f.good), name: why, sub: fixText(f), action: fixButton(f) }));
+        }
+      }
+      if (!orders.length) body.push(h('p', { class: 'ui-empty' }, 'No orders yet: put a drill on a body, and orders at the stations.'));
+      const linked = groups.filter((g) => !g.standalone), alone = groups.filter((g) => g.standalone);
+      linked.forEach((g, i) => {
+        body.push(Kit.head(g.end.length ? `Makes ${g.end.map(nameOf).join(', ')}` : `Chain ${i + 1}`, h('span', { class: 'aside' }, `${g.orders.length} orders`)));
+        for (const o of g.orders) {
+          const R = Config.RECIPES[o.recipe], st = I.status(state.industry, o), [label, tone] = STATUS[st.id];
+          const into = g.links.filter((l) => l.to === o.id).map((l) => `${nameOf(l.kind)} from ${by(l.from).name}${l.away ? (l.routed ? ' (carried)' : ' (not carried)') : ''}`);
+          body.push(Kit.optionRow({
+            icon: itemIcon(Object.keys(R.out)[0]), name: `${counts(R.out)}`, tag: st.missing ? `${label} ${nameOf(st.missing)}` : label, tagTone: tone.replace(/^var\(--|\)$/g, ''),
+            sub: `${o.name}${into.length ? ` · ${into.join(' · ')}` : ''}`, extra: [runMeter(o.at, o.next)],
+            action: Kit.button('Open', go('open', { key: o.station }), { kind: 'ghost' }),
+          }));
+        }
+      });
+      if (alone.length) {
+        body.push(Kit.head('On their own', h('span', { class: 'aside' }, `${alone.length}`)));
+        for (const g of alone) {
+          const o = g.orders[0], R = Config.RECIPES[o.recipe], st = I.status(state.industry, o), [label, tone] = STATUS[st.id];
+          body.push(Kit.optionRow({
+            icon: itemIcon(Object.keys(R.out)[0]), name: counts(R.out), tag: st.missing ? `${label} ${nameOf(st.missing)}` : label, tagTone: tone.replace(/^var\(--|\)$/g, ''), sub: o.name,
+            action: Kit.button('Open', go('open', { key: o.station }), { kind: 'ghost' }),
+          }));
+        }
+      }
+      return { title: 'Chain', kicker: w.galaxy.name, sub: `${orders.length} orders${fixes.length ? ` · ${fixes.length} to mend` : ''}`, code: 'RCP', body, tall: true };
+    }
+
+    function labCost(state, st) {
+      const parts = st.cost.map((c) => `${Math.min(c.have, c.need)}/${c.need} ${nameOf(c.kind)}`);
+      if (st.credits) parts.push(cr(st.credits));
+      return parts.join(' · ');
+    }
+    function catCode(p) {
+      if (CAT_CODE[p.cat]) return CAT_CODE[p.cat];
+      const it = p.gear && Recipes.item(p.gear);
+      return (it && (SLOT_CODE[it.slot] || 'PKG')) || 'PKG';
+    }
+    function labSheet(state) {
+      const L = IdleRules.lab, l = state.lab, P = Config.PACKAGES;
+      const body = [h('p', { class: 'ui-note' }, 'One package builds at a time; the rest wait their turn, on the real clock. Each is paid for with credits and goods from the waystation\'s stock, and needs its station built.')];
+      body.push(Kit.head('Building', h('span', { class: 'aside' }, `${L.pending(l).length} / ${1 + Config.LAB_QUEUE + IdleRules.bonusAt(state, Infinity, 'queue')}`)));
+      if (l.active) {
+        const p = P[l.active.id];
+        body.push(Kit.optionRow({
+          code: catCode(p), name: p.name, tier: p.tier, sub: p.note, extra: [h('div', { class: 'idle-row' }, runMeter(l.active.start, l.active.end), left(l.active.end))],
+          action: Kit.button('✕', go('research-cancel', { id: p.id }), { kind: 'ghost', aria: 'Cancel (half back)', title: 'Cancel: half back' }),
+        }));
+      } else body.push(h('p', { class: 'ui-empty' }, 'The lab is idle.'));
+      for (const id of l.queue) {
+        const p = P[id];
+        body.push(Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, tag: 'Queued', tagTone: 'cyan', sub: `${secs(L.timeOf(id) / 1000)}`, action: Kit.button('✕', go('research-cancel', { id }), { kind: 'ghost', aria: 'Cancel (all back)', title: 'Cancel' }) }));
+      }
+      for (const cat of Config.CATEGORIES) {
+        const list = Object.values(P).filter((p) => p.cat === cat.id);
+        const done = list.filter((p) => l.done.includes(p.id)).length;
+        const label = cat.label === 'Mods' ? (cat.id === 'mods.weapons' ? 'Weapon mods' : 'System mods') : cat.label;
+        body.push(Kit.head(label, h('span', { class: 'aside' }, `${done} / ${list.length}`)));
+        const builder = buildOfType(cat.station);
+        if (!state.built.some((id) => Config.BUILDS.find((b) => b.id === id)?.type === cat.station)) {
+          body.push(h('p', { class: 'ui-empty' }, `Researched at the ${builder ? builder.name.toLowerCase() : cat.station}, once it's built: ${cat.note}.`));
+          continue;
+        }
+        for (const p of list) {
+          if (l.done.includes(p.id)) continue;
+          const st = IdleRules.researchStatus(state, w, p.id);
+          if (st.state === 'active' || st.state === 'queued') continue;
+          const [tag, tone] = LAB_STATE[st.state] || [null, null];
+          const needs = st.needs?.length ? `needs ${st.needs.map((r) => P[[r].flat()[0]]?.name || r).join(', ')} · ` : '';
+          body.push(Kit.optionRow({
+            code: catCode(p), name: p.name, tier: p.tier, tag, tagTone: tone, locked: st.state === 'locked' || st.state === 'closed', lockLabel: null,
+            sub: `${needs}${labCost(state, st)} · ${secs(L.timeOf(p.id) / 1000)}`,
+            extra: [h('span', { class: 'sub' }, p.note)],
+            action: st.state === 'available' ? Kit.button(l.active ? 'Queue' : 'Research', go('research', { id: p.id }), { kind: st.ok ? 'primary' : '', disabled: !st.ok }) : null,
+          }));
+        }
+      }
+      return { title: 'Lab', kicker: w.galaxy.name, sub: `${l.done.length} of ${Object.keys(P).length} researched`, code: 'LAB', body, tall: true };
     }
 
     function surveyList(state, now) {
@@ -277,6 +447,7 @@ const IdleSheets = (() => {
         Kit.head('Made'), ...(a.made.size ? lines(a.made) : [h('p', { class: 'ui-empty' }, 'Nothing.')]),
         Kit.head('Delivered'), ...(a.delivered.size ? lines(a.delivered) : [h('p', { class: 'ui-empty' }, 'Nothing.')]),
       ];
+      if (a.researched?.length) body.push(Kit.head('Researched'), ...a.researched.map((id) => { const p = Config.PACKAGES[id]; return Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, sub: p.note }); }));
       if (a.charted.length) body.push(Kit.head('Charted'), ...a.charted.map((c) => Kit.optionRow({ code: 'SCN', name: w.byKey.get(c.key).name, sub: c.find ? `found ${cr(c.find)}` : kindLine(w.byKey.get(c.key)), action: Kit.button('Open', go('open', { kind: 'site', key: c.key }), { kind: 'ghost' }) })));
       if (a.stuck.length) body.push(Kit.head('Stopped'), ...a.stuck.map((x) => Kit.optionRow({ code: 'LCK', name: x.name, tag: x.why, tagTone: 'warn', action: Kit.button('Open', go('open', { kind: IdleRules.isSite(x.key) ? 'site' : 'station', key: x.key }), { kind: 'ghost' }) })));
       return { title: 'While you were away', sub: secs(a.ms / 1000), code: 'QUE', body, foot: [Kit.button('Carry on', go('close'), { kind: 'primary', lg: true, wide: true })] };
@@ -285,11 +456,14 @@ const IdleSheets = (() => {
     // ---------- Showing ----------
 
     function build(state, now) {
+      nowAt = now;
       if (!view) return null;
       if (view.kind === 'site') return site(state, view.key, now);
       if (view.kind === 'station') return station(state, view.key, now);
       if (view.kind === 'survey') return surveyList(state, now);
       if (view.kind === 'build') return buildList(state, now);
+      if (view.kind === 'chain') return chain(state, now);
+      if (view.kind === 'lab') return labSheet(state, now);
       if (view.kind === 'report') return report(view);
       if (view.kind === 'away') return away(view.away);
       return null;

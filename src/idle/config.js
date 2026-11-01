@@ -10,7 +10,17 @@
 //     and the odds and size of what it may turn up
 //   Config.BERTHS[body kind] -> how many stations can orbit one body of that kind
 //   Config.GEAR_SALE                share of an item's price (gear, consumables) a station pays for it
-//   Config.RECIPES                  the game's recipes known from the start, plus extract.<good> (bay 'extract')
+//   Config.SWAP[component] -> good  what the idle game asks for in place of a salvaged component (it has
+//     no salvage yet: the wreck field is to come); Config.swap(counts) -> counts with those swapped
+//   Config.RECIPES                  every one of the game's recipes, salvaged components swapped (but the
+//     recycler's own, which wait for the wreck field), plus extract.<good> (bay 'extract'); those
+//     with an unlock need its package researched (Recipes.known)
+//   Config.PACKAGES[id], CATEGORIES  the lab (rules/lab.js): the game's blueprints, mods, industry and
+//     logistics research (rules/research.js, the same ids, so Recipes.known reads them), components
+//     swapped, plus Extraction (ext.drill.*: drills faster); a category's station is the station type
+//     that has to be built before its packages can be researched
+//   Config.LAB_QUEUE                packages that can wait behind the one building (more with ind.lab.*)
+//   Config.ROUTES { routes, haulers } routes the transport hub runs, and haulers on each, before research
 //   Config.PROCESS                  the game's processes by station type, plus site: ['extract']
 //   Config.BUILDS                   the stations to build, in order (Restoration.create's list; nothing online at first)
 // ES module (`Config`); also runs in Node (the tests).
@@ -18,6 +28,7 @@
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Recipes } from '../rules/recipes.js';
+import { Research } from '../rules/research.js';
 
 const Config = (() => {
   const START_CREDITS = 250;
@@ -39,12 +50,50 @@ const Config = (() => {
   const BERTHS = { field: 2, planet: 2, moon: 1 };
   const GEAR_SALE = 0.8;
 
+  // Salvaged components, which the idle game can't get yet, and what it asks for instead.
+  const SWAP = {
+    [Goods.component('hull')]: 'steel-pipe', [Goods.component('weapon')]: 'carbon-fibre',
+    [Goods.component('computer')]: 'carbon-fibre', [Goods.component('drive')]: 'hydrazine',
+  };
+  function swap(counts) {
+    const out = {};
+    for (const [k, n] of Object.entries(counts)) { const to = SWAP[k] || k; out[to] = (out[to] || 0) + n; }
+    return out;
+  }
+
   const RECIPES = {};
-  for (const R of Recipes.LIST) if (!R.unlock) RECIPES[R.id] = R;
+  for (const R of Recipes.LIST) RECIPES[R.id] = R.bay === 'recycle' ? R : { ...R, in: swap(R.in) };
   for (const g of Object.values(Goods.TYPES).filter((t) => t.stage === 'raw')) {
     RECIPES[`extract.${g.id}`] = { id: `extract.${g.id}`, bay: 'extract', in: {}, out: { [g.id]: 1 }, time: EXTRACT_TIME[g.rarity] || 30, unlock: null };
   }
   const PROCESS = { ...Industry.PROCESS, site: ['extract'] };
+
+  // The lab: the game's research that means something here (gear blueprints, mods, industry and
+  // logistics; not squad logic, hull refits or tuning), paid in credits and goods from the
+  // waystation's stock, plus Extraction.
+  const KINDS = ['blueprint', 'mods', 'industry'];
+  const PACKAGES = {};
+  for (const p of Object.values(Research.PACKAGES)) {
+    if (!KINDS.includes(p.kind) || p.hidden) continue;
+    const { credits = 0, ...goods } = p.cost;
+    PACKAGES[p.id] = { ...p, cost: { credits, ...swap(goods) } };
+  }
+  const M = 60, H = 3600;
+  const EXTRACT = [
+    ['ext.drill.1', 'Drill heads I', 'Heads I', [], 20 * M, 600, { 'steel-pipe': 4 }],
+    ['ext.drill.2', 'Drill heads II', 'Heads II', ['ext.drill.1'], 2 * H, 2500, { 'steel-pipe': 8, 'carbon-fibre': 4 }],
+    ['ext.drill.3', 'Drill heads III', 'Heads III', ['ext.drill.2'], 6 * H, 8000, { 'carbon-fibre': 8, electronics: 4 }],
+  ];
+  for (const [id, name, short, requires, time, credits, goods] of EXTRACT) {
+    PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry: { drill: 0.25 }, note: '+25% speed on every drill' };
+  }
+  const used = new Set(Object.values(PACKAGES).map((p) => p.cat));
+  const CATEGORIES = [
+    { id: 'ext', group: 'industry', label: 'Extraction', note: 'faster drills', station: 'waystation' },
+    ...Research.CATEGORIES.filter((c) => used.has(c.id)),
+  ];
+  const LAB_QUEUE = 3;
+  const ROUTES = { routes: 2, haulers: 1 };
 
   // The stations, built one after another in orbit round a charted body (the player picks which).
   // Nothing is there at first: the waystation (a market and the bench) is built first and costs
@@ -90,7 +139,10 @@ const Config = (() => {
     },
   ];
 
-  return { START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, RECIPES, PROCESS, BUILDS };
+  return {
+    START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE,
+    SWAP, swap, RECIPES, PROCESS, PACKAGES, CATEGORIES, LAB_QUEUE, ROUTES, BUILDS,
+  };
 })();
 
 export { Config };

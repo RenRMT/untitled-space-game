@@ -50,3 +50,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
   background: var(--bg); border: 1px solid var(--cyan); font: 400 13px var(--mono);
 }
 #load[hidden] { display: none; }
+
+/* An order's input: where it comes from, and the fix when it isn't coming. */
+.idle-in { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.idle-in .sub { min-width: 0; }
+.idle-in .ui-btn { flex: none; min-height: 32px; padding: 0 10px; font-size: 12px; }
+.idle-ctl { margin-top: 6px; flex-wrap: wrap; }
+.idle-ctl .ui-btn { min-height: 32px; font-size: 12px; }
