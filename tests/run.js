@@ -66,6 +66,7 @@ import { View as RaceView } from '../src/race/view.js';
 import * as AppSw from '../tools/app-sw.js';
 import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
+import { IdleSave } from '../src/idle/save.js';
 import { ArtStationRoles } from '../src/art/station-roles.js';
 
 let failed = 0;
@@ -4018,6 +4019,13 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
     assert.strictEqual(IdleRules.drillCost(s, field), 0, 'the first drill is free');
     assert(IdleRules.buyDrill(s, w, field.key, 'iron', T));
     assert(IdleRules.drillCost(s, field) > 0);
+    assert(!IdleRules.industry.shuttle(s.industry, field.key), 'no shuttle until one is bought');
+    const shuttle = IdleRules.shuttleCost(s);
+    assert(!IdleRules.buyShuttle(s, w, field.key, T), `not for less than ${shuttle}`);
+    s.credits += shuttle; // as if some iron was hauled by hand and sold
+    assert(IdleRules.buyShuttle(s, w, field.key, T), 'bought');
+    assert.strictEqual(IdleRules.industry.shuttle(s.industry, field.key).stops[1].station, w.waystation.key);
+    assert(!IdleRules.buyShuttle(s, w, field.key, T), 'one a link');
     const cost = IdleRules.surveyCost(s);
     assert(IdleRules.survey(s, w, planet.key, T));
     assert.strictEqual(s.credits, IdleConfig.START_CREDITS - cost);
@@ -4046,6 +4054,9 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   assert.strictEqual(IdleRules.berths(s, w, field.key).free, 0, 'the field\'s two berths taken');
   assert(!IdleRules.build(s, w, 'build.volatiles', field.key, t), 'no room left there');
   assert.strictEqual(IdleRules.industry.shuttle(s.industry, field.key).stops[1].station, camp.key, 'the field\'s drills send to the ore works');
+  assert(!IdleRules.industry.shuttle(s.industry, camp.key), 'a new station has no shuttle');
+  assert.strictEqual(IdleRules.haulTarget(s, w, camp.key), w.waystation, 'its goods go to the waystation by hand');
+  assert(IdleRules.buyShuttle(s, w, camp.key, t));
   assert.strictEqual(IdleRules.industry.shuttle(s.industry, camp.key).stops[1].station, way, 'the ore works sends to the waystation');
   IdleRules.sell(s, w, way, 'iron', 100, t);
   while (IdleRules.settle(s, w, t + 3600e3).truncated);
@@ -4065,9 +4076,12 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   assert.strictEqual(IdleRules.read({ ...JSON.parse(JSON.stringify(s)), version: 1 }), null, 'a first-slice save starts again');
 });
 
-// A system with every station built round the field and the first planet, and plenty to pay with.
+// A system with every station built round the field and the first planet, and plenty to pay with;
+// Haulage researched and a foreman at every station, so links have shuttles and orders go on.
 function idleBuilt(T) {
   const w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+  s.lab.done.push('ext.haulage');
+  s.foremen.push(...IdleConfig.BUILDS.map((b) => b.id));
   const planets = w.sites.filter((x) => x.kind === 'planet');
   s.charted.push(...planets.map((x) => x.key));
   const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
@@ -4132,7 +4146,7 @@ test('idle: research counts from when it finished, so time away comes out the sa
     return s;
   };
   const one = run(1);
-  assert.deepStrictEqual(one.lab.done, ['ext.drill.1', 'ind.speed.1']);
+  assert.deepStrictEqual(one.lab.done, ['ext.haulage', 'ext.drill.1', 'ind.speed.1']);
   assert.deepStrictEqual(run(23), one);
   const { w, s } = idleBuilt(T), e = IdleRules.env(one), o = { recipe: 'extract.iron' };
   assert(IdleRules.industry.runTime(o, e, T + 6 * 3600e3) < IdleRules.industry.runTime(o, IdleRules.env(s), T), 'drills faster');
@@ -4242,6 +4256,182 @@ test('idle: auto-sell sells the picked goods at the waystation on the clock\'s s
   assert.deepStrictEqual(many.sold, one.sold);
 });
 
+// Settles a state to `end` from T in `steps` equal slices, a few hundred events at a time; returns
+// what the settles reported, added up.
+function idleSettle(s, w, T, end, steps, max = 300) {
+  const acc = { log: [], charted: [], delivered: [] };
+  for (let i = 1; i <= steps; i++) {
+    for (;;) {
+      const r = IdleRules.settle(s, w, T + ((end - T) * i) / steps, max);
+      acc.log.push(...r.log); acc.charted.push(...r.charted); acc.delivered.push(...r.delivered);
+      if (!r.truncated) break;
+    }
+  }
+  return acc;
+}
+
+test('idle: hauling by hand, then shuttles: a site fills and stops, a hauler sent by hand carries it, a shuttle carries it from then on', () => {
+  const T = 1e12, w = IdleRules.world(1), field = w.sites.find((x) => x.kind === 'field'), way = w.waystation.key;
+  const run = (steps) => {
+    const s = IdleRules.empty(w, T), I = IdleRules.industry;
+    assert(IdleRules.build(s, w, 'build.waystation', field.key, T));
+    assert(IdleRules.buyDrill(s, w, field.key, 'iron', T));
+    assert(!IdleRules.canHaul(s, w, field.key), 'nothing to carry yet');
+    idleSettle(s, w, T, T + 3600e3, steps);
+    assert.strictEqual(I.stockAt(s.industry, field.key).iron, IdleConfig.SITE_STORAGE, 'full, and stopped');
+    assert.strictEqual(I.stockAt(s.industry, way).iron || 0, 0, 'nothing carried');
+    const t = T + 3600e3, h = IdleRules.sendHaul(s, w, field.key, t);
+    assert(h && h.to === way && h.load.iron === IdleConfig.SITE_STORAGE && h.end > t);
+    assert(!IdleRules.sendHaul(s, w, field.key, t), 'one hauler at a time from a place');
+    assert.strictEqual(I.stockAt(s.industry, field.key).iron || 0, 0, 'taken aboard');
+    const r = idleSettle(s, w, t, h.end + 1, steps);
+    assert.deepStrictEqual(r.log.filter((x) => x.haul).map((x) => x.delivered), [{ iron: IdleConfig.SITE_STORAGE }], 'delivered once, on arrival');
+    assert.strictEqual(I.stockAt(s.industry, way).iron, IdleConfig.SITE_STORAGE);
+    assert(I.stockAt(s.industry, field.key).iron > 0, 'the drill went on once there was room');
+    // A shuttle carries it from then on, and the next costs more.
+    const c0 = s.credits = 1000, cost = IdleRules.shuttleCost(s);
+    assert(IdleRules.buyShuttle(s, w, field.key, h.end + 1));
+    assert.strictEqual(s.credits, c0 - cost);
+    assert(IdleRules.shuttleCost(s) > cost);
+    idleSettle(s, w, h.end + 1, T + 4 * 3600e3, steps);
+    assert(I.stockAt(s.industry, way).iron > IdleConfig.SITE_STORAGE + 50, 'carried on its own');
+    return s;
+  };
+  const one = run(1);
+  assert.deepStrictEqual(run(13), one, 'in slices: the same');
+  // What doesn't fit where it's going goes back where it came from.
+  const s = IdleRules.empty(w, T), I = IdleRules.industry, e = IdleRules.env(s);
+  assert(IdleRules.build(s, w, 'build.waystation', field.key, T) && IdleRules.buyDrill(s, w, field.key, 'iron', T));
+  I.deposit(s.industry, field.key, 'silicates', 30, e, T);
+  const h = IdleRules.sendHaul(s, w, field.key, T);
+  I.deposit(s.industry, way, 'steel-pipe', IdleConfig.STATION_STORAGE - 10, e, T);
+  idleSettle(s, w, T, h.end, 1);
+  assert.strictEqual(I.stockAt(s.industry, way).silicates, 10, 'what fitted');
+  assert(I.stockAt(s.industry, field.key).silicates === 20, 'the rest back at the field');
+  // Haulage: shuttles cost nothing, and new links get theirs.
+  s.lab.done.push('ext.haulage');
+  assert.strictEqual(IdleRules.shuttleCost(s), 0);
+  s.credits = 1000;
+  assert(IdleRules.build(s, w, 'build.ore', field.key, h.end));
+  assert.strictEqual(I.shuttle(s.industry, IdleRules.stationOf(w, 'build.ore').key)?.stops[1].station, way, 'a shuttle with the station');
+  // A save read back keeps a hauler in flight.
+  IdleRules.sendHaul(s, w, field.key, h.end);
+  assert.deepStrictEqual(IdleRules.read(JSON.parse(JSON.stringify(s))).hauls, s.hauls);
+});
+
+test('idle: orders run in batches until a foreman keeps them going', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), I = IdleRules.industry, way = w.waystation.key;
+  const camp = IdleRules.stationOf(w, 'build.ore').key, batch = IdleConfig.FOREMAN.batch;
+  IdleConfig.FOREMAN.batch = 5 * IdleConfig.RECIPES['make.steel-pipe'].time * 1000; // five runs, for the test
+  s.foremen = [];
+  s.industry.orders = [];
+  s.industry.stock = { [camp]: { iron: 90 } };
+  const runs = IdleRules.batchOf(s, w, camp, 'make.steel-pipe');
+  assert.strictEqual(IdleRules.batchOf(s, w, w.sites[0].key, 'extract.iron'), null, 'drills have no batches');
+  assert.strictEqual(runs, 5);
+  const o = IdleRules.place(s, w, camp, 'make.steel-pipe', T);
+  assert.strictEqual(o.left + (o.next != null ? 1 : 0), runs, 'started, the rest to come');
+  while (IdleRules.settle(s, w, T + 3 * 3600e3).truncated);
+  assert.strictEqual(I.status(s.industry, o).id, 'done', 'the batch done, it waits');
+  assert.strictEqual(o.made, runs);
+  assert(IdleRules.rerun(s, w, o.id, T + 3 * 3600e3) && o.left + (o.next != null ? 1 : 0) === runs, 'run again');
+  assert(!IdleRules.rerun(s, w, o.id, T + 3 * 3600e3), 'only once it is done');
+  // A foreman: paid from the credits and the waystation, and the station's orders go on.
+  const f = IdleRules.foremanStatus(s, w, 'build.ore');
+  assert(f.ok, f.id);
+  const c0 = s.credits;
+  assert(IdleRules.hireForeman(s, w, 'build.ore', T + 3 * 3600e3));
+  assert.strictEqual(s.credits, c0 - f.credits);
+  assert.strictEqual(o.left, null);
+  assert.strictEqual(IdleRules.foremanStatus(s, w, 'build.ore').id, 'done');
+  assert.strictEqual(IdleRules.place(s, w, camp, 'make.carbon-fibre', T + 3 * 3600e3).left, null, 'new orders too');
+  const vol = IdleRules.foremanStatus(s, w, 'build.volatiles');
+  s.industry.stock[way] = {};
+  assert(!IdleRules.foremanStatus(s, w, 'build.volatiles').ok && IdleRules.foremanStatus(s, w, 'build.volatiles').short.length === Object.keys(vol.goods).length, 'goods from the waystation');
+  IdleConfig.FOREMAN.batch = batch;
+});
+
+test('idle: the contract clerk delivers on the clock\'s steps, keeps what the next station needs and what the player keeps', () => {
+  const T = 1e12;
+  const setUp = () => {
+    const { w, s } = idleBuilt(T);
+    s.industry.stock = {};
+    s.built = s.built.slice(0, 2); // the ore works next: no goods kept back for the volatiles works but its own
+    IdleRules.settle(s, w, T);
+    return { w, s };
+  };
+  const { w, s } = setUp(), way = w.waystation.key, I = IdleRules.industry, e = IdleRules.env(s);
+  const [a, b] = IdleRules.contracts(s);
+  for (const c of [a, b]) I.deposit(s.industry, way, c.kind, c.n, e, T);
+  IdleRules.settle(s, w, T + 3600e3);
+  assert(!a.done && !b.done, 'by hand before the clerk');
+  s.lab.done.push('trade.clerk');
+  s.lab.doneAt['trade.clerk'] = T + 3600e3;
+  assert(IdleRules.setKeep(s, b.id, true));
+  const r = IdleRules.settle(s, w, T + 2 * 3600e3);
+  assert(a.done && !b.done, 'delivered, but not the one kept');
+  assert.deepStrictEqual(r.delivered.map((x) => x.id), [a.id]);
+  assert.strictEqual(r.delivered[0].credits, IdleRules.contractPay(s, a));
+  // What the next station needs stays.
+  const t = setUp(), nb = IdleRules.nextBuild(t.s);
+  const kind = Object.keys(nb.goods)[0];
+  t.s.contracts.list = [{ id: 'x', kind, n: 5, reward: 100, from: 'x', done: false }];
+  t.s.contracts.day = Math.floor((T + 3600e3) / 86400e3);
+  t.s.lab.done.push('trade.clerk');
+  I.deposit(t.s.industry, t.w.waystation.key, kind, nb.goods[kind] + 4, e, T);
+  IdleRules.settle(t.s, t.w, T + 3600e3);
+  assert(!t.s.contracts.list[0].done, 'not with only 4 to spare');
+  I.deposit(t.s.industry, t.w.waystation.key, kind, 1, e, T + 3600e3);
+  IdleRules.settle(t.s, t.w, T + 2 * 3600e3);
+  assert(t.s.contracts.list[0].done, 'with 5');
+  // Over days away, with a drill feeding the waystation: the same however it's settled.
+  const run = (steps) => {
+    const x = setUp(), field = x.w.sites.find((y) => y.kind === 'field');
+    x.s.lab.done.push('trade.clerk', 'trade.auto');
+    IdleRules.setAuto(x.s, 'silicates', true);
+    assert(IdleRules.buyDrill(x.s, x.w, field.key, 'iron', T) && IdleRules.buyDrill(x.s, x.w, field.key, 'silicates', T));
+    IdleRules.setShuttle(x.s, x.w, field.key, x.w.waystation.key, T);
+    x.s.contracts.list.push({ id: 'iron', kind: 'iron', n: 30, reward: 300, from: 'x', done: false });
+    const acc = idleSettle(x.s, x.w, T, T + 3 * 86400e3, steps);
+    return { s: x.s, delivered: acc.delivered };
+  };
+  const one = run(1);
+  assert(one.delivered.some((x) => x.id === 'iron'), 'the clerk delivered while away');
+  const many = run(29);
+  assert.deepStrictEqual(many.delivered, one.delivered);
+  assert.deepStrictEqual(many.s, one.s, 'in slices: the same');
+});
+
+test('idle: the probe network starts the quickest survey on the clock\'s steps while the credits cover it', () => {
+  const T = 1e12, w = IdleRules.world(1), field = w.sites.find((x) => x.kind === 'field');
+  const run = (steps) => {
+    const s = IdleRules.empty(w, T);
+    assert(IdleRules.build(s, w, 'build.waystation', field.key, T));
+    s.credits = 5000;
+    assert(!IdleRules.setAutoSurvey(s, false), 'not before it is researched');
+    s.lab.done.push('ext.probes');
+    const acc = idleSettle(s, w, T, T + 12 * 3600e3, steps);
+    return { s, charted: acc.charted.map((c) => c.key) };
+  };
+  const one = run(1);
+  assert(one.charted.length >= 3, `charted while away: ${one.charted.length}`);
+  const s0 = IdleRules.empty(w, T);
+  const first = w.sites.filter((x) => IdleRules.surveyable(s0, w, x.key)).sort((a, b) => IdleRules.surveyTime(s0, w, a.key) - IdleRules.surveyTime(s0, w, b.key) || (a.key < b.key ? -1 : 1))[0];
+  assert.strictEqual(one.charted[0], first.key, 'the quickest first');
+  assert(one.s.credits >= 0);
+  const many = run(31);
+  assert.deepStrictEqual(many.charted, one.charted);
+  assert.deepStrictEqual(many.s, one.s, 'in slices: the same');
+  // Switched off, it waits.
+  const s = IdleRules.empty(w, T);
+  IdleRules.build(s, w, 'build.waystation', field.key, T);
+  s.credits = 5000;
+  s.lab.done.push('ext.probes');
+  assert(IdleRules.setAutoSurvey(s, false));
+  IdleRules.settle(s, w, T + 3600e3);
+  assert(!s.survey && s.charted.length === 1);
+});
+
 test('idle: a system rolled from the seed (layout 2): the bodies differ by seed, and each has every raw good the chain needs; layout 1 stays as it was', () => {
   const NEEDED = ['iron', 'silicates', 'deuterium', 'titanium-ore', 'tungsten', 'rare-earths', 'sulfur'];
   const makeup = (w) => w.sites.map((x) => `${x.kind}:${x.body?.type || ''}`).join(' ');
@@ -4304,6 +4494,48 @@ test('idle: contracts grow with the stations built, and some ask for the dearest
     return IdleRules.contracts(s).reduce((a, c) => a + c.reward, 0);
   };
   assert(pay(7) > 2 * pay(2), `${pay(7)} vs ${pay(2)}`);
+});
+
+test('idle: a new system once every station is built: legacy from what was earned, kept for good, faster and better paid', () => {
+  const T = 1e12;
+  const s0 = IdleRules.empty(IdleRules.world(1), T);
+  assert(!IdleRules.canJump(s0) && !IdleRules.jump(s0, IdleRules.world(1), T), 'not before every station is built');
+  const { w, s } = idleBuilt(T);
+  assert.strictEqual(s.earned, 0, 'built, nothing earned yet');
+  // Earned counts sales, contracts and finds; spending doesn't take from it.
+  s.industry.stock[w.waystation.key] = { iron: 10 };
+  const sold = IdleRules.sell(s, w, w.waystation.key, 'iron', 10, T).credits;
+  assert(sold > 0 && s.earned === sold);
+  s.earned = 4e6;
+  assert(IdleRules.canJump(s));
+  assert.strictEqual(IdleRules.jumpPoints(s), 20);
+  const seed = IdleRules.nextSeed(s);
+  assert(seed >= 1 && seed !== s.seed && seed === IdleRules.nextSeed(s), 'the next system is fixed by this one');
+  const r = IdleRules.jump(s, w, T + 1);
+  assert.strictEqual(r.state.seed, seed);
+  assert.strictEqual(r.w.layout, IdleRules.LAYOUT);
+  assert.deepStrictEqual(r.state.built, []);
+  assert.strictEqual(r.state.credits, IdleConfig.START_CREDITS);
+  assert.deepStrictEqual(r.state.lab.done, []);
+  assert.strictEqual(r.state.earned, 0);
+  assert.strictEqual(r.state.legacy.jumps, 1);
+  assert.strictEqual(r.state.legacy.points, 20);
+  assert.strictEqual(r.state.legacy.systems[0].name, w.galaxy.name);
+  // The legacy speeds up every order and drill, and adds to what the markets pay.
+  const e0 = IdleRules.env(IdleRules.empty(r.w, T)), e1 = IdleRules.env(r.state);
+  assert(Math.abs(e1.speed(T) / e0.speed(T) - (1 + 20 * IdleConfig.LEGACY.speed)) < 1e-9);
+  const plain = IdleRules.empty(r.w, T);
+  for (const st of [plain, r.state]) { st.built = ['build.waystation']; st.hosts[r.w.waystation.key] = r.w.sites.find((x) => x.kind === 'field').key; }
+  const p0 = IdleRules.priceOf(plain, r.w, r.w.waystation.key, 'iron', T), p1 = IdleRules.priceOf(r.state, r.w, r.w.waystation.key, 'iron', T);
+  assert(p1 > p0, `${p1} vs ${p0}`);
+  // Saved and read back, the legacy stays; a version 5 save gains none.
+  const back = IdleRules.read(JSON.parse(JSON.stringify(r.state)));
+  assert.deepStrictEqual(back.legacy, r.state.legacy);
+  const old = JSON.parse(JSON.stringify(s));
+  delete old.legacy; delete old.earned; old.version = 5;
+  const migrated = IdleRules.read(Save.migrate(old, IdleSave.MIGRATIONS));
+  assert(migrated && migrated.legacy.points === 0 && migrated.earned === 0);
+  assert.deepStrictEqual(migrated.foremen, s.built, 'a save from before foremen keeps its orders going');
 });
 
 if (failed) {

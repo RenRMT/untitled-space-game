@@ -38,6 +38,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 #sheets .ui-sheet { bottom: var(--nav-h, 70px); max-height: 56vh; max-height: 56dvh; padding-bottom: 0; }
 #sheets .ui-sheet.tall { height: auto; max-height: calc(100dvh - var(--nav-h, 70px) - 96px); }
 .idle-acts { display: flex; gap: 6px; }
+.idle-acts .ui-btn.lg { flex: 1; min-height: 48px; }
 .idle-acts .ui-btn { min-height: 40px; padding: 0 10px; }
 .idle-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .idle-left { font-size: 12px; color: var(--dim); white-space: nowrap; }

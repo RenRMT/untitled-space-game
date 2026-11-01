@@ -23,14 +23,23 @@
 //     its package researched (Recipes.known)
 //   Config.PACKAGES[id], CATEGORIES  the lab (rules/lab.js): the game's blueprints, mods, industry and
 //     logistics research (rules/research.js, the same ids, so Recipes.known reads them), components
-//     swapped, plus Extraction (ext.drill.*: drills faster) and Trade (trade.*: contract slots and
-//     bonus, auto-sell); a category's station is the station type that has to be built before its
+//     swapped, plus Extraction (ext.drill.*: drills faster; ext.probes: surveys on their own),
+//     Haulage (ext.haulage, in the transport hub's logistics: free shuttles) and Trade (trade.*: contract slots and bonus, auto-sell, the
+//     contract clerk); a category's station is the station type that has to be built before its
 //     packages can be researched
 //   Config.CONTRACTS { slots, bonus, perStation, top, size }   contracts: how many are open, what they
 //     pay over the item's price, how both grow with the stations built, the share of slots for the
 //     dearest items, and how many of an item one asks for (by its kind)
+//   Config.STEP                     ms between the clock's steps, where what runs on its own (auto-sell,
+//     the contract clerk, the probe network) acts; fixed to the clock, so time away comes out the same
 //   Config.AUTO_SELL { step, floor }  auto-sell (trade.auto*): every step ms, the waystation sells the
 //     goods picked for it while their price is at least floor × their usual price (lower with research)
+//   Config.HAUL { cap }             a hauler sent by hand: how much it takes in one trip
+//   Config.SHUTTLE { base, growth }  what a shuttle (a link carried on its own) costs: base × growth^(shuttles
+//     already running); free with Haulage research (ext.haulage), which also gives new links theirs
+//   Config.FOREMAN { batch, minRuns, cost[build id] }   without a foreman, an order runs a batch (about
+//     `batch` ms of work, at least minRuns) and waits to be run again; a foreman (bought per station,
+//     credits and goods from the waystation) keeps its orders going
 //   Config.RESEARCH { time, credits, blueprintTier[Mk] }   how much longer and dearer the game's packages
 //     are here (blueprints longer again by Mk); blueprints are researched at the shipyard
 //   Config.LAB_QUEUE                packages that can wait behind the one building (more with ind.lab.*)
@@ -38,6 +47,9 @@
 //   Config.PROCESS                  the game's processes by station type, plus site: ['extract'] and the
 //     salvage yard's wreck field ('salvage')
 //   Config.BUILDS                   the stations to build, in order (Restoration.create's list; nothing online at first)
+//   Config.LEGACY { per, speed, pay }   new systems (prestige): leaving a system with every station built
+//     earns floor(sqrt(credits earned there / per)) legacy points; each point kept adds `speed` to every
+//     order's and drill's speed and `pay` to what markets and contracts pay, in every system after
 // ES module (`Config`); also runs in Node (the tests).
 
 import { Goods } from '../rules/goods.js';
@@ -119,10 +131,20 @@ const Config = (() => {
   for (const [id, name, short, requires, time, credits, goods] of EXTRACT) {
     PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry: { drill: 0.25 }, note: '+25% drill speed' };
   }
+  // Automation: surveys started on their own (at the waystation), and shuttles for every link (at
+  // the transport hub, with its route planning).
+  const AUTOMATE = [
+    ['ext.probes', 'ext', 'Probe network', 'Probes', ['ext.drill.1'], 2 * H, 3000, { 'steel-pipe': 10, 'carbon-fibre': 6 }, { probes: 1 }, 'Surveys the nearest signal on its own'],
+    ['ext.haulage', 'log', 'Haulage contracts', 'Haulage', ['log.routes.1'], 12 * H, 40000, { 'steel-pipe': 20, hydrazine: 10 }, { haulage: 1 }, 'Shuttles cost nothing, and new stations and drill sites get theirs'],
+  ];
+  for (const [id, cat, name, short, requires, time, credits, goods, industry, note] of AUTOMATE) {
+    PACKAGES[id] = { id, kind: 'industry', name, short, cat, requires, time, cost: { credits, ...goods }, industry, note };
+  }
   // Trade: more and better contracts, and the waystation selling on its own.
   const TRADE = [
     ['trade.auto', 'Auto-sell', 'Auto', [], 30 * M, 1500, { 'steel-pipe': 6 }, { auto: 1 }, 'The waystation sells picked goods down to 75% of their price'],
     ['trade.contracts', 'Contract desk', 'Desk', [], 1 * H, 3000, { 'carbon-fibre': 6 }, { contracts: 1 }, 'A fourth contract'],
+    ['trade.clerk', 'Contract clerk', 'Clerk', ['trade.contracts'], 2 * H, 5000, { 'carbon-fibre': 8 }, { clerk: 1 }, 'Delivers contracts on its own, keeping what the next station needs'],
     ['trade.bonus.1', 'Brokers I', 'Brokers I', ['trade.contracts'], 3 * H, 6000, { hydrazine: 6 }, { contractBonus: 0.25 }, 'Contracts pay 25% more'],
     ['trade.auto.2', 'Auto-sell II', 'Auto II', ['trade.auto'], 4 * H, 8000, { electronics: 4 }, { autoFloor: 0.25 }, 'Auto-sell down to 50% of the price'],
     ['trade.bonus.2', 'Brokers II', 'Brokers II', ['trade.bonus.1'], 10 * H, 20000, { electronics: 8 }, { contractBonus: 0.25 }, 'Contracts pay 25% more'],
@@ -132,8 +154,8 @@ const Config = (() => {
   }
   const used = new Set(Object.values(PACKAGES).map((p) => p.cat));
   const CATEGORIES = [
-    { id: 'ext', group: 'industry', label: 'Extraction', note: 'faster drills', station: 'waystation' },
-    { id: 'trade', group: 'industry', label: 'Trade', note: 'contracts and auto-sell', station: 'waystation' },
+    { id: 'ext', group: 'industry', label: 'Extraction', note: 'faster drills and the probe network', station: 'waystation' },
+    { id: 'trade', group: 'industry', label: 'Trade', note: 'contracts, the clerk and auto-sell', station: 'waystation' },
     // Gear is assembled at the shipyard, so its blueprints are drawn up there: none before it's built.
     ...Research.CATEGORIES.filter((c) => used.has(c.id)).map((c) => (c.id.startsWith('bp.') ? { ...c, station: 'capital' } : c)),
   ];
@@ -145,7 +167,24 @@ const Config = (() => {
   // so contracts keep up with what the system makes; top: share of the slots that ask for one of the
   // dearest third of what's on offer.
   const CONTRACTS = { slots: 3, bonus: 1.6, perStation: 0.5, top: 0.5, size: { good: [8, 24], component: [4, 10], gear: [1, 3], mod: [1, 2], consumable: [2, 6] } };
-  const AUTO_SELL = { step: 15 * 60e3, floor: 0.75 };
+  const STEP = 15 * 60e3;
+  const AUTO_SELL = { step: STEP, floor: 0.75 };
+  // Manual, then automated (notes/idle.md): hauling by hand, then a shuttle a link; orders in
+  // batches, then a foreman a station.
+  const HAUL = { cap: 40 };
+  const SHUTTLE = { base: 300, growth: 1.4 };
+  const FOREMAN = {
+    batch: 3600e3, minRuns: 3,
+    cost: {
+      'build.waystation': { credits: 1500 },
+      'build.ore': { credits: 1000 },
+      'build.volatiles': { credits: 4000, 'steel-pipe': 10 },
+      'build.transport': { credits: 8000, 'steel-pipe': 15, hydrazine: 10 },
+      'build.salvage': { credits: 15000, 'carbon-fibre': 15, hydrazine: 15 },
+      'build.fabricator': { credits: 30000, 'steel-pipe': 20, hydrazine: 20 },
+      'build.shipyard': { credits: 45000, electronics: 15, 'carbon-fibre': 20 },
+    },
+  };
 
   // The stations, built one after another in orbit round a charted body (the player picks which).
   // Nothing is there at first: the waystation (a market and the bench) is built first and costs
@@ -191,8 +230,12 @@ const Config = (() => {
     },
   ];
 
+  // New systems: what leaving one with every station built earns, and what that's worth in the next.
+  // The square root makes a long stay pay less and less, so moving on beats sitting on the credits.
+  const LEGACY = { per: 1e4, speed: 0.02, pay: 0.02 };
+
   return {
-    START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, GEAR_MARKET, TRADE_MARKET,
+    STEP, HAUL, SHUTTLE, FOREMAN, LEGACY, START_CREDITS, SITE_STORAGE, STATION_STORAGE, STATION_SLOTS, HAULER_SPEED, AWAY_SHEET, EXTRACT_TIME, DRILL, SURVEY, BERTHS, GEAR_SALE, GEAR_MARKET, TRADE_MARKET,
     SWAP, swap, SALVAGE_TIME, RECIPES, PROCESS, RESEARCH, PACKAGES, CATEGORIES, LAB_QUEUE, ROUTES, CONTRACTS, AUTO_SELL, BUILDS,
   };
 })();

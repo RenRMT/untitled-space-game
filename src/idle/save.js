@@ -4,11 +4,16 @@
 // saves (the first slice: every station already there, waiting to be restored) can't be carried
 // over into a system built from nothing, so they start again; version 2's gain an empty lab, and
 // version 3's contracts and auto-sell (none yet); version 4's keep the system they were made in
-// (layout 1, the same bodies for every seed), where new saves get one rolled from the seed.
+// (layout 1, the same bodies for every seed), where new saves get one rolled from the seed; version
+// 5's gain the credits earned so far (none counted) and no legacy (IdleRules.read gives those);
+// version 6's keep what ran on its own before there were batches and foremen: a foreman at every
+// station built (their shuttles are kept as they are).
 // ?fresh starts a new save; ?seed= picks the system of a new save (a random one by default).
 //
 //   IdleSave.load(now) -> { state, w, fresh }   w: the save's system (IdleRules.world)
 //   IdleSave.writer(get) -> Save.debounced writer of get()
+//   IdleSave.write(state)   written at once
+//   IdleSave.MIGRATIONS     the steps that bring an older save up to date (Save.migrate)
 // ES module (`IdleSave`); needs a browser for anything to be kept (Store does nothing in Node).
 
 import { Save } from '../core/save.js';
@@ -18,8 +23,13 @@ import { IdleRules } from './rules.js';
 const IdleSave = (() => {
   // Version 1 is the first: a save without a version is taken as it is. 1 -> 2: started again;
   // 2 -> 3: the lab (IdleRules.read gives an empty one); 3 -> 4: contracts and auto-sell (read gives none);
-  // 4 -> 5: the system's layout, 1 for saves made before there was a choice.
-  const KEY = 'idle.save', MIGRATIONS = [() => {}, (d) => { d.industry = null; }, (d) => { d.lab = d.lab || null; }, () => {}, (d) => { d.layout = 1; }];
+  // 4 -> 5: the system's layout, 1 for saves made before there was a choice; 5 -> 6: earned and legacy;
+  // 6 -> 7: a foreman at every station built (hauls, kept contracts and the probes' switch: read gives them).
+  const KEY = 'idle.save';
+  const MIGRATIONS = [
+    () => {}, (d) => { d.industry = null; }, (d) => { d.lab = d.lab || null; }, () => {}, (d) => { d.layout = 1; }, () => {},
+    (d) => { d.foremen = Array.isArray(d.built) ? [...d.built] : []; },
+  ];
 
   function load(now) {
     if (Params.has('fresh')) Store.remove(KEY);
@@ -32,8 +42,10 @@ const IdleSave = (() => {
   }
 
   const writer = (get) => Save.debounced(() => Store.setJSON(KEY, get()), 1500);
+  // Written now, for a jump to a new system: the page loads again on it.
+  const write = (state) => Store.setJSON(KEY, state);
 
-  return { KEY, load, writer };
+  return { KEY, MIGRATIONS, load, writer, write };
 })();
 
 export { IdleSave };

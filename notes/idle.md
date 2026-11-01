@@ -49,7 +49,7 @@ This is the one mechanic that's new. In the game, the player mines raw goods by 
 - Extractors are bought with credits and then upgraded. Each level adds speed, and the price grows by about ×1.15 per level, the usual idle curve. The table lives in `src/idle/config.js`.
 - Salvage: the salvage yard has a **wreck field** extractor that slowly turns out the four component kinds, weighted by `Goods.pick`.
 
-**As built (Phase 2):** each extraction site is a station as far as `Industry` is concerned: the asteroid field, each planet and each moon has its own stock (key `site:<kind><id>`, type `site`, process `extract`). A drill is an order there running `extract.<good>`. A site takes as many orders as it has drills (the env's `slotsAt`), and holds 40 (`roomAt`). Its first drill gives it a shuttle to the nearest online station that uses what it pulls, or the waystation when none does. So drills, shuttles, the full-storage cap and time away all come out of `Industry.settle` with nothing new. For now a drill is a fixed rate, and more drills are the upgrade; levels can come later.
+**As built (Phase 2):** each extraction site is a station as far as `Industry` is concerned: the asteroid field, each planet and each moon has its own stock (key `site:<kind><id>`, type `site`, process `extract`). A drill is an order there running `extract.<good>`. A site takes as many orders as it has drills (the env's `slotsAt`), and holds 40 (`roomAt`). Its goods go to the nearest online station that uses what it pulls, or the waystation when none does, by hand until its shuttle is bought (see "Manual, then automated"). So drills, shuttles, the full-storage cap and time away all come out of `Industry.settle` with nothing new. For now a drill is a fixed rate, and more drills are the upgrade; levels can come later.
 
 **As built (wreck field):** the salvage yard gains a second process, `salvage`, beside its recycler: `salvage.<component>` recipes with no inputs (90 s a component), one kind per order, picked by the player rather than weighted by `Goods.pick`, so a run's output stays fixed. They need no research. The recycler's orders then take the components from the same station's stock. Costs and recipes elsewhere keep `Config.SWAP` (components swapped for refined goods), so nothing before the salvage yard asks for one.
 
@@ -58,7 +58,7 @@ This is the one mechanic that's new. In the game, the player mines raw goods by 
 There's one seeded system per save (`SolarSystem` from a seed), and **nothing is built in it at first**: only the star, the planets, their moons and the asteroid field. The stations are the game's (the waystation, mining camp, minor station, transport hub, salvage yard, major station and capital, by name, culture and art), but the player builds them, in that order (`Config.BUILDS`, run by `Restoration.create` with nothing online).
 
 - **Charting.** At the start only the asteroid field is charted. Every other body is a signal on its orbit (a dashed ring and a `?`); a moon only shows once its planet is charted. A survey charts one body: one at a time, credits × 1.55 per survey done, and a time that grows with the distance to the nearest charted body (minutes). Charting shows the body's art, type and deposits, and about half of them turn up a derelict worth some credits (seeded per body). Drills go on charted bodies only.
-- **Building.** A station goes up in orbit round a charted body the player picks (planets and the field have two berths, moons one), and sits where its body is, so hauling distances come from that choice. The waystation is free and comes first; it is the market and the bench, and its stock pays for every station after it. The ore works costs credits only; the rest cost goods at the waystation plus credits. A built station gets a shuttle to the waystation, the ore works starts on steel pipe, and drill sites that were sending to the waystation switch to the new station if it uses what they pull.
+- **Building.** A station goes up in orbit round a charted body the player picks (planets and the field have two berths, moons one), and sits where its body is, so hauling distances come from that choice. The waystation is free and comes first; it is the market and the bench, and its stock pays for every station after it. The ore works costs credits only; the rest cost goods at the waystation plus credits. A built station sends what it makes to the waystation (by hand until its shuttle is bought), the ore works starts on steel pipe, and drill sites that were sending to the waystation switch to the new station if it uses what they pull.
 - The restoration scene from the plan became the build scene (Phase 4, second pass).
 
 ## Selling, and contracts
@@ -151,11 +151,73 @@ The sim's player also got better at what a player would do: it puts the deflecto
 | Shipyard | day 10 | day 12 | day 9 | day 9 | days 7–10 |
 | First Mk V | day 18 | day 21 | day 18 | day 18 | about week 3 |
 
-Still open: credits reach about 7M by day 30 (13M before). Up to the shipyard they're the gate now, but after it there's nothing left to spend them on. That's for new systems (prestige) to take up.
+Still open then: credits reach about 7M by day 30 (13M before). Up to the shipyard they're the gate now, but after it there's nothing left to spend them on. New systems (below) take that up: what's earned after the shipyard becomes legacy.
+
+## Manual, then automated
+
+`notes/idle-research.md` is the research behind this. Automation feels like a reward when the player has done the job by hand for a short while, chooses and pays for the automation, and sees it switch on. In an idle game it's also what keeps going while the app is closed. Until this pass, almost everything ran on its own from the start. Now four jobs start by hand, and each is automated when the player buys or researches it. The manual way stays possible after.
+
+| Job | By hand | Automated by |
+| --- | --- | --- |
+| Hauling | "Send hauler" on a drill site's or station's sheet: it takes up to 40 (`Config.HAUL`) of what's there and flies it to where it goes (`IdleRules.haulTarget`) | A shuttle bought for the link (`Config.SHUTTLE`: 300 cr × 1.4 a shuttle already running). With Haulage contracts (transport hub research), shuttles are free and new stations and drill sites get theirs. |
+| Orders | An order at a station runs a batch, about an hour of work (`Config.FOREMAN.batch`), then waits for "Run again" | A foreman bought per station (credits and goods from the waystation, `Config.FOREMAN.cost`): its orders go on while their inputs last. Drills and the wreck field have no batches. |
+| Contracts | "Deliver" | The contract clerk (Trade research). At every step of the clock, it delivers what the waystation can spare once the next station's goods are set aside, and leaves the contracts the player marks. |
+| Surveying | Picking each signal | The probe network (Extraction research). At every step, with no survey under way, it starts the quickest one while the credits cover twice its price. It can be switched off. |
+
+**As built:**
+- Settling (`IdleRules.settle`) now steps from one moment that matters to the next:
+  - a survey's end;
+  - a hauler sent by hand arriving (`state.hauls`);
+  - while anything runs on its own (auto-sell, the clerk, the probes), every step of the clock (`Config.STEP`, 15 minutes).
+
+  All of these are fixed times, so time away comes out the same however it's settled. The tests check this for each loop.
+- A hauler's arrival is a delivery in the log, so the away sheet and the map count it. What doesn't fit where it goes goes back where it came from.
+- The away sheet lists what stopped for want of automation: a full place nothing carries from, with "Automate"; a finished batch, with "Hire foreman" or "Run again". The header's next thing to do points at hauling, buying the shuttle, a finished batch and an affordable foreman.
+- Hand-sent haulers fly on the map like shuttles.
+- Save version 7. Older saves keep their shuttles and get a foreman at every station built, so nothing they had stops.
+
+**Numbers after this pass.** The sim's player:
+- hauls by hand from every place with goods and no shuttle;
+- buys a link's shuttle at twice its price (the field's first at the price);
+- runs finished batches again;
+- hires a foreman once it has twice the credits;
+- researches the probes, the clerk and Haulage in its order.
+
+Haulage moved to the transport hub's logistics (after Route planning I, 40k cr, 12 h), because at the waystation it came within a day and made every shuttle free. The later foremen cost half the first guess. The manual phase is short, as the research says it should be: 1 to 3 haulers by hand before the first shuttle.
+
+| Milestone | Seed 1 | Seed 2 | Seed 3 | Layout 1 | 30 legacy | Before |
+| --- | --- | --- | --- | --- | --- | --- |
+| First shuttle | 4 min | 8 min | 4 min | 6 min | 4 min | |
+| Ore works | 4 min | 6 min | 4 min | 4 min | 4 min | 4 min |
+| First foreman | 26 min | 1 h | 28 min | 26 min | 20 min | |
+| Volatiles works | 2 h | 8 h | 1 h 15 | 8 h | 1 h | 1 h 15 to 1 h 30 |
+| Probes / clerk | 5 h / 8 h | 5 h / 11 h | 5 h / 8 h | 5 h / 8 h | 5 h / 8 h | |
+| Transport hub | day 1 | day 2 | day 1 | day 1 | day 1 | day 1 |
+| Haulage | day 2 | day 3 | day 2 | day 2 | day 2 | |
+| Shipyard | day 11 | day 13 | day 10 | day 10 | day 6 | days 9 to 12 |
+| First Mk V | day 19 | day 21 | day 19 | day 19 | day 17 | days 18 to 21 |
+
+The 8 h volatiles works on seed 2 and layout 1 is the sim's check-ins: they come every 3 hours after the second hour. The late stations come about a day later than before, because the credits spent on automation slow the hub's 60k. The first day now has a beat every hour or few: shuttles, the first foremen, the probes and the clerk. That is the gap `notes/idle-research.md` found.
+
+## New systems (prestige)
+
+Once every station is built, the Build sheet offers to leave for a new system. Everything in this one stays behind (stations, drills, research, credits), and the credits earned here (sales, auto-sales, contracts and derelicts, never minus what was spent: `state.earned`) become **legacy points**, floor(√(earned / 10,000)), kept for good (`state.legacy`: jumps, points, and each system left). Each point adds 2% to every order's and drill's speed and 2% to what markets and contracts pay, in every system after (`Config.LEGACY`). The square root means staying keeps paying less and less, so moving on beats sitting on the credits, which is what the open point under Numbers needed.
+
+The next system is rolled from the one left and the jumps made (`IdleRules.nextSeed`), on the current layout, so it's fixed and not re-rollable by reloading. The page writes the new save and loads again on it. Leaving is asked twice (a Jump and a Stay under a warning).
+
+`npm run idle:sim -- --legacy=N` plays a system with N points, and the sim says how many leaving would earn from the shipyard on. Seed 1:
+
+| | No legacy | 30 points |
+| --- | --- | --- |
+| Transport hub | day 1 | 14 h |
+| Shipyard | day 10 | day 7 |
+| First Mk V | day 19 | day 17 |
+| Points for leaving at the shipyard / day 30 | 15 / 30 | 15 / 40 |
+
+So leaving at the shipyard earns about 15, and staying the month about 30; a second system with 30 comes about a third sooner, and earns more for staying.
 
 ## Later
 
-- **New systems (prestige):** move to a new seed, carrying over a permanent bonus based on what was built. The galaxy seeds are already deterministic.
 - Cultures as the system's owners, changing station art and the market mix.
 - Exo Drift cross-over: a race's parts traded for components. This would mean the two saves knowing about each other, so it stays optional.
 
@@ -165,6 +227,8 @@ Still open: credits reach about 7M by day 30 (13M before). Up to the shipyard th
 2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
 3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab); then contracts, the wreck field, auto-sell and trade research (save version 4).
 4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name. Built: the sim and a first pass of numbers (above), haptics through `Feedback`, and the PWA (`idle/manifest.webmanifest`, `assets/idle-icon*`, `idle/sw.js` from `tools/app-sw.js`, which now serves the race too). Haulers already fly on the map. Then the second pass: the build scene, the name (Cold Start), systems that differ by seed, and the balance points under Numbers.
-5. **Later:** new systems (prestige), and the extras above.
+5. **New systems** (done): leaving a system with every station built for a new one, with legacy points from what was earned (save version 6; version 5 saves start with none, and count earnings from then).
+6. **Manual, then automated** (done): hauling, orders, contracts and surveys start by hand and are automated by shuttles, foremen, the contract clerk and the probe network (save version 7; version 6 saves get a foreman at every station built). `notes/idle-research.md` is the research behind it.
+7. **Later:** the extras above, and those at the end of `notes/idle-research.md` (a legacy shop that carries automation over, small first-day milestones, "full in 3 h" estimates).
 
 **Since Phase 2:** the system starts empty and is charted by survey, and stations are built round bodies the player picks rather than restored where they stood; the page moved to the Line style and the game's UI kit, and the map to a star-centred schematic with orbits (save version 2; version 1 saves start again).
