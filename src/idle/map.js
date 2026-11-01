@@ -6,7 +6,8 @@
 // clock, the inner orbits faster (Kepler's 1.5 power), so the system looks the same whenever it's
 // opened. Bodies not yet charted are signals on their orbits (a dashed ring and a '?'); a moon
 // shows only once its planet is charted. A body being surveyed has the probe's sweep round it.
-// Shuttles' haulers fly between where their stops are now, and what was just made floats up from
+// Shuttles' haulers fly between where their stops are now (and haulers sent by hand from where they
+// left to where they go), and what was just made floats up from
 // where it was made. Drag to pan, pinch or the wheel to zoom, tap a thing to pick it; a picked
 // thing is followed, zoomed in on, and kept clear of the sheet over the bottom of the screen.
 // A station just built has its scene: the camera comes to it, a scaffold ring and brackets go up
@@ -309,19 +310,20 @@ const IdleMap = (() => {
         if (tag) { ctx.fillStyle = AMBER; ctx.textAlign = 'left'; ctx.fillText(tag, x + wText / 2, y); ctx.textAlign = 'center'; }
       }
 
-      // Haulers: a small outlined dart, a dot of what it carries behind it.
-      for (const r of state.industry.routes) {
-        for (const h of r.haulers) {
-          const p = haulerPos(r, h, now, pos);
-          if (!p) continue;
-          const kinds = Object.keys(h.load);
-          ctx.save();
-          ctx.translate(p.x, p.y); ctx.rotate(p.dir);
-          ctx.strokeStyle = CHALK; ctx.lineWidth = 1; ctx.fillStyle = Theme.color.bg;
-          ctx.beginPath(); ctx.moveTo(5.5, 0); ctx.lineTo(-4, -3.2); ctx.lineTo(-2, 0); ctx.lineTo(-4, 3.2); ctx.closePath(); ctx.fill(); ctx.stroke();
-          if (kinds.length) { ctx.fillStyle = colorOf(kinds[0]); ctx.beginPath(); ctx.arc(-6.5, 0, 2, 0, TAU); ctx.fill(); }
-          ctx.restore();
-        }
+      // Haulers: a small outlined dart, a dot of what it carries behind it. Shuttles' and routes'
+      // haulers, and those sent by hand (state.hauls: one way, from where they left to where they go).
+      const flying = [];
+      for (const r of state.industry.routes) for (const h of r.haulers) flying.push([haulerPos(r, h, now, pos), h.load]);
+      for (const h of state.hauls) flying.push([haulerPos({ stops: [{ station: h.from }, { station: h.to }] }, { stop: 1, at: h.at, next: h.end }, now, pos), h.load]);
+      for (const [p, load] of flying) {
+        if (!p) continue;
+        const kinds = Object.keys(load);
+        ctx.save();
+        ctx.translate(p.x, p.y); ctx.rotate(p.dir);
+        ctx.strokeStyle = CHALK; ctx.lineWidth = 1; ctx.fillStyle = Theme.color.bg;
+        ctx.beginPath(); ctx.moveTo(5.5, 0); ctx.lineTo(-4, -3.2); ctx.lineTo(-2, 0); ctx.lineTo(-4, 3.2); ctx.closePath(); ctx.fill(); ctx.stroke();
+        if (kinds.length) { ctx.fillStyle = colorOf(kinds[0]); ctx.beginPath(); ctx.arc(-6.5, 0, 2, 0, TAU); ctx.fill(); }
+        ctx.restore();
       }
 
       // Floaters.

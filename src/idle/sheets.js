@@ -1,12 +1,14 @@
 // The idle game's bottom sheets, built from the game's UI kit (ui/kit.js: Kit.sheet, option rows,
 // meters, choices; drawn in the Line style by ui/kit-line.css), one at a time:
 // - a body's: uncharted, the survey that charts it; charted, its deposits and drills, its stock and
-//   shuttle, the stations in orbit round it, and building the next station there,
-// - a station's: its stock (sold here, at the market's price), its orders (each with where its inputs
-//   come from, and a fix where one is missing; pause, priority, switching recipe) and a new one, its
-//   shuttle; at the transport hub, its routes and a new one; at the waystation, today's contracts
-//   first, and once researched which goods it auto-sells,
-// - Survey: every body in the system, charted or not, and the survey under way,
+//   its hauling (a hauler sent by hand, and buying the shuttle that automates it; then the shuttle),
+//   the stations in orbit round it, and building the next station there,
+// - a station's: its stock (sold here, at the market's price), its foreman (or hiring one), its orders
+//   (each with where its inputs come from, and a fix where one is missing; pause, priority, switching
+//   recipe, running a finished batch again) and a new one, its hauling or shuttle; at the transport
+//   hub, its routes and a new one; at the waystation, today's contracts first (with the clerk, which
+//   to leave it), and once researched which goods it auto-sells,
+// - Survey: every body in the system, charted or not, the survey under way, and the probe network,
 // - Build: the stations to build, in order, what each costs, and where the next can go; the legacy
 //   kept from systems left before, and once every station is built, leaving for a new system (asked
 //   twice: view.confirm),
@@ -40,7 +42,7 @@ const IdleSheets = (() => {
   const counts = (o) => Object.entries(o).map(([k, n]) => `${n} ${nameOf(k)}`).join(' + ');
   const cr = (n) => `${Math.round(n).toLocaleString('en')} cr`;
   const secs = (s) => (s >= 3600 ? `${+(s / 3600).toFixed(1)} h` : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.max(1, Math.round(s))} s`);
-  const STATUS = { running: ['Running', 'var(--good)'], starved: ['Waiting for', 'var(--warn)'], blocked: ['Storage full', 'var(--warn)'], paused: ['Paused', 'var(--dim)'], done: ['Done', 'var(--dim)'] };
+  const STATUS = { running: ['Running', 'var(--good)'], starved: ['Waiting for', 'var(--warn)'], blocked: ['Storage full', 'var(--warn)'], paused: ['Paused', 'var(--dim)'], done: ['Batch done', 'var(--warn)'] };
   const KIND = { field: 'Asteroid field', planet: 'Planet', moon: 'Moon' };
   const PLANET = { lava: 'Lava world', desert: 'Desert world', terran: 'Terran world', ice: 'Ice world', gas: 'Gas giant', blue: 'Ice giant' };
   const MOON = { grey: 'Grey moon', ice: 'Ice moon', rust: 'Rust moon', dark: 'Dark moon', sulfur: 'Sulfur moon' };
@@ -107,7 +109,14 @@ const IdleSheets = (() => {
       const b = buildOfType(f.type);
       return b ? `Build the ${b.name.toLowerCase()}` : `Nothing here makes ${nameOf(f.good).toLowerCase()}`;
     }
-    const fixButton = (f) => Kit.button(FIX_VERB[f.kind], go('fix', { fix: f }), { kind: f.kind === 'build' ? 'ghost' : 'primary', disabled: f.kind === 'build' && !f.type, title: fixText(f), aria: fixText(f) });
+    // A shuttle fix where there's none yet buys one (Config.SHUTTLE).
+    const fixButton = (f, state) => {
+      const buy = f.kind === 'shuttle' && state && !I.shuttle(state.industry, f.from) ? IdleRules.shuttleCost(state) : null;
+      return Kit.button(FIX_VERB[f.kind], go('fix', { fix: f }), {
+        kind: f.kind === 'build' ? 'ghost' : 'primary', price: buy || undefined,
+        disabled: (f.kind === 'build' && !f.type) || (buy != null && state.credits < buy), title: fixText(f), aria: fixText(f),
+      });
+    };
     // The fix for an input of an order at a station, if the chain has one.
     const fixFor = (fixes, key, kind) => fixes.find((f) => f.good === kind && (f.kind === 'route' || f.kind === 'shuttle' ? f.to === key : f.for === key)) || null;
 
@@ -122,25 +131,41 @@ const IdleSheets = (() => {
           const fix = x.source === 'storage' || x.source === 'order' || x.source === 'route' ? null : fixFor(fixes, o.station, x.kind);
           lines.push(h('div', { class: 'idle-in' },
             h('span', { class: 'sub' }, `${nameOf(x.kind)} ${Math.min(x.have, x.need)}/${x.need} · ${fix ? fixText(fix) : SOURCE[x.source]}`),
-            fix ? fixButton(fix) : null));
+            fix ? fixButton(fix, state) : null));
         }
       }
       const mine = state.industry.orders.filter((x) => x.station === o.station), first = mine[0] === o;
       const action = drill ? null : Kit.button('✕', go('cancel', { id: o.id }), { kind: 'ghost', aria: 'Cancel this order', title: 'Cancel' });
+      const done = st.id === 'done';
       const controls = drill ? null : h('span', { class: 'idle-acts idle-ctl' },
+        done ? Kit.button('Run again', go('rerun', { id: o.id }), { kind: 'primary', aria: 'Run another batch' }) : null,
         Kit.button(o.paused ? 'Resume' : 'Pause', go('pause', { id: o.id, paused: !o.paused }), { kind: 'ghost' }),
         Kit.button('Switch', go('view', { switching: o.id }), { kind: 'ghost', aria: 'Switch recipe' }),
         first ? null : Kit.button('▲ First', go('raise', { id: o.id }), { kind: 'ghost', aria: 'Move up: gets inputs first' }));
       return Kit.optionRow({
         icon: itemIcon(out), name: counts(R.out), tag: what, tagTone: tone.replace(/^var\(--|\)$/g, ''),
-        sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(I.runTime(o, IdleRules.env(state), nowAt) / 1000)} a run · ${o.made} made`,
+        sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(I.runTime(o, IdleRules.env(state), nowAt) / 1000)} a run · ${o.made} made${o.left != null && !done ? ` · ${o.left + (o.next != null ? 1 : 0)} left` : ''}`,
         extra: [runMeter(o.at, o.next), ...lines, controls, extra || null],
         action,
       });
     }
 
+    // How a place's goods leave it: by hand (a hauler sent now) until its shuttle is bought; then the
+    // shuttle, which can be pointed at another station.
     function shuttleBlock(state, key) {
       const r = I.shuttle(state.industry, key), to = r ? r.stops[1].station : null;
+      if (!r) {
+        const target = IdleRules.haulTarget(state, w, key);
+        if (!target) return [];
+        const hl = IdleRules.haulOf(state, key), cost = IdleRules.shuttleCost(state);
+        const out = [Kit.head('Hauling', h('span', { class: 'aside' }, `by hand to ${target.name}`))];
+        if (hl) out.push(h('div', { class: 'idle-row' }, h('span', { class: 'ui-label' }, `En route: ${counts(hl.load)}`), left(hl.end)), runMeter(hl.at, hl.end));
+        out.push(h('div', { class: 'idle-acts' },
+          Kit.button('Send hauler', go('haul', { key }), { kind: 'primary', disabled: !IdleRules.canHaul(state, w, key), aria: `Send a hauler to ${target.name}` }),
+          Kit.button(cost ? 'Automate' : 'Automate · free', go('buy-shuttle', { key }), { kind: 'good', price: cost || undefined, disabled: state.credits < cost, aria: 'Buy a shuttle for this link' })));
+        out.push(h('p', { class: 'ui-note' }, `A hauler takes up to ${Config.HAUL.cap} at a time. A shuttle carries it on its own, while you're away too.`));
+        return out;
+      }
       const opts = w.stations.filter((s) => s.key !== key && IdleRules.online(state, w, s.key));
       if (!opts.length) return [];
       return [
@@ -203,13 +228,16 @@ const IdleSheets = (() => {
       }
       const drills = I.at(state.industry, key);
       if (drills.length) {
+        // Hauling by hand comes first, while there's no shuttle: it's what keeps the drills going.
+        const byHand = !I.shuttle(state.industry, key);
+        if (byHand) body.push(...shuttleBlock(state, key));
         body.push(Kit.head('Drills', h('span', { class: 'aside' }, `${drills.length}`)));
         for (const o of drills) {
           const pick = s.goods.length > 1 ? Kit.choices(s.goods.map((g) => ({ id: g, label: nameOf(g), on: o.recipe === `extract.${g}` })), (g) => act('drill-set', { id: o.id, good: g }), { label: 'Drill for' }) : null;
           body.push(orderRow(state, o, pick));
         }
         body.push(...stockBlock(state, key, now, false));
-        body.push(...shuttleBlock(state, key));
+        if (!byHand) body.push(...shuttleBlock(state, key));
       }
       body.push(...orbitBlock(state, key));
       const sub = s.kind === 'moon' ? `Moon of ${w.byKey.get(s.parent).name}` : `${kindLine(s) === KIND.field ? '' : `${KIND[s.kind]} · `}${where(s)}`;
@@ -225,6 +253,7 @@ const IdleSheets = (() => {
       const switching = orders.find((o) => o.id === view.switching) || null;
       if (I.processes(st.type).length) {
         body.push(Kit.head('Orders', h('span', { class: 'aside' }, `${orders.length} / ${slots}`)));
+        body.push(foremanRow(state, st));
         for (const o of orders) body.push(orderRow(state, o, null, fixes));
         if (switching || orders.length < slots) {
           body.push(Kit.head(switching ? `Switch: ${counts(Config.RECIPES[switching.recipe].out)} to` : 'New order',
@@ -247,15 +276,31 @@ const IdleSheets = (() => {
       return { title: st.name, kicker: b.name, sub: `${procs} · round ${host ? host.name : '—'}`, code: b.code, body };
     }
 
+    // A station's foreman: hired (its orders go on), or what hiring one costs.
+    function foremanRow(state, st) {
+      const f = IdleRules.foremanStatus(state, w, st.build);
+      if (f.id === 'done') return Kit.optionRow({ code: 'SQD', name: 'Foreman', tag: 'Hired', tagTone: 'good', sub: 'Orders here go on while their inputs last.' });
+      const goods = Object.entries(f.goods).map(([k, n]) => `${Math.min(n, (I.stockAt(state.industry, w.waystation.key)[k] || 0))}/${n} ${nameOf(k)}`);
+      return Kit.optionRow({
+        code: 'SQD', name: 'Hire a foreman', tag: 'Batches', tagTone: 'warn',
+        sub: `Orders here run a batch, then wait. A foreman keeps them going.${goods.length ? ` ${goods.join(' · ')}` : ''}`,
+        action: Kit.button('Hire', go('foreman', { id: st.build }), { kind: f.ok ? 'primary' : '', price: f.credits, disabled: !f.ok }),
+      });
+    }
+
     // Today's contracts, delivered from the waystation's stock.
     function contractsBlock(state, now) {
       const list = IdleRules.contracts(state), stock = I.stockAt(state.industry, w.waystation.key);
       const ends = (Math.floor(now / 86400e3) + 1) * 86400e3;
+      const clerk = IdleRules.hasClerk(state);
       const out = [Kit.head('Contracts', h('span', { class: 'aside' }, list.length ? left(ends) : ''))];
+      if (clerk) out.push(h('p', { class: 'ui-note' }, 'The clerk delivers what the waystation can spare, keeping what the next station needs.'));
       if (!list.length) out.push(h('p', { class: 'ui-empty' }, 'None today.'));
       for (const c of list) {
         const it = Recipes.item(c.kind), have = stock[c.kind] || 0, pay = IdleRules.contractPay(state, c);
+        const kept = state.keep.includes(c.id);
         out.push(Kit.optionRow({
+          extra: clerk && !c.done ? [Kit.button(kept ? 'Clerk: leave it' : 'Clerk: deliver', go('keep', { id: c.id, on: !kept }), { kind: kept ? 'ghost' : 'good', aria: `Let the clerk deliver ${nameOf(c.kind)}` })] : undefined,
           icon: itemIcon(c.kind), name: `${c.n} ${nameOf(c.kind)}`, tier: it?.kind === 'gear' ? it.tier : undefined,
           tag: c.done ? 'Delivered' : undefined, tagTone: 'good', locked: c.done, lockLabel: null,
           sub: `${c.from} · ${c.done ? cr(pay) : `${Math.min(have, c.n)}/${c.n} in stock`}`,
@@ -305,7 +350,7 @@ const IdleSheets = (() => {
           const why = f.kind === 'route' || f.kind === 'shuttle'
             ? `${nameOf(f.good)} is made at ${placeName(f.from)}, used at ${placeName(f.to)}`
             : `${placeName(f.for)} needs ${nameOf(f.good).toLowerCase()}`;
-          body.push(Kit.optionRow({ icon: itemIcon(f.good), name: why, sub: fixText(f), action: fixButton(f) }));
+          body.push(Kit.optionRow({ icon: itemIcon(f.good), name: why, sub: fixText(f), action: fixButton(f, state) }));
         }
       }
       if (!orders.length) body.push(h('p', { class: 'ui-empty' }, 'No orders.'));
@@ -395,6 +440,14 @@ const IdleSheets = (() => {
         body.push(Kit.head('Under way'), Kit.optionRow({
           code: 'SCN', name: s.kind === 'moon' ? `A moon of ${w.byKey.get(s.parent).name}` : `Signal on ${where(s)}`, sub: 'Surveying', extra: [runMeter(sv.at, sv.end)],
           action: h('span', { class: 'idle-left' }, left(sv.end)),
+        }));
+      }
+      if (IdleRules.hasProbes(state)) {
+        const on = state.autoSurvey;
+        body.push(Kit.optionRow({
+          code: 'SCN', name: 'Probe network', tag: on ? 'On' : 'Off', tagTone: on ? 'good' : 'dim',
+          sub: 'Surveys the quickest signal on its own, while the credits cover twice its cost.',
+          action: Kit.button(on ? 'Turn off' : 'Turn on', go('auto-survey', { on: !on }), { kind: on ? 'ghost' : 'good' }),
         }));
       }
       const order = [...w.sites].sort((a, b) => ((a.ring ?? w.byKey.get(a.parent).ring + 0.5) - (b.ring ?? w.byKey.get(b.parent).ring + 0.5)));
@@ -500,9 +553,17 @@ const IdleSheets = (() => {
       ];
       const sold = Object.entries(a.sold || {});
       if (sold.length) body.push(Kit.head('Auto-sold', h('span', { class: 'aside' }, cr(sold.reduce((n, [, x]) => n + x.credits, 0)))), ...sold.map(([kind, x]) => Kit.optionRow({ icon: itemIcon(kind), name: `${x.n} ${nameOf(kind)}`, sub: cr(x.credits) })));
+      if (a.contracts?.length) body.push(Kit.head('Delivered by the clerk', h('span', { class: 'aside' }, cr(a.contracts.reduce((n, x) => n + x.credits, 0)))), ...a.contracts.map((x) => Kit.optionRow({ icon: itemIcon(x.kind), name: `${x.n} ${nameOf(x.kind)}`, sub: cr(x.credits) })));
       if (a.researched?.length) body.push(Kit.head('Researched'), ...a.researched.map((id) => { const p = Config.PACKAGES[id]; return Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, sub: p.note }); }));
       if (a.charted.length) body.push(Kit.head('Charted'), ...a.charted.map((c) => Kit.optionRow({ code: 'SCN', name: w.byKey.get(c.key).name, sub: c.find ? `found ${cr(c.find)}` : kindLine(w.byKey.get(c.key)), action: Kit.button('Open', go('open', { kind: 'site', key: c.key }), { kind: 'ghost' }) })));
-      if (a.stuck.length) body.push(Kit.head('Stopped'), ...a.stuck.map((x) => Kit.optionRow({ code: 'LCK', name: x.name, tag: x.why, tagTone: 'warn', action: Kit.button('Open', go('open', { kind: IdleRules.isSite(x.key) ? 'site' : 'station', key: x.key }), { kind: 'ghost' }) })));
+      // What stopped, with what would keep it going (x.fix: an action, its label and price), or a way to it.
+      if (a.stuck.length) {
+        body.push(Kit.head('Stopped'), ...a.stuck.map((x) => Kit.optionRow({
+          code: 'LCK', name: x.name, tag: x.why, tagTone: 'warn', sub: x.note,
+          action: x.fix ? Kit.button(x.fix.label, go(x.fix.act, x.fix.args), { kind: 'good', price: x.fix.price || undefined })
+            : Kit.button('Open', go('open', { kind: IdleRules.isSite(x.key) ? 'site' : 'station', key: x.key }), { kind: 'ghost' }),
+        })));
+      }
       return { title: 'While you were away', sub: secs(a.ms / 1000), code: 'QUE', body, foot: [Kit.button('Continue', go('close'), { kind: 'primary', lg: true, wide: true })] };
     }
 

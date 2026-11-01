@@ -15,7 +15,11 @@
 // (routes, shuttles, orders); keeps an order going for each good the next station or research
 // needs, and for the best gear of one line (deflectors) at the shipyard, first among its orders; buys drills while they
 // cost a fifth of its credits or less; surveys the nearest signal while it has twice the price; and
-// queues research in a fixed order of preference. --log prints each check-in that changed something.
+// queues research in a fixed order of preference. What starts by hand (notes/idle.md, Manual, then
+// automated): it sends a hauler from every place with goods and no shuttle, buys a link's shuttle
+// once it has twice the price (the field's first, at the price), runs finished batches again, and
+// hires a station's foreman once it has twice the credits it costs. --log prints each check-in that
+// changed something.
 // Runs in Node.
 
 import { Config } from '../src/idle/config.js';
@@ -31,8 +35,8 @@ const R = IdleRules, I = R.industry, MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR;
 const T0 = Date.UTC(2026, 10, 2, 8); // a Monday morning
 const LINE = 'deflector';
 const PREFER = [
-  'ext.drill.1', 'ind.speed.1', 'trade.auto', 'ind.bays.1', 'ext.drill.2', 'log.routes.1', 'trade.contracts', 'ind.storage.1',
-  'ind.speed.2', 'log.haulers.1', `bp.${LINE}-2`, 'ind.bays.2', 'trade.bonus.1', `bp.${LINE}-3`, 'ext.drill.3', 'ind.speed.3',
+  'ext.drill.1', 'ind.speed.1', 'trade.auto', 'ext.probes', 'ind.bays.1', 'ext.drill.2', 'log.routes.1', 'trade.contracts', 'trade.clerk',
+  'ind.storage.1', 'ind.speed.2', 'log.haulers.1', 'ext.haulage', `bp.${LINE}-2`, 'ind.bays.2', 'trade.bonus.1', `bp.${LINE}-3`, 'ext.drill.3', 'ind.speed.3',
   'log.routes.2', `bp.${LINE}-4`, `bp.${LINE}-5`, 'ind.storage.2', 'trade.auto.2', 'trade.bonus.2', 'ind.lab.1',
 ];
 
@@ -52,6 +56,7 @@ function settle(t) {
   do {
     r = R.settle(state, w, t);
     for (const [k, x] of Object.entries(r.sold)) earn(`${k} (auto)`, x.credits);
+    for (const x of r.delivered) { earn('contracts (clerk)', x.credits); if (LOG) note(t, `clerk delivered ${x.n} ${nameOf(x.kind)} (+${x.credits} cr)`); }
     for (const c of r.charted) note(t, `charted ${w.byKey.get(c.key).name}${c.find ? ` (+${c.find} cr)` : ''}`);
     for (const id of r.researched) note(t, `researched ${Config.PACKAGES[id].name}`);
     for (const x of r.log) {
@@ -107,7 +112,7 @@ function build(t) {
 function orders(t) {
   for (const f of R.fixes(state, w)) {
     if (f.kind === 'route') R.addRoute(state, w, f.from, f.to, [f.good], t);
-    else if (f.kind === 'shuttle') R.setShuttle(state, w, f.from, f.to, t);
+    else if (f.kind === 'shuttle') shuttleTo(f.from, f.to, t);
     else if (f.kind === 'order') R.place(state, w, f.key, f.recipe, t);
   }
   const want = reserve(), have = stock(way), known = R.known(state);
@@ -137,7 +142,7 @@ function orders(t) {
     const st = stationsOn().find((x) => x.key !== way && makes(x.key).has(k));
     if (!st || I.shuttle(state.industry, st.key)?.stops[1].station === way) continue;
     if (R.routes(state).some((r) => r.stops[0].station === st.key && r.stops[1].station === way && R.carries(r).includes(k))) continue;
-    if (!R.addRoute(state, w, st.key, way, [k], t) && !I.shuttle(state.industry, st.key)) R.setShuttle(state, w, st.key, way, t);
+    if (!R.addRoute(state, w, st.key, way, [k], t) && !I.shuttle(state.industry, st.key)) shuttleTo(st.key, way, t);
   }
   // A drill site whose good is wanted at the waystation, shuttling it somewhere that doesn't use it:
   // to the waystation instead.
@@ -172,6 +177,33 @@ function orders(t) {
   }
 }
 
+// A shuttle from one place to another: one already running is pointed there; else one is bought, if
+// the credits run to it (else its goods go by hand).
+function shuttleTo(from, to, t) {
+  if (I.shuttle(state.industry, from)) return R.setShuttle(state, w, from, to, t);
+  const r = R.buyShuttle(state, w, from, t, to);
+  if (r) note(t, `bought a shuttle: ${w.byKey.get(from).name} → ${w.byKey.get(to).name}`);
+  return r;
+}
+
+// By hand, then automated: haulers sent from every place whose goods only go by hand, shuttles
+// bought for them, batches run again, and foremen hired.
+const handHauled = () => [...w.sites.filter((s) => state.drills[s.key]), ...stationsOn()]
+  .filter((x) => !I.shuttle(state.industry, x.key) && R.haulTarget(state, w, x.key) && !R.routes(state).some((r) => r.stops[0].station === x.key));
+let hauls = 0;
+function automate(t) {
+  for (const x of handHauled()) {
+    const cost = R.shuttleCost(state);
+    if (state.credits >= (x === field && !hauls ? cost : 2 * cost) && R.buyShuttle(state, w, x.key, t)) { note(t, `bought a shuttle: ${x.name} → ${w.byKey.get(I.shuttle(state.industry, x.key).stops[1].station).name} (${cost} cr)`); continue; }
+    if (R.sendHaul(state, w, x.key, t)) hauls++;
+  }
+  for (const id of state.built) {
+    const f = R.foremanStatus(state, w, id);
+    if (f.ok && state.credits >= 2 * f.credits && R.hireForeman(state, w, id, t)) note(t, `hired a foreman at the ${Config.BUILDS.find((b) => b.id === id).name.toLowerCase()}`);
+  }
+  for (const o of state.industry.orders) if (o.left === 0) R.rerun(state, w, o.id, t);
+}
+
 // A drill for a raw good, at the nearest charted body that has it.
 function drillFor(k, t) {
   const site = w.sites.filter((s) => R.charted(state, s.key) && s.goods.includes(k)).sort((a, b) => R.drillCost(state, a) - R.drillCost(state, b))[0];
@@ -201,6 +233,7 @@ function research(t) {
 function turn(t) {
   settle(t);
   if (!R.online(state, w, way)) { R.build(state, w, 'build.waystation', field.key, t); note(t, 'built the waystation'); }
+  automate(t);
   for (const c of R.contracts(state)) if (R.canDeliver(state, w, c.id)) { const pay = R.deliver(state, w, c.id, t); earn('contracts', pay); if (LOG) note(t, `delivered ${c.n} ${nameOf(c.kind)} (+${pay} cr)`); }
   build(t);
   orders(t);
@@ -222,9 +255,15 @@ for (const dt of times) {
 }
 
 const built = milestones.filter(([, s]) => s.startsWith('built'));
+const firstOf = (prefix) => milestones.find(([, s]) => s.startsWith(prefix));
 console.log(`Idle sim: seed ${SEED}, layout ${LAYOUT} (${w.galaxy.name}), ${DAYS} days, ${times.length} check-ins${LEGACY ? `, ${LEGACY} legacy points` : ''}\n`);
 console.log('Built:');
 for (const [t, s] of built) console.log(`  ${at(t).padEnd(10)} ${s.slice(6)}`);
+console.log('\nAutomated:');
+const auto = [['bought a shuttle', 'first shuttle'], ['hired a foreman', 'first foreman'], ['researched Probe network', 'probe network'], ['researched Contract clerk', 'contract clerk'], ['researched Haulage contracts', 'haulage']];
+for (const [prefix, label] of auto) { const m = firstOf(prefix); console.log(`  ${label.padEnd(15)} ${m ? at(m[0]) : '—'}`); }
+const foremen = milestones.filter(([, s]) => s.startsWith('hired a foreman'));
+console.log(`  ${'foremen'.padEnd(15)} ${foremen.length} of ${state.built.length}${foremen.length ? `, the last ${at(foremen[foremen.length - 1][0])}` : ''}; ${hauls} haulers sent by hand`);
 console.log('\nFirst gear:');
 for (let n = 2; n <= 5; n++) console.log(`  Mk ${['', '', 'II', 'III', 'IV', 'V'][n].padEnd(4)} ${gearFirst[n] ? at(gearFirst[n]) : '—'}`);
 console.log(`\nAt the end: ${Math.round(state.credits).toLocaleString('en')} cr, ${state.charted.length} of ${w.sites.length} bodies charted, ` +

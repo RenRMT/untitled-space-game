@@ -23,8 +23,8 @@
 //     its package researched (Recipes.known)
 //   Config.PACKAGES[id], CATEGORIES  the lab (rules/lab.js): the game's blueprints, mods, industry and
 //     logistics research (rules/research.js, the same ids, so Recipes.known reads them), components
-//     swapped, plus Extraction (ext.drill.*: drills faster; ext.probes: surveys on their own;
-//     ext.haulage: free shuttles) and Trade (trade.*: contract slots and bonus, auto-sell, the
+//     swapped, plus Extraction (ext.drill.*: drills faster; ext.probes: surveys on their own),
+//     Haulage (ext.haulage, in the transport hub's logistics: free shuttles) and Trade (trade.*: contract slots and bonus, auto-sell, the
 //     contract clerk); a category's station is the station type that has to be built before its
 //     packages can be researched
 //   Config.CONTRACTS { slots, bonus, perStation, top, size }   contracts: how many are open, what they
@@ -131,13 +131,14 @@ const Config = (() => {
   for (const [id, name, short, requires, time, credits, goods] of EXTRACT) {
     PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry: { drill: 0.25 }, note: '+25% drill speed' };
   }
-  // Automation: surveys started on their own, and shuttles for every link.
+  // Automation: surveys started on their own (at the waystation), and shuttles for every link (at
+  // the transport hub, with its route planning).
   const AUTOMATE = [
-    ['ext.probes', 'Probe network', 'Probes', ['ext.drill.1'], 2 * H, 4000, { 'steel-pipe': 10, 'carbon-fibre': 6 }, { probes: 1 }, 'Surveys the nearest signal on its own'],
-    ['ext.haulage', 'Haulage contracts', 'Haulage', ['ext.drill.2'], 6 * H, 15000, { 'steel-pipe': 20, hydrazine: 10 }, { haulage: 1 }, 'Shuttles cost nothing, and new stations and drill sites get theirs'],
+    ['ext.probes', 'ext', 'Probe network', 'Probes', ['ext.drill.1'], 2 * H, 3000, { 'steel-pipe': 10, 'carbon-fibre': 6 }, { probes: 1 }, 'Surveys the nearest signal on its own'],
+    ['ext.haulage', 'log', 'Haulage contracts', 'Haulage', ['log.routes.1'], 12 * H, 40000, { 'steel-pipe': 20, hydrazine: 10 }, { haulage: 1 }, 'Shuttles cost nothing, and new stations and drill sites get theirs'],
   ];
-  for (const [id, name, short, requires, time, credits, goods, industry, note] of AUTOMATE) {
-    PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry, note };
+  for (const [id, cat, name, short, requires, time, credits, goods, industry, note] of AUTOMATE) {
+    PACKAGES[id] = { id, kind: 'industry', name, short, cat, requires, time, cost: { credits, ...goods }, industry, note };
   }
   // Trade: more and better contracts, and the waystation selling on its own.
   const TRADE = [
@@ -153,7 +154,7 @@ const Config = (() => {
   }
   const used = new Set(Object.values(PACKAGES).map((p) => p.cat));
   const CATEGORIES = [
-    { id: 'ext', group: 'industry', label: 'Extraction', note: 'faster drills, probes and haulage', station: 'waystation' },
+    { id: 'ext', group: 'industry', label: 'Extraction', note: 'faster drills and the probe network', station: 'waystation' },
     { id: 'trade', group: 'industry', label: 'Trade', note: 'contracts, the clerk and auto-sell', station: 'waystation' },
     // Gear is assembled at the shipyard, so its blueprints are drawn up there: none before it's built.
     ...Research.CATEGORIES.filter((c) => used.has(c.id)).map((c) => (c.id.startsWith('bp.') ? { ...c, station: 'capital' } : c)),
@@ -171,12 +172,12 @@ const Config = (() => {
   // Manual, then automated (notes/idle.md): hauling by hand, then a shuttle a link; orders in
   // batches, then a foreman a station.
   const HAUL = { cap: 40 };
-  const SHUTTLE = { base: 150, growth: 1.4 };
+  const SHUTTLE = { base: 300, growth: 1.4 };
   const FOREMAN = {
     batch: 3600e3, minRuns: 3,
     cost: {
-      'build.waystation': { credits: 400 },
-      'build.ore': { credits: 600 },
+      'build.waystation': { credits: 1500 },
+      'build.ore': { credits: 1000 },
       'build.volatiles': { credits: 4000, 'steel-pipe': 10 },
       'build.transport': { credits: 12000, 'steel-pipe': 15, hydrazine: 10 },
       'build.salvage': { credits: 30000, 'carbon-fibre': 15, hydrazine: 15 },
