@@ -18,7 +18,15 @@
 // station type of its category is built. What's done adds to every order's speed, every station's
 // room and orders, the drills' speed, the lab queue, and the routes and haulers the transport hub
 // runs, each from the moment it finished (so time away comes out the same however it's settled).
-// The transport hub runs routes: two stops, chosen goods carried from one place to another.
+// The transport hub runs routes: two stops, chosen goods carried from one place to another. The
+// salvage yard's wreck field turns out salvaged components (orders with no inputs, like drills) for
+// its recycler.
+//
+// Contracts: a new set every day (UTC), seeded from the system and the day, asking for some of one
+// item the stations built (or the next to build) can make, and paying its price × a bonus when
+// delivered from the waystation's stock. Auto-sell (Trade research): at every Config.AUTO_SELL.step
+// of the clock, the waystation sells the goods picked for it while their price holds; the steps are
+// fixed to the clock, so time away comes out the same however it's settled.
 //
 //   IdleRules.industry, IdleRules.builds, IdleRules.lab   the Industry, Restoration and Lab instances
 //   IdleRules.world(seed) -> w        { seed, galaxy, star, stations: [station], sites: [site], byKey: Map, waystation }
@@ -27,10 +35,13 @@
 //                parent (a moon's planet key) | null, ring (planets and the field: their orbit's place from the star, 0 first) }
 //   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, built: [build id], hosts: { [station key]: site key },
 //                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
-//                                       drills: { [site key]: n }, economy, lab, seen }
+//                                       drills: { [site key]: n }, economy, lab, contracts: { day, list: [contract] },
+//                                       autoSell: [kind], soldAt (the last auto-sell step settled to), seen }
+//     contract: { id, kind, n, reward (before research's bonus), from (a faction's name), done }
 //   IdleRules.env(state) -> Industry env   with research's speed, room, order slots and drill rate
 //   IdleRules.bonusAt(state, t, key) -> n   a research bonus from what was done by t ('speed', 'storage',
-//                                       'bays', 'queue', 'routes', 'haulers', 'drill')
+//                                       'bays', 'queue', 'routes', 'haulers', 'drill', 'contracts',
+//                                       'contractBonus', 'auto', 'autoFloor')
 //   IdleRules.known(state) -> Set     the recipes known (Recipes.known, and every drill's)
 //   IdleRules.researchStatus(state, w, id) -> Lab status, + away: the station type to build first
 //   IdleRules.research(state, w, id, now) -> bool   paid and queued (or started)
@@ -65,7 +76,11 @@
 //   IdleRules.setShuttle(state, w, fromKey, toKey, now) -> route | null
 //   IdleRules.priceOf(state, w, stKey, kind, now) -> credits | null   what that station pays for one
 //   IdleRules.sell(state, w, stKey, kind, n, now) -> { sold, credits }
-//   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }], researched: [id] }
+//   IdleRules.contracts(state) -> [contract] today's; contractSlots(state), contractPay(state, c) -> credits
+//   IdleRules.canDeliver(state, w, id) -> bool, deliver(state, w, id, now) -> credits | 0   from the waystation
+//   IdleRules.canAuto(state) -> bool (researched), autoFloor(state) -> share, setAuto(state, kind, on) -> bool
+//   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }], researched: [id],
+//     sold: { [kind]: { n, credits } } (auto-sold) }
 //   IdleRules.read(data) -> state | null   a saved state, checked lightly
 // ES module (`IdleRules`); also runs in Node (the tests).
 
@@ -79,11 +94,12 @@ import { Logistics } from '../rules/logistics.js';
 import { Recipes } from '../rules/recipes.js';
 import { Research } from '../rules/research.js';
 import { Restoration } from '../rules/restoration.js';
+import { Factions } from '../world/factions.js';
 import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 3;
+  const VERSION = 4;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
   const builds = Restoration.create({ list: Config.BUILDS, online: [] });
   const P = Config.PACKAGES;
@@ -91,7 +107,8 @@ const IdleRules = (() => {
   const bonusOf = (labState, t, key) => labState.done.reduce((n, id) => n + ((labState.doneAt?.[id] ?? 0) <= t ? P[id]?.industry?.[key] || 0 : 0), 0);
   const bonusAt = (state, t, key) => bonusOf(state.lab, t, key);
   const lab = Lab.create({ packages: P, categories: Config.CATEGORIES, queueMax: (l) => Config.LAB_QUEUE + bonusOf(l, Infinity, 'queue'), config: Research.config });
-  const DRILLS = Object.keys(Config.RECIPES).filter((id) => id.startsWith('extract.'));
+  // Drills and the wreck field need no research.
+  const DRILLS = Object.keys(Config.RECIPES).filter((id) => id.startsWith('extract.') || id.startsWith('salvage.'));
   const known = (state) => new Set([...Recipes.known(state.lab.done).values(), ...DRILLS]);
   const isSite = (key) => key.startsWith('site:');
   const uniq = (a) => [...new Set(a)];
@@ -221,7 +238,8 @@ const IdleRules = (() => {
     const field = w.sites.find((s) => s.kind === 'field');
     return {
       version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
-      charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(), seen: now,
+      charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(),
+      contracts: { day: null, list: [] }, autoSell: [], soldAt: now, seen: now,
     };
   }
 
@@ -431,15 +449,115 @@ const IdleRules = (() => {
     return { sold, credits };
   }
 
+  // ---------- Contracts ----------
+
+  const DAY = 86400e3;
+  const dayOf = (t) => Math.floor(t / DAY);
+  const contractSlots = (state, t = Infinity) => Config.CONTRACTS.slots + bonusAt(state, t, 'contracts');
+  const FROM = Factions.LIST.filter((f) => !f.hidden && f.start > -50).map((f) => f.name);
+  // What a contract may ask for: what the stations built, or the next to build, can make with what's
+  // researched or one step on (a package whose own requirements are done), and what the drills pull.
+  // Only what the player did and the research done by the day's start decide it, so a day's
+  // contracts are the same however time away is settled.
+  function wanted(state, w, t) {
+    const types = new Set(state.built.map((id) => builds.PROJECTS[id].type));
+    const next = nextBuild(state);
+    if (next) types.add(next.type);
+    const done = state.lab.done.filter((id) => (state.lab.doneAt?.[id] ?? 0) <= t);
+    const have = Recipes.known(done), met = (r) => [r].flat().some((x) => done.includes(x));
+    const near = (R) => !R.unlock || have.has(R.id) || (P[R.unlock] && P[R.unlock].requires.every(met));
+    const kinds = new Set();
+    for (const R of Object.values(Config.RECIPES)) {
+      if (R.bay === 'extract' || R.bay === 'recycle' || !near(R)) continue;
+      if ([...types].some((ty) => industry.canMake(ty, R.id))) for (const x of Object.keys(R.out)) kinds.add(x);
+    }
+    for (const key of Object.keys(state.drills)) for (const g of w.byKey.get(key)?.goods || []) kinds.add(g);
+    return [...kinds].filter((k) => Recipes.item(k)?.price).sort();
+  }
+  function rollContracts(state, w, now) {
+    const day = dayOf(now);
+    if (state.contracts.day === day) return;
+    const r = mulberry32(hashInt(seedToInt(w.seed), day, 0xc0d));
+    const pool = wanted(state, w, day * DAY), list = [];
+    for (let i = 0; i < contractSlots(state, day * DAY) && pool.length; i++) {
+      const kind = pool.splice(Math.floor(r() * pool.length), 1)[0], it = Recipes.item(kind);
+      const [a, b] = Config.CONTRACTS.size[it.kind] || [1, 3];
+      const n = a + Math.floor(r() * (b - a + 1));
+      list.push({ id: `${day}.${i}`, kind, n, reward: Math.round((it.price * n * Config.CONTRACTS.bonus) / 10) * 10, from: FROM[Math.floor(r() * FROM.length)], done: false });
+    }
+    state.contracts = { day, list };
+  }
+  const contracts = (state) => state.contracts.list;
+  const contractPay = (state, c) => Math.round(c.reward * (1 + bonusAt(state, Infinity, 'contractBonus')));
+  function canDeliver(state, w, id) {
+    const c = contracts(state).find((x) => x.id === id);
+    return !!c && !c.done && (wayStock(state, w)[c.kind] || 0) >= c.n;
+  }
+  function deliver(state, w, id, now) {
+    if (!canDeliver(state, w, id)) return 0;
+    const c = contracts(state).find((x) => x.id === id), pay = contractPay(state, c);
+    industry.withdraw(state.industry, w.waystation.key, c.kind, c.n);
+    c.done = true;
+    state.credits += pay;
+    industry.kick(state.industry, env(state), now);
+    return pay;
+  }
+
+  // ---------- Auto-sell ----------
+
+  const canAuto = (state, t = Infinity) => bonusAt(state, t, 'auto') > 0;
+  const autoFloor = (state, t = Infinity) => Math.max(0, Config.AUTO_SELL.floor - bonusAt(state, t, 'autoFloor'));
+  function setAuto(state, kind, on) {
+    if (!canAuto(state) || !Recipes.item(kind)) return false;
+    state.autoSell = on ? uniq([...state.autoSell, kind]) : state.autoSell.filter((k) => k !== kind);
+    return true;
+  }
+  // Sell the picked goods at the waystation while each still fetches its floor.
+  function autoSell(state, w, t, sold) {
+    const key = w.waystation.key, floor = autoFloor(state, t);
+    for (const kind of state.autoSell) {
+      const base = Recipes.item(kind)?.price || 0;
+      let n = 0, credits = 0;
+      while ((industry.stockAt(state.industry, key)[kind] || 0) > 0) {
+        const p = priceOf(state, w, key, kind, t);
+        if (p == null || p < floor * base) break;
+        const r = sell(state, w, key, kind, 1, t);
+        if (!r.sold) break;
+        n++;
+        credits += r.credits;
+      }
+      if (n) { const x = sold[kind] || (sold[kind] = { n: 0, credits: 0 }); x.n += n; x.credits += credits; }
+    }
+  }
+
   // ---------- Time ----------
 
   // The survey is charted before production settles, so its find is in the credits from its end.
-  function settle(state, w, now, max) {
+  // With auto-sell on, production settles to each step of the clock in turn, and sells there.
+  function settle(state, w, now, max = Industry.MAX_EVENTS) {
     const researched = lab.settle(state.lab, now);
     const found = chartDue(state, w, now);
-    const r = industry.settle(state.industry, now, env(state), max);
-    if (!r.truncated) state.seen = now;
-    return { ...r, charted: found, researched };
+    if (online(state, w, w.waystation.key)) rollContracts(state, w, now);
+    const e = env(state), log = [], sold = {}, STEP = Config.AUTO_SELL.step;
+    const out = (truncated) => ({ log, truncated, charted: found, researched, sold });
+    if (state.autoSell.length && canAuto(state, now)) {
+      for (;;) {
+        const b = (Math.floor(state.soldAt / STEP) + 1) * STEP;
+        if (b > now) break;
+        const left = max - log.length;
+        if (left <= 0) return out(true);
+        const r = industry.settle(state.industry, b, e, left);
+        log.push(...r.log);
+        if (r.truncated) return out(true);
+        if (canAuto(state, b)) autoSell(state, w, b, sold);
+        state.soldAt = b;
+      }
+    }
+    const r = industry.settle(state.industry, now, e, Math.max(1, max - log.length));
+    log.push(...r.log);
+    if (r.truncated) return out(true);
+    state.seen = state.soldAt = now;
+    return out(false);
   }
 
   function readLab(l) {
@@ -458,6 +576,9 @@ const IdleRules = (() => {
       charted: d.charted, survey: d.survey && Number.isFinite(d.survey.end) ? d.survey : null, finds: obj(d.finds),
       drills: obj(d.drills), economy: d.economy && typeof d.economy === 'object' ? d.economy : Economy.empty(),
       lab: readLab(d.lab),
+      contracts: d.contracts && Array.isArray(d.contracts.list) ? { day: d.contracts.day ?? null, list: d.contracts.list.filter((c) => c && Recipes.item(c.kind)) } : { day: null, list: [] },
+      autoSell: Array.isArray(d.autoSell) ? d.autoSell.filter((k) => Recipes.item(k)) : [],
+      soldAt: Number.isFinite(d.soldAt) ? d.soldAt : Number.isFinite(d.seen) ? d.seen : 0,
       seen: Number.isFinite(d.seen) ? d.seen : 0,
     };
   }
@@ -466,7 +587,8 @@ const IdleRules = (() => {
     VERSION, industry, builds, lab, bonusAt, known, researchStatus, research, cancelResearch, pause, raise, change, lineage,
     routeLimit, haulerLimit, routes, canRoute, carries, addRoute, removeRoute, fixes, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
     hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
-    place, cancel, setShuttle, priceOf, sell, settle, read,
+    place, cancel, setShuttle, priceOf, sell, contracts, contractSlots, contractPay, canDeliver, deliver, canAuto, autoFloor, setAuto,
+    settle, read,
   };
 })();
 

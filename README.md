@@ -60,7 +60,8 @@ the real clock while the page is closed. The system starts with nothing built: b
 by survey and stations built in orbit round them, on a star-centred map in the Line style, with the
 game's UI kit for its screens. Production chains run across the stations, with routes from the
 transport hub and a chain view that says what to mend, and a lab researches the game's blueprints,
-mods and industry. `?fresh` starts a new save, `?seed=` picks its system and `?fastresearch` runs
+mods and industry. The waystation takes daily contracts and, once researched, auto-sells; the
+salvage yard picks components out of a wreck field. `?fresh` starts a new save, `?seed=` picks its system and `?fastresearch` runs
 the lab 60 times faster;
 `notes/idle.md` is the plan.
 

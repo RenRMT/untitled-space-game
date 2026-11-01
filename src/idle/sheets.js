@@ -4,7 +4,8 @@
 //   shuttle, the stations in orbit round it, and building the next station there,
 // - a station's: its stock (sold here, at the market's price), its orders (each with where its inputs
 //   come from, and a fix where one is missing; pause, priority, switching recipe) and a new one, its
-//   shuttle; at the transport hub, its routes and a new one,
+//   shuttle; at the transport hub, its routes and a new one; at the waystation, today's contracts
+//   first, and once researched which goods it auto-sells,
 // - Survey: every body in the system, charted or not, and the survey under way,
 // - Build: the stations to build, in order, what each costs, and where the next can go,
 // - Chain: the production chains (Industry.pipelines), and what would mend them (IdleRules.fixes),
@@ -42,10 +43,10 @@ const IdleSheets = (() => {
   const PLANET = { lava: 'Lava world', desert: 'Desert world', terran: 'Terran world', ice: 'Ice world', gas: 'Gas giant', blue: 'Ice giant' };
   const MOON = { grey: 'Grey moon', ice: 'Ice moon', rust: 'Rust moon', dark: 'Dark moon', sulfur: 'Sulfur moon' };
   const ORDINAL = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
-  const PROCESS_LABEL = { ...Object.fromEntries(Object.values(Recipes.BAYS).map((b) => [b.id, b.label])), extract: 'Drills' };
+  const PROCESS_LABEL = { ...Object.fromEntries(Object.values(Recipes.BAYS).map((b) => [b.id, b.label])), extract: 'Drills', salvage: 'Wreck field' };
   // Where an order's input comes from (Industry.lineage's source).
   const SOURCE = { storage: 'in stock', order: 'made here', route: 'en route', away: 'not delivered', raw: 'not drilled', stage: 'no source' };
-  const CAT_CODE = { ext: 'MIN', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD', 'mods.weapons': 'MOD', 'mods.systems': 'MOD' };
+  const CAT_CODE = { ext: 'MIN', trade: 'TRD', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD', 'mods.weapons': 'MOD', 'mods.systems': 'MOD' };
   const LAB_STATE = { done: ['Done', 'good'], active: ['Building', 'cyan'], queued: ['Queued', 'cyan'], locked: ['Locked', 'dim'], closed: ['Closed', 'dim'] };
   const buildOfType = (type) => Config.BUILDS.find((b) => b.type === type) || null;
 
@@ -77,12 +78,16 @@ const IdleSheets = (() => {
     function stockBlock(state, key, now, sellHere) {
       const stock = I.stockAt(state.industry, key), e = IdleRules.env(state);
       const cap = I.capacity(state.industry, e, now, key), used = I.used(state.industry, key);
+      // At the waystation, once researched: auto-sell each good, or not.
+      const auto = key === w.waystation.key && IdleRules.canAuto(state);
       const rows = Object.entries(stock).filter(([, n]) => n > 0).sort(([a], [b]) => nameOf(a).localeCompare(nameOf(b))).map(([kind, n]) => {
         const p = sellHere ? IdleRules.priceOf(state, w, key, kind, now) : null;
+        const on = state.autoSell.includes(kind);
         const action = p != null ? h('span', { class: 'idle-acts' },
           Kit.button('Sell', go('sell', { key, kind, n: 1 }), { price: p }),
           Kit.button('All', go('sell', { key, kind, n }), { kind: 'ghost' })) : null;
-        return Kit.optionRow({ icon: itemIcon(kind), name: nameOf(kind), sub: `${n} here`, action });
+        const extra = auto && p != null ? [Kit.button(on ? 'Auto-sell: on' : 'Auto-sell: off', go('auto', { kind, on: !on }), { kind: on ? 'good' : 'ghost', aria: `Auto-sell ${nameOf(kind)}` })] : undefined;
+        return Kit.optionRow({ icon: itemIcon(kind), name: nameOf(kind), tag: on ? 'Auto' : undefined, tagTone: 'good', sub: `${n} here`, action, extra });
       });
       return [
         Kit.head('Stock', h('span', { class: 'aside' }, `${used} / ${cap}`)),
@@ -212,7 +217,8 @@ const IdleSheets = (() => {
     function station(state, key, now) {
       const st = w.byKey.get(key), b = Config.BUILDS.find((x) => x.type === st.type), host = w.byKey.get(IdleRules.hostOf(state, key));
       const procs = I.processes(st.type).map((p) => PROCESS_LABEL[p]).join(', ') || (st.type === 'transport hub' ? 'Routes' : 'Market');
-      const body = [...stockBlock(state, key, now, true)];
+      const body = st === w.waystation ? contractsBlock(state, now) : [];
+      body.push(...stockBlock(state, key, now, true));
       const orders = I.at(state.industry, key), slots = IdleRules.env(state).slotsAt(key), fixes = IdleRules.fixes(state, w);
       const switching = orders.find((o) => o.id === view.switching) || null;
       if (I.processes(st.type).length) {
@@ -237,6 +243,24 @@ const IdleSheets = (() => {
       if (st.type === 'transport hub') body.push(...routesBlock(state));
       if (st !== w.waystation) body.push(...shuttleBlock(state, key));
       return { title: st.name, kicker: b.name, sub: `${procs} · round ${host ? host.name : '—'}`, code: b.code, body };
+    }
+
+    // Today's contracts, delivered from the waystation's stock.
+    function contractsBlock(state, now) {
+      const list = IdleRules.contracts(state), stock = I.stockAt(state.industry, w.waystation.key);
+      const ends = (Math.floor(now / 86400e3) + 1) * 86400e3;
+      const out = [Kit.head('Contracts', h('span', { class: 'aside' }, list.length ? left(ends) : ''))];
+      if (!list.length) out.push(h('p', { class: 'ui-empty' }, 'None today.'));
+      for (const c of list) {
+        const it = Recipes.item(c.kind), have = stock[c.kind] || 0, pay = IdleRules.contractPay(state, c);
+        out.push(Kit.optionRow({
+          icon: itemIcon(c.kind), name: `${c.n} ${nameOf(c.kind)}`, tier: it?.kind === 'gear' ? it.tier : undefined,
+          tag: c.done ? 'Delivered' : undefined, tagTone: 'good', locked: c.done, lockLabel: null,
+          sub: `${c.from} · ${c.done ? cr(pay) : `${Math.min(have, c.n)}/${c.n} in stock`}`,
+          action: c.done ? null : Kit.button('Deliver', go('deliver', { id: c.id }), { kind: 'primary', price: pay, disabled: !IdleRules.canDeliver(state, w, c.id) }),
+        }));
+      }
+      return out;
     }
 
     // The transport hub's routes, and a new one: from where, to where, carrying what.
@@ -444,6 +468,8 @@ const IdleSheets = (() => {
         Kit.head('Made'), ...(a.made.size ? lines(a.made) : [h('p', { class: 'ui-empty' }, 'Nothing.')]),
         Kit.head('Delivered'), ...(a.delivered.size ? lines(a.delivered) : [h('p', { class: 'ui-empty' }, 'Nothing.')]),
       ];
+      const sold = Object.entries(a.sold || {});
+      if (sold.length) body.push(Kit.head('Auto-sold', h('span', { class: 'aside' }, cr(sold.reduce((n, [, x]) => n + x.credits, 0)))), ...sold.map(([kind, x]) => Kit.optionRow({ icon: itemIcon(kind), name: `${x.n} ${nameOf(kind)}`, sub: cr(x.credits) })));
       if (a.researched?.length) body.push(Kit.head('Researched'), ...a.researched.map((id) => { const p = Config.PACKAGES[id]; return Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, sub: p.note }); }));
       if (a.charted.length) body.push(Kit.head('Charted'), ...a.charted.map((c) => Kit.optionRow({ code: 'SCN', name: w.byKey.get(c.key).name, sub: c.find ? `found ${cr(c.find)}` : kindLine(w.byKey.get(c.key)), action: Kit.button('Open', go('open', { kind: 'site', key: c.key }), { kind: 'ghost' }) })));
       if (a.stuck.length) body.push(Kit.head('Stopped'), ...a.stuck.map((x) => Kit.optionRow({ code: 'LCK', name: x.name, tag: x.why, tagTone: 'warn', action: Kit.button('Open', go('open', { kind: IdleRules.isSite(x.key) ? 'site' : 'station', key: x.key }), { kind: 'ghost' }) })));

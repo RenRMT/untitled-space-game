@@ -49,7 +49,9 @@ This is the one mechanic that's new. In the game, the player mines raw goods by 
 - Extractors are bought with credits and then upgraded. Each level adds speed, and the price grows by about ×1.15 per level, the usual idle curve. The table lives in `src/idle/config.js`.
 - Salvage: the salvage yard has a **wreck field** extractor that slowly turns out the four component kinds, weighted by `Goods.pick`.
 
-**As built (Phase 2):** each extraction site is a station as far as `Industry` is concerned: the asteroid field, each planet and each moon has its own stock (key `site:<kind><id>`, type `site`, process `extract`). A drill is an order there running `extract.<good>`. A site takes as many orders as it has drills (the env's `slotsAt`), and holds 40 (`roomAt`). Its first drill gives it a shuttle to the nearest online station that uses what it pulls, or the waystation when none does. So drills, shuttles, the full-storage cap and time away all come out of `Industry.settle` with nothing new. For now a drill is a fixed rate, and more drills are the upgrade; levels can come later. The wreck field is still to do.
+**As built (Phase 2):** each extraction site is a station as far as `Industry` is concerned: the asteroid field, each planet and each moon has its own stock (key `site:<kind><id>`, type `site`, process `extract`). A drill is an order there running `extract.<good>`. A site takes as many orders as it has drills (the env's `slotsAt`), and holds 40 (`roomAt`). Its first drill gives it a shuttle to the nearest online station that uses what it pulls, or the waystation when none does. So drills, shuttles, the full-storage cap and time away all come out of `Industry.settle` with nothing new. For now a drill is a fixed rate, and more drills are the upgrade; levels can come later.
+
+**As built (wreck field):** the salvage yard gains a second process, `salvage`, beside its recycler: `salvage.<component>` recipes with no inputs (90 s a component), one kind per order, picked by the player rather than weighted by `Goods.pick`, so a run's output stays fixed. They need no research. The recycler's orders then take the components from the same station's stock. Costs and recipes elsewhere keep `Config.SWAP` (components swapped for refined goods), so nothing before the salvage yard asks for one.
 
 ## Charting and building (as built)
 
@@ -64,6 +66,10 @@ There's one seeded system per save (`SolarSystem` from a seed), and **nothing is
 - **Markets.** `Economy.market` and `Economy.trade` at each online station. Selling a lot in one place drives the price down. The stock recovers halfway every `halfLife`, so spreading sales across stations, or waiting, pays. This adds strategy without any new rules. A per-good **auto-sell** setting (research) turns surplus into credits while the app is away, up to a price floor.
 - **Contracts.** These are requests from stations or factions (`world/factions.js` names, crew and android portraits) for *N* of a made item by a deadline, with a bonus on top of market price and sometimes a component reward. Three are open at a time and refresh daily from the seed. They pull the player toward the next tier: "4 deflector Mk II" when you don't have a shipyard yet.
 
+**As built (contracts and auto-sell):** a new set every UTC day, seeded from the system and the day (`IdleRules.contracts`), three (four with the contract desk). Each asks for some of one item that a built station, or the next to build, can make with what's researched or one package on, or a good the drills pull. It pays the item's price × 1.6 (plus 25% per Brokers level), delivered whole from the waystation's stock, and lasts until the day ends. The set depends only on what the player built and drilled and the research done by the day's start, so it comes out the same however time away is settled. Faction names only for now: no portraits or component rewards yet. Contracts sit at the top of the waystation's sheet (the Market tab), which shows a dot when one can be delivered.
+
+Auto-sell (Trade research) is picked per good in the waystation's stock. At every 15-minute step of the clock, the waystation sells the picked goods while their price is at least 75% of usual (50% with Auto-sell II). Production settles step by step to those fixed times, so a week away comes out the same in one settle or many. The away sheet lists what was auto-sold.
+
 ## Research
 
 A `Lab.create` instance over the idle game's own packages, with the same shape as `src/race/career.js`:
@@ -72,6 +78,8 @@ A `Lab.create` instance over the idle game's own packages, with the same shape a
 - **Extraction:** yield per extractor kind, and new extractor kinds (surface goods behind a survey).
 - **Blueprints:** gear from Mk II up, like the game's `bp.*`.
 - **Trade:** auto-sell, a price floor, a fourth contract slot, and better contract bonuses.
+
+**Trade, as built:** Auto-sell, Auto-sell II, the contract desk (a fourth contract), and Brokers I–II (contracts pay 25% more each), researched at the waystation.
 
 **As built (Phase 3):** the lab is `IdleRules.lab`, a `Lab.create` over `Config.PACKAGES`: the game's own blueprint, mods, industry and logistics packages (`rules/research.js`, the same ids, so `Recipes.known` unlocks their recipes), plus Extraction (`ext.drill.1–3`, +25% drill speed each, through a new optional `rate(recipe, t)` on the Industry env). Squad logic, hull refits and tuning are left out. A package is paid in credits and goods from the waystation's stock, and can be queued once the station type of its category is built (`Research.CATEGORIES` station). Speed, racks, order slots, the lab queue, routes and haulers all apply, each from when it finished (`doneAt`), so a settle split across a finish comes out the same. The idle game has no salvage yet, so every salvaged component in a package's cost or a recipe's inputs is swapped for a refined good (`Config.SWAP`: hull → steel pipe, weapon and computer → carbon fibre, drive → hydrazine); the recycler's recipes keep theirs and wait for the wreck field. Trade research is still to do.
 
@@ -119,7 +127,7 @@ Start from the game's recipe times (refining 20 s, parts 30 s, gear 2 min to 2 h
 
 1. **Groundwork** (done): the `Industry.create` and `Restoration.create` factories, with tests showing the game is unchanged. Then `idle/` and `src/idle/` with the lint rule, the save, and a bare system view.
 2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
-3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab). Still to do: contracts, the wreck field, and trade research.
+3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab); then contracts, the wreck field, auto-sell and trade research (save version 4).
 4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name.
 5. **Later:** new systems (prestige), and the extras above.
 

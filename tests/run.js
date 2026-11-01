@@ -4107,7 +4107,7 @@ test('idle: research is paid from the credits and the waystation, needs its stat
   // A v2 save (no lab) reads with an empty one.
   const old = JSON.parse(JSON.stringify(s));
   delete old.lab;
-  old.version = 3;
+  old.version = IdleRules.VERSION;
   assert.deepStrictEqual(IdleRules.read(old).lab, IdleRules.lab.empty());
 });
 
@@ -4164,6 +4164,74 @@ test('idle: the transport hub runs routes, the chain says what to mend, orders t
   assert(IdleRules.change(s, w, a.id, 'make.steel-pipe', T) && a.recipe === 'make.steel-pipe');
   assert(!IdleRules.change(s, w, a.id, 'make.pulse-laser-2', T), 'not what the ore works makes');
   assert(IdleRules.pause(s, w, a.id, true, T) && IdleRules.industry.status(s.industry, a).id === 'paused');
+});
+
+test('idle: the wreck field turns out components at the salvage yard, and its recycler takes them', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), yard = IdleRules.stationOf(w, 'build.salvage').key;
+  s.industry.stock = {};
+  const comp = Goods.component('computer');
+  assert(IdleRules.recipesAt(s, w, yard).some((R) => R.id === `salvage.${comp}`), 'no research needed');
+  assert(!IdleRules.recipesAt(s, w, w.waystation.key).some((R) => R.bay === 'salvage'), 'only at the salvage yard');
+  assert(IdleRules.place(s, w, yard, `salvage.${comp}`, T));
+  const rec = IdleRules.place(s, w, yard, `recycle.${comp}`, T);
+  assert(rec);
+  assert.strictEqual(IdleRules.lineage(s, w, rec.id)[0].source, 'order', 'made here');
+  while (IdleRules.settle(s, w, T + 3600e3).truncated);
+  assert(rec.made > 10, 'recycled what was salvaged');
+});
+
+test('idle: contracts, a new set each day from the seed, paid when delivered from the waystation', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), way = w.waystation.key;
+  s.industry.stock = {};
+  IdleRules.settle(s, w, T);
+  const list = IdleRules.contracts(s);
+  assert.strictEqual(list.length, IdleConfig.CONTRACTS.slots);
+  const again = idleBuilt(T).s;
+  IdleRules.settle(again, w, T + 3600e3);
+  assert.deepStrictEqual(IdleRules.contracts(again), list, 'the same all day');
+  const c = list[0];
+  assert(!IdleRules.canDeliver(s, w, c.id));
+  IdleRules.industry.deposit(s.industry, way, c.kind, c.n, IdleRules.env(s), T);
+  const c0 = s.credits;
+  assert.strictEqual(IdleRules.deliver(s, w, c.id, T), c.reward);
+  assert.strictEqual(s.credits, c0 + c.reward);
+  assert(!IdleRules.canDeliver(s, w, c.id), 'once');
+  assert.strictEqual(IdleRules.industry.stockAt(s.industry, way)[c.kind] || 0, 0);
+  IdleRules.settle(s, w, T + 86400e3);
+  assert.notDeepStrictEqual(IdleRules.contracts(s).map((x) => x.id), list.map((x) => x.id), 'a new day, new contracts');
+  // Research: a fourth, and better pay.
+  s.lab.done.push('trade.contracts', 'trade.bonus.1');
+  IdleRules.settle(s, w, T + 2 * 86400e3);
+  assert.strictEqual(IdleRules.contracts(s).length, IdleConfig.CONTRACTS.slots + 1);
+  const x = IdleRules.contracts(s)[0];
+  assert.strictEqual(IdleRules.contractPay(s, x), Math.round(x.reward * 1.25));
+});
+
+test('idle: auto-sell sells the picked goods at the waystation on the clock\'s steps, so time away comes out the same however it is settled', () => {
+  const T = 1e12;
+  const run = (steps) => {
+    const { w, s, field } = idleBuilt(T);
+    s.industry.stock = {};
+    assert(!IdleRules.setAuto(s, 'iron', true), 'not before it is researched');
+    s.lab.done.push('trade.auto');
+    assert(IdleRules.setAuto(s, 'iron', true));
+    assert(IdleRules.buyDrill(s, w, field.key, 'iron', T) && IdleRules.buyDrill(s, w, field.key, 'iron', T));
+    IdleRules.setShuttle(s, w, field.key, w.waystation.key, T);
+    const sold = { n: 0, credits: 0 }, end = T + 8 * 3600e3;
+    for (let i = 1; i <= steps; i++) {
+      for (;;) {
+        const r = IdleRules.settle(s, w, T + ((end - T) * i) / steps, 200);
+        if (r.sold.iron) { sold.n += r.sold.iron.n; sold.credits += r.sold.iron.credits; }
+        if (!r.truncated) break;
+      }
+    }
+    return { s, sold };
+  };
+  const one = run(1);
+  assert(one.sold.n > 50, `iron sold while away: ${one.sold.n}`);
+  const many = run(17);
+  assert.deepStrictEqual(many.s, one.s, 'in steps: the same');
+  assert.deepStrictEqual(many.sold, one.sold);
 });
 
 if (failed) {
