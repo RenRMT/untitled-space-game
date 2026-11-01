@@ -2,7 +2,8 @@
 // kept apart from the game's and the race's. Writes wait a moment so a burst of taps is one write
 // (Save.debounced); a save from an older version is brought up to date (Save.migrate). Version 1's
 // saves (the first slice: every station already there, waiting to be restored) can't be carried
-// over into a system built from nothing, so they start again; version 2's gain an empty lab.
+// over into a system built from nothing, so they start again; version 2's gain an empty lab, and
+// version 3's contracts and auto-sell (none yet).
 // ?fresh starts a new save; ?seed= picks the system of a new save (1 by default).
 //
 //   IdleSave.load(now) -> { state, w, fresh }   w: the save's system (IdleRules.world)
@@ -15,8 +16,8 @@ import { IdleRules } from './rules.js';
 
 const IdleSave = (() => {
   // Version 1 is the first: a save without a version is taken as it is. 1 -> 2: started again;
-  // 2 -> 3: the lab (IdleRules.read gives an empty one).
-  const KEY = 'idle.save', MIGRATIONS = [() => {}, (d) => { d.industry = null; }, (d) => { d.lab = d.lab || null; }];
+  // 2 -> 3: the lab (IdleRules.read gives an empty one); 3 -> 4: contracts and auto-sell (read gives none).
+  const KEY = 'idle.save', MIGRATIONS = [() => {}, (d) => { d.industry = null; }, (d) => { d.lab = d.lab || null; }, () => {}];
 
   function load(now) {
     if (Params.has('fresh')) Store.remove(KEY);

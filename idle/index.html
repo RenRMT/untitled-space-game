@@ -5,9 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#05060a">
   <title>Waystation</title>
-  <!-- The idle station builder (notes/idle.md), in the game's Line style and UI kit. Its own manifest,
-       icons and offline copy come later. -->
-  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <!-- The idle station builder (notes/idle.md), in the game's Line style and UI kit. It installs as its
+       own app (manifest.webmanifest) and plays offline once opened (sw.js, its file list written by
+       `npm run idle:sw`). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="../assets/idle-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/idle-icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Waystation">
   <link rel="stylesheet" href="../src/ui/kit.css">
   <link rel="stylesheet" href="../src/ui/kit-line.css">
   <link rel="stylesheet" href="../src/idle/idle.css">
@@ -29,5 +34,8 @@
   <div id="sheets" class="ui-layer" hidden></div>
   <div id="load" class="ui" role="status" aria-live="polite" hidden></div>
   <script type="module" src="../src/idle/main.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  </script>
 </body>
 </html>

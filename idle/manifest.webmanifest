@@ -1,0 +1,17 @@
+{
+  "id": "waystation",
+  "name": "Waystation",
+  "short_name": "Waystation",
+  "description": "An idle station builder: chart a dead system, build its stations and run its production chains on the real clock.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#05060a",
+  "theme_color": "#05060a",
+  "icons": [
+    { "src": "../assets/idle-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "../assets/idle-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "../assets/idle-icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

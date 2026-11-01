@@ -13,6 +13,7 @@
 // ES module; needs a browser.
 
 import { Clock } from '../core/clock.js';
+import { Feedback } from '../core/feedback.js';
 import { Params } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { Recipes } from '../rules/recipes.js';
@@ -31,6 +32,11 @@ const now = () => Clock.now();
 Theme.setStyle('line');
 if (Params.has('fastresearch')) Research.config.speed = 60;
 if (document.fonts?.load) for (const wt of [400, 700]) document.fonts.load(`${wt} 12px ${Theme.mono}`).catch(() => {});
+
+// Haptics (core/feedback.js): a tap when something finishes (a survey, research, a contract), a
+// firmer one when a station is built.
+const BUZZ = { done: 20, built: 30 };
+Feedback.on((ev) => { if (BUZZ[ev]) Feedback.vibrate(BUZZ[ev]); });
 
 const loaded = IdleSave.load(now());
 const { w } = loaded;
@@ -83,6 +89,7 @@ function tabs() {
     build: !!nb && IdleRules.buildStatus(state, w, nb.id).id === 'ready',
     chain: fixable(),
     lab: researchable(),
+    market: deliverable(),
   };
   for (const t of TABS) {
     const el = tabEls.get(t.id), sel = String(t.id === on), dot = !!dots[t.id];
@@ -95,6 +102,8 @@ function tabs() {
 
 // Whether the chain has something to mend that a tap would (not a station still to build).
 const fixable = () => IdleRules.fixes(state, w).some((f) => f.kind !== 'build');
+// Whether a contract can be delivered now.
+const deliverable = () => IdleRules.contracts(state).some((c) => IdleRules.canDeliver(state, w, c.id));
 // Whether the lab is idle and a package can be paid for now.
 const researchable = () => !state.lab.active && Object.keys(Config.PACKAGES).some((id) => IdleRules.researchStatus(state, w, id).ok);
 
@@ -107,9 +116,10 @@ function hint() {
   if (!way) return { text: `Build the waystation round ${field.name}`, open: () => pick(field.key) };
   if (!Object.keys(state.drills).length) return { text: `Put a drill on ${field.name}`, open: () => pick(field.key) };
   if (nb && IdleRules.buildStatus(state, w, nb.id).id === 'ready') return { text: `Build the ${nb.name.toLowerCase()}`, open: () => openTab('build') };
-  if (fixable()) return { text: 'Mend the chain', open: () => openTab('chain') };
-  if (researchable()) return { text: 'The lab is idle: research', open: () => openTab('lab') };
-  if (state.survey) return { text: `Surveying ${state.survey.key === selected ? 'this signal' : 'a signal'}`, open: () => openTab('survey') };
+  if (fixable()) return { text: 'Fix the chain', open: () => openTab('chain') };
+  if (deliverable()) return { text: 'Deliver a contract', open: () => openTab('market') };
+  if (researchable()) return { text: 'Lab idle', open: () => openTab('lab') };
+  if (state.survey) return { text: 'Surveying…', open: () => openTab('survey') };
   if (w.sites.some((s) => IdleRules.surveyable(state, w, s.key)) && state.credits >= IdleRules.surveyCost(state)) return { text: 'Survey a signal', open: () => openTab('survey') };
   if (nb) {
     const s = IdleRules.buildStatus(state, w, nb.id);
@@ -117,7 +127,7 @@ function hint() {
     if (s.credits) short.push('credits');
     return { text: `${nb.name}: needs ${short.join(', ')}`, open: () => openTab('build') };
   }
-  return { text: 'Every station built', open: () => openTab('build') };
+  return { text: 'All stations built', open: () => openTab('build') };
 }
 let hintOpen = null;
 $('hint').addEventListener('click', () => hintOpen?.());
@@ -148,7 +158,7 @@ function tally(acc, log) {
 function stuck() {
   const I = IdleRules.industry, e = IdleRules.env(state), t = now(), out = [];
   for (const st of w.stations) {
-    if (IdleRules.online(state, w, st.key) && I.used(state.industry, st.key) >= I.capacity(state.industry, e, t, st.key)) out.push({ key: st.key, name: st.name, why: 'Full: sell' });
+    if (IdleRules.online(state, w, st.key) && I.used(state.industry, st.key) >= I.capacity(state.industry, e, t, st.key)) out.push({ key: st.key, name: st.name, why: 'Stock full' });
   }
   for (const o of state.industry.orders) {
     const s = I.status(state.industry, o);
@@ -160,7 +170,7 @@ function stuck() {
 // A survey finished: its report, unless the summary of time away is showing.
 function charted(list) {
   if (!list.length) return;
-  navigator.vibrate?.(20);
+  Feedback.emit('done');
   if (sheets.view?.kind === 'away') return;
   const c = list[list.length - 1];
   selected = c.key;
@@ -169,13 +179,14 @@ function charted(list) {
 }
 
 async function catchUp() {
-  const from = state.seen, acc = { made: new Map(), delivered: new Map(), charted: [], researched: [] };
+  const from = state.seen, acc = { made: new Map(), delivered: new Map(), charted: [], researched: [], sold: {} };
   const load = $('load');
   for (let slice = 0; ; slice++) {
     const r = IdleRules.settle(state, w, now());
     tally(acc, r.log);
     acc.charted.push(...r.charted);
     acc.researched.push(...r.researched);
+    for (const [kind, x] of Object.entries(r.sold)) { const y = acc.sold[kind] || (acc.sold[kind] = { n: 0, credits: 0 }); y.n += x.n; y.credits += x.credits; }
     if (!r.truncated) break;
     load.hidden = false;
     load.textContent = `Catching up… ${slice + 1}`;
@@ -183,9 +194,9 @@ async function catchUp() {
   }
   load.hidden = true;
   const ms = now() - from;
-  if (!loaded.fresh && ms > Config.AWAY_SHEET && (acc.made.size || acc.delivered.size || acc.charted.length || acc.researched.length)) {
+  if (!loaded.fresh && ms > Config.AWAY_SHEET && (acc.made.size || acc.delivered.size || acc.charted.length || acc.researched.length || Object.keys(acc.sold).length)) {
     selected = null;
-    sheets.show({ kind: 'away', away: { ms, made: acc.made, delivered: acc.delivered, charted: acc.charted, researched: acc.researched, stuck: stuck() } }, state, now());
+    sheets.show({ kind: 'away', away: { ms, made: acc.made, delivered: acc.delivered, charted: acc.charted, researched: acc.researched, sold: acc.sold, stuck: stuck() } }, state, now());
   } else charted(acc.charted);
   save.change();
 }
@@ -193,8 +204,8 @@ async function catchUp() {
 function tick() {
   if (!ready) return;
   const r = IdleRules.settle(state, w, now());
-  if (r.log.length || r.charted.length || r.researched.length) { map.made(r.log); save.change(); }
-  if (r.researched.length) navigator.vibrate?.(20);
+  if (r.log.length || r.charted.length || r.researched.length || Object.keys(r.sold).length) { map.made(r.log); save.change(); }
+  if (r.researched.length) Feedback.emit('done');
   charted(r.charted);
   bar();
   sheets.refresh(state, now());
@@ -228,6 +239,8 @@ function act(name, a) {
       break;
     }
     case 'sell': IdleRules.sell(state, w, a.key, a.kind, a.n, t); break;
+    case 'deliver': if (IdleRules.deliver(state, w, a.id, t)) Feedback.emit('done'); break;
+    case 'auto': IdleRules.setAuto(state, a.kind, a.on); break;
     case 'place': IdleRules.place(state, w, a.key, a.recipe, t); break;
     case 'cancel': IdleRules.cancel(state, w, a.id); break;
     case 'shuttle': IdleRules.setShuttle(state, w, a.from, a.to, t); break;
@@ -238,7 +251,7 @@ function act(name, a) {
       break;
     case 'build':
       if (IdleRules.build(state, w, a.id, a.site, t)) {
-        navigator.vibrate?.(30);
+        Feedback.emit('built');
         pick(IdleRules.stationOf(w, a.id).key);
       }
       break;

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- The idle game's app icon (idle/manifest.webmanifest): its system map in the Line style, the
+       star in the middle, orbits round it, a planet and a station in orbit round it, and a hauler's
+       dashed route between. Kept inside the middle 80% so it can be masked to any shape. Also the
+       source of the PNG icons (idle-icon-180/192/512.png, rendered from this file). -->
+  <rect width="512" height="512" fill="#05060a"/>
+  <g fill="none" stroke="#7df9ff" stroke-width="5" opacity="0.35">
+    <circle cx="256" cy="256" r="88"/>
+    <circle cx="256" cy="256" r="150"/>
+  </g>
+  <circle cx="256" cy="256" r="196" fill="none" stroke="#7df9ff" stroke-width="5" stroke-dasharray="14 16" opacity="0.3"/>
+  <!-- The star. -->
+  <circle cx="256" cy="256" r="46" fill="#ffb347" opacity="0.18"/>
+  <circle cx="256" cy="256" r="30" fill="#ffd9a0"/>
+  <!-- The route, from the inner planet to the station's planet. -->
+  <path d="M318 194 Q 360 250 362 362" fill="none" stroke="#7df9ff" stroke-width="7" stroke-dasharray="12 12" stroke-linecap="round"/>
+  <!-- The inner planet. -->
+  <circle cx="318" cy="194" r="20" fill="#05060a" stroke="#e6ecf2" stroke-width="8"/>
+  <!-- The outer planet, and the station in orbit round it. -->
+  <circle cx="362" cy="362" r="30" fill="#05060a" stroke="#e6ecf2" stroke-width="8"/>
+  <circle cx="362" cy="362" r="56" fill="none" stroke="#e6ecf2" stroke-width="4" opacity="0.4"/>
+  <g transform="translate(322 402) rotate(45)" stroke="#7df9ff" stroke-width="7" fill="#05060a">
+    <rect x="-20" y="-20" width="40" height="40"/>
+    <rect x="-6" y="-6" width="12" height="12" fill="#7df9ff" stroke="none"/>
+  </g>
+  <!-- A body charted on the far orbit. -->
+  <circle cx="117" cy="157" r="16" fill="#05060a" stroke="#e6ecf2" stroke-width="7"/>
+</svg>

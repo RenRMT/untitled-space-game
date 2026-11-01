@@ -63,7 +63,7 @@ import { Pickups } from '../src/race/pickups.js';
 import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
-import * as RaceSw from '../tools/race-sw.js';
+import * as AppSw from '../tools/app-sw.js';
 import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
 import { ArtStationRoles } from '../src/art/station-roles.js';
@@ -3937,14 +3937,22 @@ test('race career: the build reaches the run (dash, drift, walls, hull), and the
 });
 
 test('race offline: race/sw.js keeps every file the race loads (npm run race:sw), the manifest and its icons among them', () => {
-  const files = RaceSw.raceFiles();
+  const files = AppSw.appFiles('race');
   for (const f of ['./', 'manifest.webmanifest', '../src/race/main.js', '../src/ui/kit-lowpoly.css', '../assets/fonts/chakra-petch-latin-500-normal.woff2', '../assets/race-icon-512.png']) assert(files.includes(f), f);
   assert(!files.some((f) => f.includes('/game/') || f.endsWith('sw.js')), 'nothing of the game, and not the worker itself');
-  const { current, wanted } = RaceSw.check();
+  const { current, wanted } = AppSw.check('race');
   assert.strictEqual(current, wanted, 'race/sw.js: the file list is out of date: npm run race:sw');
 });
 
 // ---------- The idle game (src/idle/, notes/idle.md) ----------
+
+test('idle offline: idle/sw.js keeps every file the idle game loads (npm run idle:sw), the manifest and its icons among them', () => {
+  const files = AppSw.appFiles('idle');
+  for (const f of ['./', 'manifest.webmanifest', '../src/idle/main.js', '../src/ui/kit-line.css', '../assets/idle-icon-512.png', '../assets/idle-icon-180.png']) assert(files.includes(f), f);
+  assert(!files.some((f) => f.includes('/game/') || f.includes('/race/') || f.endsWith('sw.js')), 'nothing of the game or the race, and not the worker itself');
+  const { current, wanted } = AppSw.check('idle');
+  assert.strictEqual(current, wanted, 'idle/sw.js: the file list is out of date: npm run idle:sw');
+});
 
 test('Industry.create: a recipe with no inputs (a drill) fills its site to the room it has, then waits for a shuttle', () => {
   const recipes = { ...Recipes.RECIPES, 'extract.iron': { id: 'extract.iron', bay: 'extract', in: {}, out: { iron: 1 }, time: 10, unlock: null } };
@@ -4044,9 +4052,8 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   assert((IdleRules.industry.stockAt(s.industry, way)['steel-pipe'] || 0) > 0, 'pipe reached the waystation');
   // The volatiles works round the charted planet, paid from the waystation's stock.
   IdleRules.sell(s, w, way, 'steel-pipe', 100, t + 3600e3); // room for what it costs
-  IdleRules.industry.deposit(s.industry, way, 'steel-pipe', 6, IdleRules.env(s), t + 3600e3);
-  IdleRules.industry.deposit(s.industry, way, 'carbon-fibre', 2, IdleRules.env(s), t + 3600e3);
-  s.credits += 1000;
+  for (const [k, n] of Object.entries(IdleConfig.BUILDS[2].goods)) IdleRules.industry.deposit(s.industry, way, k, n, IdleRules.env(s), t + 3600e3);
+  s.credits += IdleConfig.BUILDS[2].credits;
   assert.strictEqual(IdleRules.buildStatus(s, w, 'build.volatiles').id, 'ready');
   assert(IdleRules.build(s, w, 'build.volatiles', planet.key, t + 3600e3));
   const minor = IdleRules.stationOf(w, 'build.volatiles');
@@ -4063,12 +4070,13 @@ function idleBuilt(T) {
   const w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
   const planets = w.sites.filter((x) => x.kind === 'planet');
   s.charted.push(...planets.map((x) => x.key));
-  s.credits = 1e6;
   const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
   IdleConfig.BUILDS.forEach((b, i) => {
-    s.industry.stock[w.waystation.key] = { 'steel-pipe': 50, 'carbon-fibre': 50, hydrazine: 50, 'titanium-ore': 50, 'rare-earths': 50, electronics: 50, tungsten: 50 };
+    s.industry.stock[w.waystation.key] = { ...b.goods };
+    s.credits += b.credits;
     assert(IdleRules.build(s, w, b.id, hosts[i], T), b.id);
   });
+  s.credits = 1e6;
   return { w, s, field };
 }
 
@@ -4107,7 +4115,7 @@ test('idle: research is paid from the credits and the waystation, needs its stat
   // A v2 save (no lab) reads with an empty one.
   const old = JSON.parse(JSON.stringify(s));
   delete old.lab;
-  old.version = 3;
+  old.version = IdleRules.VERSION;
   assert.deepStrictEqual(IdleRules.read(old).lab, IdleRules.lab.empty());
 });
 
@@ -4164,6 +4172,74 @@ test('idle: the transport hub runs routes, the chain says what to mend, orders t
   assert(IdleRules.change(s, w, a.id, 'make.steel-pipe', T) && a.recipe === 'make.steel-pipe');
   assert(!IdleRules.change(s, w, a.id, 'make.pulse-laser-2', T), 'not what the ore works makes');
   assert(IdleRules.pause(s, w, a.id, true, T) && IdleRules.industry.status(s.industry, a).id === 'paused');
+});
+
+test('idle: the wreck field turns out components at the salvage yard, and its recycler takes them', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), yard = IdleRules.stationOf(w, 'build.salvage').key;
+  s.industry.stock = {};
+  const comp = Goods.component('computer');
+  assert(IdleRules.recipesAt(s, w, yard).some((R) => R.id === `salvage.${comp}`), 'no research needed');
+  assert(!IdleRules.recipesAt(s, w, w.waystation.key).some((R) => R.bay === 'salvage'), 'only at the salvage yard');
+  assert(IdleRules.place(s, w, yard, `salvage.${comp}`, T));
+  const rec = IdleRules.place(s, w, yard, `recycle.${comp}`, T);
+  assert(rec);
+  assert.strictEqual(IdleRules.lineage(s, w, rec.id)[0].source, 'order', 'made here');
+  while (IdleRules.settle(s, w, T + 3600e3).truncated);
+  assert(rec.made > 10, 'recycled what was salvaged');
+});
+
+test('idle: contracts, a new set each day from the seed, paid when delivered from the waystation', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), way = w.waystation.key;
+  s.industry.stock = {};
+  IdleRules.settle(s, w, T);
+  const list = IdleRules.contracts(s);
+  assert.strictEqual(list.length, IdleConfig.CONTRACTS.slots);
+  const again = idleBuilt(T).s;
+  IdleRules.settle(again, w, T + 3600e3);
+  assert.deepStrictEqual(IdleRules.contracts(again), list, 'the same all day');
+  const c = list[0];
+  assert(!IdleRules.canDeliver(s, w, c.id));
+  IdleRules.industry.deposit(s.industry, way, c.kind, c.n, IdleRules.env(s), T);
+  const c0 = s.credits;
+  assert.strictEqual(IdleRules.deliver(s, w, c.id, T), c.reward);
+  assert.strictEqual(s.credits, c0 + c.reward);
+  assert(!IdleRules.canDeliver(s, w, c.id), 'once');
+  assert.strictEqual(IdleRules.industry.stockAt(s.industry, way)[c.kind] || 0, 0);
+  IdleRules.settle(s, w, T + 86400e3);
+  assert.notDeepStrictEqual(IdleRules.contracts(s).map((x) => x.id), list.map((x) => x.id), 'a new day, new contracts');
+  // Research: a fourth, and better pay.
+  s.lab.done.push('trade.contracts', 'trade.bonus.1');
+  IdleRules.settle(s, w, T + 2 * 86400e3);
+  assert.strictEqual(IdleRules.contracts(s).length, IdleConfig.CONTRACTS.slots + 1);
+  const x = IdleRules.contracts(s)[0];
+  assert.strictEqual(IdleRules.contractPay(s, x), Math.round(x.reward * 1.25));
+});
+
+test('idle: auto-sell sells the picked goods at the waystation on the clock\'s steps, so time away comes out the same however it is settled', () => {
+  const T = 1e12;
+  const run = (steps) => {
+    const { w, s, field } = idleBuilt(T);
+    s.industry.stock = {};
+    assert(!IdleRules.setAuto(s, 'iron', true), 'not before it is researched');
+    s.lab.done.push('trade.auto');
+    assert(IdleRules.setAuto(s, 'iron', true));
+    assert(IdleRules.buyDrill(s, w, field.key, 'iron', T) && IdleRules.buyDrill(s, w, field.key, 'iron', T));
+    IdleRules.setShuttle(s, w, field.key, w.waystation.key, T);
+    const sold = { n: 0, credits: 0 }, end = T + 8 * 3600e3;
+    for (let i = 1; i <= steps; i++) {
+      for (;;) {
+        const r = IdleRules.settle(s, w, T + ((end - T) * i) / steps, 200);
+        if (r.sold.iron) { sold.n += r.sold.iron.n; sold.credits += r.sold.iron.credits; }
+        if (!r.truncated) break;
+      }
+    }
+    return { s, sold };
+  };
+  const one = run(1);
+  assert(one.sold.n > 50, `iron sold while away: ${one.sold.n}`);
+  const many = run(17);
+  assert.deepStrictEqual(many.s, one.s, 'in steps: the same');
+  assert.deepStrictEqual(many.sold, one.sold);
 });
 
 if (failed) {
