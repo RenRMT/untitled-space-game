@@ -3979,57 +3979,83 @@ test('Restoration.create: another project list, the game\'s untouched', () => {
   assert(R.online('minor', ['a']));
 });
 
-test('idle: the system, its sites and the stations\' art roles', () => {
+test('idle: the system, its bodies on their orbits, and a station of each type to build', () => {
   const w = IdleRules.world(1);
-  assert.strictEqual(w.stations.length, 7);
+  assert.strictEqual(w.stations.length, IdleConfig.BUILDS.length);
+  for (const b of IdleConfig.BUILDS) assert.strictEqual(IdleRules.stationOf(w, b.id)?.type, b.type, b.id);
   assert.strictEqual(w.waystation.type, 'waystation');
   assert(w.sites.some((s) => s.kind === 'field' && s.goods.includes('iron')));
   assert.strictEqual(w.sites.filter((s) => s.kind === 'planet').length, w.galaxy.planets.length);
+  const rings = w.sites.filter((s) => s.kind !== 'moon').map((s) => s.ring).sort((a, b) => a - b);
+  assert.deepStrictEqual(rings, rings.map((_, i) => i), 'the planets and the field each on an orbit of their own, inner to outer');
+  for (const m of w.sites.filter((s) => s.kind === 'moon')) assert.strictEqual(w.byKey.get(m.parent)?.kind, 'planet', m.key);
   for (const s of w.sites) for (const g of s.goods) assert(IdleConfig.RECIPES[`extract.${g}`], g);
   for (const st of w.stations) assert(ArtStationRoles.ROLE_OF[st.type] || ['mining camp', 'salvage yard'].includes(st.type), st.type);
-  for (const p of IdleConfig.PROJECTS) assert(!p.type || w.stations.some((s) => s.type === p.type), p.id);
 });
 
-test('idle: drill, ship, refine, sell and restore; time away comes out the same however it is settled', () => {
-  const w = IdleRules.world(1), T = 1e12;
+test('idle: nothing built at first; chart by survey, build in orbit, drill, refine and sell; time away comes out the same however it is settled', () => {
+  const w = IdleRules.world(1), T = 1e12, field = w.sites.find((x) => x.kind === 'field');
+  const planet = w.sites.find((x) => x.kind === 'planet' && x.body.moons.length);
+  const s0 = IdleRules.empty(w, T);
+  assert.deepStrictEqual(s0.built, [], 'no stations');
+  assert.deepStrictEqual(s0.charted, [field.key], 'only the field charted');
+  assert(!IdleRules.online(s0, w, w.waystation.key) && !IdleRules.online(s0, w, planet.key));
+  assert(!IdleRules.buyDrill(s0, w, field.key, 'iron', T), 'no drill before there is a waystation to send to');
+  assert(!IdleRules.surveyable(s0, w, `site:moon${planet.body.moons[0]}`), 'a moon waits for its planet');
   const play = (steps) => {
-    const s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+    const s = IdleRules.empty(w, T);
+    assert(!IdleRules.build(s, w, 'build.waystation', planet.key, T), 'not round an uncharted body');
+    assert(IdleRules.build(s, w, 'build.waystation', field.key, T), 'the waystation is free');
+    assert.strictEqual(IdleRules.hostOf(s, w.waystation.key), field.key);
     assert.strictEqual(IdleRules.drillCost(s, field), 0, 'the first drill is free');
     assert(IdleRules.buyDrill(s, w, field.key, 'iron', T));
     assert(IdleRules.drillCost(s, field) > 0);
-    assert(!IdleRules.place(s, w, w.stations.find((x) => x.type === 'minor').key, 'make.hydrazine', T), 'offline stations take no orders');
+    const cost = IdleRules.surveyCost(s);
+    assert(IdleRules.survey(s, w, planet.key, T));
+    assert.strictEqual(s.credits, IdleConfig.START_CREDITS - cost);
+    assert(!IdleRules.survey(s, w, w.sites.find((x) => x.kind === 'planet' && x !== planet).key, T), 'one survey at a time');
+    const charted = [];
     for (let i = 1; i <= steps; i++) {
-      while (IdleRules.settle(s, T + (3 * 3600e3 * i) / steps, 500).truncated);
+      for (;;) { const r = IdleRules.settle(s, w, T + (3 * 3600e3 * i) / steps, 500); charted.push(...r.charted); if (!r.truncated) break; }
     }
+    assert.deepStrictEqual(charted.map((c) => c.key), [planet.key], 'charted once, when the survey ended');
     return s;
   };
   const s = play(1);
   assert.deepStrictEqual(play(9), s, 'in slices and steps: the same');
-  const way = w.waystation.key, stock = IdleRules.industry.stockAt(s.industry, way);
-  assert(stock['steel-pipe'] > 0, 'pipe reached the waystation');
-  const t = T + 3 * 3600e3, p0 = IdleRules.priceOf(s, w, way, 'steel-pipe', t), c0 = s.credits;
-  const { sold, credits } = IdleRules.sell(s, w, way, 'steel-pipe', 20, t);
+  assert(IdleRules.charted(s, planet.key) && IdleRules.surveyable(s, w, `site:moon${planet.body.moons[0]}`), 'its moons can be surveyed now');
+  assert.strictEqual(s.credits, IdleConfig.START_CREDITS - IdleRules.surveyCost(IdleRules.empty(w, T)) + IdleRules.findAt(w, planet.key), 'what the survey found is paid');
+  const way = w.waystation.key, t = T + 3 * 3600e3;
+  assert((IdleRules.industry.stockAt(s.industry, way).iron || 0) > 0, 'iron reached the waystation');
+  const c0 = s.credits, { sold, credits } = IdleRules.sell(s, w, way, 'iron', 20, t);
   assert.strictEqual(sold, 20);
   assert.strictEqual(s.credits, c0 + credits);
-  assert(IdleRules.priceOf(s, w, way, 'steel-pipe', t) < p0, 'selling drives the price down');
-  // The first project: pipe, fibre (a silicates drill and a fibre order at the camp) and credits.
-  const p = IdleRules.nextProject(s), camp = w.stations.find((x) => x.type === 'mining camp');
-  assert.strictEqual(p.id, 'restore.volatiles');
-  assert.notStrictEqual(IdleRules.projectStatus(s, w, p.id).id, 'ready');
-  assert(IdleRules.buyDrill(s, w, w.sites.find((x) => x.kind === 'field').key, 'silicates', t));
-  assert(IdleRules.place(s, w, camp.key, 'make.carbon-fibre', t));
-  IdleRules.sell(s, w, way, 'steel-pipe', 100, t); // room at the waystation for the fibre
-  s.credits += p.credits;
-  while (IdleRules.settle(s, t + 3600e3).truncated);
+  // The ore works, round the field beside the waystation: the iron goes there now, and pipe comes back.
+  s.credits += 1000;
+  assert.strictEqual(IdleRules.buildStatus(s, w, 'build.volatiles').id, 'locked', 'built in order');
+  assert(IdleRules.build(s, w, 'build.ore', field.key, t));
+  const camp = IdleRules.stationOf(w, 'build.ore');
+  assert.strictEqual(IdleRules.berths(s, w, field.key).free, 0, 'the field\'s two berths taken');
+  assert(!IdleRules.build(s, w, 'build.volatiles', field.key, t), 'no room left there');
+  assert.strictEqual(IdleRules.industry.shuttle(s.industry, field.key).stops[1].station, camp.key, 'the field\'s drills send to the ore works');
+  assert.strictEqual(IdleRules.industry.shuttle(s.industry, camp.key).stops[1].station, way, 'the ore works sends to the waystation');
+  IdleRules.sell(s, w, way, 'iron', 100, t);
+  while (IdleRules.settle(s, w, t + 3600e3).truncated);
+  assert((IdleRules.industry.stockAt(s.industry, way)['steel-pipe'] || 0) > 0, 'pipe reached the waystation');
+  // The volatiles works round the charted planet, paid from the waystation's stock.
+  IdleRules.sell(s, w, way, 'steel-pipe', 100, t + 3600e3); // room for what it costs
   IdleRules.industry.deposit(s.industry, way, 'steel-pipe', 6, IdleRules.env(s), t + 3600e3);
-  assert.strictEqual(IdleRules.projectStatus(s, w, p.id).id, 'ready');
-  assert(IdleRules.restore(s, w, p.id, t + 3600e3));
-  const minor = w.stations.find((x) => x.type === 'minor');
+  IdleRules.industry.deposit(s.industry, way, 'carbon-fibre', 2, IdleRules.env(s), t + 3600e3);
+  s.credits += 1000;
+  assert.strictEqual(IdleRules.buildStatus(s, w, 'build.volatiles').id, 'ready');
+  assert(IdleRules.build(s, w, 'build.volatiles', planet.key, t + 3600e3));
+  const minor = IdleRules.stationOf(w, 'build.volatiles');
   assert(IdleRules.online(s, w, minor.key));
-  assert(IdleRules.industry.shuttle(s.industry, minor.key), 'restored with a shuttle to the waystation');
+  assert.deepStrictEqual(IdleRules.posOf(s, w, minor.key), { x: planet.x, y: planet.y }, 'where its body is');
   assert(IdleRules.place(s, w, minor.key, 'make.hydrazine', t + 3600e3));
   // A save read back is the same state.
   assert.deepStrictEqual(IdleRules.read(JSON.parse(JSON.stringify(s))), JSON.parse(JSON.stringify(s)));
+  assert.strictEqual(IdleRules.read({ ...JSON.parse(JSON.stringify(s)), version: 1 }), null, 'a first-slice save starts again');
 });
 
 if (failed) {
