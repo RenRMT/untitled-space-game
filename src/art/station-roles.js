@@ -398,7 +398,13 @@ const ArtStationRoles = (() => {
     return build(role, culture, seed, size);
   }
 
-  return { ROLES, LABEL, DESC, EXISTING, existingRole, create, build };
+  // The art role of each station type (world/solar-system.js market.type), by what it does
+  // (rules/industry.js PROCESS): the capital builds ships, the hub fabricates parts, minor stations
+  // refine volatiles, the waystation runs the labs and the transport hub directs the routes. Mining
+  // camps and the salvage yard have none: they keep the plain minor station (art/blueprints.js).
+  const ROLE_OF = { capital: 'shipyard', major: 'factory', minor: 'refinery', waystation: 'research', 'transport hub': 'command' };
+
+  return { ROLES, LABEL, DESC, EXISTING, ROLE_OF, existingRole, create, build };
 })();
 
 export { ArtStationRoles };

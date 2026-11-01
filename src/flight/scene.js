@@ -24,11 +24,6 @@ const Scene = (() => {
   const { TAU } = ArtUtil;
   const CELL = 5000; // grid cell size, in world units
   const MARGIN = 1200; // how far a gridded thing reaches from where it is filed (rings, pirate orbits)
-  // The art role (art/station-roles.js) of each station type, by what it does (rules/industry.js
-  // PROCESS): the capital builds ships, the hub fabricates parts, minor stations refine volatiles,
-  // the waystation runs the labs and the transport hub directs the routes. Mining camps and the
-  // salvage yard keep the plain minor station.
-  const STATION_ROLE = { capital: 'shipyard', major: 'factory', minor: 'refinery', waystation: 'research', 'transport hub': 'command' };
 
 
   function create(galaxy, cultures) {
@@ -75,7 +70,7 @@ const Scene = (() => {
     // market: { kind: 'system' | 'outpost', type } for rules/economy.js; key identifies the station.
     // culture: the culture it's built in (solar-galaxy.js CULTURES), which also sets its colour.
     const stations = galaxy.stations.map((s) => {
-      const role = STATION_ROLE[s.market?.type];
+      const role = ArtStationRoles.ROLE_OF[s.market?.type];
       const art = role ? ArtStationRoles.create(role, cultures.of(s.culture), s.seed, s.size)
         : ArtBlueprints.create(s.size === 'major' ? 'station-major' : 'station-minor', cultures.of(s.culture), s.seed);
       return add({
