@@ -44,7 +44,7 @@ const IdleSheets = (() => {
   const ORDINAL = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
   const PROCESS_LABEL = { ...Object.fromEntries(Object.values(Recipes.BAYS).map((b) => [b.id, b.label])), extract: 'Drills' };
   // Where an order's input comes from (Industry.lineage's source).
-  const SOURCE = { storage: 'in stock', order: 'made here', route: 'on its way here', away: 'made elsewhere, not brought here', raw: 'drilled nowhere yet', stage: 'nothing makes it' };
+  const SOURCE = { storage: 'in stock', order: 'made here', route: 'en route', away: 'not delivered', raw: 'not drilled', stage: 'no source' };
   const CAT_CODE = { ext: 'MIN', 'ind.speed': 'BAY', 'ind.room': 'WHS', 'ind.recipes': 'RCP', 'ind.lab': 'LAB', log: 'TRD', 'mods.weapons': 'MOD', 'mods.systems': 'MOD' };
   const LAB_STATE = { done: ['Done', 'good'], active: ['Building', 'cyan'], queued: ['Queued', 'cyan'], locked: ['Locked', 'dim'], closed: ['Closed', 'dim'] };
   const buildOfType = (type) => Config.BUILDS.find((b) => b.type === type) || null;
@@ -87,7 +87,7 @@ const IdleSheets = (() => {
       return [
         Kit.head('Stock', h('span', { class: 'aside' }, `${used} / ${cap}`)),
         Kit.meter(used / Math.max(1, cap), { color: used >= cap ? 'var(--warn)' : undefined }),
-        rows.length ? rows : h('p', { class: 'ui-empty' }, 'Nothing here yet.'),
+        rows.length ? rows : h('p', { class: 'ui-empty' }, 'Empty.'),
       ];
     }
 
@@ -122,8 +122,8 @@ const IdleSheets = (() => {
       const action = drill ? null : Kit.button('✕', go('cancel', { id: o.id }), { kind: 'ghost', aria: 'Cancel this order', title: 'Cancel' });
       const controls = drill ? null : h('span', { class: 'idle-acts idle-ctl' },
         Kit.button(o.paused ? 'Resume' : 'Pause', go('pause', { id: o.id, paused: !o.paused }), { kind: 'ghost' }),
-        Kit.button('Switch', go('view', { switching: o.id }), { kind: 'ghost', aria: 'Make something else here' }),
-        first ? null : Kit.button('▲ First', go('raise', { id: o.id }), { kind: 'ghost', aria: 'Ahead of the order before it: it gets inputs first' }));
+        Kit.button('Switch', go('view', { switching: o.id }), { kind: 'ghost', aria: 'Switch recipe' }),
+        first ? null : Kit.button('▲ First', go('raise', { id: o.id }), { kind: 'ghost', aria: 'Move up: gets inputs first' }));
       return Kit.optionRow({
         icon: itemIcon(out), name: counts(R.out), tag: what, tagTone: tone.replace(/^var\(--|\)$/g, ''),
         sub: `${Object.keys(R.in).length ? `from ${counts(R.in)} · ` : ''}${secs(I.runTime(o, IdleRules.env(state), nowAt) / 1000)} a run · ${o.made} made`,
@@ -175,24 +175,22 @@ const IdleSheets = (() => {
       const s = w.byKey.get(key), charted = IdleRules.charted(state, key);
       if (!charted) {
         const sv = state.survey, mine = sv && sv.key === key, cost = IdleRules.surveyCost(state), time = IdleRules.surveyTime(state, w, key);
-        const body = [
-          h('p', { class: 'ui-note' }, `A ${s.kind === 'moon' ? 'moon' : 'body'} on ${where(s)}. Nothing is known of it yet: a survey charts it, says what can be drilled there, and may turn up something left behind.`),
-        ];
+        const body = [];
         let foot;
         if (mine) foot = [h('div', { class: 'idle-row' }, h('span', { class: 'ui-label' }, 'Surveying'), left(sv.end)), runMeter(sv.at, sv.end)];
-        else if (sv) foot = [h('p', { class: 'ui-note' }, `The probe is surveying ${w.byKey.get(sv.key).name}.`), Kit.button('Survey', go('survey', { key }), { kind: 'primary', lg: true, wide: true, disabled: true })];
+        else if (sv) foot = [h('p', { class: 'ui-note' }, `Surveying ${w.byKey.get(sv.key).name}.`), Kit.button('Survey', go('survey', { key }), { kind: 'primary', lg: true, wide: true, disabled: true })];
         else foot = [Kit.button(`Survey · ${secs(time / 1000)}`, go('survey', { key }), { kind: 'primary', lg: true, wide: true, price: cost, disabled: state.credits < cost })];
         return { title: 'Uncharted', kicker: 'Signal', sub: s.kind === 'moon' ? `A moon of ${w.byKey.get(s.parent).name}` : `${KIND[s.kind]} · ${where(s)}`, code: 'SCN', body, foot };
       }
       const body = [];
-      if (state.finds[key]) body.push(Kit.callout(`The survey found a derelict here: ${cr(state.finds[key])} in salvage.`));
+      if (state.finds[key]) body.push(Kit.callout(`Derelict salvaged: ${cr(state.finds[key])}`));
       // Deposits: drill for each, at the next drill's price.
       const cost = IdleRules.drillCost(state, s), way = IdleRules.online(state, w, w.waystation.key);
       body.push(Kit.head('Deposits'));
-      if (!way) body.push(h('p', { class: 'ui-note' }, 'Drills need somewhere to send what they pull: build the waystation first.'));
+      if (!way) body.push(h('p', { class: 'ui-note' }, 'Build the waystation first.'));
       for (const g of s.goods) {
         body.push(Kit.optionRow({
-          icon: itemIcon(g), name: nameOf(g), sub: `${secs(Config.RECIPES[`extract.${g}`].time)} a unit a drill`,
+          icon: itemIcon(g), name: nameOf(g), sub: `${secs(Config.RECIPES[`extract.${g}`].time)} / unit`,
           action: Kit.button(cost ? 'Drill' : 'Drill · free', go('drill', { key, good: g }), { kind: 'primary', price: cost || undefined, disabled: !way || state.credits < cost }),
         }));
       }
@@ -233,12 +231,12 @@ const IdleSheets = (() => {
             }));
           }
           const later = Object.values(Config.RECIPES).filter((R) => R.unlock && I.canMake(st.type, R.id) && !IdleRules.known(state).has(R.id)).length;
-          if (later) body.push(h('p', { class: 'ui-note' }, `${later} more to research in the lab.`));
+          if (later) body.push(h('p', { class: 'ui-note' }, `${later} more in the lab`));
         }
       }
       if (st.type === 'transport hub') body.push(...routesBlock(state));
       if (st !== w.waystation) body.push(...shuttleBlock(state, key));
-      return { title: st.name, kicker: b.name, sub: `${procs} · in orbit round ${host ? host.name : '—'}`, code: b.code, body };
+      return { title: st.name, kicker: b.name, sub: `${procs} · round ${host ? host.name : '—'}`, code: b.code, body };
     }
 
     // The transport hub's routes, and a new one: from where, to where, carrying what.
@@ -251,12 +249,12 @@ const IdleSheets = (() => {
           action: Kit.button('✕', go('route-remove', { id: r.id }), { kind: 'ghost', aria: 'Stop this route', title: 'Stop' }),
         }));
       }
-      if (!list.length) out.push(h('p', { class: 'ui-empty' }, 'No routes yet: a route carries chosen goods from one place to another, beside the shuttles.'));
+      if (!list.length) out.push(h('p', { class: 'ui-empty' }, 'No routes.'));
       const d = view.draft || {};
       const places = [...w.stations, ...w.sites].filter((x) => IdleRules.online(state, w, x.key) && (x.kind === 'station' || state.drills[x.key]));
       out.push(Kit.head('New route'));
       if (list.length >= limit && !(d.from && d.to && list.some((r) => r.stops[0].station === d.from && r.stops[1].station === d.to))) {
-        out.push(h('p', { class: 'ui-note' }, 'Every route is taken: research route planning for more, or add goods to a route between the same two places.'));
+        out.push(h('p', { class: 'ui-note' }, 'Route limit reached.'));
       }
       out.push(h('span', { class: 'ui-label' }, 'From'), Kit.choices(places.map((x) => ({ id: x.key, label: x.name, on: x.key === d.from })), (id) => act('view', { draft: { from: id, to: d.to === id ? null : d.to, kinds: [] } }), { label: 'From' }));
       if (d.from) {
@@ -265,8 +263,8 @@ const IdleSheets = (() => {
         out.push(h('span', { class: 'ui-label' }, 'To'), Kit.choices(w.stations.filter((x) => x.key !== d.from && IdleRules.online(state, w, x.key)).map((x) => ({ id: x.key, label: x.name, on: x.key === d.to })), (id) => act('view', { draft: { ...d, to: id } }), { label: 'To' }));
         out.push(h('span', { class: 'ui-label' }, 'Carrying'));
         if (made.size) out.push(Kit.choices([...made].map((k) => ({ id: k, label: nameOf(k), on: kinds.includes(k) })), (k) => act('view', { draft: { ...d, kinds: kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k] } }), { label: 'Carrying' }));
-        else out.push(h('p', { class: 'ui-empty' }, 'Nothing is made or kept there yet.'));
-        out.push(Kit.button('Start the route', go('route-add', { from: d.from, to: d.to, kinds }), { kind: 'primary', wide: true, disabled: !d.to || !kinds.length }));
+        else out.push(h('p', { class: 'ui-empty' }, 'Nothing there.'));
+        out.push(Kit.button('Start route', go('route-add', { from: d.from, to: d.to, kinds }), { kind: 'primary', wide: true, disabled: !d.to || !kinds.length }));
       }
       return out;
     }
@@ -274,17 +272,17 @@ const IdleSheets = (() => {
     function chain(state) {
       const groups = I.pipelines(state.industry), fixes = IdleRules.fixes(state, w), orders = state.industry.orders;
       const by = (id) => orders.find((o) => o.id === id);
-      const body = [h('p', { class: 'ui-note' }, 'Every order, linked by what one makes and another uses. A link between two places needs a shuttle or a route to carry the good.')];
+      const body = [];
       if (fixes.length) {
-        body.push(Kit.head('To mend', h('span', { class: 'aside' }, `${fixes.length}`)));
+        body.push(Kit.head('Fixes', h('span', { class: 'aside' }, `${fixes.length}`)));
         for (const f of fixes) {
           const why = f.kind === 'route' || f.kind === 'shuttle'
             ? `${nameOf(f.good)} is made at ${placeName(f.from)}, used at ${placeName(f.to)}`
-            : `${placeName(f.for)} needs ${nameOf(f.good).toLowerCase()}, and nothing makes it`;
+            : `${placeName(f.for)} needs ${nameOf(f.good).toLowerCase()}`;
           body.push(Kit.optionRow({ icon: itemIcon(f.good), name: why, sub: fixText(f), action: fixButton(f) }));
         }
       }
-      if (!orders.length) body.push(h('p', { class: 'ui-empty' }, 'No orders yet: put a drill on a body, and orders at the stations.'));
+      if (!orders.length) body.push(h('p', { class: 'ui-empty' }, 'No orders.'));
       const linked = groups.filter((g) => !g.standalone), alone = groups.filter((g) => g.standalone);
       linked.forEach((g, i) => {
         body.push(Kit.head(g.end.length ? `Makes ${g.end.map(nameOf).join(', ')}` : `Chain ${i + 1}`, h('span', { class: 'aside' }, `${g.orders.length} orders`)));
@@ -299,7 +297,7 @@ const IdleSheets = (() => {
         }
       });
       if (alone.length) {
-        body.push(Kit.head('On their own', h('span', { class: 'aside' }, `${alone.length}`)));
+        body.push(Kit.head('Standalone', h('span', { class: 'aside' }, `${alone.length}`)));
         for (const g of alone) {
           const o = g.orders[0], R = Config.RECIPES[o.recipe], st = I.status(state.industry, o), [label, tone] = STATUS[st.id];
           body.push(Kit.optionRow({
@@ -308,7 +306,7 @@ const IdleSheets = (() => {
           }));
         }
       }
-      return { title: 'Chain', kicker: w.galaxy.name, sub: `${orders.length} orders${fixes.length ? ` · ${fixes.length} to mend` : ''}`, code: 'RCP', body, tall: true };
+      return { title: 'Chain', kicker: w.galaxy.name, sub: `${orders.length} orders${fixes.length ? ` · ${fixes.length} to fix` : ''}`, code: 'RCP', body, tall: true };
     }
 
     function labCost(state, st) {
@@ -323,18 +321,18 @@ const IdleSheets = (() => {
     }
     function labSheet(state) {
       const L = IdleRules.lab, l = state.lab, P = Config.PACKAGES;
-      const body = [h('p', { class: 'ui-note' }, 'One package builds at a time; the rest wait their turn, on the real clock. Each is paid for with credits and goods from the waystation\'s stock, and needs its station built.')];
+      const body = [];
       body.push(Kit.head('Building', h('span', { class: 'aside' }, `${L.pending(l).length} / ${1 + Config.LAB_QUEUE + IdleRules.bonusAt(state, Infinity, 'queue')}`)));
       if (l.active) {
         const p = P[l.active.id];
         body.push(Kit.optionRow({
           code: catCode(p), name: p.name, tier: p.tier, sub: p.note, extra: [h('div', { class: 'idle-row' }, runMeter(l.active.start, l.active.end), left(l.active.end))],
-          action: Kit.button('✕', go('research-cancel', { id: p.id }), { kind: 'ghost', aria: 'Cancel (half back)', title: 'Cancel: half back' }),
+          action: Kit.button('✕', go('research-cancel', { id: p.id }), { kind: 'ghost', aria: 'Cancel (50% refund)', title: 'Cancel (50% refund)' }),
         }));
-      } else body.push(h('p', { class: 'ui-empty' }, 'The lab is idle.'));
+      } else body.push(h('p', { class: 'ui-empty' }, 'Idle.'));
       for (const id of l.queue) {
         const p = P[id];
-        body.push(Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, tag: 'Queued', tagTone: 'cyan', sub: `${secs(L.timeOf(id) / 1000)}`, action: Kit.button('✕', go('research-cancel', { id }), { kind: 'ghost', aria: 'Cancel (all back)', title: 'Cancel' }) }));
+        body.push(Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, tag: 'Queued', tagTone: 'cyan', sub: `${secs(L.timeOf(id) / 1000)}`, action: Kit.button('✕', go('research-cancel', { id }), { kind: 'ghost', aria: 'Cancel (full refund)', title: 'Cancel (full refund)' }) }));
       }
       for (const cat of Config.CATEGORIES) {
         const list = Object.values(P).filter((p) => p.cat === cat.id);
@@ -343,7 +341,7 @@ const IdleSheets = (() => {
         body.push(Kit.head(label, h('span', { class: 'aside' }, `${done} / ${list.length}`)));
         const builder = buildOfType(cat.station);
         if (!state.built.some((id) => Config.BUILDS.find((b) => b.id === id)?.type === cat.station)) {
-          body.push(h('p', { class: 'ui-empty' }, `Researched at the ${builder ? builder.name.toLowerCase() : cat.station}, once it's built: ${cat.note}.`));
+          body.push(h('p', { class: 'ui-empty' }, `Needs the ${builder ? builder.name.toLowerCase() : cat.station}.`));
           continue;
         }
         for (const p of list) {
@@ -365,7 +363,7 @@ const IdleSheets = (() => {
 
     function surveyList(state, now) {
       const sv = state.survey, cost = IdleRules.surveyCost(state);
-      const body = [h('p', { class: 'ui-note' }, `One survey at a time; each costs more than the last. Next: ${cr(cost)}. A moon shows once its planet is charted.`)];
+      const body = [];
       if (sv) {
         const s = w.byKey.get(sv.key);
         body.push(Kit.head('Under way'), Kit.optionRow({
@@ -398,7 +396,7 @@ const IdleSheets = (() => {
 
     function buildList(state) {
       const next = IdleRules.nextBuild(state);
-      const body = [h('p', { class: 'ui-note' }, 'Stations go up one after another, in orbit round a charted body. Each after the waystation is paid for with goods from the waystation\'s stock, and credits.')];
+      const body = [];
       for (const b of Config.BUILDS) {
         const s = IdleRules.buildStatus(state, w, b.id), st = IdleRules.stationOf(w, b.id);
         if (s.id === 'done') {
@@ -414,8 +412,8 @@ const IdleSheets = (() => {
         if (isNext) {
           const hosts = w.sites.filter((x) => IdleRules.charted(state, x.key) && IdleRules.berths(state, w, x.key).free);
           body.push(h('p', { class: 'ui-note' }, b.note));
-          body.push(Kit.head('Build it round'));
-          if (!hosts.length) body.push(h('p', { class: 'ui-empty' }, 'No charted body has a free berth: survey another.'));
+          body.push(Kit.head('Build at'));
+          if (!hosts.length) body.push(h('p', { class: 'ui-empty' }, 'No free berths. Survey another body.'));
           for (const x of hosts) {
             const bb = IdleRules.berths(state, w, x.key);
             body.push(Kit.optionRow({
@@ -432,13 +430,12 @@ const IdleSheets = (() => {
     function report(v) {
       const s = w.byKey.get(v.key);
       const body = [
-        h('p', { class: 'ui-note' }, `${kindLine(s)} on ${where(s)}.`),
         Kit.head('Deposits'),
-        ...s.goods.map((g) => Kit.optionRow({ icon: itemIcon(g), name: nameOf(g), sub: `${secs(Config.RECIPES[`extract.${g}`].time)} a unit a drill` })),
+        ...s.goods.map((g) => Kit.optionRow({ icon: itemIcon(g), name: nameOf(g), sub: `${secs(Config.RECIPES[`extract.${g}`].time)} / unit` })),
       ];
-      if (v.find) body.push(Kit.callout(`Found: a derelict in orbit, stripped for ${cr(v.find)}.`, 'var(--good)'));
-      if (s.kind === 'planet' && s.body.moons.length) body.push(h('p', { class: 'ui-note' }, `${s.body.moons.length === 1 ? 'A moon' : `${s.body.moons.length} moons`} round it: signals to survey.`));
-      return { title: s.name, kicker: 'Survey complete', kickerColor: 'var(--good)', sub: kindLine(s), code: 'SCN', body, foot: [Kit.button('Open', go('open', { kind: 'site', key: v.key }), { kind: 'primary', lg: true, wide: true })] };
+      if (v.find) body.push(Kit.callout(`Derelict salvaged: ${cr(v.find)}`, 'var(--good)'));
+      if (s.kind === 'planet' && s.body.moons.length) body.push(h('p', { class: 'ui-note' }, `${s.body.moons.length === 1 ? '1 moon' : `${s.body.moons.length} moons`} to survey.`));
+      return { title: s.name, kicker: 'Survey complete', kickerColor: 'var(--good)', sub: `${kindLine(s)} · ${where(s)}`, code: 'SCN', body, foot: [Kit.button('Open', go('open', { kind: 'site', key: v.key }), { kind: 'primary', lg: true, wide: true })] };
     }
 
     function away(a) {
@@ -450,7 +447,7 @@ const IdleSheets = (() => {
       if (a.researched?.length) body.push(Kit.head('Researched'), ...a.researched.map((id) => { const p = Config.PACKAGES[id]; return Kit.optionRow({ code: catCode(p), name: p.name, tier: p.tier, sub: p.note }); }));
       if (a.charted.length) body.push(Kit.head('Charted'), ...a.charted.map((c) => Kit.optionRow({ code: 'SCN', name: w.byKey.get(c.key).name, sub: c.find ? `found ${cr(c.find)}` : kindLine(w.byKey.get(c.key)), action: Kit.button('Open', go('open', { kind: 'site', key: c.key }), { kind: 'ghost' }) })));
       if (a.stuck.length) body.push(Kit.head('Stopped'), ...a.stuck.map((x) => Kit.optionRow({ code: 'LCK', name: x.name, tag: x.why, tagTone: 'warn', action: Kit.button('Open', go('open', { kind: IdleRules.isSite(x.key) ? 'site' : 'station', key: x.key }), { kind: 'ghost' }) })));
-      return { title: 'While you were away', sub: secs(a.ms / 1000), code: 'QUE', body, foot: [Kit.button('Carry on', go('close'), { kind: 'primary', lg: true, wide: true })] };
+      return { title: 'While you were away', sub: secs(a.ms / 1000), code: 'QUE', body, foot: [Kit.button('Continue', go('close'), { kind: 'primary', lg: true, wide: true })] };
     }
 
     // ---------- Showing ----------

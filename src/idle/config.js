@@ -85,7 +85,7 @@ const Config = (() => {
     ['ext.drill.3', 'Drill heads III', 'Heads III', ['ext.drill.2'], 6 * H, 8000, { 'carbon-fibre': 8, electronics: 4 }],
   ];
   for (const [id, name, short, requires, time, credits, goods] of EXTRACT) {
-    PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry: { drill: 0.25 }, note: '+25% speed on every drill' };
+    PACKAGES[id] = { id, kind: 'industry', name, short, cat: 'ext', requires, time, cost: { credits, ...goods }, industry: { drill: 0.25 }, note: '+25% drill speed' };
   }
   const used = new Set(Object.values(PACKAGES).map((p) => p.cat));
   const CATEGORIES = [
@@ -105,37 +105,37 @@ const Config = (() => {
     {
       id: 'build.waystation', name: 'Waystation', type: 'waystation', shuttle: null, code: 'TRD',
       goods: {}, credits: 0, requires: [],
-      note: 'The hub: a market for whatever is brought here, and the bench that assembles gear. Its stock pays for every station after it.',
+      note: 'Market and gear bench. Its stock pays for later stations.',
     },
     {
       id: 'build.ore', name: 'Ore works', type: 'mining camp', shuttle: 'mining camp', code: 'ORE',
       goods: {}, credits: 300, requires: ['build.waystation'],
-      note: 'Smelts iron into steel pipe and silicates into carbon fibre. Best built near the drills that feed it.',
+      note: 'Iron → steel pipe, silicates → carbon fibre.',
     },
     {
       id: 'build.volatiles', name: 'Volatiles works', type: 'minor', shuttle: 'minor', code: 'VOL',
       goods: { 'steel-pipe': 6, 'carbon-fibre': 2 }, credits: 1000, requires: ['build.ore'],
-      note: 'Refines deuterium into hydrazine: fuel, and an input of much of the gear. Deuterium comes from the gas giants and the ice.',
+      note: 'Deuterium → hydrazine.',
     },
     {
       id: 'build.transport', name: 'Transport hub', type: 'transport hub', shuttle: null, code: 'CRG',
       goods: { 'steel-pipe': 12, 'carbon-fibre': 6, hydrazine: 4 }, credits: 6000, requires: ['build.volatiles'],
-      note: 'Directs the routes between stations: more haulers, and routes of many stops (soon).',
+      note: 'Runs routes between stations.',
     },
     {
       id: 'build.salvage', name: 'Salvage yard', type: 'salvage yard', shuttle: 'salvage yard', code: 'RCY',
       goods: { 'steel-pipe': 12, hydrazine: 8, 'titanium-ore': 4 }, credits: 15000, requires: ['build.transport'],
-      note: 'Recycles salvaged components into refined goods and electronics.',
+      note: 'Components → refined goods, electronics.',
     },
     {
       id: 'build.fabricator', name: 'Fabricator', type: 'major', shuttle: 'major', code: 'FAB',
       goods: { 'steel-pipe': 12, 'carbon-fibre': 10, hydrazine: 6, 'rare-earths': 4 }, credits: 30000, requires: ['build.salvage'],
-      note: 'Makes electronics, which gear from Mk II up needs.',
+      note: 'Makes electronics for Mk II+ gear.',
     },
     {
       id: 'build.shipyard', name: 'Shipyard', type: 'capital', shuttle: 'capital', code: 'SHY',
       goods: { electronics: 10, 'steel-pipe': 16, tungsten: 6, 'titanium-ore': 6 }, credits: 60000, requires: ['build.fabricator'],
-      note: 'Assembles gear from Mk II, and mods.',
+      note: 'Assembles Mk II+ gear and mods.',
     },
   ];
 

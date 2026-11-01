@@ -107,9 +107,9 @@ function hint() {
   if (!way) return { text: `Build the waystation round ${field.name}`, open: () => pick(field.key) };
   if (!Object.keys(state.drills).length) return { text: `Put a drill on ${field.name}`, open: () => pick(field.key) };
   if (nb && IdleRules.buildStatus(state, w, nb.id).id === 'ready') return { text: `Build the ${nb.name.toLowerCase()}`, open: () => openTab('build') };
-  if (fixable()) return { text: 'Mend the chain', open: () => openTab('chain') };
-  if (researchable()) return { text: 'The lab is idle: research', open: () => openTab('lab') };
-  if (state.survey) return { text: `Surveying ${state.survey.key === selected ? 'this signal' : 'a signal'}`, open: () => openTab('survey') };
+  if (fixable()) return { text: 'Fix the chain', open: () => openTab('chain') };
+  if (researchable()) return { text: 'Lab idle', open: () => openTab('lab') };
+  if (state.survey) return { text: 'Surveying…', open: () => openTab('survey') };
   if (w.sites.some((s) => IdleRules.surveyable(state, w, s.key)) && state.credits >= IdleRules.surveyCost(state)) return { text: 'Survey a signal', open: () => openTab('survey') };
   if (nb) {
     const s = IdleRules.buildStatus(state, w, nb.id);
@@ -117,7 +117,7 @@ function hint() {
     if (s.credits) short.push('credits');
     return { text: `${nb.name}: needs ${short.join(', ')}`, open: () => openTab('build') };
   }
-  return { text: 'Every station built', open: () => openTab('build') };
+  return { text: 'All stations built', open: () => openTab('build') };
 }
 let hintOpen = null;
 $('hint').addEventListener('click', () => hintOpen?.());
@@ -148,7 +148,7 @@ function tally(acc, log) {
 function stuck() {
   const I = IdleRules.industry, e = IdleRules.env(state), t = now(), out = [];
   for (const st of w.stations) {
-    if (IdleRules.online(state, w, st.key) && I.used(state.industry, st.key) >= I.capacity(state.industry, e, t, st.key)) out.push({ key: st.key, name: st.name, why: 'Full: sell' });
+    if (IdleRules.online(state, w, st.key) && I.used(state.industry, st.key) >= I.capacity(state.industry, e, t, st.key)) out.push({ key: st.key, name: st.name, why: 'Stock full' });
   }
   for (const o of state.industry.orders) {
     const s = I.status(state.industry, o);
