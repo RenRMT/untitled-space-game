@@ -54,6 +54,9 @@ race loads, fetched from the network first while there is one. Its file list is 
 or removing a file the race loads, as `npm test` fails while the list is out of date. Installing
 needs HTTPS (or localhost).
 
+A third page is planned: an idle station builder (working title Waystation) on the game's production,
+haulers and restoration rules. `notes/idle.md` is the plan; nothing of it is built yet.
+
 ## Code layout
 
 `index.html` loads `src/main.js`. Each layer imports only from the layers below it:
