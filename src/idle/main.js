@@ -7,14 +7,16 @@
 // This module wires the page: loads the save (save.js) and catches up on the time away in slices,
 // so a long absence never freezes the page, then says what happened; settles every second; draws
 // the system every frame (map.js); keeps the header (the next thing to do, the credits) and the tab
-// bar (System, Survey, Build, Market: the game's UI kit, ui/kit.js) up to date; opens a sheet for
+// bar (System, Survey, Build, Chain, Lab, Market: the game's UI kit, ui/kit.js) up to date; opens a sheet for
 // what's tapped (sheets.js) and carries out what its buttons ask. Query parameters: ?fresh (a new
-// save), ?seed= (a new save's system).
+// save), ?seed= (a new save's system), ?fastresearch (the lab 60 times faster).
 // ES module; needs a browser.
 
 import { Clock } from '../core/clock.js';
+import { Params } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { Recipes } from '../rules/recipes.js';
+import { Research } from '../rules/research.js';
 import { Kit } from '../ui/kit.js';
 import { UI } from '../ui/ui.js';
 import { Config } from './config.js';
@@ -27,6 +29,7 @@ const { h } = UI;
 const $ = (id) => document.getElementById(id);
 const now = () => Clock.now();
 Theme.setStyle('line');
+if (Params.has('fastresearch')) Research.config.speed = 60;
 if (document.fonts?.load) for (const wt of [400, 700]) document.fonts.load(`${wt} 12px ${Theme.mono}`).catch(() => {});
 
 const loaded = IdleSave.load(now());
@@ -52,6 +55,8 @@ const TABS = [
   { id: 'system', label: 'System', code: 'ORB' },
   { id: 'survey', label: 'Survey', code: 'SCN' },
   { id: 'build', label: 'Build', code: 'IND' },
+  { id: 'chain', label: 'Chain', code: 'RCP' },
+  { id: 'lab', label: 'Lab', code: 'LAB' },
   { id: 'market', label: 'Market', code: 'TRD' },
 ];
 const tabEls = new Map(TABS.map((t) => {
@@ -62,7 +67,7 @@ const tabEls = new Map(TABS.map((t) => {
 function openTab(id) {
   const t = now();
   if (id === 'system') { selected = null; map.focus(null); sheets.show(null, state, t); }
-  else if (id === 'survey' || id === 'build') { selected = null; sheets.show({ kind: id }, state, t); }
+  else if (id === 'survey' || id === 'build' || id === 'chain' || id === 'lab') { selected = null; sheets.show({ kind: id }, state, t); }
   else if (id === 'market') {
     if (IdleRules.online(state, w, w.waystation.key)) { pick(w.waystation.key); return; }
     selected = null; sheets.show({ kind: 'build' }, state, t);
@@ -71,11 +76,13 @@ function openTab(id) {
 }
 function tabs() {
   const v = sheets.view;
-  const on = !v ? 'system' : v.kind === 'survey' || v.kind === 'build' ? v.kind : v.kind === 'station' && v.key === w.waystation.key ? 'market' : 'system';
+  const on = !v ? 'system' : ['survey', 'build', 'chain', 'lab'].includes(v.kind) ? v.kind : v.kind === 'station' && v.key === w.waystation.key ? 'market' : 'system';
   const nb = IdleRules.nextBuild(state);
   const dots = {
     survey: !state.survey && state.credits >= IdleRules.surveyCost(state) && w.sites.some((s) => IdleRules.surveyable(state, w, s.key)),
     build: !!nb && IdleRules.buildStatus(state, w, nb.id).id === 'ready',
+    chain: fixable(),
+    lab: researchable(),
   };
   for (const t of TABS) {
     const el = tabEls.get(t.id), sel = String(t.id === on), dot = !!dots[t.id];
@@ -86,6 +93,11 @@ function tabs() {
   }
 }
 
+// Whether the chain has something to mend that a tap would (not a station still to build).
+const fixable = () => IdleRules.fixes(state, w).some((f) => f.kind !== 'build');
+// Whether the lab is idle and a package can be paid for now.
+const researchable = () => !state.lab.active && Object.keys(Config.PACKAGES).some((id) => IdleRules.researchStatus(state, w, id).ok);
+
 // ---------- The header: the credits, and the next thing to do ----------
 
 // What to do next, in a few words, and what tapping it opens.
@@ -95,6 +107,8 @@ function hint() {
   if (!way) return { text: `Build the waystation round ${field.name}`, open: () => pick(field.key) };
   if (!Object.keys(state.drills).length) return { text: `Put a drill on ${field.name}`, open: () => pick(field.key) };
   if (nb && IdleRules.buildStatus(state, w, nb.id).id === 'ready') return { text: `Build the ${nb.name.toLowerCase()}`, open: () => openTab('build') };
+  if (fixable()) return { text: 'Mend the chain', open: () => openTab('chain') };
+  if (researchable()) return { text: 'The lab is idle: research', open: () => openTab('lab') };
   if (state.survey) return { text: `Surveying ${state.survey.key === selected ? 'this signal' : 'a signal'}`, open: () => openTab('survey') };
   if (w.sites.some((s) => IdleRules.surveyable(state, w, s.key)) && state.credits >= IdleRules.surveyCost(state)) return { text: 'Survey a signal', open: () => openTab('survey') };
   if (nb) {
@@ -155,12 +169,13 @@ function charted(list) {
 }
 
 async function catchUp() {
-  const from = state.seen, acc = { made: new Map(), delivered: new Map(), charted: [] };
+  const from = state.seen, acc = { made: new Map(), delivered: new Map(), charted: [], researched: [] };
   const load = $('load');
   for (let slice = 0; ; slice++) {
     const r = IdleRules.settle(state, w, now());
     tally(acc, r.log);
     acc.charted.push(...r.charted);
+    acc.researched.push(...r.researched);
     if (!r.truncated) break;
     load.hidden = false;
     load.textContent = `Catching up… ${slice + 1}`;
@@ -168,9 +183,9 @@ async function catchUp() {
   }
   load.hidden = true;
   const ms = now() - from;
-  if (!loaded.fresh && ms > Config.AWAY_SHEET && (acc.made.size || acc.delivered.size || acc.charted.length)) {
+  if (!loaded.fresh && ms > Config.AWAY_SHEET && (acc.made.size || acc.delivered.size || acc.charted.length || acc.researched.length)) {
     selected = null;
-    sheets.show({ kind: 'away', away: { ms, made: acc.made, delivered: acc.delivered, charted: acc.charted, stuck: stuck() } }, state, now());
+    sheets.show({ kind: 'away', away: { ms, made: acc.made, delivered: acc.delivered, charted: acc.charted, researched: acc.researched, stuck: stuck() } }, state, now());
   } else charted(acc.charted);
   save.change();
 }
@@ -178,7 +193,8 @@ async function catchUp() {
 function tick() {
   if (!ready) return;
   const r = IdleRules.settle(state, w, now());
-  if (r.log.length || r.charted.length) { map.made(r.log); save.change(); }
+  if (r.log.length || r.charted.length || r.researched.length) { map.made(r.log); save.change(); }
+  if (r.researched.length) navigator.vibrate?.(20);
   charted(r.charted);
   bar();
   sheets.refresh(state, now());
@@ -193,6 +209,24 @@ function act(name, a) {
   switch (name) {
     case 'close': selected = null; sheets.show(null, state, t); tabs(); return;
     case 'open': pick(a.key || null); return;
+    case 'view': if (sheets.view) sheets.show({ ...sheets.view, ...a }, state, t); return;
+    case 'pause': IdleRules.pause(state, w, a.id, a.paused, t); break;
+    case 'raise': IdleRules.raise(state, w, a.id, t); break;
+    case 'change': if (IdleRules.change(state, w, a.id, a.recipe, t)) sheets.show({ ...sheets.view, switching: null }, state, t); break;
+    case 'research': IdleRules.research(state, w, a.id, t); break;
+    case 'research-cancel': IdleRules.cancelResearch(state, w, a.id, t); break;
+    case 'route-add':
+      if (IdleRules.addRoute(state, w, a.from, a.to, a.kinds, t)) sheets.show({ ...sheets.view, draft: null }, state, t);
+      break;
+    case 'route-remove': IdleRules.removeRoute(state, w, a.id); break;
+    case 'fix': {
+      const f = a.fix;
+      if (f.kind === 'route') IdleRules.addRoute(state, w, f.from, f.to, [f.good], t);
+      else if (f.kind === 'shuttle') IdleRules.setShuttle(state, w, f.from, f.to, t);
+      else if (f.kind === 'order') IdleRules.place(state, w, f.key, f.recipe, t);
+      else { openTab('build'); return; }
+      break;
+    }
     case 'sell': IdleRules.sell(state, w, a.key, a.kind, a.n, t); break;
     case 'place': IdleRules.place(state, w, a.key, a.recipe, t); break;
     case 'cancel': IdleRules.cancel(state, w, a.id); break;

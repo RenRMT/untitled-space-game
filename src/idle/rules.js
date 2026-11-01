@@ -13,15 +13,28 @@
 // the nearest station that uses what it pulls (the waystation if none does). A station is where its
 // body is: travel times between them come from the bodies' places in the system.
 //
-//   IdleRules.industry, IdleRules.builds          the Industry and Restoration instances
+// The lab (rules/lab.js over Config.PACKAGES) researches blueprints, mods, industry, logistics and
+// extraction, paid from the credits and the waystation's stock; a package can be queued once the
+// station type of its category is built. What's done adds to every order's speed, every station's
+// room and orders, the drills' speed, the lab queue, and the routes and haulers the transport hub
+// runs, each from the moment it finished (so time away comes out the same however it's settled).
+// The transport hub runs routes: two stops, chosen goods carried from one place to another.
+//
+//   IdleRules.industry, IdleRules.builds, IdleRules.lab   the Industry, Restoration and Lab instances
 //   IdleRules.world(seed) -> w        { seed, galaxy, star, stations: [station], sites: [site], byKey: Map, waystation }
 //     station: { key, name, type, kind: 'station', build (its Config.BUILDS id), code, culture, seed, size, src (the galaxy's) }
 //     site:    { key, name, kind: 'field' | 'planet' | 'moon', type: 'site', x, y, goods: [kind], body (planet/moon) | null,
 //                parent (a moon's planet key) | null, ring (planets and the field: their orbit's place from the star, 0 first) }
 //   IdleRules.empty(w, now) -> state  { version, seed, credits, industry, built: [build id], hosts: { [station key]: site key },
 //                                       charted: [site key], survey: { key, at, end } | null, finds: { [site key]: credits },
-//                                       drills: { [site key]: n }, economy, seen }
-//   IdleRules.env(state) -> Industry env
+//                                       drills: { [site key]: n }, economy, lab, seen }
+//   IdleRules.env(state) -> Industry env   with research's speed, room, order slots and drill rate
+//   IdleRules.bonusAt(state, t, key) -> n   a research bonus from what was done by t ('speed', 'storage',
+//                                       'bays', 'queue', 'routes', 'haulers', 'drill')
+//   IdleRules.known(state) -> Set     the recipes known (Recipes.known, and every drill's)
+//   IdleRules.researchStatus(state, w, id) -> Lab status, + away: the station type to build first
+//   IdleRules.research(state, w, id, now) -> bool   paid and queued (or started)
+//   IdleRules.cancelResearch(state, w, id, now) -> [id]   refunded into the credits and the waystation
 //   IdleRules.online(state, w, key) -> bool   a station built, a site charted
 //   IdleRules.charted(state, key), surveyable(state, w, key) -> bool   (a moon once its planet is charted)
 //   IdleRules.surveyCost(state) -> credits, surveyTime(state, w, key) -> ms
@@ -37,10 +50,22 @@
 //   IdleRules.setDrill(state, w, orderId, good, now) -> bool   what an existing drill pulls
 //   IdleRules.recipesAt(state, w, key) -> [recipe]   the orders a station (or site) can take
 //   IdleRules.place(state, w, key, recipe, now) -> order | null, cancel(state, w, orderId) -> bool (not drills)
+//   IdleRules.pause(state, w, id, paused, now), raise(state, w, id, now) (ahead of the order before it
+//     at its station), change(state, w, id, recipe, now) -> bool
+//   IdleRules.lineage(state, w, orderId) -> Industry.lineage of its inputs
+//   IdleRules.routeLimit(state), haulerLimit(state) -> n, routes(state) -> [route] (not shuttles)
+//   IdleRules.canRoute(state, w) -> bool   the hub built, and a route to spare
+//   IdleRules.addRoute(state, w, fromKey, toKey, kinds, now) -> route | null   (one between the same two places
+//     is replaced, carrying both's goods), removeRoute(state, w, id) -> bool, carries(route) -> [kind]
+//   IdleRules.fixes(state, w) -> [fix]   what would mend the chain (Industry.pipelines):
+//     { kind: 'route', from, to, good } | { kind: 'shuttle', from, to, good }: a good made at one place
+//       and used at another that nothing carries;
+//     { kind: 'order', key, recipe, good, for }: an input no order makes, and a station that can;
+//     { kind: 'build', type, good, for }: an input no built station can make
 //   IdleRules.setShuttle(state, w, fromKey, toKey, now) -> route | null
 //   IdleRules.priceOf(state, w, stKey, kind, now) -> credits | null   what that station pays for one
 //   IdleRules.sell(state, w, stKey, kind, n, now) -> { sold, credits }
-//   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }] }
+//   IdleRules.settle(state, w, now, max?) -> { log, truncated, charted: [{ key, find }], researched: [id] }
 //   IdleRules.read(data) -> state | null   a saved state, checked lightly
 // ES module (`IdleRules`); also runs in Node (the tests).
 
@@ -49,16 +74,25 @@ import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
 import { Industry } from '../rules/industry.js';
+import { Lab } from '../rules/lab.js';
 import { Logistics } from '../rules/logistics.js';
 import { Recipes } from '../rules/recipes.js';
+import { Research } from '../rules/research.js';
 import { Restoration } from '../rules/restoration.js';
 import { Galaxy } from '../world/galaxy.js';
 import { Config } from './config.js';
 
 const IdleRules = (() => {
-  const VERSION = 2;
+  const VERSION = 3;
   const industry = Industry.create({ recipes: Config.RECIPES, process: Config.PROCESS, storage: { base: Config.STATION_STORAGE }, slots: Config.STATION_SLOTS });
   const builds = Restoration.create({ list: Config.BUILDS, online: [] });
+  const P = Config.PACKAGES;
+  // What's done adds from the moment it finished.
+  const bonusOf = (labState, t, key) => labState.done.reduce((n, id) => n + ((labState.doneAt?.[id] ?? 0) <= t ? P[id]?.industry?.[key] || 0 : 0), 0);
+  const bonusAt = (state, t, key) => bonusOf(state.lab, t, key);
+  const lab = Lab.create({ packages: P, categories: Config.CATEGORIES, queueMax: (l) => Config.LAB_QUEUE + bonusOf(l, Infinity, 'queue'), config: Research.config });
+  const DRILLS = Object.keys(Config.RECIPES).filter((id) => id.startsWith('extract.'));
+  const known = (state) => new Set([...Recipes.known(state.lab.done).values(), ...DRILLS]);
   const isSite = (key) => key.startsWith('site:');
   const uniq = (a) => [...new Set(a)];
 
@@ -91,11 +125,13 @@ const IdleRules = (() => {
   function env(state) {
     return {
       recipe: (id) => Config.RECIPES[id],
-      speed: () => 1,
-      room: () => 0,
-      slots: () => 0,
-      slotsAt: (key) => (isSite(key) ? state.drills[key] || 0 : Config.STATION_SLOTS),
-      roomAt: (key) => (isSite(key) ? Config.SITE_STORAGE - Config.STATION_STORAGE : 0),
+      speed: (t) => 1 + bonusAt(state, t, 'speed'),
+      room: (t) => bonusAt(state, t, 'storage'),
+      slots: () => bonusAt(state, Infinity, 'bays'),
+      slotsAt: (key) => (isSite(key) ? state.drills[key] || 0 : Config.STATION_SLOTS + bonusAt(state, Infinity, 'bays')),
+      // A site holds SITE_STORAGE, whatever the racks researched add to the stations.
+      roomAt: (key, t) => (isSite(key) ? Config.SITE_STORAGE - Config.STATION_STORAGE - bonusAt(state, t, 'storage') : 0),
+      rate: (id, t) => (id.startsWith('extract.') ? 1 + bonusAt(state, t, 'drill') : 1),
     };
   }
 
@@ -185,7 +221,7 @@ const IdleRules = (() => {
     const field = w.sites.find((s) => s.kind === 'field');
     return {
       version: VERSION, seed: w.seed, credits: Config.START_CREDITS, industry: industry.empty(), built: [], hosts: {},
-      charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), seen: now,
+      charted: field ? [field.key] : [], survey: null, finds: {}, drills: {}, economy: Economy.empty(), lab: lab.empty(), seen: now,
     };
   }
 
@@ -253,18 +289,121 @@ const IdleRules = (() => {
     const x = w.byKey.get(key);
     if (!x || !online(state, w, key)) return [];
     if (x.kind !== 'station') return x.goods.map((g) => Config.RECIPES[`extract.${g}`]);
-    return Object.values(Config.RECIPES).filter((R) => industry.canMake(x.type, R.id));
+    const k = known(state);
+    return Object.values(Config.RECIPES).filter((R) => k.has(R.id) && industry.canMake(x.type, R.id));
   }
 
   function place(state, w, key, recipe, now) {
     const x = w.byKey.get(key);
-    if (!x || x.kind !== 'station' || !online(state, w, key)) return null;
+    if (!x || x.kind !== 'station' || !online(state, w, key) || !known(state).has(recipe)) return null;
     return industry.place(state.industry, ref(x), recipe, null, env(state), now);
   }
+  const orderOf = (state, id) => state.industry.orders.find((x) => x.id === id) || null;
   function cancel(state, w, id) {
-    const o = state.industry.orders.find((x) => x.id === id);
+    const o = orderOf(state, id);
     if (!o || isSite(o.station)) return false;
     return industry.cancel(state.industry, id);
+  }
+  const pause = (state, w, id, paused, now) => !!orderOf(state, id) && industry.pause(state.industry, id, paused, env(state), now);
+  // Ahead of the order before it at the same station: it gets inputs first when both want them.
+  function raise(state, w, id, now) {
+    const list = state.industry.orders, o = orderOf(state, id);
+    if (!o) return false;
+    const i = list.indexOf(o);
+    let j = i - 1;
+    while (j >= 0 && list[j].station !== o.station) j--;
+    if (j < 0 || !industry.move(state.industry, i, j)) return false;
+    industry.kick(state.industry, env(state), now);
+    return true;
+  }
+  function change(state, w, id, recipe, now) {
+    const o = orderOf(state, id);
+    if (!o || isSite(o.station) || o.recipe === recipe || !known(state).has(recipe)) return false;
+    return industry.change(state.industry, id, recipe, null, env(state), now);
+  }
+  function lineage(state, w, id) {
+    const o = orderOf(state, id);
+    return o ? industry.lineage(state.industry, o.recipe, known(state), o.station) : [];
+  }
+
+  // ---------- Routes (the transport hub) ----------
+
+  const hubOnline = (state) => builds.online('transport hub', state.built);
+  const routeLimit = (state) => Config.ROUTES.routes + bonusAt(state, Infinity, 'routes');
+  const haulerLimit = (state) => Config.ROUTES.haulers + bonusAt(state, Infinity, 'haulers');
+  const routes = (state) => state.industry.routes.filter((r) => !r.shuttle);
+  const canRoute = (state) => hubOnline(state) && routes(state).length < routeLimit(state);
+  const routeOf = (state, fromKey, toKey) => routes(state).find((r) => r.stops[0].station === fromKey && r.stops[1].station === toKey) || null;
+  // Goods a route carries (its first stop's load).
+  const carries = (r) => Object.keys(r.stops[0].load || {});
+  // A route between the same two places as one already there takes its place, carrying both's goods.
+  function addRoute(state, w, fromKey, toKey, kinds, now) {
+    const from = w.byKey.get(fromKey), to = w.byKey.get(toKey), old = routeOf(state, fromKey, toKey);
+    if (!hubOnline(state) || (!old && !canRoute(state)) || !from || !to || from === to || to.kind !== 'station' || !online(state, w, fromKey) || !online(state, w, toKey)) return null;
+    const list = [...new Set([...(old ? carries(old) : []), ...kinds])].filter((k) => Recipes.item(k));
+    if (!list.length) return null;
+    if (old) industry.removeRoute(state.industry, old.id);
+    const t = travel(state, w, fromKey, toKey);
+    return industry.addRoute(state.industry, [
+      { station: from.key, name: from.name, load: Object.fromEntries(list.map((k) => [k, 'all'])), travel: t },
+      { station: to.key, name: to.name, unload: 'all', travel: t },
+    ], { name: `${from.name} → ${to.name}`, haulers: haulerLimit(state) }, env(state), now);
+  }
+  function removeRoute(state, w, id) {
+    const r = state.industry.routes.find((x) => x.id === id);
+    return !!r && !r.shuttle && industry.removeRoute(state.industry, id);
+  }
+
+  // ---------- The chain ----------
+
+  function fixes(state, w) {
+    const out = [], seen = new Set(), orders = state.industry.orders, by = (id) => orders.find((o) => o.id === id);
+    const push = (f) => { const id = JSON.stringify(f); if (!seen.has(id)) { seen.add(id); out.push(f); } };
+    for (const g of industry.pipelines(state.industry)) {
+      for (const l of g.links) {
+        if (!l.away || l.routed) continue;
+        const a = by(l.from), b = by(l.to);
+        // A site's goods go by its shuttle; a station's by a route if the hub has one to spare.
+        const kind = !isSite(a.station) && (canRoute(state) || (hubOnline(state) && routeOf(state, a.station, b.station))) ? 'route' : 'shuttle';
+        push({ kind, from: a.station, to: b.station, good: l.kind });
+      }
+      for (const gap of g.gaps) {
+        const o = by(gap.order), R = industry.recipeFor(gap.kind, known(state));
+        const st = R && w.stations.find((x) => online(state, w, x.key) && industry.canMake(x.type, R.id));
+        if (st) push({ kind: 'order', key: st.key, recipe: R.id, good: gap.kind, for: o.station });
+        else push({ kind: 'build', type: Object.entries(Config.PROCESS).find(([, ps]) => ps.includes(gap.stage))?.[0] || null, good: gap.kind, for: o.station });
+      }
+    }
+    return out;
+  }
+
+  // ---------- Research ----------
+
+  const wayHave = (state, w) => { const s = wayStock(state, w); return (kind) => s[kind] || 0; };
+  const stationTypeOf = (id) => Config.CATEGORIES.find((c) => c.id === P[id]?.cat)?.station || 'waystation';
+  function researchStatus(state, w, id) {
+    const st = lab.status(id, state.lab, state.credits, wayHave(state, w)), where = stationTypeOf(id);
+    return st.state === 'available' && !builds.online(where, state.built) ? { ...st, ok: false, away: where } : st;
+  }
+  function research(state, w, id, now) {
+    const st = researchStatus(state, w, id);
+    if (!st.ok || !lab.enqueue(state.lab, id, now)) return false;
+    state.credits -= st.credits;
+    for (const { kind, need } of st.cost) industry.withdraw(state.industry, w.waystation.key, kind, need);
+    industry.kick(state.industry, env(state), now);
+    return true;
+  }
+  // Refunds go back where they were paid from: goods into the waystation's stock, as far as it has room.
+  function cancelResearch(state, w, id, now) {
+    const out = lab.cancel(state.lab, id, now);
+    for (const { id: x, refund } of out) {
+      for (const [kind, n] of Object.entries(P[x].cost)) {
+        const back = Math.floor(n * refund);
+        if (kind === 'credits') state.credits += back;
+        else if (back > 0) industry.deposit(state.industry, w.waystation.key, kind, back, env(state), now);
+      }
+    }
+    return out.map((x) => x.id);
   }
 
   // ---------- Selling ----------
@@ -296,12 +435,20 @@ const IdleRules = (() => {
 
   // The survey is charted before production settles, so its find is in the credits from its end.
   function settle(state, w, now, max) {
+    const researched = lab.settle(state.lab, now);
     const found = chartDue(state, w, now);
     const r = industry.settle(state.industry, now, env(state), max);
     if (!r.truncated) state.seen = now;
-    return { ...r, charted: found };
+    return { ...r, charted: found, researched };
   }
 
+  function readLab(l) {
+    if (!l || typeof l !== 'object' || !Array.isArray(l.done) || !Array.isArray(l.queue)) return lab.empty();
+    return {
+      done: l.done.filter((id) => P[id]), doneAt: l.doneAt && typeof l.doneAt === 'object' ? l.doneAt : {},
+      active: l.active && P[l.active.id] && Number.isFinite(l.active.end) ? l.active : null, queue: l.queue.filter((id) => P[id]),
+    };
+  }
   function read(d) {
     if (!d || typeof d !== 'object' || d.version !== VERSION || !d.industry || !Array.isArray(d.industry.orders) || !Array.isArray(d.charted)) return null;
     const obj = (x) => (x && typeof x === 'object' ? x : {});
@@ -310,12 +457,14 @@ const IdleRules = (() => {
       industry: d.industry, built: Array.isArray(d.built) ? d.built.filter((id) => builds.PROJECTS[id]) : [], hosts: obj(d.hosts),
       charted: d.charted, survey: d.survey && Number.isFinite(d.survey.end) ? d.survey : null, finds: obj(d.finds),
       drills: obj(d.drills), economy: d.economy && typeof d.economy === 'object' ? d.economy : Economy.empty(),
+      lab: readLab(d.lab),
       seen: Number.isFinite(d.seen) ? d.seen : 0,
     };
   }
 
   return {
-    VERSION, industry, builds, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
+    VERSION, industry, builds, lab, bonusAt, known, researchStatus, research, cancelResearch, pause, raise, change, lineage,
+    routeLimit, haulerLimit, routes, canRoute, carries, addRoute, removeRoute, fixes, isSite, world, env, online, charted, surveyable, surveyCost, surveyTime, survey, findAt,
     hostOf, posOf, berths, stationOf, nextBuild, buildStatus, build, empty, drillCost, buyDrill, setDrill, recipesAt,
     place, cancel, setShuttle, priceOf, sell, settle, read,
   };

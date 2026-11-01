@@ -4058,6 +4058,114 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
   assert.strictEqual(IdleRules.read({ ...JSON.parse(JSON.stringify(s)), version: 1 }), null, 'a first-slice save starts again');
 });
 
+// A system with every station built round the field and the first planet, and plenty to pay with.
+function idleBuilt(T) {
+  const w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+  const planets = w.sites.filter((x) => x.kind === 'planet');
+  s.charted.push(...planets.map((x) => x.key));
+  s.credits = 1e6;
+  const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
+  IdleConfig.BUILDS.forEach((b, i) => {
+    s.industry.stock[w.waystation.key] = { 'steel-pipe': 50, 'carbon-fibre': 50, hydrazine: 50, 'titanium-ore': 50, 'rare-earths': 50, electronics: 50, tungsten: 50 };
+    assert(IdleRules.build(s, w, b.id, hosts[i], T), b.id);
+  });
+  return { w, s, field };
+}
+
+test('idle: the game\'s Industry is unchanged without a rate; the idle tables need no salvage but the recycler\'s', () => {
+  const o = { recipe: 'make.steel-pipe' };
+  assert.strictEqual(Industry.runTime(o, Industry.env(Research.empty()), 0), 20000);
+  const salvage = (counts) => Object.keys(counts).some((k) => Goods.isSalvage(k));
+  for (const R of Object.values(IdleConfig.RECIPES)) assert(R.bay === 'recycle' || !salvage(R.in), R.id);
+  for (const p of Object.values(IdleConfig.PACKAGES)) assert(!salvage(p.cost), p.id);
+  for (const p of Object.values(IdleConfig.PACKAGES)) for (const r of p.requires.flat()) assert(IdleConfig.PACKAGES[r], `${p.id} needs ${r}`);
+  assert(IdleConfig.PACKAGES['bp.pulse-laser-2'] && !IdleConfig.PACKAGES['core.bool'], 'blueprints, not squad logic');
+});
+
+test('idle: research is paid from the credits and the waystation, needs its station built, and unlocks recipes', () => {
+  const T = 1e12, w = IdleRules.world(1), s0 = IdleRules.empty(w, T);
+  assert.strictEqual(IdleRules.researchStatus(s0, w, 'ext.drill.1').away, 'waystation', 'nothing built: nowhere to research');
+  const { s } = idleBuilt(T), way = w.waystation.key;
+  s.industry.stock[way] = { 'steel-pipe': 10 };
+  const c0 = s.credits;
+  assert(IdleRules.research(s, w, 'ext.drill.1', T));
+  assert.strictEqual(s.credits, c0 - IdleConfig.PACKAGES['ext.drill.1'].cost.credits);
+  assert.strictEqual(IdleRules.industry.stockAt(s.industry, way)['steel-pipe'], 6);
+  assert(!IdleRules.research(s, w, 'ext.drill.1', T), 'not twice');
+  // Cancelled while building: half back.
+  assert.deepStrictEqual(IdleRules.cancelResearch(s, w, 'ext.drill.1', T), ['ext.drill.1']);
+  assert.strictEqual(IdleRules.industry.stockAt(s.industry, way)['steel-pipe'], 8);
+  // A blueprint: the shipyard can make the gear once it's done.
+  const ship = IdleRules.stationOf(w, 'build.shipyard').key;
+  assert(!IdleRules.recipesAt(s, w, ship).some((R) => R.id === 'make.pulse-laser-2'));
+  assert(!IdleRules.place(s, w, ship, 'make.pulse-laser-2', T), 'not before the blueprint');
+  s.industry.stock[way] = { 'carbon-fibre': 20 };
+  assert(IdleRules.research(s, w, 'bp.pulse-laser-2', T));
+  const r = IdleRules.settle(s, w, T + IdleRules.lab.timeOf('bp.pulse-laser-2'));
+  assert.deepStrictEqual(r.researched, ['bp.pulse-laser-2']);
+  assert(IdleRules.recipesAt(s, w, ship).some((R) => R.id === 'make.pulse-laser-2'));
+  // A v2 save (no lab) reads with an empty one.
+  const old = JSON.parse(JSON.stringify(s));
+  delete old.lab;
+  old.version = 3;
+  assert.deepStrictEqual(IdleRules.read(old).lab, IdleRules.lab.empty());
+});
+
+test('idle: research counts from when it finished, so time away comes out the same however it is settled', () => {
+  const T = 1e12;
+  const run = (steps) => {
+    const { w, s, field } = idleBuilt(T);
+    s.industry.stock[w.waystation.key] = { 'steel-pipe': 50, 'carbon-fibre': 50, electronics: 50 };
+    assert(IdleRules.buyDrill(s, w, field.key, 'iron', T));
+    assert(IdleRules.research(s, w, 'ext.drill.1', T));
+    assert(IdleRules.research(s, w, 'ind.speed.1', T), 'queued behind');
+    const end = T + 6 * 3600e3;
+    for (let i = 1; i <= steps; i++) while (IdleRules.settle(s, w, T + ((end - T) * i) / steps, 300).truncated);
+    return s;
+  };
+  const one = run(1);
+  assert.deepStrictEqual(one.lab.done, ['ext.drill.1', 'ind.speed.1']);
+  assert.deepStrictEqual(run(23), one);
+  const { w, s } = idleBuilt(T), e = IdleRules.env(one), o = { recipe: 'extract.iron' };
+  assert(IdleRules.industry.runTime(o, e, T + 6 * 3600e3) < IdleRules.industry.runTime(o, IdleRules.env(s), T), 'drills faster');
+  assert.strictEqual(IdleRules.env(s).slotsAt(w.waystation.key), IdleConfig.STATION_SLOTS);
+});
+
+test('idle: the transport hub runs routes, the chain says what to mend, orders take priority and switch', () => {
+  const T = 1e12, w = IdleRules.world(1), s0 = IdleRules.empty(w, T);
+  assert(!IdleRules.canRoute(s0), 'no hub, no routes');
+  const { s } = idleBuilt(T), camp = IdleRules.stationOf(w, 'build.ore').key, fab = IdleRules.stationOf(w, 'build.fabricator').key;
+  s.industry.stock = {};
+  // The ore works makes pipe, the fabricator wants it: nothing carries it there.
+  const fo = IdleRules.place(s, w, fab, 'make.electronics', T);
+  assert(fo);
+  const f = IdleRules.fixes(s, w);
+  assert(f.some((x) => x.kind === 'route' && x.from === camp && x.to === fab && x.good === 'steel-pipe'), 'route the pipe');
+  assert(f.some((x) => x.kind === 'route' && x.good === 'carbon-fibre') || f.some((x) => x.kind === 'order' && x.good === 'carbon-fibre'), 'and the fibre');
+  assert.deepStrictEqual(IdleRules.lineage(s, w, fo.id).find((x) => x.kind === 'steel-pipe').source, 'away');
+  assert(IdleRules.addRoute(s, w, camp, fab, ['steel-pipe'], T));
+  assert(!IdleRules.fixes(s, w).some((x) => x.good === 'steel-pipe'), 'mended');
+  assert.strictEqual(IdleRules.lineage(s, w, fo.id).find((x) => x.kind === 'steel-pipe').source, 'route');
+  // The same two places again: one route, carrying both.
+  assert(IdleRules.addRoute(s, w, camp, fab, ['carbon-fibre'], T));
+  assert.strictEqual(IdleRules.routes(s).length, 1);
+  assert.deepStrictEqual(IdleRules.carries(IdleRules.routes(s)[0]).sort(), ['carbon-fibre', 'steel-pipe']);
+  const way = w.waystation.key, minor = IdleRules.stationOf(w, 'build.volatiles').key;
+  assert(IdleRules.addRoute(s, w, minor, fab, ['hydrazine'], T));
+  assert(!IdleRules.addRoute(s, w, minor, way, ['hydrazine'], T), `${IdleConfig.ROUTES.routes} routes at most`);
+  assert.strictEqual(IdleRules.routes(s)[0].haulers.length, IdleConfig.ROUTES.haulers);
+  // Priority and switching.
+  const a = IdleRules.place(s, w, camp, 'make.carbon-fibre', T);
+  const ids = () => s.industry.orders.filter((o) => o.station === camp).map((o) => o.id);
+  assert.strictEqual(ids()[1], a.id);
+  assert(IdleRules.raise(s, w, a.id, T));
+  assert.strictEqual(ids()[0], a.id);
+  assert(!IdleRules.raise(s, w, a.id, T), 'already first');
+  assert(IdleRules.change(s, w, a.id, 'make.steel-pipe', T) && a.recipe === 'make.steel-pipe');
+  assert(!IdleRules.change(s, w, a.id, 'make.pulse-laser-2', T), 'not what the ore works makes');
+  assert(IdleRules.pause(s, w, a.id, true, T) && IdleRules.industry.status(s.industry, a).id === 'paused');
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

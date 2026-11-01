@@ -73,6 +73,8 @@ A `Lab.create` instance over the idle game's own packages, with the same shape a
 - **Blueprints:** gear from Mk II up, like the game's `bp.*`.
 - **Trade:** auto-sell, a price floor, a fourth contract slot, and better contract bonuses.
 
+**As built (Phase 3):** the lab is `IdleRules.lab`, a `Lab.create` over `Config.PACKAGES`: the game's own blueprint, mods, industry and logistics packages (`rules/research.js`, the same ids, so `Recipes.known` unlocks their recipes), plus Extraction (`ext.drill.1–3`, +25% drill speed each, through a new optional `rate(recipe, t)` on the Industry env). Squad logic, hull refits and tuning are left out. A package is paid in credits and goods from the waystation's stock, and can be queued once the station type of its category is built (`Research.CATEGORIES` station). Speed, racks, order slots, the lab queue, routes and haulers all apply, each from when it finished (`doneAt`), so a settle split across a finish comes out the same. The idle game has no salvage yet, so every salvaged component in a package's cost or a recipe's inputs is swapped for a refined good (`Config.SWAP`: hull → steel pipe, weapon and computer → carbon fibre, drive → hydrazine); the recycler's recipes keep theirs and wait for the wreck field. Trade research is still to do.
+
 ## Offline time
 
 - On load and on `visibilitychange`, settle up to now. Do it in slices of `Industry.MAX_EVENTS`, yielding between slices (`settle` returns `truncated`), so a month away doesn't freeze the page. Show a progress bar if it takes more than a frame.
@@ -86,6 +88,8 @@ A `Lab.create` instance over the idle game's own packages, with the same shape a
 - **Sheets** in the game's UI kit (`src/ui/kit.js`, `Kit.sheet`, option rows, meters, choices; `kit-line.css`), over the map without darkening it: a body (survey, deposits and drills, stock, shuttle, the stations in orbit and building the next there), a station (stock and selling, orders, shuttle), the survey report, and time away. The kit's icon tab bar along the bottom: System, Survey, Build, Market. A header like a docked station's: the system's name, the next thing to do (tap it to go there), the credits.
 - **Chain:** the `Industry.pipelines` view, with each step's stations, flows, gaps and unrouted links. This is the place to fix a broken chain.
 - **Lab** and **Contracts** (later).
+
+**As built (Phase 3):** six tabs: System, Survey, Build, Chain, Lab, Market. The Chain sheet lists `IdleRules.fixes` first (a good made at one place and used at another that nothing carries: route it, or before the hub, point a shuttle; an input nothing makes: order it at a station that can, or build one), then each chain's orders and what links them. A station's order shows where each input comes from (`Industry.lineage`) with the fix beside it, and can be paused, switched to another recipe, or put first among the station's orders. The transport hub runs routes of two stops (chosen goods from one place to a station), 2 to start and more with route planning; a route between the same two places as another adds its goods to it.
 
 ## Shared groundwork (in `src/rules`, without changing behaviour)
 
@@ -115,7 +119,7 @@ Start from the game's recipe times (refining 20 s, parts 30 s, gear 2 min to 2 h
 
 1. **Groundwork** (done): the `Industry.create` and `Restoration.create` factories, with tests showing the game is unchanged. Then `idle/` and `src/idle/` with the lint rule, the save, and a bare system view.
 2. **The core loop** (done): extractors, the ore works and bench, the station sheet, selling at the waystation, the first two restorations, and the offline settle with its "while you were away" sheet. Built: `idle/index.html`; `src/idle/` (`config.js` for the numbers, `rules.js` for the rules (Node, tested in `tests/run.js`), `save.js`, `map.js` for the system canvas, `sheets.js` for the bottom sheets, and `main.js`). Selling also takes gear and consumables, at 0.8 of their price. Every restoration is playable, but the costs are first guesses until `tools/idle-sim.js` (Phase 4) measures them.
-3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab.
+3. **The whole chain:** every station, shuttles and routes, the chain view, contracts, and the lab. Built: routes, the chain view, order controls and the lab (save version 3; version 2 saves gain an empty lab). Still to do: contracts, the wreck field, and trade research.
 4. **Balance and polish:** `tools/idle-sim.js`, the restoration scene, haulers on the map, haptics (`core/feedback.js`), the PWA (manifest, icons, service worker), and the name.
 5. **Later:** new systems (prestige), and the extras above.
 
