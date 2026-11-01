@@ -55,16 +55,16 @@ or removing a file the race loads, as `npm test` fails while the list is out of 
 needs HTTPS (or localhost).
 
 The idle game is a third page, `/idle/` (`idle/index.html`, code in `src/idle/`): an idle station
-builder (working title Waystation) on the game's production, haulers and restoration rules, run on
-the real clock while the page is closed. The system starts with nothing built: bodies are charted
-by survey and stations built in orbit round them, on a star-centred map in the Line style, with the
+builder, Cold Start, on the game's production, haulers and restoration rules, run on
+the real clock while the page is closed. The system starts with nothing built (its planets and moons rolled from
+the save's seed): bodies are charted by survey and stations built in orbit round them, on a star-centred map in the Line style, with the
 game's UI kit for its screens. Production chains run across the stations, with routes from the
 transport hub and a chain view that says what to mend, and a lab researches the game's blueprints,
 mods and industry. The waystation takes daily contracts and, once researched, auto-sells; the
-salvage yard picks components out of a wreck field. It installs as its own app, Waystation
+salvage yard picks components out of a wreck field. It installs as its own app, Cold Start
 (`idle/manifest.webmanifest`, icons `assets/idle-icon*`), and plays offline once opened (`idle/sw.js`,
 its list written by `npm run idle:sw`). `npm run idle:sim` plays 30 days with a scripted player and
-says when each station is built and when the first gear of each Mk comes out (`tools/idle-sim.js`). `?fresh` starts a new save, `?seed=` picks its system and `?fastresearch` runs
+says when each station is built and when the first gear of each Mk comes out (`tools/idle-sim.js`). `?fresh` starts a new save, `?seed=` picks its system (a random one otherwise) and `?fastresearch` runs
 the lab 60 times faster;
 `notes/idle.md` is the plan.
 

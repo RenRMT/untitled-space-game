@@ -1,7 +1,7 @@
 {
   "id": "waystation",
-  "name": "Waystation",
-  "short_name": "Waystation",
+  "name": "Cold Start",
+  "short_name": "Cold Start",
   "description": "An idle station builder: chart a dead system, build its stations and run its production chains on the real clock.",
   "start_url": "./",
   "scope": "./",

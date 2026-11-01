@@ -2,7 +2,8 @@
 // the targets in notes/idle.md (Numbers): when each station is built, and when the first gear of
 // each Mk comes out of the shipyard. The rules are the page's own (src/idle/rules.js), so what this
 // reports is what a player who plays like the script would see.
-//   node tools/idle-sim.js [--days=30] [--seed=1] [--log]   (npm run idle:sim -- …)
+//   node tools/idle-sim.js [--days=30] [--seed=1] [--layout=2] [--log]   (npm run idle:sim -- …)
+// --layout=1 is the galaxy's own system, the same bodies for every seed (saves from before version 5).
 //
 // The player checks in every 2 minutes for the first half hour, every 15 minutes to the end of the
 // second hour, then every 3 hours, day and night. At each check-in, after settling to now, it:
@@ -10,28 +11,30 @@
 // uses first); delivers the contracts it can; sells what it doesn't keep (what the next station and
 // the next research cost, and up to 20 of every input an order at the station uses); takes the chain's fixes
 // (routes, shuttles, orders); keeps an order going for each good the next station or research
-// needs, and for the best gear of one line (deflectors) at the shipyard; buys drills while they
+// needs, and for the best gear of one line (deflectors) at the shipyard, first among its orders; buys drills while they
 // cost a fifth of its credits or less; surveys the nearest signal while it has twice the price; and
 // queues research in a fixed order of preference. --log prints each check-in that changed something.
 // Runs in Node.
 
 import { Config } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
+
+const R0 = IdleRules;
 import { Recipes } from '../src/rules/recipes.js';
 
 const args = process.argv.slice(2);
 const opt = (k, d) => { const a = args.find((s) => s.startsWith(`--${k}=`)); return a ? +a.split('=')[1] : d; };
-const DAYS = opt('days', 30), SEED = opt('seed', 1), LOG = args.includes('--log');
+const DAYS = opt('days', 30), SEED = opt('seed', 1), LAYOUT = opt('layout', R0.LAYOUT), LOG = args.includes('--log');
 const R = IdleRules, I = R.industry, MIN = 60e3, HOUR = 3600e3, DAY = 24 * HOUR;
 const T0 = Date.UTC(2026, 10, 2, 8); // a Monday morning
 const LINE = 'deflector';
 const PREFER = [
   'ext.drill.1', 'ind.speed.1', 'trade.auto', 'ind.bays.1', 'ext.drill.2', 'log.routes.1', 'trade.contracts', 'ind.storage.1',
   'ind.speed.2', 'log.haulers.1', `bp.${LINE}-2`, 'ind.bays.2', 'trade.bonus.1', `bp.${LINE}-3`, 'ext.drill.3', 'ind.speed.3',
-  'log.routes.2', `bp.${LINE}-4`, 'ind.storage.2', 'trade.auto.2', `bp.${LINE}-5`, 'trade.bonus.2', 'ind.lab.1',
+  'log.routes.2', `bp.${LINE}-4`, `bp.${LINE}-5`, 'ind.storage.2', 'trade.auto.2', 'trade.bonus.2', 'ind.lab.1',
 ];
 
-const w = R.world(SEED), state = R.empty(w, T0), way = w.waystation.key;
+const w = R.world(SEED, LAYOUT), state = R.empty(w, T0), way = w.waystation.key;
 const field = w.sites.find((s) => s.kind === 'field');
 const milestones = [], gearFirst = {}, income = {};
 const earn = (k, n) => { income[k] = (income[k] || 0) + n; };
@@ -122,6 +125,17 @@ function orders(t) {
     R.setShuttle(state, w, from, null, t);
     if (kinds.length) R.addRoute(state, w, from, way, kinds, t);
   }
+  // A good wanted at the waystation and short there, made at a station that sends it elsewhere: a
+  // route of it to the waystation (added to one already there, else if one is spare), or failing
+  // that a shuttle (which carries what the station makes) until the waystation has enough.
+  const makes = (key) => new Set(I.at(state.industry, key).flatMap((o) => Object.keys(Config.RECIPES[o.recipe].out)));
+  for (const [k, n] of Object.entries(want)) {
+    if ((stock(way)[k] || 0) >= n) continue;
+    const st = stationsOn().find((x) => x.key !== way && makes(x.key).has(k));
+    if (!st || I.shuttle(state.industry, st.key)?.stops[1].station === way) continue;
+    if (R.routes(state).some((r) => r.stops[0].station === st.key && r.stops[1].station === way && R.carries(r).includes(k))) continue;
+    if (!R.addRoute(state, w, st.key, way, [k], t) && !I.shuttle(state.industry, st.key)) R.setShuttle(state, w, st.key, way, t);
+  }
   // A drill site whose good is wanted at the waystation, shuttling it somewhere that doesn't use it:
   // to the waystation instead.
   for (const site of w.sites.filter((x) => state.drills[x.key])) {
@@ -133,7 +147,7 @@ function orders(t) {
   // Stop gear and consumables nobody wants any more (a contract's, delivered).
   for (const o of [...state.industry.orders]) {
     const out = Object.keys(Config.RECIPES[o.recipe].out)[0], it = Recipes.item(out);
-    if (['gear', 'consumable', 'mod'].includes(it?.kind) && !(out in want) && o.station !== R.stationOf(w, 'build.shipyard').key) R.cancel(state, w, o.id);
+    if (['gear', 'consumable', 'mod'].includes(it?.kind) && !(out in want) && !(o.station === R.stationOf(w, 'build.shipyard').key && o.recipe.startsWith(`make.${LINE}-`))) R.cancel(state, w, o.id);
   }
   // A drill for every raw input an order uses that no drill pulls.
   const drilled = new Set(state.industry.orders.filter((o) => R.isSite(o.station)).map((o) => Object.keys(Config.RECIPES[o.recipe].out)[0]));
@@ -149,6 +163,9 @@ function orders(t) {
       if (old) R.change(state, w, old.id, best, t);
       else if (I.at(state.industry, ship.key).length < R.env(state).slotsAt(ship.key)) R.place(state, w, ship.key, best, t);
     }
+    // ... first among the shipyard's orders, so contracts' gear doesn't take its inputs.
+    const mine = I.at(state.industry, ship.key).find((o) => o.recipe === best);
+    if (mine) while (R.raise(state, w, mine.id, t));
   }
 }
 
@@ -198,7 +215,7 @@ for (let t = 2 * HOUR; t <= DAYS * DAY; t += 3 * HOUR) times.push(t);
 for (const dt of times) turn(T0 + dt);
 
 const built = milestones.filter(([, s]) => s.startsWith('built'));
-console.log(`Idle sim: seed ${SEED} (${w.galaxy.name}), ${DAYS} days, ${times.length} check-ins\n`);
+console.log(`Idle sim: seed ${SEED}, layout ${LAYOUT} (${w.galaxy.name}), ${DAYS} days, ${times.length} check-ins\n`);
 console.log('Built:');
 for (const [t, s] of built) console.log(`  ${at(t).padEnd(10)} ${s.slice(6)}`);
 console.log('\nFirst gear:');

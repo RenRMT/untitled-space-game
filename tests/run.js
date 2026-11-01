@@ -4242,6 +4242,70 @@ test('idle: auto-sell sells the picked goods at the waystation on the clock\'s s
   assert.deepStrictEqual(many.sold, one.sold);
 });
 
+test('idle: a system rolled from the seed (layout 2): the bodies differ by seed, and each has every raw good the chain needs; layout 1 stays as it was', () => {
+  const NEEDED = ['iron', 'silicates', 'deuterium', 'titanium-ore', 'tungsten', 'rare-earths', 'sulfur'];
+  const makeup = (w) => w.sites.map((x) => `${x.kind}:${x.body?.type || ''}`).join(' ');
+  const seen = new Set();
+  for (let seed = 1; seed <= 8; seed++) {
+    const w = IdleRules.world(seed, IdleRules.LAYOUT);
+    assert.strictEqual(w.layout, IdleRules.LAYOUT);
+    assert.strictEqual(w.stations.length, IdleConfig.BUILDS.length, `seed ${seed}: a station of each type`);
+    const goods = new Set(w.sites.flatMap((x) => x.goods));
+    for (const g of NEEDED) assert(goods.has(g), `seed ${seed}: ${g} somewhere`);
+    assert.strictEqual(makeup(IdleRules.world(seed, IdleRules.LAYOUT)), makeup(w), 'the same every time');
+    seen.add(makeup(w));
+  }
+  assert(seen.size >= 6, `systems differ: ${seen.size} of 8`);
+  assert.strictEqual(makeup(IdleRules.world(1)), makeup(IdleRules.world(2)), 'layout 1: the same bodies for every seed');
+  // A save from before layouts (version 4) keeps its system.
+  const w = IdleRules.world(1), d = JSON.parse(JSON.stringify(IdleRules.empty(w, 1e12)));
+  delete d.layout;
+  assert.strictEqual(IdleRules.read(d).layout, 1);
+  assert.strictEqual(IdleRules.empty(IdleRules.world(3, 2), 1e12).layout, 2);
+});
+
+test('idle: selling a trade good by the hundred drives its price down there, and it recovers on the clock', () => {
+  const T = 1e12, { w, s } = idleBuilt(T), way = w.waystation.key;
+  const p0 = IdleRules.priceOf(s, w, way, 'iron', T);
+  s.industry.stock[way] = { iron: 100 };
+  const first = IdleRules.sell(s, w, way, 'iron', 50, T).credits;
+  const second = IdleRules.sell(s, w, way, 'iron', 50, T).credits;
+  assert(second < first, `the second fifty fetch less: ${second} < ${first}`);
+  const low = IdleRules.priceOf(s, w, way, 'iron', T);
+  assert(low < p0);
+  const later = IdleRules.priceOf(s, w, way, 'iron', T + 2 * IdleConfig.TRADE_MARKET.halfLife);
+  assert(later > low, 'recovering');
+  assert.strictEqual(IdleRules.priceOf(s, w, way, 'iron', T + 60 * IdleConfig.TRADE_MARKET.halfLife), p0, 'back in time');
+});
+
+test('idle: blueprints are drawn up at the shipyard, and the higher Mks take longer', () => {
+  const T = 1e12, w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+  const planets = w.sites.filter((x) => x.kind === 'planet');
+  s.charted.push(...planets.map((x) => x.key));
+  const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
+  for (const [i, b] of IdleConfig.BUILDS.entries()) {
+    if (b.type === 'capital') break;
+    s.industry.stock[w.waystation.key] = { ...b.goods };
+    s.credits += b.credits;
+    assert(IdleRules.build(s, w, b.id, hosts[i], T), b.id);
+  }
+  s.credits = 1e7;
+  s.industry.stock[w.waystation.key] = { 'carbon-fibre': 50, 'steel-pipe': 50, electronics: 50 };
+  assert.strictEqual(IdleRules.researchStatus(s, w, 'bp.deflector-2').away, 'capital', 'not before the shipyard');
+  const t = (id) => IdleConfig.PACKAGES[id].time;
+  assert(t('bp.deflector-4') / t('bp.deflector-3') > Research.PACKAGES['bp.deflector-4'].time / Research.PACKAGES['bp.deflector-3'].time);
+});
+
+test('idle: contracts grow with the stations built, and some ask for the dearest things on offer', () => {
+  const T = 1e12, pay = (n) => {
+    const { w, s } = idleBuilt(T);
+    s.built = s.built.slice(0, n);
+    IdleRules.settle(s, w, T);
+    return IdleRules.contracts(s).reduce((a, c) => a + c.reward, 0);
+  };
+  assert(pay(7) > 2 * pay(2), `${pay(7)} vs ${pay(2)}`);
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);
