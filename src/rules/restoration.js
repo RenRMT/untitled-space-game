@@ -6,6 +6,7 @@
 // routes); the first project is the ore works' shuttle alone.
 // Pure: what's done is a list of project ids (cargo.restored).
 //
+//   Restoration.create({ list?, online? }) -> an instance with the API below over another project list
 //   Restoration.ONLINE                       station types online from the start
 //   Restoration.PROJECTS[id] / LIST          { id, name, type (the station type it restores) | null,
 //                                              shuttle (the station type it gives a shuttle) | null,
@@ -16,9 +17,9 @@
 //   Restoration.restore(id, done, stock, credits) -> { take: { [kind]: n }, credits } | null   (what it costs, if it can be paid)
 // ES module (`Restoration`); also runs in Node.
 
-const Restoration = (() => {
-  const ONLINE = ['waystation', 'mining camp'];
-  const LIST = [
+const GAME = {
+  online: ['waystation', 'mining camp'],
+  list: [
     {
       id: 'shuttle.ore', name: 'Ore works shuttle', type: null, shuttle: 'mining camp',
       goods: { 'steel-pipe': 6, 'carbon-fibre': 2 }, credits: 400, requires: [],
@@ -49,7 +50,12 @@ const Restoration = (() => {
       goods: { electronics: 10, 'steel-pipe': 16, tungsten: 6, 'titanium-ore': 6 }, credits: 10000, requires: ['restore.fabricator'],
       note: 'Assembles gear from Mk II, mods and, one day, the gate. Sells hulls.',
     },
-  ];
+  ],
+};
+
+// An instance over a project list (the game's by default; the idle game, src/idle/, has its own).
+function create({ list = GAME.list, online: ONLINE = GAME.online } = {}) {
+  const LIST = list;
   const PROJECTS = Object.fromEntries(LIST.map((p) => [p.id, p]));
 
   const online = (type, done) => ONLINE.includes(type) || LIST.some((p) => p.type === type && done.includes(p.id));
@@ -67,6 +73,8 @@ const Restoration = (() => {
   }
 
   return { ONLINE, LIST, PROJECTS, online, shuttle, status, restore };
-})();
+}
+
+const Restoration = { ...create(), create };
 
 export { Restoration };

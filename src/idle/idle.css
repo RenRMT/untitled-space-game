@@ -1,0 +1,48 @@
+/* The idle game's page (idle/index.html): the system on a full-screen canvas, the bar along the
+   top and a sheet from the bottom, built from the UI kit (src/ui/kit.css, kit-lowpoly.css). Laid
+   out for a phone held upright; on a wider screen the sheet keeps a phone's width. */
+html, body { margin: 0; height: 100%; background: var(--bg, #05060a); color: var(--hud, #cfd8ff); font: 500 14px var(--sans, system-ui, sans-serif); overflow: hidden; }
+#map { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
+
+#bar {
+  position: fixed; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 12px;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 8px; background: linear-gradient(var(--bg), rgba(5, 6, 10, 0));
+  pointer-events: none;
+}
+#bar > * { pointer-events: auto; }
+#bar .ui-title { font-size: 18px; }
+#credits { margin-left: auto; font: 600 15px var(--mono); color: var(--bright); white-space: nowrap; }
+#restore-btn { max-width: 46vw; min-height: 40px; padding: 0 12px; }
+#restore-btn > span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#restore-btn.ready { border-color: var(--good); color: var(--bg); background: var(--good); }
+
+#sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; max-width: 480px; max-height: 62vh; overflow-y: auto;
+  box-sizing: border-box; padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  background: var(--panel); border: 1px solid var(--line); border-bottom: 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  backdrop-filter: blur(6px); display: flex; flex-direction: column; gap: 8px;
+}
+#sheet[hidden] { display: none; }
+.idle-top { display: flex; align-items: flex-start; gap: 8px; }
+.idle-top > div { flex: 1; min-width: 0; }
+.idle-x { flex: none; min-width: var(--hit); padding: 0; }
+.idle-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.idle-row { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.idle-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bright); }
+.idle-acts { display: flex; gap: 4px; }
+.idle-acts .ui-btn { min-height: 34px; padding: 0 10px; }
+.idle-order { padding: 6px 0; border-bottom: 1px solid var(--line-soft); }
+.idle-sub { font: 400 12px var(--mono); color: var(--dim); margin-top: 4px; }
+.idle-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.idle-chips .ui-btn { min-height: 36px; }
+.idle-picks { display: flex; flex-direction: column; gap: 6px; }
+.idle-picks .ui-btn { min-height: 40px; justify-content: flex-start; text-transform: none; letter-spacing: 0.02em; }
+.idle-picks .price { margin-left: auto; padding-left: 8px; opacity: 0.8; }
+.idle-gap { margin-top: 6px; }
+.idle-dot { display: inline-block; flex: none; width: 10px; height: 10px; border-radius: 3px; background: var(--c); margin-right: 6px; vertical-align: -1px; }
+
+#load {
+  position: fixed; left: 50%; top: 40%; transform: translateX(-50%); padding: 10px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); font: 500 13px var(--mono);
+}
+#load[hidden] { display: none; }

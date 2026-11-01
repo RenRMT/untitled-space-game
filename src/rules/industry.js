@@ -21,13 +21,17 @@
 //   order: { id, station (key), name (the station's), type (its market type), recipe, left: n | null
 //            (null: while inputs last), made, at, next, paused }
 //     at / next: when the run under way started and finishes (ms), or null between runs
+//   Industry.create({ recipes?, process?, stations?, storage?, slots? }) -> an instance with the API below over
+//     other tables (the game's by default; Industry is that instance): the idle game's adds extraction
 //   Industry.PROCESS[station type] -> [process (Recipes.BAYS id)], STATIONS[process] -> where it's done
 //   Industry.processes(station type) -> [process]
 //   Industry.STORAGE, SLOTS, LOYALTY { required, start }, MAX_EVENTS
-//   Industry.env(lab) -> env                 times, room and slots, given the research done (rules/research.js)
+//   Industry.env(lab) -> env                 times, room and slots, given the research done (rules/research.js);
+//     an env may also have slotsAt(station key) -> n, the orders that station takes (over slots(env)),
+//     and roomAt(station key) -> n, room added to (or, below 0, taken from) that station's stock
 //   Industry.canMake(station type, recipe id), slots(env), at(state, key) -> [order]
 //   Industry.trusted(loyalty, key)           whether a station takes orders ({ [key]: n })
-//   Industry.capacity(state, env, t)         room in each station's stock
+//   Industry.capacity(state, env, t, key?)   room in each station's stock (key: that one's, with env.roomAt)
 //   Industry.stockAt(state, key) -> counts   a station's stock (never undefined; don't write to it)
 //   Industry.used(state, key), reserved(state, key), free(state, key, env, t)
 //   Industry.runTime(order, env, t) -> ms    one run of its recipe
@@ -62,12 +66,19 @@ import { Logistics } from './logistics.js';
 import { Recipes } from './recipes.js';
 import { Research } from './research.js';
 
-const Industry = (() => {
-  const PROCESS = { 'mining camp': ['ore'], minor: ['volatiles'], 'salvage yard': ['recycle'], major: ['parts'], waystation: ['bench'], capital: ['shipyard', 'bench'] };
-  const STATIONS = { ore: 'the ore works', volatiles: 'the volatiles works', recycle: 'the salvage yard', parts: 'the fabricator', bench: 'the waystation, the shipyard', shipyard: 'the shipyard' };
+// The game's tables; another page (the idle game, src/idle/) makes its own instance with create().
+const DEFAULTS = {
+  process: { 'mining camp': ['ore'], minor: ['volatiles'], 'salvage yard': ['recycle'], major: ['parts'], waystation: ['bench'], capital: ['shipyard', 'bench'] },
+  stations: { ore: 'the ore works', volatiles: 'the volatiles works', recycle: 'the salvage yard', parts: 'the fabricator', bench: 'the waystation, the shipyard', shipyard: 'the shipyard' },
+  storage: { base: 100 }, // room in each station's stock
+  slots: 1, // orders per station, before research
+};
+
+function create(tables = {}) {
+  const RECIPES = tables.recipes || Recipes.RECIPES, LIST = Object.values(RECIPES);
+  const PROCESS = tables.process || DEFAULTS.process, STATIONS = tables.stations || DEFAULTS.stations;
+  const STORAGE = tables.storage || DEFAULTS.storage, SLOTS = tables.slots ?? DEFAULTS.slots;
   const processes = (type) => PROCESS[type] || [];
-  const STORAGE = { base: 100 }; // room in each station's stock
-  const SLOTS = 1; // orders per station, before research
   // A station takes orders from loyalty `required` up; every station starts at `start`, and
   // missions done for it raise it (game/jobs.js; the waystation's own: game/missions.js).
   const LOYALTY = { required: 1, start: 0 };
@@ -88,34 +99,34 @@ const Industry = (() => {
 
   function env(lab) {
     return {
-      recipe: (id) => Recipes.RECIPES[id],
+      recipe: (id) => RECIPES[id],
       speed: (t) => 1 + Research.bonusAt(lab, t, 'speed'),
       room: (t) => Research.bonusAt(lab, t, 'storage'),
       slots: () => Research.bonusAt(lab, Infinity, 'bays'),
     };
   }
 
-  const canMake = (type, recipe) => processes(type).includes(Recipes.RECIPES[recipe]?.bay);
+  const canMake = (type, recipe) => processes(type).includes(RECIPES[recipe]?.bay);
   const slots = (e) => SLOTS + e.slots();
   const at = (state, key) => state.orders.filter((o) => o.station === key);
   const trusted = (loyalty, key) => (loyalty?.[key] ?? LOYALTY.start) >= LOYALTY.required;
 
-  const capacity = (state, e, t) => STORAGE.base + e.room(t);
+  const capacity = (state, e, t, key) => STORAGE.base + e.room(t) + (key != null && e.roomAt ? e.roomAt(key) : 0);
   const used = (state, key) => total(stockAt(state, key));
-  const reserved = (state, key) => at(state, key).reduce((n, o) => n + (o.next != null ? total(Recipes.RECIPES[o.recipe].out) : 0), 0);
-  const free = (state, key, e, t) => Math.max(0, capacity(state, e, t) - used(state, key) - reserved(state, key));
+  const reserved = (state, key) => at(state, key).reduce((n, o) => n + (o.next != null ? total(RECIPES[o.recipe].out) : 0), 0);
+  const free = (state, key, e, t) => Math.max(0, capacity(state, e, t, key) - used(state, key) - reserved(state, key));
 
   const runTime = (o, e, t) => Math.round((e.recipe(o.recipe).time * 1000) / (e.speed(t) * Research.config.speed));
 
   const missing = (state, R, key) => Object.entries(R.in).find(([k, n]) => (stockAt(state, key)[k] || 0) < n)?.[0] ?? null;
   // Whether a run would overfill its station's stock (a run that makes no more than it takes always fits).
-  const full = (state, R, key, e, t) => total(R.out) > total(R.in) && used(state, key) - total(R.in) + reserved(state, key) + total(R.out) > capacity(state, e, t);
+  const full = (state, R, key, e, t) => total(R.out) > total(R.in) && used(state, key) - total(R.in) + reserved(state, key) + total(R.out) > capacity(state, e, t, key);
 
   function status(state, o) {
     if (o.next != null) return { id: 'running' };
     if (o.left === 0) return { id: 'done' };
     if (o.paused) return { id: 'paused' };
-    const R = Recipes.RECIPES[o.recipe], k = missing(state, R, o.station);
+    const R = RECIPES[o.recipe], k = missing(state, R, o.station);
     return k ? { id: 'starved', missing: k } : { id: 'blocked' };
   }
 
@@ -135,7 +146,7 @@ const Industry = (() => {
     stock: (key) => stockAt(state, key),
     free: (key) => free(state, key, e, t),
     put: (key, kind, n) => put(state, key, kind, n),
-    made: (key) => new Set(at(state, key).flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].out))),
+    made: (key) => new Set(at(state, key).flatMap((o) => Object.keys(RECIPES[o.recipe].out))),
   });
   // A hauler at its stop: unload, load, then fly on or wait; what it unloaded goes in the log.
   function visit(state, r, h, e, t, log) {
@@ -214,7 +225,7 @@ const Industry = (() => {
 
   const runs = (count) => (count === null ? null : Math.max(1, Math.floor(count)));
   function place(state, station, recipe, count, e, now, loyalty) {
-    if (!canMake(station.type, recipe) || (loyalty && !trusted(loyalty, station.key)) || at(state, station.key).length >= slots(e)) return null;
+    if (!canMake(station.type, recipe) || (loyalty && !trusted(loyalty, station.key)) || at(state, station.key).length >= (e.slotsAt?.(station.key) ?? slots(e))) return null;
     const o = { id: state.seq++, station: station.key, name: station.name, type: station.type, recipe, left: runs(count), made: 0, at: null, next: null, paused: false };
     state.orders.push(o);
     kick(state, e, now);
@@ -223,7 +234,7 @@ const Industry = (() => {
   // The run under way stops: its inputs go back to its station's stock.
   function stop(state, o) {
     if (o.next == null) return;
-    for (const [k, n] of Object.entries(Recipes.RECIPES[o.recipe].in)) put(state, o.station, k, n);
+    for (const [k, n] of Object.entries(RECIPES[o.recipe].in)) put(state, o.station, k, n);
     o.at = o.next = null;
     if (o.left !== null) o.left++;
   }
@@ -302,10 +313,10 @@ const Industry = (() => {
 
   // Raw: mined, collected or salvaged, so no order is expected to make it.
   const isRaw = (kind) => Goods.isSalvage(kind) || Goods.type(kind)?.stage === 'raw';
-  const makers = (state, kind) => state.orders.filter((o) => kind in Recipes.RECIPES[o.recipe].out);
+  const makers = (state, kind) => state.orders.filter((o) => kind in RECIPES[o.recipe].out);
   // The recipe that makes a kind: the first known one, recycling only when nothing else makes it.
   function recipeFor(kind, known) {
-    const rs = Recipes.producers(kind).filter((r) => !known || known.has(r.id));
+    const rs = LIST.filter((r) => kind in r.out).filter((r) => !known || known.has(r.id));
     return rs.find((r) => !r.id.startsWith('recycle.')) || rs[0] || null;
   }
   const stageFor = (kind, known) => recipeFor(kind, known)?.bay || null;
@@ -314,13 +325,13 @@ const Industry = (() => {
   // there and unloads it at a stop here.
   const takes = (spec, kind, made) => spec === 'all' || (spec === 'made' ? made.has(kind) : !!spec?.[kind]);
   function routed(state, kind, from, to) {
-    const made = (key) => new Set(at(state, key).flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].out)));
+    const made = (key) => new Set(at(state, key).flatMap((o) => Object.keys(RECIPES[o.recipe].out)));
     return state.routes.some((r) => r.stops.some((a) => a.station === from && takes(a.load, kind, made(from)))
       && r.stops.some((b) => b.station === to && takes(b.unload, kind, made(to))));
   }
 
   function lineage(state, recipe, known, key) {
-    return Object.entries(Recipes.RECIPES[recipe].in).map(([kind, need]) => {
+    return Object.entries(RECIPES[recipe].in).map(([kind, need]) => {
       const have = stockAt(state, key)[kind] || 0, by = makers(state, kind), raw = isRaw(kind);
       const source = have >= need ? 'storage' : by.some((o) => o.station === key) ? 'order'
         : by.some((o) => routed(state, kind, o.station, key)) ? 'route' : by.length ? 'away' : raw ? 'raw' : 'stage';
@@ -333,7 +344,7 @@ const Industry = (() => {
     for (const a of orders) {
       for (const b of orders) {
         if (a === b) continue;
-        for (const kind of Object.keys(Recipes.RECIPES[a.recipe].out)) if (kind in Recipes.RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind, away: a.station !== b.station, routed: a.station !== b.station && routed(state, kind, a.station, b.station) });
+        for (const kind of Object.keys(RECIPES[a.recipe].out)) if (kind in RECIPES[b.recipe].in) links.push({ from: a.id, to: b.id, kind, away: a.station !== b.station, routed: a.station !== b.station && routed(state, kind, a.station, b.station) });
       }
     }
     // Groups: orders joined by links (union-find on ids).
@@ -349,11 +360,11 @@ const Industry = (() => {
     return [...groups.values()].map((list) => {
       const ids = new Set(list.map((o) => o.id));
       const own = links.filter((l) => ids.has(l.from));
-      const inputs = new Set(list.flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].in)));
-      const end = [...new Set(list.flatMap((o) => Object.keys(Recipes.RECIPES[o.recipe].out)))].filter((k) => !inputs.has(k));
+      const inputs = new Set(list.flatMap((o) => Object.keys(RECIPES[o.recipe].in)));
+      const end = [...new Set(list.flatMap((o) => Object.keys(RECIPES[o.recipe].out)))].filter((k) => !inputs.has(k));
       const gaps = [];
       for (const o of list) {
-        for (const kind of Object.keys(Recipes.RECIPES[o.recipe].in)) {
+        for (const kind of Object.keys(RECIPES[o.recipe].in)) {
           if (!isRaw(kind) && !makers(state, kind).length) gaps.push({ order: o.id, kind, stage: stageFor(kind) });
         }
       }
@@ -366,6 +377,8 @@ const Industry = (() => {
     runTime, status, place, change, pause, cancel, move, deposit, withdraw, kick, settle, summary, delivered, addRoute, removeRoute, shuttle, setShuttle,
     isRaw, routed, lineage, pipelines,
   };
-})();
+}
+
+const Industry = { ...create(), create };
 
 export { Industry };

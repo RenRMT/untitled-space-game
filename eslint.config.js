@@ -20,6 +20,12 @@ export default [
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*'], message: 'src/race imports src/core, art, flight and rules only (notes/race.md).' }] }] },
   },
   {
+    // The idle game (idle/, src/idle/) is built on the shared layers too: core, art, world and rules,
+    // never the game's own state or panels.
+    files: ['src/idle/**/*.js'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/ui/*'], message: 'src/idle imports src/core, art, world and rules only (notes/idle.md).' }] }] },
+  },
+  {
     // The race's service worker: a worker's globals, not a page's.
     files: ['race/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
