@@ -14,7 +14,8 @@
 //   map    only on the galaxy map: the stellar stream round the halo
 //
 // Entities made here (flight/entities.js draws them):
-//   { kind: 'deep', key, name, sub, color, look, x, y, radius, extent, labelled?, motion? }
+//   { kind: 'deep', key, name, sub, color, look, x, y, radius, extent, labelled?, motion?, circles? }
+//       circles: a moon's orbit round its site (world/orbits.js; flight/scene.js moves it)
 //       look 'site' (art/sites.js: siteData, artR, part, reach; site for its phase), 'star', 'planet'
 //       or 'moon' (body). radius: how big it is to tap and approach; extent: how far its drawing
 //       reaches (a beam, a jet, a disc), for culling.
@@ -33,6 +34,7 @@
 import { ArtSites } from '../art/sites.js';
 import { hashInt, mulberry32, seedToInt, weightedPick } from '../core/rng.js';
 import { DeepSpace } from '../world/deep-space.js';
+import { Orbits } from '../world/orbits.js';
 
 const DeepSites = (() => {
   const TAU = Math.PI * 2;
@@ -129,7 +131,7 @@ const DeepSites = (() => {
           });
           for (let i = 0; i < s.moons; i++) {
             const a = r() * TAU, d = 1800 + i * 1200 + r() * 500, mr = 60 + Math.round(r() * 30);
-            entities.push(moon(s, `d${s.id}.m${i}`, r() < 0.5 ? 'ice' : 'dark', mr, s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, `${s.name} ${'ab'[i]}`));
+            entities.push(moon(s, `d${s.id}.m${i}`, r() < 0.5 ? 'ice' : 'dark', mr, a, d, `${s.name} ${'ab'[i]}`));
           }
           break;
         }
@@ -142,7 +144,7 @@ const DeepSites = (() => {
           });
           if (s.moon) {
             const a = r() * TAU, d = 900 + r() * 500;
-            entities.push(moon(s, `d${s.id}.m0`, s.type === 'ice' ? 'ice' : 'dark', 55 + Math.round(r() * 25), s.x + Math.cos(a) * d, s.y + Math.sin(a) * d, `${s.name} a`));
+            entities.push(moon(s, `d${s.id}.m0`, s.type === 'ice' ? 'ice' : 'dark', 55 + Math.round(r() * 25), a, d, `${s.name} a`));
           }
           break;
         }
@@ -207,8 +209,13 @@ const DeepSites = (() => {
     }
     return { entities, lazy };
 
-    function moon(s, key, type, mr, x, y, name) {
-      return { kind: 'deep', key, look: 'moon', body: { type, r: mr, seed: seedToInt(key) % 9973 }, name, sub: `Moon of ${s.name}`, color: colorOf(s.kind), radius: mr * 1.3, extent: mr * 1.5, labelled: false, x, y };
+    // A moon round the site's centre, `d` out, at angle `a` at t = 0: it goes round (circles:
+    // world/orbits.js's orbit, which flight/scene.js moves).
+    function moon(s, key, type, mr, a, d, name) {
+      return {
+        kind: 'deep', key, look: 'moon', body: { type, r: mr, seed: seedToInt(key) % 9973 }, name, sub: `Moon of ${s.name}`, color: colorOf(s.kind), radius: mr * 1.3, extent: mr * 1.5, labelled: false,
+        x: s.x + Math.cos(a) * d, y: s.y + Math.sin(a) * d, circles: { around: s, orbit: d, angle: a, period: Orbits.period('moon', d), deep: true },
+      };
     }
     // Rocks lying in a disc (art/sites.js discOf, at the art radius R the site is drawn at): a
     // young disc's rocks icy outside and rocky in, a debris ring's what is left of its planets.

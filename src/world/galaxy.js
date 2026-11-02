@@ -40,13 +40,14 @@ import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
 import { DeepSpace } from './deep-space.js';
 import { Factions } from './factions.js';
 import { GalaxyShape } from './galaxy-shape.js';
+import { Orbits } from './orbits.js';
 import { SolarSystem } from './solar-system.js';
 
 const Galaxy = (() => {
   const SS = SolarSystem;
 
   // Bump whenever a change here moves systems or gates for the same seed.
-  const VERSION = 5;
+  const VERSION = 6;
 
   const DEFAULTS = {
     // The system's params, over SolarSystem.params: one of each planet type (inner to outer) and
@@ -98,6 +99,18 @@ const Galaxy = (() => {
     // Gates: along each major arm, gated systems near these points of its length (0 at the bar);
     // wormholes: how many.
     gates: { trunk: [0.06, 0.38, 0.68, 0.94], reach: 0.14, wormholes: 1 },
+    // Observatories: some of the deep-space sites (a `share` of those of the kinds below) have a
+    // station in a wide orbit round them, studying them. orbit: its distance from the site, by
+    // kind (world units; a disc's by its own reach, beyond the disc), clear of what the site's
+    // flight art draws there (flight/deep-sites.js); cultures: the cultures they're built in, by weight.
+    observatories: {
+      share: 0.45,
+      orbit: {
+        'variable-star': 4500, pulsar: 5000, 'neutron-star': 4500, magnetar: 7000, 'stellar-black-hole': 8000, 'recurrent-nova': 7000,
+        'brown-dwarf': 5500, 'rogue-planet': 3200, 'white-dwarf': 5500, 'wolf-rayet': 8000, 'protoplanetary-disc': 1.3,
+      },
+      cultures: [[0, 2], [1, 2], [2, 2], [SS.DRIFTER, 3]],
+    },
     // Each major arm's name, picked from these.
     armNames: ['Lantern', 'Cinder', 'Orison', 'Harrow', 'Tamsin', 'Verge', 'Halcyon', 'Ember', 'Solace', 'Wake'],
   };
@@ -247,11 +260,34 @@ const Galaxy = (() => {
     });
 
     const deep = DeepSpace.generate(seed, shape, systems, G.deep);
-    return assemble(seed, G, systems, links, wormholes, shape, arms, deep);
+    return assemble(seed, G, systems, links, wormholes, shape, arms, deep, observatories(base, G, deep.sites, systems));
+  }
+
+  // The observatories round some deep-space sites, each a minor station on a wide orbit round its
+  // site (world/orbits.js), owned by the faction of its culture. Keys `ds<site id>`; `system` is the
+  // nearest system's index (for what asks which system a station is in), `site` its site's id.
+  function observatories(base, G, sites, systems) {
+    const O = G.observatories, r = mulberry32(hashInt(base, 2, 0x0b5e));
+    const pick = (list) => { let u = r() * list.reduce((a, [, w]) => a + w, 0); for (const [v, w] of list) if ((u -= w) < 0) return v; return list[0][0]; };
+    const out = [];
+    for (const s of sites) {
+      const d0 = O.orbit[s.kind];
+      if (!d0 || s.path || r() >= O.share) continue;
+      const orbit = d0 < 10 ? s.r * d0 : d0, angle = r() * Math.PI * 2, culture = pick(O.cultures);
+      const near = systems.reduce((b, x) => (Math.hypot(x.origin.x - s.x, x.origin.y - s.y) < Math.hypot(b.origin.x - s.x, b.origin.y - s.y) ? x : b));
+      const word = s.kind === 'brown-dwarf' || s.kind === 'rogue-planet' || s.kind === 'protoplanetary-disc' ? 'Outpost' : 'Observatory';
+      out.push({
+        key: `ds${s.id}`, name: `${s.name} ${word}`, size: 'minor', site: s.id, system: near.index, culture,
+        owner: Factions.ofCulture(SS.CULTURES[culture].lineage).id, seed: Math.floor(r() * 2 ** 31), reach: 140,
+        orbit, angle, period: Orbits.period('site', orbit), x: s.x + Math.cos(angle) * orbit, y: s.y + Math.sin(angle) * orbit,
+        market: { kind: 'outpost', type: 'observatory' },
+      });
+    }
+    return out;
   }
 
   // Everything together, renumbered and rekeyed, with the lookups.
-  function assemble(seed, G, systems, links, wormholes, shape, arms, deep) {
+  function assemble(seed, G, systems, links, wormholes, shape, arms, deep, observed = []) {
     // Everything together, renumbered and rekeyed.
     const all = { stars: [], planets: [], moons: [], belts: [], fields: [], nebulae: [], stations: [], wrecks: [], contacts: [], packs: [], asteroids: [], gates: [], pockets: [] };
     for (const s of systems) {
@@ -274,6 +310,8 @@ const Galaxy = (() => {
         for (const o of list) all[k].push(tag(o));
       }
     }
+    // The observatories out in deep space, after every system's stations.
+    for (const st of observed) { st.id = all.stations.length; all.stations.push(st); }
     // Gate pairs: each gate knows the one at the other end.
     for (const g of all.gates) g.link = all.gates.find((o) => o !== g && o.system === g.to && o.to === g.system).id;
 
@@ -283,7 +321,7 @@ const Galaxy = (() => {
     const nearestSystem = (x, y) => systems.reduce((b, s) => (edgeDist(s, x, y) < edgeDist(b, x, y) ? s : b));
     // What each system's hazards are made of (rules/hazards.js), and deep space's: nothing.
     for (const s of systems) s.place = { stars: [s.star], planets: s.planets, moons: s.moons, stations: s.stations };
-    const DEEP = { stars: [], planets: [], moons: [], stations: [] };
+    const DEEP = { stars: [], planets: [], moons: [], stations: observed }; // an observatory shelters its approaches
     const F = deep ? deep.fields : null;
     // Where in the galaxy a point is, and the fields there (deep space's; none for the showcase alone).
     const galactic = (x, y) => {

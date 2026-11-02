@@ -6,6 +6,7 @@ import { ArtBodies } from '../art/bodies.js';
 import { ArtCrew } from '../art/crew.js';
 import { ArtCulture } from '../art/culture.js';
 import { Art } from '../art/render.js';
+import { Clock } from '../core/clock.js';
 import { Params, Store } from '../core/store.js';
 import { Scene } from '../flight/scene.js';
 import { Travel } from '../flight/travel.js';
@@ -23,7 +24,15 @@ import { trustOnline } from './restoration.js';
 import { SHIP, intro, notify, ship } from './state.js';
 import { arriveAt } from './travel.js';
 
-export const world = { galaxy: null, cultures: null, scene: null, knowledge: null, travel: null };
+export const world = { galaxy: null, cultures: null, scene: null, knowledge: null, travel: null, orbitT: 0 };
+
+// The orbit clock (world/orbits.js): seconds, set from the real clock when a galaxy loads, then run
+// on with flight and map travel, so things stand still while the ship is docked, landed or the map
+// is open, and a ship launching or taking off finds its station or planet where it left it.
+export function tickOrbits(dt) {
+  world.orbitT += dt;
+  world.scene.move(world.orbitT);
+}
 
 // The galaxy is generated from SYSTEM_CONFIG (world/system-config.js); a ?seed= URL parameter
 // overrides its seed, and the map's Reroll asks for a new one. ?pirates brings the pirates back
@@ -43,6 +52,8 @@ export function loadGalaxy(galaxy) {
   world.galaxy = galaxy;
   world.cultures = ArtCulture.forGalaxy(galaxy);
   world.scene = Scene.create(galaxy, world.cultures);
+  world.orbitT = Clock.now() / 1000;
+  world.scene.move(world.orbitT); // everything that goes round, where it is now
   // What the player knows (fog of war); ?fresh forgets saved charts.
   world.knowledge = Knowledge.create(galaxy, { fresh: Params.has('fresh') });
   world.android = ArtCulture.xeno(galaxy.seed).android; // what squad members are built in

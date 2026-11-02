@@ -75,6 +75,7 @@ const FILES = [
   '../src/world/factions.js',
   '../src/world/galaxy-shape.js',
   '../src/world/galaxy.js',
+  '../src/world/orbits.js',
   '../src/world/security.js',
   '../src/world/solar-system.js',
   './',

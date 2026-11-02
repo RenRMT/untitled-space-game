@@ -1,5 +1,5 @@
-// Restoring stations (notes/hazards.md phase 6): at the start only the waystation and the ore works
-// (the mining camp) are online; the rest are restored one after another at the waystation, each
+// Restoring stations (notes/hazards.md phase 6): at the start only the waystation, the ore works
+// (the mining camp) and the observatories out in deep space are online; the rest are restored one after another at the waystation, each
 // project paid with goods from the waystation's stock and credits. The goods come from the places
 // the stations before it opened up, so restoring is what draws the player further out. A restored
 // station takes production orders and brings a shuttle (its output sent on: rules/industry.js
@@ -18,7 +18,7 @@
 // ES module (`Restoration`); also runs in Node.
 
 const GAME = {
-  online: ['waystation', 'mining camp'],
+  online: ['waystation', 'mining camp', 'observatory'],
   list: [
     {
       id: 'shuttle.ore', name: 'Ore works shuttle', type: null, shuttle: 'mining camp',

@@ -332,6 +332,14 @@ const SystemMap = (() => {
     ctx.strokeStyle = 'rgba(138, 180, 255, 0.13)';
     ctx.lineWidth = 1;
     for (const p of system.planets) { ctx.beginPath(); ctx.arc(cx, cy, p.orbit * scale, 0, Math.PI * 2); ctx.stroke(); }
+    // Zoomed in, the moons' orbits round their planets and the stations' low ones (world/orbits.js).
+    ctx.strokeStyle = 'rgba(138, 180, 255, 0.09)';
+    for (const o of [...system.moons, ...system.stations.filter((st) => st.planet !== undefined)]) {
+      const c = system.planets.find((p) => p.id === (o.parent ?? o.planet)), rpx = o.orbit * scale;
+      if (!c || rpx < 5) continue;
+      const [px, py] = toScreen(c.x, c.y);
+      ctx.beginPath(); ctx.arc(px, py, rpx, 0, Math.PI * 2); ctx.stroke();
+    }
     for (const b of system.belts) {
       ctx.strokeStyle = 'rgba(178, 157, 132, 0.07)';
       ctx.lineWidth = Math.max(2, b.width * scale);
@@ -524,6 +532,26 @@ const SystemMap = (() => {
   const labelScale = () => (galaxy.shape ? 1100 / galaxy.shape.R : 0);
   const LANDMARKS = new Set(['smbh', 'satellite-galaxy']);
 
+  // The observatories round the known sites (world/galaxy.js), once their orbit shows: the orbit
+  // faintly, the station a diamond in its culture's colour, named closer in.
+  const observatories = () => galaxy.stations.filter((st) => st.site !== undefined && siteState(galaxy.sites[st.site]) === 'known' && st.orbit * view.scale >= 3);
+  function drawObservatories() {
+    ctx.textAlign = 'center';
+    ctx.font = Theme.font(11);
+    for (const st of observatories()) {
+      const c = galaxy.sites[st.site], [cx, cy] = toScreen(c.x, c.y), rpx = st.orbit * view.scale;
+      if (cx < -rpx - 40 || cy < -rpx - 40 || cx > view.w + rpx + 40 || cy > view.h + rpx + 40) continue;
+      ctx.strokeStyle = 'rgba(138, 180, 255, 0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cx, cy, rpx, 0, Math.PI * 2); ctx.stroke();
+      const [x, y] = toScreen(st.x, st.y);
+      ctx.fillStyle = galaxy.cultureColor(st.culture);
+      diamond(x, y, 3.5);
+      if (rpx >= 30 && (!selected || pickedOf(selected) !== st)) { ctx.fillStyle = '#c3cae0'; ctx.fillText(st.name, x, y - 9); }
+    }
+    ctx.textAlign = 'left';
+  }
+
   function drawSite(s, state) {
     const p = siteAt(s), [x, y] = toScreen(p.x, p.y), color = SITES[s.kind].color, rad = siteDot(s);
     if (x < -rad - 40 || y < -rad - 40 || x > view.w + rad + 40 || y > view.h + rad + 40) return;
@@ -650,6 +678,7 @@ const SystemMap = (() => {
     }
     ctx.setLineDash([]);
     if (spiral) for (const s of galaxy.sites) { const st = siteState(s); if (st) drawSite(s, st); }
+    if (spiral) drawObservatories();
     ctx.textAlign = 'center';
     for (const s of list) {
       const [x, y] = toScreen(s.origin.x, s.origin.y);
@@ -749,6 +778,7 @@ const SystemMap = (() => {
       // A system by its star, a site, or else any point in space.
       for (const s of shownSystems()) consider(s.origin, { system: s }, STAR_DOT);
       if (galaxy.shape) for (const s of shownSites()) if (s.kind !== 'stellar-stream' && s.kind !== 'nuclear-cluster') consider(siteAt(s), { site: s }, Math.min(siteDot(s), 40));
+      if (galaxy.shape) for (const st of observatories()) consider(st, { station: st }, 4);
       return best || { point: { x: wx, y: wy } };
     }
     for (const s of system.stations) consider(s, { station: s }, 2);
@@ -858,7 +888,9 @@ const SystemMap = (() => {
     const sys = selected.system && charted(selected.system) ? selected.system : null;
     const holder = sys && (sys.holder ? Factions.get(sys.holder) : { name: 'No one', color: UNCHARTED });
     const site = selected.site && siteState(selected.site) === 'known' ? selected.site : null;
-    const kindLine = site && { text: `${SITES[site.kind].label}${site.parent !== undefined ? ` in ${galaxy.sites[site.parent].name}` : ''}`, color: SITES[site.kind].color };
+    const watched = selected.station && selected.station.site !== undefined ? galaxy.sites[selected.station.site] : null;
+    const kindLine = site ? { text: `${SITES[site.kind].label}${site.parent !== undefined ? ` in ${galaxy.sites[site.parent].name}` : ''}`, color: SITES[site.kind].color }
+      : watched && { text: `In orbit round ${watched.name}`, color: SITES[watched.kind].color };
     callout.show({
       lines: [name && { text: name, kind: 'name' }, kindLine, holder && { text: `${sys.region.label} · ${holder.name}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
         ...(mode === 'galaxy' ? galaxyLines(at) : [])].filter(Boolean),

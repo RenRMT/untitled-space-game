@@ -402,7 +402,7 @@ const ArtStationRoles = (() => {
   // (rules/industry.js PROCESS): the capital builds ships, the hub fabricates parts, minor stations
   // refine volatiles, the waystation runs the labs and the transport hub directs the routes. Mining
   // camps and the salvage yard have none: they keep the plain minor station (art/blueprints.js).
-  const ROLE_OF = { capital: 'shipyard', major: 'factory', minor: 'refinery', waystation: 'research', 'transport hub': 'command' };
+  const ROLE_OF = { capital: 'shipyard', major: 'factory', minor: 'refinery', waystation: 'research', 'transport hub': 'command', observatory: 'research' };
 
   return { ROLES, LABEL, DESC, EXISTING, ROLE_OF, existingRole, create, build };
 })();

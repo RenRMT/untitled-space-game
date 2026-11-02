@@ -1711,7 +1711,7 @@ function removeTestJobs() {
 test('jobs: every station posts one, named for it; a hunt is taken, fought and handed in, and opens production there', () => {
   installTestJobs();
   game(`cargo.story.add('gates'); showGates(); combatMode.set('rounds'); fight.grace = 1e9; cargo.hull = SHIP.hull; repairSquad()`);
-  assert.ok(game(`world.galaxy.stations.filter((st) => !st.waystation).every((st) => cargo.board.list.some((j) => j.tier === 'station' && j.scope === st.key))`), 'every station has a job of its own');
+  assert.ok(game(`world.galaxy.stations.filter((st) => !st.waystation && st.site === undefined).every((st) => cargo.board.list.some((j) => j.tier === 'station' && j.scope === st.key))`), 'every station has a job of its own (but the observatories out in deep space)');
   // A hunt at a station that takes production orders.
   game(`globalThis.__job = cargo.board.list.find((j) => j.tier === 'station' && j.steps.length === 2 && j.steps[1].type === 'fight'
     && Industry.processes(world.scene.stations.find((s) => s.key === j.scope).market.type).length && !Industry.trusted(cargo.loyalty, j.scope) && cargo.missions.status(j.id) === 'offered');`);
@@ -2484,6 +2484,25 @@ test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pock
   assert.strictEqual(hp(), h0, 'no burn mid-dash');
   game('dashState.t = -1; dashState.cool = 0');
   takeOffTo();
+});
+
+test('planets, moons and stations go round with flight; a ship parked by a station is carried along, still in docking range', () => {
+  if (game('!!docked')) game('launch()');
+  game(`globalThis.__st = world.scene.stations.find((s) => s.station.planet !== undefined); placeBeside(__st);
+    globalThis.__p = world.scene.byKey.get(world.galaxy.planets[__st.station.planet].name);
+    globalThis.__was = { t: world.orbitT, x: __st.x, y: __st.y, px: __p.x, py: __p.y, gap: gapTo(__st) }`);
+  browser.frames(600); // ten seconds
+  assert.ok(game('world.orbitT - __was.t') > 9, 'the orbit clock ran with flight');
+  assert.ok(game('Math.hypot(__st.x - __was.x, __st.y - __was.y)') > 50, 'the station went round');
+  assert.ok(game('Math.hypot(__p.x - __was.px, __p.y - __was.py)') > 20, 'and its planet round the star');
+  assert.ok(game('Math.abs(Math.hypot(__st.x - __p.x, __st.y - __p.y) - __st.station.orbit) < 1e-6'), 'at its orbit round the planet');
+  assert.ok(game('gapTo(__st)') < game('DOCK.range'), `the ship kept up with it (${game('gapTo(__st)')} from it)`);
+  // Docked, everything waits: it launches beside the station where it was left.
+  game('dock(__st); globalThis.__t = world.orbitT');
+  browser.frames(120);
+  assert.strictEqual(game('world.orbitT'), game('__t'), 'docking stops the orbit clock');
+  game('launch()');
+  assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
 });
 
 test('nothing was drawn at a non-finite position', () => {

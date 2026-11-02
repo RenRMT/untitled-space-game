@@ -173,7 +173,7 @@ export function takeOff() {
   if (L.phase === 'surface') leaveSurface();
   // Back out the way it came, to the side of the planet facing its star, at the usual zoom.
   const e = L.e, star = world.galaxy.nearestSystem(e.x, e.y).star, a = Math.atan2(star.y - e.y, star.x - e.x), d = e.body.r * (e.body.ring ? 2.1 : 1.3) + 260;
-  L.out = { x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, a };
+  L.out = { x: e.x + Math.cos(a) * d, y: e.y + Math.sin(a) * d, a, dx: Math.cos(a) * d, dy: Math.sin(a) * d }; // dx, dy: from the planet, which goes round meanwhile
   L.from = { x: L.out.x, y: L.out.y, cx: L.out.x, cy: L.out.y };
   // The same path, from the usual zoom, kept at the point it's at now (mid-landing, it turns back).
   const now = lz(L.t);
@@ -230,6 +230,9 @@ export function tickLanding(dt) {
     if (fadeAt(t0) <= 0 && fadeAt(L.t) > 0) setDown();
     if (L.t >= 1) { L.phase = 'surface'; setMode('landing', false); setMode('landed', true); Feedback.emit('docked'); enterSurface(e, surface().W); }
   } else {
+    // Out beside the planet where it is now (it goes round: world/orbits.js).
+    L.out.x = L.from.x = L.from.cx = e.x + L.out.dx;
+    L.out.y = L.from.y = L.from.cy = e.y + L.out.dy;
     L.t = Math.max(0, L.t - dt / P.time);
     if (fadeAt(L.t) > 0) fly(surface().W, dt, true);
     if (L.t <= 0) { finish(); return true; }

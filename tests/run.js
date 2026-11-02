@@ -469,7 +469,7 @@ test('the system has its region, factions and stations owned by the faction of t
 test('the scene builds every system, filing everything where near() finds it', () => {
   for (const seed of [1, 2, 3, 'abc']) {
     const sc = sceneOf(seed), s = galaxies.get(seed);
-    assert.strictEqual(thingsOf(seed, 'station').length, s.stations.length);
+    assert.strictEqual(thingsOf(seed, 'station').length, s.stations.filter((st) => st.site === undefined).length); // (the observatories are deep space's)
     assert.strictEqual(thingsOf(seed, 'asteroid').length, s.asteroids.length);
     assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length);
     assert.strictEqual(thingsOf(seed, 'moon').length, s.moons.length);
