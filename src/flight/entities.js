@@ -27,9 +27,11 @@
 import { ArtBodies } from '../art/bodies.js';
 import { ArtItems } from '../art/items.js';
 import { Art } from '../art/render.js';
+import { ArtSites } from '../art/sites.js';
 import { hashInt, mulberry32 } from '../core/rng.js';
 import { Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
+import { DeepSpace } from '../world/deep-space.js';
 import { Factions } from '../world/factions.js';
 
 const Entities = (() => {
@@ -103,6 +105,14 @@ const Entities = (() => {
     ctx.restore();
   }
   const spinning = (e, t) => e.spin + t * e.art.spinRate;
+  // A deep-space site's drawing (art/sites.js), at its flight art radius, doing what it does now:
+  // beams and jets turn, a Cepheid swells, a nova bursts on the real clock, as on the galaxy map.
+  function siteArt(ctx, e, style, x, y) {
+    ctx.save();
+    ctx.translate(x, y);
+    ArtSites.draw(ctx, e.siteData, style, { part: e.part, reach: e.reach, phase: DeepSpace.phase(e.site, Date.now() / 1000) });
+    ctx.restore();
+  }
   const named = (e) => [color().neutral, e.radius + 20]; // anything else with a name
 
   const KINDS = {
@@ -160,6 +170,27 @@ const Entities = (() => {
       label: () => null,
       mark: (e) => ({ color: e.color, r: 1.6 }),
       card: (e) => ({ title: 'Gas pocket', sub: `${GAS_LABEL[e.pocket.type] || 'Nebula gas'} · ${e.pocket.r < 70 ? 'small' : e.pocket.r < 85 ? 'medium' : 'large'}`, color: e.color }),
+    },
+    // What lies between the systems (flight/deep-sites.js): a site drawn by art/sites.js, or one
+    // of the stars, planets and moons a site is made of. Nothing to do there yet but look.
+    deep: {
+      order: 0.5, selectable: true, hit: 1,
+      draw(ctx, e, style, x, y, { t }) {
+        if (e.look === 'star') Art.drawStar(ctx, e.body, style, { x, y, t });
+        else if (e.look === 'planet') Art.drawPlanet(ctx, e.body, style, { x, y, lightAngle: -2.2 });
+        else if (e.look === 'moon') ArtBodies.drawMoon(ctx, e.body, style, { x, y });
+        else siteArt(ctx, e, style, x, y);
+      },
+      label: (e) => (e.labelled ? [e.color, e.radius + 24] : null),
+      mark: (e) => ({ color: e.color, r: e.look === 'moon' ? 2 : 3 }),
+      card: (e) => ({ title: e.name, sub: e.sub, color: e.color }),
+    },
+    // A site's part spanning it, flown through: a shell, a bubble, a dark globule (flight/deep-sites.js).
+    'deep-area': {
+      order: -0.5,
+      draw: (ctx, e, style, x, y) => siteArt(ctx, e, style, x, y),
+      label: () => null,
+      mark: () => null,
     },
     station: {
       order: 2, selectable: true, hit: 0.75, // docking arms reach far: only the core counts

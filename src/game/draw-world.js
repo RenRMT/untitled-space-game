@@ -84,7 +84,7 @@ export function drawItemHalos(list, t) {
 }
 
 export function visible(e) {
-  const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.radius || 100) * 1.3;
+  const hw = view.w / 2 / view.zoom, hh = view.h / 2 / view.zoom, r = (e.extent || e.radius || 100) * 1.3; // extent: how far a deep-space site's drawing reaches (a beam, a jet)
   return Math.abs(e.x - cam.x) < hw + r && Math.abs(e.y - cam.y) < hh + r;
 }
 

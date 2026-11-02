@@ -8,7 +8,10 @@
 // - wrecks: hidden derelicts, ambush victims and the salvage yard's, each with things floating
 //   around it to collect: salvaged components (better in more dangerous space, world/security.js) or,
 //   from freighters, trade goods (rules/goods.js, rarer ones less often). Each item has a stable key,
-// - pirate ships circling their pack's centre.
+// - pirate ships circling their pack's centre,
+// - the deep-space sites between the systems, as bodies, places, areas or sky (flight/deep-sites.js);
+//   the rocks some of them hold are built when first near, like a system's, keyed `d<site>.a<n>`;
+//   the moving ones (an interstellar object, a runaway star) where the real clock puts them.
 // near(x, y, range) finds what is around a point from a coarse grid, so a frame only poses and
 // draws what is close; stars and nebulae are too big for the grid and always checked.
 // Lazy, per system: the bodies, stations and gates of every system are built at once, but a
@@ -21,6 +24,8 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtStationRoles } from '../art/station-roles.js';
 import { ArtUtil } from '../art/util.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
+import { DeepSpace } from '../world/deep-space.js';
+import { DeepSites } from './deep-sites.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
 
@@ -93,6 +98,20 @@ const Scene = (() => {
       });
     });
 
+    // ---------- Deep space ----------
+    // Sites are big or few, so all of them are checked each frame; their rocks are built when near.
+    const deep = DeepSites.build(galaxy);
+    for (const e of deep.entities) { addWide(e); if (e.key) byKey.set(e.key, e); }
+    const deepLazy = new Map(deep.lazy.map((l) => [l.site.id, l]));
+    const sitesBuilt = new Set();
+    function ensureSite(id) {
+      const l = deepLazy.get(id);
+      if (!l || sitesBuilt.has(id)) return false;
+      sitesBuilt.add(id);
+      for (const a of l.rocks()) add(Entities.asteroid(a));
+      return true;
+    }
+
     // ---------- Per system, built when first near ----------
     const systemCount = galaxy.systems ? galaxy.systems.length : 1;
     const bySystem = (list) => {
@@ -163,11 +182,12 @@ const Scene = (() => {
       buildPirates(si);
       return true;
     }
-    const ensureAll = () => { for (let i = 0; i < systemCount; i++) ensure(i); };
+    const ensureAll = () => { for (let i = 0; i < systemCount; i++) ensure(i); for (const id of deepLazy.keys()) ensureSite(id); };
     // The systems whose disc comes within `range` of (x, y).
     const ensureNear = (x, y, range) => {
       if (!galaxy.systems) { ensure(0); return; }
       for (const sys of galaxy.systems) if (Math.hypot(sys.origin.x - x, sys.origin.y - y) - sys.radius * 1.1 <= range + MARGIN) ensure(sys.index);
+      for (const [id, l] of deepLazy) if (!sitesBuilt.has(id) && Math.hypot(l.site.x - x, l.site.y - y) - l.site.r <= range + MARGIN) ensureSite(id);
     };
 
     // Everything that may be within `range` of (x, y): the big things that reach it, and all
@@ -175,7 +195,10 @@ const Scene = (() => {
     function near(x, y, range) {
       ensureNear(x, y, range);
       const out = [];
-      for (const e of wide) if (Math.hypot(e.x - x, e.y - y) - e.radius <= range) out.push(e);
+      for (const e of wide) {
+        if (e.motion && e.motion.type === 'path') pose(e); // a mover is wherever it is now
+        if (Math.hypot(e.x - x, e.y - y) - (e.extent || e.radius) <= range) out.push(e);
+      }
       const reach = range + MARGIN;
       for (let cy = cellOf(y - reach); cy <= cellOf(y + reach); cy++) {
         for (let cx = cellOf(x - reach); cx <= cellOf(x + reach); cx++) {
@@ -189,17 +212,25 @@ const Scene = (() => {
     // get(key) finds anything, building its system first if it hasn't been.
     const systemOfKey = (key) => { const m = /^(\d+)\./.exec(key); return m ? Number(m[1]) : 0; };
     const get = (key) => {
-      if (!byKey.has(key) && typeof key === 'string') ensure(systemOfKey(key));
+      const site = typeof key === 'string' && /^d(\d+)\./.exec(key);
+      if (!byKey.has(key) && site) ensureSite(Number(site[1]));
+      else if (!byKey.has(key) && typeof key === 'string') ensure(systemOfKey(key));
       return byKey.get(key) || null;
     };
-    return { entities, stations, gates, stars, near, byKey, get, ensure, ensureAll, built: (i) => built.has(i) };
+    return { entities, stations, gates, stars, near, byKey, get, ensure, ensureAll, ensureSite, built: (i) => built.has(i) };
   }
 
-  // Position, heading and thrust of an entity at time t.
+  // Position, heading and thrust of an entity at time t. A deep-space mover runs on the real clock
+  // (as on the galaxy map), whatever t is.
   function pose(e, t) {
     const m = e.motion;
     if (!m) {
       e.a = (e.angle || 0) + (e.tumble || 0) * t;
+      return;
+    }
+    if (m.type === 'path') {
+      const p = DeepSpace.positionAt(m.site, Date.now() / 1000);
+      e.x = p.x; e.y = p.y;
       return;
     }
     if (m.type === 'orbit') {
