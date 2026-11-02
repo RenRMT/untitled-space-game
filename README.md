@@ -11,12 +11,20 @@ cargo pods) and consumables used from the HUD (coolant, purges, fuel canisters, 
 let a run last longer. `notes/hazards.md` is the plan.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
-The game is pared back to its core mechanics for now: the galaxy is one showcase system (one of
-each planet, moon and station type, a nebula, an asteroid field, a Wedge jump gate and a wormhole
-that lead to each other), one trade good per category and one component per salvage type, six
-factions (one per culture, all neutral but the hostile aliens), no generated jobs, and the
-introduction switched off. `notes/archived-systems.md` says what was taken out and how to bring it
-back.
+The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms
+(settled ones in the habitable band, sparse frontier ones in the core and out at the rim), far enough
+apart that crossing between them is a trip, a few jump gates and a wormhole as shortcuts, and between
+the systems the places a galaxy holds: the supermassive black hole at the centre, star clusters,
+H II regions and dark clouds, supernova remnants with their pulsars, black holes, white dwarfs,
+brown dwarfs, rogue planets, interstellar objects passing through, and fields of dust, gas and
+cosmic rays. The game starts in the showcase system (one of each planet, moon and station type, a
+nebula and an asteroid field) on an outer arm. `notes/galaxy.md` is how it is grown. The deep-space
+sites are on the galaxy map for now; flying to them finds nothing yet.
+
+The game is otherwise pared back to its core mechanics for now: one trade good per category and one
+component per salvage type, six factions (one per culture, all neutral but the hostile aliens), no
+generated jobs, and the introduction switched off. `notes/archived-systems.md` says what was taken
+out and how to bring it back.
 
 ## Running it
 
@@ -136,7 +144,7 @@ Each file starts with a comment saying what it does and, for modules other parts
 npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node
 npm run lint   # ESLint (eslint.config.js)
 npm run perf   # tests/perf.js: frame cost in Chromium as a phone would run it (needs Playwright)
-npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: its system's planets, stations, gates and factions
+npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: its systems, gates and deep-space sites (--svg file draws it)
 ```
 
 The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in a stand-in
@@ -148,5 +156,5 @@ hazards instead of fighting, phase by phase); `archived-systems.md` lists system
 bring each back (the latest: pirates and fighting switched off); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
-overview (the factions, their standings and the story beats); `galaxy.md` is how the factions are
-placed in a generated galaxy; `race.md` is the plan for the race (`/race/`), phase by phase.
+overview (the factions, their standings and the story beats); `galaxy.md` is how the galaxy is
+grown (its shape, systems, gates and deep space) and how the factions were placed in it; `race.md` is the plan for the race (`/race/`), phase by phase.

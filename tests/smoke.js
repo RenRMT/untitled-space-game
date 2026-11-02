@@ -1179,7 +1179,8 @@ test('hazards: a gas giant\'s moon irradiates the ship, and docking decontaminat
 test('hazards: a solar flare is warned of; a planet\'s shadow shelters the ship, the open doesn\'t', () => {
   calmSky();
   game(`fight.grace = 1e9; cargo.rad = 0; hazard.heat = 0; globalThis.__terran = world.galaxy.planets.find((p) => p.type === 'terran');
-    placeShip(__terran.x + __terran.x / Math.hypot(__terran.x, __terran.y) * (__terran.body + 400), __terran.y + __terran.y / Math.hypot(__terran.x, __terran.y) * (__terran.body + 400), 0);
+    { const S = world.galaxy.stars[__terran.system], dx = __terran.x - S.x, dy = __terran.y - S.y, d = Math.hypot(dx, dy);
+      placeShip(__terran.x + dx / d * (__terran.body + 400), __terran.y + dy / d * (__terran.body + 400), 0); }
     while (Hazards.flare(world.galaxy.seed, simTime).phase !== 'warning') skipTime(1);`);
   browser.frames(2);
   assert.match(game('hazardLine()[0]'), /^SOLAR FLARE IN \d+ s · in shadow/);
@@ -1332,37 +1333,39 @@ test('no edge: the ship flies on out of the system into deep space', () => {
   browser.frames(2);
 });
 
-test('a jump gate is offline until the gates come online, then takes the ship to the wormhole and back', () => {
-  game('globalThis.__gate = world.scene.gates.find((g) => !g.gate.wormhole); globalThis.__hole = world.scene.gates.find((g) => g.gate.wormhole)');
-  assert.ok(game('!!__gate && !!__hole'), 'the system has a gate and a wormhole');
-  assert.strictEqual(game('__gate.gate.link'), game('__hole.gate.id'), 'the gate leads to the wormhole');
+test('a jump gate is offline until the gates come online, then takes the ship to the next system and back; wormholes are never offline', () => {
+  game('globalThis.__gate = world.scene.gates.find((g) => !g.gate.wormhole && g.gate.system === 0); globalThis.__there = world.scene.gates[__gate.gate.link]; globalThis.__hole = world.scene.gates.find((g) => g.gate.wormhole)');
+  assert.ok(game('!!__gate && !!__there && !!__hole'), 'the start has a gate, and the galaxy a wormhole');
+  assert.strictEqual(game('__there.gate.link'), game('__gate.gate.id'), 'the gates lead to each other');
+  assert.notStrictEqual(game('__there.gate.system'), 0, 'into another system');
   assert.strictEqual(game('__gate.art.culture.lineage'), 'wedge', 'a Wedge gate');
   game('cargo.story.delete("gates"); showGates()');
   game('fight.grace = 1e9; select(null); placeShip(__gate.x, __gate.y + __gate.radius + 120)');
   browser.frames(2);
   assert.ok(game('frameList.some((e) => e.kind === "gate" && visible(e))'), 'the gate is drawn');
-  // Offline: no jump and no name for where it leads; the wormhole is never offline.
+  // Offline: no jump and no name for where it leads; a wormhole is never offline.
   assert.deepStrictEqual(game(`[actions.state('jump', __gate).ok, actions.state('jump', __gate).label]`), [false, 'Gate offline']);
   assert.strictEqual(game('__gate.name'), 'Jump gate');
   assert.match(game('describe(__gate).subtitle'), /^Offline/);
   assert.notStrictEqual(game(`actions.state('jump', __hole).label`), 'Gate offline');
-  assert.match(game('describe(__hole).subtitle'), /^Wormhole to the .* Gate\b/);
+  assert.match(game('describe(__hole).subtitle'), /^Wormhole to the .* Wormhole\b/);
   game('cargo.story.add("gates"); showGates()');
   assert.match(game('__gate.name'), /Gate$/);
-  assert.match(game('describe(__gate).subtitle'), /^Jump gate to the .* Wormhole\b/);
+  assert.match(game('describe(__gate).subtitle'), /^Jump gate to the .* Gate\b/);
   assert.ok(game(`actions.state('jump', __gate).ok`), 'in range to jump');
   game('select(__gate)');
   browser.key('j');
   browser.frames(2);
   assert.ok(game('warp.on'), 'the jump is under way');
   assert.ok(until('!warp.on', 60 * 3), 'and over within a few seconds');
-  assert.match(game('toast.text'), /^Through to the .* Wormhole/);
-  assert.ok(game('Math.hypot(ship.x - __hole.x, ship.y - __hole.y) < 800'), 'beside the wormhole');
-  // And back through the wormhole.
-  game('select(__hole)');
+  assert.match(game('toast.text'), /^Through to the .* Gate/);
+  assert.ok(game('Math.hypot(ship.x - __there.x, ship.y - __there.y) < 800'), 'beside the gate at the other end');
+  assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y).index'), game('__there.gate.system'), 'in the other system');
+  // And back.
+  game('select(__there)');
   browser.key('j');
   assert.ok(until('!warp.on', 60 * 3), 'the jump back is over');
-  assert.ok(game('Math.hypot(ship.x - __gate.x, ship.y - __gate.y) < 800'), 'beside the gate again');
+  assert.ok(game('Math.hypot(ship.x - __gate.x, ship.y - __gate.y) < 800'), 'beside the first gate again');
   game('select(null); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }');
   browser.frames(2);
 });

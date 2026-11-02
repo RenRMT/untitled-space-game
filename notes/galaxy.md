@@ -1,6 +1,182 @@
-# The galaxy and its factions
+# The galaxy
 
-> **Pared back (October 2026):** the galaxy is one showcase system for now, without regions or local situations; see `notes/archived-systems.md`. What follows describes the galaxy as it was.
+The play area is a **barred spiral galaxy** grown from the seed: about forty star systems along its
+arms, and between them the deep-space sites and fields that make the space between the systems a
+place. It is grounded in what real galaxies hold, not a model of one: each kind of place lives where
+its real counterpart tends to, at sizes a game can use. The code:
+
+- `src/world/galaxy-shape.js`: the shape (a density field) and its zones,
+- `src/world/galaxy.js`: where the systems go, what each is made of, the gate links, and the merged
+  galaxy object everything else reads,
+- `src/world/deep-space.js`: the deep-space sites and the galaxy-wide fields,
+- `src/ui/map.js`: the galaxy view,
+- `src/rules/knowledge.js`: which systems are charted and which dark sites have been found.
+
+To see what a seed gives, run `npm run galaxy -- <seed>`; add `--svg <file>` to draw it.
+
+## Scale
+
+Distances are what make a galaxy feel vast, so they are large, but a game has to cross them.
+
+| | World units | In play |
+| --- | --- | --- |
+| A system's radius | 40,000 (the start: 40,000) | the flight view's whole play area, as before |
+| Disc radius `R` | 1,600,000 | the start lies at 0.75 R; rim to core is about 10 minutes of cruise, 2.5 fast-forwarded |
+| Between system centres | at least 170,000 | at least 90,000 of empty space between edges; on an arm the nearest neighbour is usually 180,000–260,000 away, a minute or two of cruise |
+| A site from a system's edge | at least 25,000 | sites never crowd a system |
+| The black hole's clear zone | 120,000 | only the core's own sites inside it |
+
+Map travel burns one fuel per 8,000 units (`Hazards.config.fuel.travel`): a courier's tank of 100
+cruises half the disc's radius, so a hop to a neighbouring system takes about a third of it and the
+core is more than a tank away. The gates are the cheap way.
+
+## The shape
+
+`GalaxyShape.create(seed)` picks, from the seed: the disc's rotation and which way the arms wind, the
+bar's angle and length (half of it 0.24–0.3 R), and the arms' pitch (11–15°). Two **major arms** rise
+from the bar's two ends as logarithmic spirals out to the rim; up to two **spurs** branch off them
+part-way out. `density(x, y)` adds a bulge round the centre, the bar, a thin disc fading at the rim,
+and each arm (strongest along its spine, fading in at its root and out at its tip).
+
+`zoneAt(x, y)` says where a point is:
+
+| Zone | Where |
+| --- | --- |
+| `core` | within 0.13 R of the centre |
+| `bar` | along the bar |
+| `arm` | on an arm, with its `side`: `inner` (the trailing edge, where the dust lanes run) or `outer` (the leading edge, where stars are born) |
+| `interarm` | between the arms |
+| `rim` | past 0.88 R, off the arms |
+| `halo` | past the disc, beyond 1.02 R |
+
+## The systems
+
+The start (system 0) is placed first: on a major arm's spine, 0.75 R out. It is the showcase it
+always was (one of each planet and moon type, one of each station, a field and a nebula, the
+waystation where the game starts), so its keys keep no prefix. The others are drawn from the density
+(so the arms fill first), at least 170,000 apart and 240,000 from the centre, until there are forty.
+
+Each is a `SolarSystem.generate` from its own seed, with params for its zone (`Galaxy.params.zones`):
+
+| Zone | Stars | Nebulae | Planets |
+| --- | --- | --- | --- |
+| Core, bar | old: M, K, some G | 0–1 | as usual |
+| Arm, leading edge | young: B, A, G | 2–3 | as usual |
+| Arm, trailing edge | mixed | 1–2 | as usual |
+| Between the arms | G, K, M | 0–1 | as usual |
+| Rim | mostly M | 0–1 | 3–5 |
+
+**The habitable band.** Between 0.45 R and 0.86 R, off the core and the bar, systems are **settled**:
+a capital, a major hub, a minor station or two, a mining camp, sometimes a salvage yard. Outside it,
+in the hot crowded centre or out at the thin rim, they are **frontier**: no capital or hub, a station
+or none, more derelicts. Each system says which (`settled`) and its region says where (the arm's name,
+or the zone's: "Cinder Arm · settled", "Outer rim · frontier").
+
+Pirates stay off everywhere, as in the showcase (`?pirates` brings them back in every system).
+
+## Gates
+
+Most travel is cruising. The gates are sparse shortcuts:
+
+1. **A trunk along each major arm:** the systems nearest four points along it (6%, 38%, 68% and 94%
+   of its length), each linked to the next.
+2. **One link across the bar**, between the two trunks' roots.
+3. **The start's gate** (Wedge-built) into its own arm's trunk.
+4. **A wormhole** from the system nearest the core (one not already on a trunk) out to the far arm's
+   tip.
+
+That is eight to ten links. Every gated system is in one network with the start.
+
+## Deep space
+
+`DeepSpace.generate` places the sites after the systems, clear of them, each in the zones its kind
+grows in (`DeepSpace.KINDS`). **Luminous** sites (marked ☀ below) are on the chart from the start;
+**dark** ones are found by sensors: identified within 15,000 units of their reach and pinged within
+60,000, further with a better scanner (`Knowledge.SITE`), and pinged along a cruise as it passes.
+
+| Site | Where | Count | What it holds for later |
+| --- | --- | --- | --- |
+| ☀ Supermassive black hole ("Core A*") | the centre | 1 | its accretion disc, horizon, and a jet along an axis |
+| ☀ Nuclear star cluster | round the black hole | 1 | the densest crowd of old stars |
+| ☀ H II region | arms, leading edge | 3–5 | a glowing gas cloud of blobs, with Bok globules and young discs inside |
+| Bok globule | inside H II regions | 1–3 each | small, very dark clouds |
+| Protoplanetary disc | inside H II regions | 1–2 | a young star, its planets still forming (proplyds) |
+| Giant molecular cloud | arms, trailing edge; between the arms | 3–5 | cold dense gas: dusty, and it shields from cosmic rays |
+| ☀ Open cluster | arms, leading edge | 2–4 | 5–12 young blue stars together |
+| ☀ Globular cluster | the halo | 2–3 | hundreds of old stars, maybe a millisecond pulsar |
+| ☀ Supernova remnant | arms, the bar | 2–3 | an expanding shell, a pulsar or neutron star at its heart |
+| ☀ Pulsar | in remnants and globulars | — | a sweeping beam (`DeepSpace.phase`: its angle at t) |
+| Neutron star | the bar, between the arms | 1–2 | a magnetic field |
+| ☀ Magnetar | arms, the bar | 1 | an extreme field and its reach |
+| Stellar-mass black hole | the bar, between the arms | 2–3 | its mass and horizon |
+| ☀ Microquasar | the bar, arms | 1 | a black hole feeding on a companion, its jet precessing |
+| White dwarf | between the arms, the rim | 3–5 | 40% with a planetary nebula ring (☀ on the map as a ring) |
+| ☀ Recurrent nova | between the arms, the bar | 1–2 | a white dwarf that bursts on a seeded timer |
+| Kilonova remnant | between the arms, the bar, the rim | 1–2 | where neutron stars merged: gold, platinum, iridium |
+| ☀ Wolf–Rayet star | arms, leading edge | 1–3 | a massive star blowing a bubble with a fierce wind |
+| ☀ Cepheid variable | arms, between them | 2–3 | a star pulsing on a strict period: a beacon |
+| Brown dwarf | between the arms, the rim | 4–6 | a failed star (L, T or Y), 0–2 moons |
+| Rogue planet | the rim, between the arms, the halo | 4–6 | an ice or dark world, maybe a moon, maybe an ocean under the ice |
+| Interstellar object | crossing the disc | 2–4 | moving: in from outside and out again (`DeepSpace.positionAt`) |
+| ☀ Hypervelocity star | out from the core | 1 | moving: flung from the centre past the rim |
+| ☀ Stellar stream | the halo | 1 | an arc of old stars from a torn-up cluster |
+| ☀ Dwarf galaxy | beyond the rim | 1 | a small galaxy orbiting ours: a landmark |
+
+Moving sites run on the real clock (seconds since 1970), so they are where they are whenever the
+map opens; their paths never come within 1.5 system radii of a star.
+
+## Fields
+
+`galaxy.space` holds three galaxy-wide lookups, cheap enough for a frame, and `regionAt(x, y)`
+returns them with the zone, arm and site there:
+
+- **`mediumAt`**: the interstellar medium's density (0..1) and its phase: `molecular` in the clouds
+  and the central molecular zone (a dense ring round the core), `warm` in the H II regions, `hot` in
+  the core and the remnants, `void` in the superbubbles (hot near-empty cavities between the arms),
+  else `cold` or `warm` by density.
+- **`dustAt`**: high in the lanes along the arms' trailing edges, in the clouds and the central ring,
+  low in the superbubbles.
+- **`cosmicRaysAt`**: a background, strongest toward the core and in the two Fermi lobes either side
+  of it, round the remnants, pulsars, magnetars and microquasars, and in the black hole's jet;
+  higher in the superbubbles and cut by the shielding inside dense clouds.
+
+## The galaxy map
+
+The galaxy view draws the shape once to a layer of its own (its glow, warm at the core and blue on
+the arms, darkened by the dust; fading as the view closes in), every system's star (a faint dot until
+charted, then in its class's colour with its name), the gate links (wormholes violet), and the sites
+the player knows of (a '?' for a pinged dark one). Site names show as the view zooms in, the
+landmarks' always. Selecting a site or any point shows where it is in the galaxy and the fields
+there, and Travel goes there (to a small site's edge). `?dev` shows every site and its F key cycles
+an overlay of each field.
+
+## In flight
+
+Each system's hazards (heat, belts, moons, flares) are its own: `galaxy.placeAt(x, y)` gives the
+system a point is in, and deep space has no star, so no heat and no flares. The flight scene builds
+every system's bodies, stations and gates up front, and its rocks, pockets, wrecks and pirates when
+the camera first comes near it (`Scene`: `ensure`, `ensureAll`), with the same keys whatever the
+order.
+
+## Later
+
+- Flight art for each kind of site, and the galaxy's glow in the flight view's sky.
+- Mechanics on the fields: dust cuts sensor range, cosmic rays add to the radiation meter, the
+  molecular clouds hide and shield.
+- Moving hazards: pulsar beams and jets sweeping, a recurrent nova's burst, a Wolf–Rayet's wind
+  (the ion storm's push).
+- Places to land and mine: rogue planets, brown dwarfs' moons, kilonova debris rich in heavy metals,
+  protoplanetary discs dense with rock.
+- More from the research behind this: S-stars round the black hole, red supergiants and carbon
+  stars, binary and circumbinary systems, polluted white dwarfs, Oort clouds and Trojans inside
+  systems, high-velocity clouds at the rim.
+
+# The factions in the galaxy (as it was)
+
+> **Pared back (October 2026):** the factions, regions and local situations below are archived; see
+> `notes/archived-systems.md`. What follows describes how they were placed in the galaxy before it
+> became a spiral.
+
 
 How the sixteen factions of `notes/factions.md` are placed in a generated galaxy. The code is
 `src/world/factions.js` (the factions and the standing matrix), `src/world/regions.js` (regions,

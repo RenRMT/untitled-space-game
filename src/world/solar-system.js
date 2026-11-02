@@ -23,7 +23,7 @@
 //   (world/galaxy.js); a wormhole is the natural kind, placed and used the same way.
 // Derelicts and ambushes are the system's contacts: what sensors ping and map travel runs into.
 // Every part can be left out by its params, and `kinds` can ask for one of each planet and moon
-// type instead of picking them (the galaxy's one system does both).
+// type instead of picking them (the galaxy's start system, its showcase, does both).
 // Positions are world units: from the star, or from overrides.origin when given (where the star
 // sits in a galaxy of several systems; the query functions take those positions). Every tuning value lives in SolarSystem.params; pass
 // `overrides.params` to generate() to change any of them (nested objects merge, arrays and

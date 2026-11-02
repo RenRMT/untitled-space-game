@@ -1,38 +1,52 @@
-// The play area. It is pared back to a single solar system (world/solar-system.js) for now, so the
-// core gameplay can be worked on: a showcase holding one of each planet and moon type, one of each
-// kind of station, one nebula, one asteroid field, a jump gate (Wedge-built) and a wormhole. The
-// gate and the wormhole lead to each other. Galaxy.generate makes the system, gives each station
-// the faction of the culture it's built in (world/factions.js), and gathers everything into one
-// object that reads like a single system with a list of systems around it, as the flight view
-// (flight/scene.js, game/), map travel (flight/travel.js), fog of war (rules/knowledge.js) and
-// the map (ui/map.js) expect; the multi-system galaxy (regions, routes, politics) can come back
-// on the same shape.
-// - systems[i]: each system as SolarSystem.generate made it, already in place, plus `index` and
-//   its politics: region { key, label }, holder (faction id or null), branch (null), factions
-//   [{ id, hidden, stations }], situations ([]: no local situations yet), places (names jobs
-//   could use),
-// - links: [[i, j]] gate links between systems by index (i < j): none with one system,
+// The play area: a barred spiral galaxy of star systems grown from the seed (notes/galaxy.md).
+// The galaxy's shape (world/galaxy-shape.js) is a density field: a bulge round the centre, a bar
+// through it, two major arms from the bar's ends and maybe a spur or two. About forty solar
+// systems (world/solar-system.js) are placed by it, kept far apart (most of a minute's cruise
+// between neighbours), each made for the zone it sits in: old red stars in the core and the bar,
+// young bright ones on the arms, settled systems with stations in the habitable band, sparse
+// frontier systems outside it. The first is the start: the showcase (one of each planet, moon and
+// station type, a field, a nebula) on an outer arm, its waystation where the game begins. Between
+// the systems lie the deep-space sites and fields (world/deep-space.js): the black hole at the
+// centre, clusters, remnants, rogue planets and the rest. Jump gates are sparse: a trunk of gated
+// systems along each major arm, one link across the bar, a wormhole from near the core out to an
+// arm's tip, and the start's gate into its arm's trunk; everything else is reached by cruising.
+// With galaxy.spiral false it is the single showcase system as before (the idle game's stage).
+// Galaxy.generate gathers everything into one object that reads like a single system with a list
+// of systems around it, as the flight view (flight/scene.js, game/), map travel (flight/travel.js),
+// fog of war (rules/knowledge.js) and the map (ui/map.js) expect:
+// - systems[i]: each system as SolarSystem.generate made it, already in place, plus `index`, its
+//   `zone` and `arm` (world/galaxy-shape.js), whether it is `settled` (in the habitable band) and its
+//   politics: region { key, label }, holder (null), branch (null), factions [{ id, hidden,
+//   stations }], situations ([]), places (names jobs could use),
+// - links: [[i, j]] gate links between systems by index (i < j); wormholes: the same, for the
+//   links that are wormholes,
 // - stars, planets, moons, ...: every system's together. Ids are indices into these lists (a
 //   station's planet, a moon's parent, a contact's pack) and keys are unique across systems (the
 //   first system's keep their own; later ones get an `i.` prefix), so saves and lookups need no
 //   system. Each thing also says which system it belongs to (`system`); stations their `owner`,
 // - gates: { ..., system, link, to, wormhole? } with link the id of the gate (or wormhole) at the
 //   other end,
+// - shape (world/galaxy-shape.js), arms [{ index, name, major }], sites and `space` (the
+//   galaxy-wide fields: world/deep-space.js), siteAt(x, y, t?),
 // - systemAt(x, y): the system a point is in (within its radius), or null in deep space;
-//   nearestSystem(x, y): the one whose edge is closest,
+//   nearestSystem(x, y): the one whose edge is closest; placeAt(x, y): the { stars, planets,
+//   moons, stations } whose hazards reach a point (its system's; nothing in deep space),
 // - securityAt, nebulaAt, regionAt, stationDist as for one system; deep space is lawless and
-//   empty.
+//   empty. regionAt also says where in the galaxy a point is: zone, arm, site, and the fields there
+//   (medium, dust, cosmicRays).
 // ES module (`Galaxy`); also runs in Node (the tests).
 
 import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
+import { DeepSpace } from './deep-space.js';
 import { Factions } from './factions.js';
+import { GalaxyShape } from './galaxy-shape.js';
 import { SolarSystem } from './solar-system.js';
 
 const Galaxy = (() => {
   const SS = SolarSystem;
 
   // Bump whenever a change here moves systems or gates for the same seed.
-  const VERSION = 4;
+  const VERSION = 5;
 
   const DEFAULTS = {
     // The system's params, over SolarSystem.params: one of each planet type (inner to outer) and
@@ -57,7 +71,37 @@ const Galaxy = (() => {
     gate: { culture: 0 },
     // The android-run waystation the game starts at, on the outer edge across from the gate.
     waystation: { name: 'Waystation HD-1863' },
+    // false: the showcase system alone, its gate and wormhole leading to each other (the idle game).
+    spiral: true,
+    shape: {}, // over GalaxyShape.params (world/galaxy-shape.js)
+    deep: {}, // over DeepSpace.params (world/deep-space.js)
+    // The star systems: how many, how far apart their centres keep (world units), how far from the
+    // centre the nearest may be, and where the start sits (on which major arm, how far out in R).
+    systems: { count: 40, spacing: 170000, core: 240000, start: { arm: 0, at: 0.75 } },
+    // Every system but the start: SolarSystem.params with these over them, then its zone's, then
+    // `settled` or `frontier` by whether it lies in the habitable band (in R).
+    generated: { radius: 40000 },
+    habitable: [0.45, 0.86],
+    settled: { stations: { capital: true, major: true, minor: [1, 2], miningCamps: [1, 1], transport: false }, yard: 0.5 },
+    frontier: { stations: { capital: false, major: false, minor: [0, 1], miningCamps: [0, 1], transport: false }, yard: 0.3, derelicts: { count: [8, 11] } },
+    // By zone (world/galaxy-shape.js): the stars, nebulae and planets that grow there. Only the
+    // classes art/render.js draws (M, K, G, A, B).
+    zones: {
+      core: { star: { classes: [['M', 4], ['K', 4], ['G', 1]] }, nebulae: { count: [0, 1] } },
+      bar: { star: { classes: [['M', 4], ['K', 3], ['G', 2]] }, nebulae: { count: [0, 1] } },
+      'arm-outer': { star: { classes: [['B', 2], ['A', 3], ['G', 2], ['K', 1]] }, nebulae: { count: [2, 3] } },
+      'arm-inner': { star: { classes: [['G', 2], ['K', 2], ['M', 2], ['A', 1]] }, nebulae: { count: [1, 2] } },
+      interarm: { star: { classes: [['M', 3], ['K', 3], ['G', 2]] }, nebulae: { count: [0, 1] } },
+      rim: { star: { classes: [['M', 5], ['K', 2], ['G', 1]] }, nebulae: { count: [0, 1] }, planets: { count: [3, 5] } },
+      halo: { star: { classes: [['M', 1]] }, nebulae: { count: [0, 0] }, planets: { count: [2, 4] } },
+    },
+    // Gates: along each major arm, gated systems near these points of its length (0 at the bar);
+    // wormholes: how many.
+    gates: { trunk: [0.06, 0.38, 0.68, 0.94], reach: 0.14, wormholes: 1 },
+    // Each major arm's name, picked from these.
+    armNames: ['Lantern', 'Cinder', 'Orison', 'Harrow', 'Tamsin', 'Verge', 'Halcyon', 'Ember', 'Solace', 'Wake'],
   };
+  const ZONE_LABEL = { core: 'Galactic core', bar: 'The bar', interarm: 'Between the arms', rim: 'Outer rim', halo: 'The halo' };
 
   // A copy of `base` with `over` merged in: plain objects merge, everything else replaces.
   function merge(base, over) {
@@ -70,11 +114,12 @@ const Galaxy = (() => {
     return out;
   }
 
-  // Who owns what: each station the faction of the culture it's built in.
-  function settle(system, G) {
+  // Who owns what: each station the faction of the culture it's built in. In the showcase (the
+  // start) each type of station is built in the culture G.cultures gives it.
+  function settle(system, G, showcase, region = { key: 'home', label: 'Home system' }) {
     const owned = new Map();
     for (const st of system.stations) {
-      if (!st.waystation && G.cultures[st.market.type] !== undefined) st.culture = G.cultures[st.market.type];
+      if (showcase && !st.waystation && G.cultures[st.market.type] !== undefined) st.culture = G.cultures[st.market.type];
       st.owner = Factions.ofCulture(SS.CULTURES[st.culture].lineage).id;
       owned.set(st.owner, (owned.get(st.owner) || 0) + 1);
     }
@@ -86,24 +131,127 @@ const Galaxy = (() => {
     };
     const factions = Factions.LIST.filter((f) => owned.has(f.id) || f.id === Factions.PIRATES)
       .map((f) => ({ id: f.id, hidden: f.hidden, stations: owned.get(f.id) || 0 }));
-    Object.assign(system, { region: { key: 'home', label: 'Home system' }, holder: null, branch: null, factions, situations: [], places });
+    Object.assign(system, { region, holder: null, branch: null, factions, situations: [], places });
     return system;
   }
 
-  // config: { params (over the system's), galaxy: overriding DEFAULTS }
+  // config: { params (over every system's), galaxy: overriding DEFAULTS }
   function generate(seed, config = {}) {
     const G = merge(DEFAULTS, config.galaxy);
     const base = seedToInt(seed);
     const r = mulberry32(hashInt(base, 0, 0x6a1a));
     const params = merge(merge(SS.params, G.system), config.params);
+    if (!G.spiral) {
+      // The showcase alone: the gate in a direction from the seed, the wormhole a quarter turn on;
+      // each leads to the other.
+      const a0 = r() * Math.PI * 2;
+      const gates = [{ angle: a0, to: 0, culture: G.gate.culture }, { angle: a0 + Math.PI / 2, to: 0, wormhole: true }];
+      const systems = [SS.generate(seed, { params, gates, waystation: { name: G.waystation.name, opposite: true } })];
+      systems.forEach((s, i) => { s.index = i; settle(s, G, true); });
+      return assemble(seed, G, systems, [], [], null, null, null);
+    }
 
-    // The gate in a direction from the seed, the wormhole a quarter turn on; each leads to the other.
-    const a0 = r() * Math.PI * 2;
-    const gates = [{ angle: a0, to: 0, culture: G.gate.culture }, { angle: a0 + Math.PI / 2, to: 0, wormhole: true }];
-    const systems = [SS.generate(seed, { params, gates, waystation: { name: G.waystation.name, opposite: true } })];
-    systems.forEach((s, i) => { s.index = i; settle(s, G); });
-    const links = [];
+    // ---------- The shape, and where the systems go ----------
+    const shape = GalaxyShape.create(seed, G.shape);
+    const R = shape.R, S = G.systems;
+    const rp = mulberry32(hashInt(base, 1, 0x6a1a));
+    const majors = shape.arms.filter((a) => a.major);
+    const startArm = majors[S.start.arm % majors.length];
+    const startT = Math.log((S.start.at * R) / startArm.r0) / Math.log(startArm.r1 / startArm.r0);
+    const spots = [shape.armPoint(startArm, startT)];
+    const genR = G.generated.radius ?? SS.params.radius;
+    const fits = (at, rad) => Math.hypot(at.x, at.y) >= S.core && Math.hypot(at.x, at.y) <= R * 0.98 - rad
+      && spots.every((o) => Math.hypot(o.x - at.x, o.y - at.y) >= S.spacing);
+    for (let tries = 0; spots.length < S.count && tries < 30000; tries++) {
+      const at = shape.sample(rp, 1);
+      if (fits(at, genR)) spots.push({ x: Math.round(at.x), y: Math.round(at.y) });
+    }
 
+    // ---------- Gate links ----------
+    // Each major arm's trunk: the systems nearest the trunk's points along it, in order, linked one
+    // to the next; the two trunks' roots linked across the bar; the start into its arm's trunk; and
+    // the wormholes from the system nearest the core out to the far trunk's tip.
+    const where = spots.map((p) => ({ arm: shape.armAt(p.x, p.y), zone: shape.zoneAt(p.x, p.y) }));
+    const links = [], wormholes = [];
+    const link = (a, b, hole = false) => {
+      if (a === b || a < 0 || b < 0) return;
+      const pair = a < b ? [a, b] : [b, a];
+      if (links.some(([x, y]) => x === pair[0] && y === pair[1])) return;
+      links.push(pair);
+      if (hole) wormholes.push(pair);
+    };
+    const used = new Set([0]);
+    const trunks = majors.map((arm) => {
+      const out = [];
+      for (const t of G.gates.trunk) {
+        let best = -1, bestD = Infinity;
+        spots.forEach((p, i) => {
+          const w = where[i].arm;
+          if (used.has(i) || !w || w.arm !== arm || w.d > w.w * 1.6) return;
+          const d = Math.abs(w.t - t);
+          if (d < G.gates.reach && d < bestD) { best = i; bestD = d; }
+        });
+        if (best >= 0) { used.add(best); out.push(best); }
+      }
+      for (let i = 1; i < out.length; i++) link(out[i - 1], out[i]);
+      return out;
+    });
+    if (trunks.length > 1 && trunks[0].length && trunks[1].length) link(trunks[0][0], trunks[1][0]);
+    const dOf = (i, j) => Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y);
+    const own = trunks[majors.indexOf(startArm)] || [];
+    const anyTrunk = trunks.flat();
+    const into = (own.length ? own : anyTrunk).reduce((b, i) => (b < 0 || dOf(0, i) < dOf(0, b) ? i : b), -1);
+    link(0, into >= 0 ? into : spots.slice(1).reduce((b, _, k) => (b < 0 || dOf(0, k + 1) < dOf(0, b) ? k + 1 : b), -1));
+    const byCore = spots.map((p, i) => i).filter((i) => i !== 0).sort((a, b) => Math.hypot(spots[a].x, spots[a].y) - Math.hypot(spots[b].x, spots[b].y));
+    const far = trunks.find((t) => t !== own && t.length) || own;
+    for (let n = 0; n < G.gates.wormholes && far.length; n++) {
+      const from = byCore.find((i) => !links.some(([a, b]) => a === i || b === i)) ?? byCore[n];
+      link(from, far[far.length - 1 - n] ?? far[0], true);
+    }
+
+    // ---------- The systems ----------
+    // The start is the showcase; each other system is made for its zone, settled or frontier.
+    const zoneKey = (z) => (z.zone === 'arm' ? `arm-${z.side}` : z.zone);
+    const armNames = [...G.armNames];
+    for (let i = armNames.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [armNames[i], armNames[j]] = [armNames[j], armNames[i]]; }
+    const arms = shape.arms.map((a, i) => ({ index: a.index, major: a.major, name: a.major ? `${armNames[i]} Arm` : `${armNames[i]} Spur` }));
+    const usedNames = new Set();
+    const systems = spots.map((at, i) => {
+      const gates = links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : [])).map((j) => {
+        const hole = wormholes.some(([a, b]) => (a === i && b === j) || (a === j && b === i));
+        const angle = Math.atan2(spots[j].y - at.y, spots[j].x - at.x);
+        return { angle, to: j, ...(hole ? { wormhole: true } : i === 0 ? { culture: G.gate.culture } : {}) };
+      });
+      const z = where[i].zone, fromC = Math.hypot(at.x, at.y) / R;
+      const settled = i === 0 || (fromC >= G.habitable[0] && fromC <= G.habitable[1] && z.zone !== 'core' && z.zone !== 'bar');
+      let sys = null;
+      for (let attempt = 0; attempt < 8 && (!sys || usedNames.has(sys.name)); attempt++) {
+        if (i === 0) {
+          sys = SS.generate(seed, { params, gates, origin: at, waystation: { name: G.waystation.name, opposite: true } });
+          break;
+        }
+        const rs = mulberry32(hashInt(base, i, 0x5755 + attempt));
+        const kind = settled ? G.settled : G.frontier;
+        const zp = G.zones[zoneKey(z)] || {};
+        const p = merge(merge(merge(merge(SS.params, { pirates: params.pirates }), G.generated), zp), {
+          stations: { ...kind.stations, yard: rs() < kind.yard }, ...(kind.derelicts ? { derelicts: kind.derelicts } : {}),
+        });
+        sys = SS.generate(hashInt(base, i, 0x5e5e + attempt), { params: merge(p, config.params), gates, origin: at });
+      }
+      usedNames.add(sys.name);
+      const zl = z.zone === 'arm' ? arms[z.arm].name : ZONE_LABEL[z.zone];
+      const region = i === 0 ? { key: 'home', label: `Home system · ${zl}` } : { key: settled ? 'settled' : 'frontier', label: `${zl} · ${settled ? 'settled' : 'frontier'}` };
+      Object.assign(sys, { index: i, zone: z.zone, arm: z.arm, side: z.side, settled });
+      settle(sys, G, i === 0, region);
+      return sys;
+    });
+
+    const deep = DeepSpace.generate(seed, shape, systems, G.deep);
+    return assemble(seed, G, systems, links, wormholes, shape, arms, deep);
+  }
+
+  // Everything together, renumbered and rekeyed, with the lookups.
+  function assemble(seed, G, systems, links, wormholes, shape, arms, deep) {
     // Everything together, renumbered and rekeyed.
     const all = { stars: [], planets: [], moons: [], belts: [], fields: [], nebulae: [], stations: [], wrecks: [], contacts: [], packs: [], asteroids: [], gates: [], pockets: [] };
     for (const s of systems) {
@@ -133,21 +281,34 @@ const Galaxy = (() => {
     const systemAt = (x, y) => systems.find((s) => inSystem(s, x, y)) || null;
     const edgeDist = (s, x, y) => Math.hypot(x - s.origin.x, y - s.origin.y) - s.radius;
     const nearestSystem = (x, y) => systems.reduce((b, s) => (edgeDist(s, x, y) < edgeDist(b, x, y) ? s : b));
+    // What each system's hazards are made of (rules/hazards.js), and deep space's: nothing.
+    for (const s of systems) s.place = { stars: [s.star], planets: s.planets, moons: s.moons, stations: s.stations };
+    const DEEP = { stars: [], planets: [], moons: [], stations: [] };
+    const F = deep ? deep.fields : null;
+    // Where in the galaxy a point is, and the fields there (deep space's; none for the showcase alone).
+    const galactic = (x, y) => {
+      if (!shape) return { zone: null, arm: null, site: null, medium: null, dust: 0, cosmicRays: 0 };
+      const z = shape.zoneAt(x, y);
+      return { zone: z.zone, arm: z.arm, site: deep.siteAt(x, y), medium: F.mediumAt(x, y), dust: F.dustAt(x, y), cosmicRays: F.cosmicRaysAt(x, y) };
+    };
 
     return {
-      seed, name: systems[0].name, cultures: SS.CULTURES, systems, links, ...all,
+      seed, name: systems[0].name, cultures: SS.CULTURES, systems, links, wormholes, ...all,
+      shape, arms: arms || [], sites: deep ? deep.sites : [], space: F,
+      siteAt: (x, y, t = 0) => (deep ? deep.siteAt(x, y, t) : null),
       startStation: 0, // the first station: the capital
       waystation: all.stations.findIndex((st) => st.waystation), // its id, or -1 without one
       systemAt, nearestSystem,
+      placeAt: (x, y) => { const s = systemAt(x, y); return s ? s.place : DEEP; },
       securityAt: (x, y) => { const s = systemAt(x, y); return s ? s.securityAt(x, y) : 0; },
       nebulaAt: (x, y) => { const s = systemAt(x, y); return s ? s.nebulaAt(x, y) : null; },
       stationDist: (x, y) => Math.min(...systems.map((s) => s.stationDist(x, y))),
-      // As for one system, plus the system it's in (null in deep space).
+      // As for one system, plus the system it's in (null in deep space) and where in the galaxy.
       regionAt(x, y) {
         const s = systemAt(x, y);
-        if (s) return { ...s.regionAt(x, y), system: s };
+        if (s) return { ...s.regionAt(x, y), system: s, ...galactic(x, y) };
         const n = nearestSystem(x, y);
-        return { security: 0, nebula: null, near: null, fromStar: Math.hypot(x - n.origin.x, y - n.origin.y), system: null };
+        return { security: 0, nebula: null, near: null, fromStar: Math.hypot(x - n.origin.x, y - n.origin.y), system: null, ...galactic(x, y) };
       },
       cultureColor: (id) => (SS.CULTURES[id] || SS.CULTURES[0]).color,
     };
@@ -155,9 +316,11 @@ const Galaxy = (() => {
 
   // localStorage key part identifying one generated galaxy: every system's own key, and this
   // module's version.
-  const saveKey = (g) => `${g.systems.map(SS.saveKey).join('+')}:g${VERSION}`;
+  // A galaxy of many systems hashes theirs after the first's.
+  const saveKey = (g) => (g.systems.length === 1 ? `${SS.saveKey(g.systems[0])}:g${VERSION}`
+    : `${SS.saveKey(g.systems[0])}+${g.systems.length}x${seedToInt(g.systems.slice(1).map(SS.saveKey).join('+')).toString(36)}:g${VERSION}`);
 
-  return { generate, params: DEFAULTS, VERSION, saveKey };
+  return { generate, params: DEFAULTS, VERSION, saveKey, ZONE_LABEL };
 })();
 
 export { Galaxy };

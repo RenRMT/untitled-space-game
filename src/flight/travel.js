@@ -85,6 +85,8 @@ const Travel = (() => {
         return { type: 'prompt', prompt: trip.prompt };
       }
       trip.t = t1;
+      // Dark deep-space sites along the way are pinged (rules/knowledge.js).
+      if (knowledge && knowledge.passSites) { const at = posOf(); knowledge.passSites(at.x, at.y, Math.max(1, pingRange() / PING_RANGE)); }
       if (trip.t >= trip.dist) return end('arrive');
       return null;
     }

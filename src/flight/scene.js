@@ -11,6 +11,10 @@
 // - pirate ships circling their pack's centre.
 // near(x, y, range) finds what is around a point from a coarse grid, so a frame only poses and
 // draws what is close; stars and nebulae are too big for the grid and always checked.
+// Lazy, per system: the bodies, stations and gates of every system are built at once, but a
+// system's rocks, gas pockets, wrecks with what floats round them, and pirates only when near()
+// first looks within reach of it (or ensure(i), ensureAll()); `entities` holds what is built.
+// Every key is the same whichever order the systems are built in.
 // Positions are world units. ES module (`Scene`); also runs in Node (the tests).
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -89,36 +93,50 @@ const Scene = (() => {
       });
     });
 
+    // ---------- Per system, built when first near ----------
+    const systemCount = galaxy.systems ? galaxy.systems.length : 1;
+    const bySystem = (list) => {
+      const out = Array.from({ length: systemCount }, () => []);
+      list.forEach((o, i) => out[o.system || 0].push([o, i]));
+      return out;
+    };
+    const parts = { asteroids: bySystem(galaxy.asteroids), pockets: bySystem(galaxy.pockets || []), wrecks: bySystem(galaxy.wrecks), packs: bySystem(galaxy.packs) };
+    // A wreck's items are keyed by their place in the galaxy's whole list.
+    const itemBase = [];
+    galaxy.wrecks.reduce((n, w, i) => { itemBase[i] = n; return n + w.spoils; }, 0);
+    const built = new Set();
+
     // ---------- Asteroids ----------
-    for (const a of galaxy.asteroids) add(Entities.asteroid(a));
+    const buildAsteroids = (si) => { for (const [a] of parts.asteroids[si]) add(Entities.asteroid(a)); };
 
     // ---------- Gas pockets ----------
     // pocket: the generated pocket (world/solar-system.js); color: its nebula's.
-    for (const q of galaxy.pockets || []) {
-      const n = galaxy.nebulae[q.nebula];
-      add({ kind: 'gas', gas: { type: n.type, seed: q.seed, r: q.r }, key: q.key, pocket: q, color: n.color, radius: q.r, x: q.x, y: q.y });
-    }
+    const buildPockets = (si) => {
+      for (const [q] of parts.pockets[si]) {
+        const n = galaxy.nebulae[q.nebula];
+        add({ kind: 'gas', gas: { type: n.type, seed: q.seed, r: q.r }, key: q.key, pocket: q, color: n.color, radius: q.r, x: q.x, y: q.y });
+      }
+    };
 
     // ---------- Wrecks and what floats around them ----------
-    let itemCount = 0;
     const LOOT_KINDS = Goods.categories('salvage'), TRADE_KINDS = Goods.categories('trade');
     // An item of one of these categories, from the wreck's own random stream (rarer trade goods
     // less likely: rules/goods.js; none of those found only on surfaces).
-    function item(r, categories, x, y) {
+    function item(r, categories, x, y, key) {
       const category = categories[Math.floor(r() * categories.length)], seed = nextSeed(r);
       const rng = mulberry32(seed ^ 0x6e7);
       const kind = Goods.CATEGORIES[category].group === 'salvage' ? Goods.component(category) : Goods.pick(rng, category, (t) => !t.surface);
       const angle = r() * TAU, tumble = (r() - 0.5) * 0.3;
-      return add(Entities.item({ key: `i${itemCount++}`, kind, seed, angle, tumble, x, y }));
+      return add(Entities.item({ key, kind, seed, angle, tumble, x, y }));
     }
-    galaxy.wrecks.forEach((w, i) => {
+    const buildWrecks = (si) => parts.wrecks[si].forEach(([w, i]) => {
       const art = ArtBlueprints.create(w.type, cultures.of(w.culture), w.seed);
       const e = add({ kind: 'wreck', art, name: w.name, angle: w.angle, tumble: w.tumble, radius: art.radius, key: w.key, contact: w.contact, x: w.x, y: w.y });
       const r = mulberry32(hashInt(base, i, 0x17e5));
       const kinds = w.cargo === 'trade' || art.label.includes('freighter') || (w.type === 'wreck-station' && r() < 0.5) ? TRADE_KINDS : LOOT_KINDS;
       for (let k = 0; k < w.spoils; k++) {
         const a = r() * TAU, d = e.radius * 0.8 + 60 + r() * 220;
-        item(r, kinds, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d);
+        item(r, kinds, e.x + Math.cos(a) * d, e.y + Math.sin(a) * d, `i${itemBase[i] + k}`);
       }
     });
 
@@ -126,16 +144,36 @@ const Scene = (() => {
     // Fighters in the pirates' kitbashed culture, circling their pack's centre. Each has a stable
     // key, so the flight view can keep one selected and remember the ones destroyed.
     // tier: their gear (rules/loadout.js); pack: which pack a ship belongs to.
-    for (const k of galaxy.packs) {
-      for (const s of k.ships) {
-        const art = ArtBlueprints.create(Entities.fighterClass(k.tier, s.seed), cultures.pirates, s.seed);
-        add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id }, k.x, k.y);
+    const buildPirates = (si) => {
+      for (const [k] of parts.packs[si]) {
+        for (const s of k.ships) {
+          const art = ArtBlueprints.create(Entities.fighterClass(k.tier, s.seed), cultures.pirates, s.seed);
+          add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id }, k.x, k.y);
+        }
       }
+    };
+
+    // A system's lazy parts, once.
+    function ensure(si) {
+      if (built.has(si)) return false;
+      built.add(si);
+      buildAsteroids(si);
+      buildPockets(si);
+      buildWrecks(si);
+      buildPirates(si);
+      return true;
     }
+    const ensureAll = () => { for (let i = 0; i < systemCount; i++) ensure(i); };
+    // The systems whose disc comes within `range` of (x, y).
+    const ensureNear = (x, y, range) => {
+      if (!galaxy.systems) { ensure(0); return; }
+      for (const sys of galaxy.systems) if (Math.hypot(sys.origin.x - x, sys.origin.y - y) - sys.radius * 1.1 <= range + MARGIN) ensure(sys.index);
+    };
 
     // Everything that may be within `range` of (x, y): the big things that reach it, and all
     // filed in the grid cells around it.
     function near(x, y, range) {
+      ensureNear(x, y, range);
       const out = [];
       for (const e of wide) if (Math.hypot(e.x - x, e.y - y) - e.radius <= range) out.push(e);
       const reach = range + MARGIN;
@@ -148,7 +186,13 @@ const Scene = (() => {
       return out;
     }
 
-    return { entities, stations, gates, stars, near, byKey, get: (key) => byKey.get(key) || null };
+    // get(key) finds anything, building its system first if it hasn't been.
+    const systemOfKey = (key) => { const m = /^(\d+)\./.exec(key); return m ? Number(m[1]) : 0; };
+    const get = (key) => {
+      if (!byKey.has(key) && typeof key === 'string') ensure(systemOfKey(key));
+      return byKey.get(key) || null;
+    };
+    return { entities, stations, gates, stars, near, byKey, get, ensure, ensureAll, built: (i) => built.has(i) };
   }
 
   // Position, heading and thrust of an entity at time t.

@@ -77,7 +77,9 @@ export function tickHazards(dt) {
   const G = world.galaxy, H = Hazards.config;
   const blockers = frameList.filter((e) => e.kind === 'asteroid' && e.radius >= BIG_ROCK).map((e) => ({ x: e.x, y: e.y, r: e.radius }));
   const before = hazard.exp;
-  const exp = hazard.exp = Hazards.exposure(G, G.seed, ship.x, ship.y, simTime, { thrust: ship.thrust, blockers, nebula: here.region?.nebula });
+  // The system the ship is in (its star, bodies and stations); in deep space, none.
+  const place = G.placeAt ? G.placeAt(ship.x, ship.y) : G;
+  const exp = hazard.exp = Hazards.exposure(place, G.seed, ship.x, ship.y, simTime, { thrust: ship.thrust, blockers, nebula: here.region?.nebula });
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
   // An ion storm pushes the ship about.
