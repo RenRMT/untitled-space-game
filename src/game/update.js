@@ -21,17 +21,41 @@ import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
 import { tickAutopilot } from './selection.js';
 import { tickWings } from './squad.js';
-import { landingCamera, tickLanding } from './landing.js';
+import { landing, landingCamera, tickLanding } from './landing.js';
 import { tickWarp, warp, warpZoom } from './warp.js';
-import { SHIP, cam, debris, fadeFlash, fight, fightMode, intro, lerp, particles, ship, toast, view } from './state.js';
+import { tickOrbits, world } from './world.js';
+import { SHIP, cam, debris, fadeFlash, fight, fightMode, inFight, intro, lerp, particles, ship, toast, view } from './state.js';
 
 export let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
 export let senseTimer = 0;
 // Flight time moved on at once, for the tests (tests/smoke.js: to a solar flare, rules/hazards.js).
 export function skipTime(secs) { simTime += secs; }
 
+// A ship close by something that goes round (world/orbits.js) is carried round with it, so it can
+// park by a station, moon or planet and stay there: moved as far as the closest such thing it is
+// within reach of moved this step (a station before a moon, a moon before a planet, as a station's
+// planet carries it too). Its own speed stays its own.
+const CARRY = { station: 700, moon: 900, planet: 1500 };
+const carryRank = (e) => (e.kind === 'station' ? 3 : e.kind === 'moon' || e.look === 'moon' ? 2 : 1);
+function carry() {
+  let host = null;
+  for (const e of world.scene.near(ship.x, ship.y, 0)) {
+    if (!e.moved || (!e.moved.x && !e.moved.y)) continue;
+    const rank = carryRank(e), reach = e.radius + CARRY[rank === 3 ? 'station' : rank === 2 ? 'moon' : 'planet'];
+    if (Math.hypot(ship.x - (e.x - e.moved.x), ship.y - (e.y - e.moved.y)) > reach) continue;
+    if (!host || rank > carryRank(host)) host = e;
+  }
+  if (!host) return;
+  ship.x += host.moved.x;
+  ship.y += host.moved.y;
+  cam.x += host.moved.x;
+  cam.y += host.moved.y;
+}
+
 export function update(dt) {
   simTime += dt;
+  tickOrbits(dt);
+  if (!landing.on && !warp.on && !intro.arrive && !intro.beam && !inFight()) carry(); // (a fight holds its ships where it has them)
   tickDash(dt);
   tickLab();
   tickIndustry();

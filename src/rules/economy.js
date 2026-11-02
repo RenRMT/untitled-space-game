@@ -79,6 +79,8 @@ const Economy = (() => {
     'mining camp': { produces: ['mineral', 'metal'], consumes: ['tubes', 'gas'] },
     'salvage yard': { produces: ['metal', 'tubes'], consumes: [] },
     'transport hub': { produces: [], consumes: [], sellsAll: true },
+    // An observatory out in deep space (world/galaxy.js) lives on what's shipped out to it.
+    observatory: { produces: ['synthetic'], consumes: ['gas', 'crates', 'barrels'] },
     // The android waystation makes its own cabling and synthetics, and runs on liquids it can't.
     waystation: { produces: ['tubes', 'synthetic'], consumes: ['barrels'] },
   };

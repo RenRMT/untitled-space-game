@@ -12,6 +12,7 @@ import { SolarSystem } from '../src/world/solar-system.js';
 import { Galaxy } from '../src/world/galaxy.js';
 import { GalaxyShape } from '../src/world/galaxy-shape.js';
 import { DeepSpace } from '../src/world/deep-space.js';
+import { Orbits } from '../src/world/orbits.js';
 import { Factions } from '../src/world/factions.js';
 import { ArtUtil } from '../src/art/util.js';
 import { ArtCulture } from '../src/art/culture.js';
@@ -73,7 +74,9 @@ import { IdleSave } from '../src/idle/save.js';
 import { ArtStationRoles } from '../src/art/station-roles.js';
 
 let failed = 0;
+// ONLY=text runs just the tests whose names include it (by hand, while working on them).
 function test(name, fn) {
+  if (process.env.ONLY && !name.includes(process.env.ONLY)) return;
   const t0 = Date.now();
   try {
     fn();
@@ -83,6 +86,13 @@ function test(name, fn) {
     console.log(`FAIL ${name}\n     ${e.stack.split('\n').slice(0, 3).join('\n     ')}`);
   }
 }
+
+// Tests of what the game has switched off for now (notes/hazards.md, notes/archived-systems.md):
+// pirates and fights with ships (?pirates), the introduction (?intro), the opening missions and
+// the squad they bring (?missions; no other way to get a squad member yet), and the jobs board's
+// machinery (no job texts written yet). Kept so those still work when they come back, and marked
+// in the output so what guards the game as it ships is plain to see.
+const off = (flag, name, fn) => test(`[off: ${flag}] ${name}`, fn);
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1).concat(['abc', 'Untitled']);
 // Whole galaxies (about forty systems each) for fewer seeds than the systems on their own.
@@ -119,7 +129,8 @@ test('generation is deterministic', () => {
 
 // ---------- The galaxy ----------
 
-// The galaxy as the showcase alone (galaxy.spiral false: the idle game's stage).
+// The galaxy as the showcase alone (galaxy.spiral false): the game's start system, generated on its
+// own (the idle game's layout 1 too).
 const SHOWCASE = { ...SYSTEM_CONFIG, galaxy: { ...SYSTEM_CONFIG.galaxy, spiral: false } };
 const showcases = new Map(SEEDS.slice(0, 12).concat(['abc']).map((s) => [s, Galaxy.generate(s, SHOWCASE)]));
 
@@ -368,6 +379,89 @@ test('deep-space sites in flight: each kind has a form, the rocks lie clear of t
   assert(DeepSites.crowdAt(crowds, 0, 0).k > 0.8, 'the core\'s sky is crowded');
 });
 
+// ---------- Orbits ----------
+
+test('orbits: a turn takes longer further out, by Kepler\'s 1.5 power, from each kind\'s reference', () => {
+  for (const [kind, [secs, at]] of Object.entries(Orbits.PERIOD)) {
+    assert(Math.abs(Orbits.period(kind, at) - secs) < 1e-9, `${kind}: ${secs} s at ${at}`);
+    for (const d of [300, 1000, 5000, 40000]) assert(Math.abs(Orbits.period(kind, 4 * d) / Orbits.period(kind, d) - 8) < 1e-9, `${kind}: four times as far, eight times as long`);
+  }
+  // Slow enough at flight scale for a parked ship to keep up: a planet 5,000 out moves under 20 units a second.
+  const p = Orbits.period('planet', 5000);
+  assert((2 * Math.PI * 5000) / p < 20, `${((2 * Math.PI * 5000) / p).toFixed(1)} units a second`);
+  assert.strictEqual(Orbits.angleAt({ angle: 1, period: 100 }, 25), 1 + Math.PI / 2, 'a quarter turn in a quarter period');
+});
+
+test('orbits: place() moves planets round their stars, moons round their planets, and stations at planets round them; the rest stay put', () => {
+  const g = Galaxy.generate(2, SYSTEM_CONFIG), at0 = (o) => [o.x, o.y];
+  const parked = g.stations.filter((s) => !s.period).map(at0), gates = g.gates.map(at0);
+  const t = 777;
+  Orbits.place(g, t);
+  const round = (o, c) => {
+    assert(Math.abs(Math.hypot(o.x - c.x, o.y - c.y) - o.orbit) < 1e-6, `${o.name}: off its orbit`);
+    const a = Math.atan2(o.y - c.y, o.x - c.x), want = Orbits.angleAt(o, t);
+    assert(Math.abs(Math.atan2(Math.sin(a - want), Math.cos(a - want))) < 1e-6, `${o.name}: not where its angle says`);
+  };
+  for (const p of g.planets) round(p, g.stars[p.system]);
+  for (const m of g.moons) round(m, g.planets[m.parent]);
+  for (const s of g.stations.filter((x) => x.period)) round(s, s.planet !== undefined ? g.planets[s.planet] : g.sites[s.site]);
+  assert.deepStrictEqual(g.stations.filter((s) => !s.period).map(at0), parked, 'parked stations keep their place');
+  assert.deepStrictEqual(g.gates.map(at0), gates, 'gates keep their place');
+  // A whole turn later each is back where it was; the inner planets go round faster.
+  const p = g.planets[0], [x, y] = [p.x, p.y];
+  Orbits.place(g, t + p.period);
+  assert(Math.hypot(p.x - x, p.y - y) < 1e-6, 'a turn later, back again');
+  const home = g.planets.filter((q) => q.system === 0);
+  for (let i = 1; i < home.length; i++) assert(home[i].period > home[i - 1].period, `${home[i].name} turns faster than the planet inside it`);
+  // A station at a planet keeps a low orbit inside the planet's moons.
+  for (const s of g.stations.filter((x) => x.planet !== undefined)) {
+    const P = g.planets[s.planet];
+    for (const id of P.moons) assert(s.orbit < g.moons[id].orbit - g.moons[id].r, `${s.name} outside ${g.moons[id].name}`);
+    assert(s.orbit > P.body, `${s.name} inside ${P.name}`);
+  }
+});
+
+test('orbits: what stays put keeps out of the band each planet sweeps: always in the start system, nearly always elsewhere', () => {
+  let n = 0, inBand = 0;
+  for (const [seed, g] of galaxies) {
+    const sweeps = (sys, o) => { const S = g.stars[sys]; return g.planets.some((p) => p.system === sys && Math.abs(Math.hypot(o.x - S.x, o.y - S.y) - p.orbit) < p.extent); };
+    const still = [...g.gates, ...g.stations.filter((s) => s.planet === undefined && s.site === undefined)];
+    for (const o of still) {
+      if (o.system === 0) assert(!sweeps(0, o), `seed ${seed}: ${o.name} in a planet's path in the start system`);
+      n++;
+      if (sweeps(o.system, o)) inBand++;
+    }
+    for (const f of g.fields.filter((x) => x.system === 0)) assert(!sweeps(0, f), `seed ${seed}: ${f.name} in a planet's path`);
+  }
+  assert(inBand / n < 0.06, `${inBand} of ${n} gates and parked stations in a planet's path`);
+});
+
+test('observatories: some deep-space sites have one, on a wide orbit round the site, of its culture, online from the start', () => {
+  const O = Galaxy.params.observatories;
+  let watched = 0, could = 0;
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, obs = g.stations.filter((s) => s.site !== undefined);
+    could += g.sites.filter((s) => O.orbit[s.kind] && !s.path).length;
+    watched += obs.length;
+    for (const o of obs) {
+      const s = g.sites[o.site], d0 = O.orbit[s.kind];
+      assert(d0 && !s.path, `${where}: ${o.name} at a ${s.kind}`);
+      assert.strictEqual(o.key, `ds${s.id}`);
+      assert.deepStrictEqual(o.market, { kind: 'outpost', type: 'observatory' });
+      assert.strictEqual(o.orbit, d0 < 10 ? s.r * d0 : d0, `${where}: ${o.name}'s orbit for a ${s.kind}`);
+      assert(o.orbit > s.r || d0 >= 1000, `${where}: ${o.name} inside its site`);
+      assert(Math.abs(Math.hypot(o.x - s.x, o.y - s.y) - o.orbit) < 1e-6, `${where}: ${o.name} off its orbit`);
+      assert.strictEqual(o.period, Orbits.period('site', o.orbit));
+      assert.strictEqual(o.owner, Factions.ofCulture(SolarSystem.CULTURES[o.culture].lineage).id, `${where}: ${o.name}'s owner`);
+      const near = g.systems.reduce((b, x) => (Math.hypot(x.origin.x - s.x, x.origin.y - s.y) < Math.hypot(b.origin.x - s.x, b.origin.y - s.y) ? x : b));
+      assert.strictEqual(o.system, near.index, `${where}: ${o.name}'s nearest system`);
+      assert(!g.systemAt(o.x, o.y), `${where}: ${o.name} in a system`);
+    }
+  }
+  assert(Math.abs(watched / could - O.share) < 0.12, `${watched} of ${could} sites watched, ${O.share} wanted`);
+  assert(Restoration.online('observatory', []), 'online without restoring');
+});
+
 test('a star, planets on widening orbits, belts, fields and nebulae, all inside the edge', () => {
   for (const [seed, s] of systems) {
     const where = `seed ${seed}`;
@@ -469,7 +563,7 @@ test('the system has its region, factions and stations owned by the faction of t
 test('the scene builds every system, filing everything where near() finds it', () => {
   for (const seed of [1, 2, 3, 'abc']) {
     const sc = sceneOf(seed), s = galaxies.get(seed);
-    assert.strictEqual(thingsOf(seed, 'station').length, s.stations.length);
+    assert.strictEqual(thingsOf(seed, 'station').length, s.stations.filter((st) => st.site === undefined).length); // (the observatories are deep space's)
     assert.strictEqual(thingsOf(seed, 'asteroid').length, s.asteroids.length);
     assert.strictEqual(thingsOf(seed, 'planet').length, s.planets.length);
     assert.strictEqual(thingsOf(seed, 'moon').length, s.moons.length);
@@ -765,7 +859,7 @@ test('art ids name what an asset is built from, so a rebuilt scene finds its spr
   assert.notStrictEqual(ArtBlueprints.create('station-major', c, 2).id, ArtBlueprints.create('station-minor', c, 2).id);
 });
 
-test('pirate fighter classes: mixed packs, heavier in dangerous space, the same size in a fight', () => {
+off('?pirates', 'pirate fighter classes: mixed packs, heavier in dangerous space, the same size in a fight', () => {
   const count = (tier) => {
     const n = { 'fighter-light': 0, fighter: 0, 'fighter-heavy': 0 };
     for (let seed = 1; seed <= 600; seed++) n[Entities.fighterClass(tier, seed)]++;
@@ -893,7 +987,7 @@ test('keys are unique across everything that can leave the world, and survive a 
     const keyed = sceneOf(seed).entities.filter((e) => e.key);
     assert.strictEqual(new Set(keyed.map((e) => e.key)).size, keyed.length, `seed ${seed}: duplicate keys`);
   }
-  assert.strictEqual(thingsOf(1, 'ship').length, 0, 'the showcase has no pirates');
+  assert.strictEqual(thingsOf(1, 'ship').length, 0, 'no pirates anywhere in the galaxy');
   // With the pirates turned back on, their ships keep their keys through a rebuild.
   const s = Galaxy.generate(1, { ...SYSTEM_CONFIG, galaxy: { system: { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } } } });
   const a = fullScene(s).entities.filter((e) => e.kind === 'ship'), b = fullScene(s).entities.filter((e) => e.kind === 'ship');
@@ -937,7 +1031,7 @@ test('gas pockets: a few inside every nebula, clear of its ambush, keyed for goo
   assert.deepStrictEqual(A.forKeys('E').map((a) => a.id), ['mine', 'collect']);
 });
 
-test('the starter Courier flies, senses and mines as before', () => {
+test('the starter Courier: its handling, sensors and hold, a mining laser and a gas siphon', () => {
   const s = Loadout.stats(Loadout.starter('courier'));
   assert.deepStrictEqual(
     { name: s.name, maxSpeed: s.maxSpeed, accel: s.accel, turnRate: s.turnRate, radius: s.radius, cargo: s.cargo },
@@ -1567,7 +1661,8 @@ test('production: slots grow with research, and a station takes orders only when
   lab.doneAt['ind.bays.1'] = T;
   assert(Industry.place(state, CAMP, 'make.carbon-fibre', null, env, T), 'a second slot');
   assert.strictEqual(Industry.place(state, CAMP, 'make.steel-pipe', null, env, T), null);
-  // Loyalty: a station takes orders once missions done for it have raised its loyalty.
+  // Loyalty: a station takes orders once the player has its trust (every station online has it:
+  // game/restoration.js trustOnline; jobs add to it).
   assert(!Industry.trusted({}, HUB.key) && !Industry.trusted({ [HUB.key]: 0 }, HUB.key));
   assert.strictEqual(Industry.place(state, HUB, 'make.electronics', null, env, T, {}), null, 'untrusted: refused');
   assert(Industry.place(state, HUB, 'make.electronics', null, env, T, { [HUB.key]: 1 }), 'trusted: taken');
@@ -1686,7 +1781,7 @@ test('abilities: a charge on a target that needs it, a cooldown, and timed effec
   assert(!Abilities.ready(me, 'jammer-pod', { ...foe, hull: 0 }, 20), 'not on the destroyed');
 });
 
-test('abilities in a fight: a silenced ship holds fire, in rounds and in real time', () => {
+off('?pirates', 'abilities in a fight: a silenced ship holds fire, in rounds and in real time', () => {
   const s = Combat.create(always, Combat.combatant('p', 'Me', testShip({ initiative: 1 })), [Combat.combatant('e', 'Them', testShip({ initiative: 3, hull: 1000 }))]);
   Abilities.use(s.player, 'emp-charge', s.enemies[0], s.t);
   const ev = Combat.round(s);
@@ -1703,7 +1798,7 @@ test('abilities in a fight: a silenced ship holds fire, in rounds and in real ti
   assert.strictEqual(p.hull, p.stats.hull, 'no shots landed while silenced');
 });
 
-test('combat rounds: initiative, shields before hull, no shots from the dead, recharge', () => {
+off('?pirates', 'combat rounds: initiative, shields before hull, no shots from the dead, recharge', () => {
   // The player fires first and destroys the enemy, which never gets to shoot back.
   let s = Combat.create(always,
     Combat.combatant('p', 'Me', testShip({ initiative: 3, shield: 10 })),
@@ -1735,7 +1830,7 @@ test('combat rounds: initiative, shields before hull, no shots from the dead, re
   assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), CombatCore.config.maxHit);
 });
 
-test('the player switches to the next enemy when the focused one is destroyed', () => {
+off('?pirates', 'the player switches to the next enemy when the focused one is destroyed', () => {
   const s = Combat.create(always,
     Combat.combatant('p', 'Me', testShip({ initiative: 9, weapons: [{ name: 'A', damage: 10, fireRate: 2 }, { name: 'B', damage: 10, fireRate: 2 }] })),
     [Combat.combatant('a', 'A', testShip({ hull: 20, weapons: [] })), Combat.combatant('b', 'B', testShip({ hull: 100, weapons: [] }))], 'a');
@@ -1744,7 +1839,7 @@ test('the player switches to the next enemy when the focused one is destroyed', 
   assert.strictEqual(s.focus, 'b');
 });
 
-test('the starter Courier against pirate fighters: easy alone, costly in pairs, flee from ambushes', () => {
+off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly in pairs, flee from ambushes', () => {
   const me = Loadout.stats(Loadout.starter('courier'));
   const fighter = Loadout.stats(Loadout.starter('fighter'));
   const N = 1000;
@@ -1768,7 +1863,7 @@ test('the starter Courier against pirate fighters: easy alone, costly in pairs, 
   assert(run.escape > 0.8, `fleeing 4: ${JSON.stringify(run)}`);
 });
 
-test('fleeing skips the player\'s shots and depends on top speed', () => {
+off('?pirates', 'fleeing skips the player\'s shots and depends on top speed', () => {
   const s = Combat.create(() => 0.99, Combat.combatant('p', 'Me', testShip({ maxSpeed: 500 })),
     [Combat.combatant('e', 'Them', testShip({ maxSpeed: 500, weapons: [] }))]);
   s.fleeing = true;
@@ -1781,7 +1876,7 @@ test('fleeing skips the player\'s shots and depends on top speed', () => {
   assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeMax);
 });
 
-test('pirates leave more components the better armed they are, and some cargo; freighters spill trade goods', () => {
+off('?pirates', 'pirates leave more components the better armed they are, and some cargo; freighters spill trade goods', () => {
   const g = systems.get(1);
   const componentsAt = { 1: 0, 4: 0 };
   let goods = 0;
@@ -1830,7 +1925,7 @@ test('security falls from the stations to the outer system, and sets how dangero
   }
 });
 
-test('pirates come in packs that follow the security level and can be fought one at a time', () => {
+off('?pirates', 'pirates come in packs that follow the security level and can be fought one at a time', () => {
   const packs = [[], [], []]; // pack sizes, by security level
   const { orbit: [, o1] } = Security.PACK;
   // Standalone systems (not in a scene) for the numbers; the galaxies' systems, in their scenes,
@@ -2023,7 +2118,7 @@ test('gear tuned by research: fractions added to its line, kept within limits, n
   assert.deepStrictEqual(Loadout.tuned({ lockTime: 0.4 }, { lockTime: -0.9 }), { lockTime: 0.2 });
 });
 
-test('schematics: only from armed pirates, for gear of their tier or one better', () => {
+off('?pirates', 'schematics: only from armed pirates, for gear of their tier or one better', () => {
   for (let i = 0; i < 6000; i++) {
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'fighter', 1), null, 'tier 1 pirates carry none');
     assert.strictEqual(CombatCore.schematic(1, `p${i}`, 'freighter', 4), null, 'freighters carry none');
@@ -2034,7 +2129,7 @@ test('schematics: only from armed pirates, for gear of their tier or one better'
   }
 });
 
-test('each step up the gear ladder takes on the next pirate band', () => {
+off('?pirates', 'each step up the gear ladder takes on the next pirate band', () => {
   const fit = (hull, mk, weapons) => {
     const fitted = {};
     let w = 0;
@@ -2151,7 +2246,7 @@ test('real-time combat: guns fire once locked, at the weapon\'s rate, only in ra
   assert.strictEqual(runPinned(sideways, 3).e.length, 0, 'forward gun fired sideways');
 });
 
-test('real-time combat: hit chance falls with crossing speed and range; evasion needs speed', () => {
+off('?pirates', 'real-time combat: hit chance falls with crossing speed and range; evasion needs speed', () => {
   const w = COURIER.weapons[0];
   const a = RealtimeCombat.ship('a', 'A', COURIER, { x: 0, y: 0 });
   const t = RealtimeCombat.ship('t', 'T', FIGHTER, { x: 200, y: 0, radius: 18 });
@@ -2168,7 +2263,7 @@ test('real-time combat: hit chance falls with crossing speed and range; evasion 
   assert.strictEqual(RealtimeCombat.hitChance(a, w, t), CombatCore.config.minHit);
 });
 
-test('real-time combat: shields soak damage first and recharge only after a pause', () => {
+off('?pirates', 'real-time combat: shields soak damage first and recharge only after a pause', () => {
   const s = duel({ ...FIGHTER, weapons: [] }, [400, 0]);
   const e = s.enemies[0];
   runPinned(s, COURIER.lockTime + 0.5);
@@ -2182,7 +2277,7 @@ test('real-time combat: shields soak damage first and recharge only after a paus
   assert(e.shield > low, 'never recharged');
 });
 
-test('real-time combat: targets and locks', () => {
+off('?pirates', 'real-time combat: targets and locks', () => {
   const unarmed = { ...FIGHTER, weapons: [] };
   const mk = (id, x, y) => RealtimeCombat.ship(id, id, unarmed, { x, y, radius: 18 });
   // An ambush: the nearest is targeted; a pick starts a new lock.
@@ -2200,7 +2295,7 @@ test('real-time combat: targets and locks', () => {
   assert.strictEqual(s.focus, 'near');
 });
 
-test('real-time combat: fighters make attack runs, turrets keep their distance', () => {
+off('?pirates', 'real-time combat: fighters make attack runs, turrets keep their distance', () => {
   const s = duel(FIGHTER, [1200, 0], { me: { ...COURIER, weapons: [], hull: 1e6 }, rng: mulberry32(3) });
   const f = s.enemies[0];
   let closest = Infinity, firstShot = null, breakOffs = 0, mode = f.ai.mode;
@@ -2567,7 +2662,7 @@ test('collisions: a hard hit bounces the ship off and knocks it; a gentle one do
   assert(Collide.damage(COURIER.maxSpeed * 0.4, Collide.config.surfaceSafe) > 0, 'flying into a cliff at surface speed hurts');
 });
 
-test('real-time combat: the starter Courier against pirate fighters, and getting away', () => {
+off('?pirates', 'real-time combat: the starter Courier against pirate fighters, and getting away', () => {
   // A pilot who sits still and turns to face the target, and one who flies flat out away.
   const face = (s, dt) => {
     const p = s.player, t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
@@ -2633,7 +2728,7 @@ test('the system has an android waystation alone on its outer edge, in a safe zo
   assert.strictEqual(thingsOf(1, 'gate').find((e) => e.gate.wormhole).art.type, 'wormhole');
 });
 
-test('the introduction: lines, questions that set the art style and movement, and two waits', () => {
+off('?intro', 'the introduction: lines, questions that set the art style and movement, and two waits', () => {
   const picked = [];
   const run = Intro.create((k, v) => picked.push([k, v]));
   const says = [];
@@ -2689,7 +2784,7 @@ function logicFight(o = {}) {
 const ALL = new Set(['core.bool', 'core.bool.or', 'combat.select', 'combat.threat', 'combat.range', 'combat.focus', 'tactics.count', 'tactics.use', 'maint.sense', 'squad.link', 'maint.guard', 'maint.retreat']);
 const L = (o) => ({ ...Logic.blank(), ...o, when: (o.when || []).map((c) => Logic.clause(c)) });
 
-test('logic: the first line that holds decides; with none, keep formation', () => {
+off('?missions', 'logic: the first line that holds decides; with none, keep formation', () => {
   const ctx = logicFight();
   assert.deepStrictEqual(Logic.decide([], ctx), { line: -1, intent: { type: 'follow' } });
   const assist = Logic.copy(Logic.PRESETS['assist.leader']);
@@ -2729,7 +2824,7 @@ test('logic: the first line that holds decides; with none, keep formation', () =
   assert.deepStrictEqual(Logic.decide([use, assist], logicFight({ ready: (k, c) => k === 'emp' && c.id === 'b' })).intent, { type: 'use', skill: 'emp', target: 'b' });
 });
 
-test('logic: lines check against what research has unlocked, and read back from a save', () => {
+off('?missions', 'logic: lines check against what research has unlocked, and read back from a save', () => {
   assert(Logic.check(Logic.PRESETS['assist.leader'], new Set()).ok, 'the first module needs nothing');
   assert(Logic.check(Logic.blank(), new Set()).ok);
   const errs = (line, known = ALL) => Logic.check(line, known).errors;
@@ -2846,7 +2941,7 @@ test('research: queued and paid up front, built on the real clock, offline too, 
   try { assert.strictEqual(Research.timeOf('core.bool'), Research.PACKAGES['core.bool'].time * 1000 / 60); } finally { Research.config.speed = 1; }
 });
 
-test('squad: an android wingman, in formation behind the leader, saved and restored', () => {
+off('?missions', 'squad: an android wingman, in formation behind the leader, saved and restored', () => {
   const assist = Logic.copy(Logic.PRESETS['assist.leader']);
   const m = Squad.member(42, { program: [assist] });
   assert.match(m.name, /^[A-Z][a-z]+-\d\d$/, 'an android designation');
@@ -2886,7 +2981,7 @@ test('squad: an android wingman, in formation behind the leader, saved and resto
   assert.strictEqual(Squad.read(undefined), null);
 });
 
-test('squad: each member flies its own loadout, joining with the player\'s starting gear, and saves it', () => {
+off('?missions', 'squad: each member flies its own loadout, joining with the player\'s starting gear, and saves it', () => {
   const m = Squad.member(5);
   assert.deepStrictEqual(m.loadout.fitted, {
     'weapon-1': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1',
@@ -2909,7 +3004,7 @@ test('squad: each member flies its own loadout, joining with the player\'s start
   assert.deepStrictEqual(Squad.member(5, { loadout: 'junk' }).loadout, Squad.starter('fighter'), 'junk: the starting gear');
 });
 
-test('missions: offered, accepted, objectives in order, ready once all are met, then handed in', () => {
+off('?missions', 'missions: offered, accepted, objectives in order, ready once all are met, then handed in', () => {
   const ID = 'repayment';
   const log = Missions.create();
   assert.strictEqual(log.status(ID), 'offered');
@@ -2990,7 +3085,7 @@ function withTestJobs(fn) {
   }
 }
 
-test('jobs: the board places what job texts write, pays by tier, and the log keeps them', () => withTestJobs(() => {
+off('no job texts', 'jobs: the board places what job texts write, pays by tier, and the log keeps them', () => withTestJobs(() => {
   for (const [seed, g] of showcases) { // one system: the test texts post a job at each capital and camp
     const where = `seed ${seed}`, B = Jobs.board(g);
     assert.deepStrictEqual(Jobs.board(g).list.map((j) => [j.id, j.reward.credits]), B.list.map((j) => [j.id, j.reward.credits]), `${where}: the same every time`);
@@ -3032,7 +3127,7 @@ test('jobs: the board places what job texts write, pays by tier, and the log kee
   assert(back.accept(J.id, 'st2') && back.attempt(J.id) === 2 && back.count(J.id, 's0') === 0, 'taken again, from the start');
 }));
 
-test('the first mission: a small asteroid field a short flight from the waystation, clear of everything else', () => {
+off('?missions', 'the first mission: a small asteroid field a short flight from the waystation, clear of everything else', () => {
   for (const [seed, g] of galaxies) {
     const where = `seed ${seed}`, site = Missions.site(g), W = g.stations[g.waystation], sys = g.systems[W.system];
     assert.deepStrictEqual(Missions.site(g), site, `${where}: the same every time`);
@@ -3059,7 +3154,7 @@ test('the first mission: a small asteroid field a short flight from the waystati
   assert.strictEqual(Missions.site({ ...g, waystation: -1, stations: g.stations }), null, 'no waystation, no mission');
 });
 
-test('the first mission\'s fight: the provided Courier beats the two Mk I pirates in either combat mode', () => {
+off('?missions', 'the first mission\'s fight: the provided Courier beats the two Mk I pirates in either combat mode', () => {
   const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), fighter = Loadout.stats(Loadout.npc('fighter', Missions.SITE.tier));
   const N = 300;
   let wins = 0, hull = 0;
@@ -3087,7 +3182,7 @@ test('the first mission\'s fight: the provided Courier beats the two Mk I pirate
   assert(wins > 97, `real time: won ${wins} of 100`);
 });
 
-test('the second mission: the nearest nebula, its pockets, and an android signal deep inside, clear of the pirates', () => {
+off('?missions', 'the second mission: the nearest nebula, its pockets, and an android signal deep inside, clear of the pirates', () => {
   for (const [seed, g] of galaxies) {
     const where = `seed ${seed}`, first = Missions.site(g), S = Missions.salvageSite(g, first), W = g.stations[g.waystation];
     assert.deepStrictEqual(Missions.salvageSite(g, first), S, `${where}: the same every time`);
@@ -3147,7 +3242,7 @@ test('the second mission: the nearest nebula, its pockets, and an android signal
   assert(wins > 95, `real time: won ${wins} of 100`);
 });
 
-test('the gate mission: the work spot by the gate, two waves of pirates, and a fight that isn\'t hard', () => {
+off('?missions', 'the gate mission: the work spot by the gate, two waves of pirates, and a fight that isn\'t hard', () => {
   for (const [seed, g] of galaxies) {
     const where = `seed ${seed}`, G = Missions.gateSite(g), gate = g.gates[G.gate], W = g.stations[g.waystation];
     assert.deepStrictEqual(Missions.gateSite(g), G, `${where}: the same every time`);
@@ -3197,7 +3292,7 @@ test('the gate mission: the work spot by the gate, two waves of pirates, and a f
 
 const wingman = () => Squad.stats(Squad.member(3));
 
-test('rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
+off('?missions', 'rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
   const me = () => Combat.combatant('player', 'Me', COURIER), foe = (id) => Combat.combatant(id, 'Fighter', FIGHTER);
   const ally = () => Combat.combatant('w1', 'Cipher-07', wingman());
   // No orders: it holds fire.
@@ -3239,7 +3334,7 @@ test('rounds: an ally fires on the target its orders name, and only then; a down
   assert(helped.rounds < alone.rounds * 0.8 && helped.hull > alone.hull + 10, `alone ${JSON.stringify(alone)}, helped ${JSON.stringify(helped)}`);
 });
 
-test('real time: an ally attacks its target, holds formation without one, and can be shot down', () => {
+off('?missions', 'real time: an ally attacks its target, holds formation without one, and can be shot down', () => {
   const me = () => RealtimeCombat.ship('player', 'Me', COURIER, { radius: 16 });
   const foe = (id, x, y) => RealtimeCombat.ship(id, 'Fighter', FIGHTER, { x, y, angle: Math.PI, radius: 18 });
   const ally = (x, y) => RealtimeCombat.ship('w1', 'Cipher-07', wingman(), { x, y, radius: 18 });
@@ -3266,7 +3361,7 @@ test('real time: an ally attacks its target, holds formation without one, and ca
   assert.strictEqual(CombatCore.aimAt(s, s.enemies[0]), s.player, 'and the enemy turns on the player');
 });
 
-test('real time: an ally told to keep its distance stays out near gun range, and still hits', () => {
+off('?missions', 'real time: an ally told to keep its distance stays out near gun range, and still hits', () => {
   const me = () => RealtimeCombat.ship('player', 'Me', COURIER, { x: -3000, radius: 16 });
   const foe = () => RealtimeCombat.ship('f1', 'Fighter', FIGHTER, { x: 1200, y: 0, angle: Math.PI, radius: 18 });
   const ally = () => RealtimeCombat.ship('w1', 'Cipher-07', wingman(), { x: 0, y: 0, radius: 18 });
@@ -4171,6 +4266,8 @@ test('race offline: race/sw.js keeps every file the race loads (npm run race:sw)
 });
 
 // ---------- The idle game (src/idle/, notes/idle.md) ----------
+// The tests play the system a new save gets (IdleRules.LAYOUT); layout 1, which only saves made
+// before there was a choice keep, has its own check in the layout test.
 
 test('idle offline: idle/sw.js keeps every file the idle game loads (npm run idle:sw), the manifest and its icons among them', () => {
   const files = AppSw.appFiles('idle');
@@ -4214,7 +4311,7 @@ test('Restoration.create: another project list, the game\'s untouched', () => {
 });
 
 test('idle: the system, its bodies on their orbits, and a station of each type to build', () => {
-  const w = IdleRules.world(1);
+  const w = IdleRules.world(1, IdleRules.LAYOUT);
   assert.strictEqual(w.stations.length, IdleConfig.BUILDS.length);
   for (const b of IdleConfig.BUILDS) assert.strictEqual(IdleRules.stationOf(w, b.id)?.type, b.type, b.id);
   assert.strictEqual(w.waystation.type, 'waystation');
@@ -4228,7 +4325,7 @@ test('idle: the system, its bodies on their orbits, and a station of each type t
 });
 
 test('idle: nothing built at first; chart by survey, build in orbit, drill, refine and sell; time away comes out the same however it is settled', () => {
-  const w = IdleRules.world(1), T = 1e12, field = w.sites.find((x) => x.kind === 'field');
+  const w = IdleRules.world(1, IdleRules.LAYOUT), T = 1e12, field = w.sites.find((x) => x.kind === 'field');
   const planet = w.sites.find((x) => x.kind === 'planet' && x.body.moons.length);
   const s0 = IdleRules.empty(w, T);
   assert.deepStrictEqual(s0.built, [], 'no stations');
@@ -4304,7 +4401,7 @@ test('idle: nothing built at first; chart by survey, build in orbit, drill, refi
 // A system with every station built round the field and the first planet, and plenty to pay with;
 // Haulage researched and a foreman at every station, so links have shuttles and orders go on.
 function idleBuilt(T) {
-  const w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+  const w = IdleRules.world(1, IdleRules.LAYOUT), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
   s.lab.done.push('ext.haulage');
   s.foremen.push(...IdleConfig.BUILDS.map((b) => b.id));
   const planets = w.sites.filter((x) => x.kind === 'planet');
@@ -4330,7 +4427,7 @@ test('idle: the game\'s Industry is unchanged without a rate; the idle tables ne
 });
 
 test('idle: research is paid from the credits and the waystation, needs its station built, and unlocks recipes', () => {
-  const T = 1e12, w = IdleRules.world(1), s0 = IdleRules.empty(w, T);
+  const T = 1e12, w = IdleRules.world(1, IdleRules.LAYOUT), s0 = IdleRules.empty(w, T);
   assert.strictEqual(IdleRules.researchStatus(s0, w, 'ext.drill.1').away, 'waystation', 'nothing built: nowhere to research');
   const { s } = idleBuilt(T), way = w.waystation.key;
   s.industry.stock[way] = { 'steel-pipe': 10 };
@@ -4379,7 +4476,7 @@ test('idle: research counts from when it finished, so time away comes out the sa
 });
 
 test('idle: the transport hub runs routes, the chain says what to mend, orders take priority and switch', () => {
-  const T = 1e12, w = IdleRules.world(1), s0 = IdleRules.empty(w, T);
+  const T = 1e12, w = IdleRules.world(1, IdleRules.LAYOUT), s0 = IdleRules.empty(w, T);
   assert(!IdleRules.canRoute(s0), 'no hub, no routes');
   const { s } = idleBuilt(T), camp = IdleRules.stationOf(w, 'build.ore').key, fab = IdleRules.stationOf(w, 'build.fabricator').key;
   s.industry.stock = {};
@@ -4496,7 +4593,7 @@ function idleSettle(s, w, T, end, steps, max = 300) {
 }
 
 test('idle: hauling by hand, then shuttles: a site fills and stops, a hauler sent by hand carries it, a shuttle carries it from then on', () => {
-  const T = 1e12, w = IdleRules.world(1), field = w.sites.find((x) => x.kind === 'field'), way = w.waystation.key;
+  const T = 1e12, w = IdleRules.world(1, IdleRules.LAYOUT), field = w.sites.find((x) => x.kind === 'field'), way = w.waystation.key;
   const run = (steps) => {
     const s = IdleRules.empty(w, T), I = IdleRules.industry;
     assert(IdleRules.build(s, w, 'build.waystation', field.key, T));
@@ -4628,7 +4725,7 @@ test('idle: the contract clerk delivers on the clock\'s steps, keeps what the ne
 });
 
 test('idle: the probe network starts the quickest survey on the clock\'s steps while the credits cover it', () => {
-  const T = 1e12, w = IdleRules.world(1), field = w.sites.find((x) => x.kind === 'field');
+  const T = 1e12, w = IdleRules.world(1, IdleRules.LAYOUT), field = w.sites.find((x) => x.kind === 'field');
   const run = (steps) => {
     const s = IdleRules.empty(w, T);
     assert(IdleRules.build(s, w, 'build.waystation', field.key, T));
@@ -4671,9 +4768,9 @@ test('idle: a system rolled from the seed (layout 2): the bodies differ by seed,
     seen.add(makeup(w));
   }
   assert(seen.size >= 6, `systems differ: ${seen.size} of 8`);
-  assert.strictEqual(makeup(IdleRules.world(1)), makeup(IdleRules.world(2)), 'layout 1: the same bodies for every seed');
+  assert.strictEqual(makeup(IdleRules.world(1, 1)), makeup(IdleRules.world(2, 1)), 'layout 1: the same bodies for every seed');
   // A save from before layouts (version 4) keeps its system.
-  const w = IdleRules.world(1), d = JSON.parse(JSON.stringify(IdleRules.empty(w, 1e12)));
+  const w = IdleRules.world(1, 1), d = JSON.parse(JSON.stringify(IdleRules.empty(w, 1e12)));
   delete d.layout;
   assert.strictEqual(IdleRules.read(d).layout, 1);
   assert.strictEqual(IdleRules.empty(IdleRules.world(3, 2), 1e12).layout, 2);
@@ -4694,7 +4791,7 @@ test('idle: selling a trade good by the hundred drives its price down there, and
 });
 
 test('idle: blueprints are drawn up at the shipyard, and the higher Mks take longer', () => {
-  const T = 1e12, w = IdleRules.world(1), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
+  const T = 1e12, w = IdleRules.world(1, IdleRules.LAYOUT), s = IdleRules.empty(w, T), field = w.sites.find((x) => x.kind === 'field');
   const planets = w.sites.filter((x) => x.kind === 'planet');
   s.charted.push(...planets.map((x) => x.key));
   const hosts = [field.key, field.key, ...planets.flatMap((x) => [x.key, x.key])];
@@ -4723,8 +4820,8 @@ test('idle: contracts grow with the stations built, and some ask for the dearest
 
 test('idle: a new system once every station is built: legacy from what was earned, kept for good, faster and better paid', () => {
   const T = 1e12;
-  const s0 = IdleRules.empty(IdleRules.world(1), T);
-  assert(!IdleRules.canJump(s0) && !IdleRules.jump(s0, IdleRules.world(1), T), 'not before every station is built');
+  const s0 = IdleRules.empty(IdleRules.world(1, IdleRules.LAYOUT), T);
+  assert(!IdleRules.canJump(s0) && !IdleRules.jump(s0, IdleRules.world(1, IdleRules.LAYOUT), T), 'not before every station is built');
   const { w, s } = idleBuilt(T);
   assert.strictEqual(s.earned, 0, 'built, nothing earned yet');
   // Earned counts sales, contracts and finds; spending doesn't take from it.

@@ -18,6 +18,11 @@
 // system's rocks, gas pockets, wrecks with what floats round them, and pirates only when near()
 // first looks within reach of it (or ensure(i), ensureAll()); `entities` holds what is built.
 // Every key is the same whichever order the systems are built in.
+// Planets, moons and the stations at planets go round (world/orbits.js), and so do the
+// observatories round their deep-space sites and the moons of a brown dwarf or rogue planet:
+// move(t) puts them all where the orbit clock has them, each with `moved` { x, y }, how far it went
+// (for game/update.js to carry a ship parked by it). They aren't filed in the grid: near() checks a
+// system's when the system is near, and the deep-space ones are always checked.
 // Positions are world units. ES module (`Scene`); also runs in Node (the tests).
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -25,6 +30,7 @@ import { ArtStationRoles } from '../art/station-roles.js';
 import { ArtUtil } from '../art/util.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { DeepSpace } from '../world/deep-space.js';
+import { Orbits } from '../world/orbits.js';
 import { DeepSites } from './deep-sites.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
@@ -52,6 +58,19 @@ const Scene = (() => {
       return e;
     }
     const addWide = (e) => { entities.push(e); wide.push(e); return e; };
+    // Things that go round: [entity, its data] (data: the galaxy's planet, moon or station, or for a
+    // deep-space moon its own orbit round its site's centre). By system, and the deep-space ones.
+    const systemCount = galaxy.systems ? galaxy.systems.length : 1;
+    const orbiters = [], orbitersOf = Array.from({ length: systemCount }, () => []);
+    function addOrbiter(e, data) {
+      entities.push(e);
+      if (e.key) byKey.set(e.key, e);
+      e.moved = { x: 0, y: 0 };
+      orbiters.push([e, data]);
+      if (data.site === undefined && !data.deep) orbitersOf[data.system || 0].push(e);
+      else wide.push(e);
+      return e;
+    }
 
     // ---------- Stars, nebulae, planets and moons ----------
     const stars = galaxy.stars.map((S) => addWide({ kind: 'star', body: { r: S.r, cls: S.cls, seed: S.seed, rays: 8 }, name: S.name, radius: S.r * 3.2, x: S.x, y: S.y }));
@@ -67,13 +86,13 @@ const Scene = (() => {
     // Planets, lit from their star; moons (art/bodies.js) by the fixed world light. Each is keyed by
     // its name, so it can be selected (and landed on, game/landing.js).
     for (const p of galaxy.planets) {
-      const S = galaxy.stars[p.system];
-      add({
+      const S = galaxy.stars[p.system || 0];
+      addOrbiter({
         kind: 'planet', key: p.name, body: { r: p.r, type: p.type, ring: p.ring, ringTilt: p.ringTilt, seed: p.seed }, name: p.name, radius: p.r * 2,
-        lightAngle: Math.atan2(S.y - p.y, S.x - p.x), x: p.x, y: p.y,
-      });
+        lightAngle: Math.atan2(S.y - p.y, S.x - p.x), star: S, x: p.x, y: p.y,
+      }, p);
     }
-    for (const m of galaxy.moons) add({ kind: 'moon', key: m.name, body: { type: m.type, r: m.r, seed: m.seed }, name: m.name, radius: m.r * 1.3, x: m.x, y: m.y });
+    for (const m of galaxy.moons) addOrbiter({ kind: 'moon', key: m.name, body: { type: m.type, r: m.r, seed: m.seed }, name: m.name, radius: m.r * 1.3, x: m.x, y: m.y }, m);
 
     // ---------- Stations ----------
     // market: { kind: 'system' | 'outpost', type } for rules/economy.js; key identifies the station.
@@ -82,10 +101,11 @@ const Scene = (() => {
       const role = ArtStationRoles.ROLE_OF[s.market?.type];
       const art = role ? ArtStationRoles.create(role, cultures.of(s.culture), s.seed, s.size)
         : ArtBlueprints.create(s.size === 'major' ? 'station-major' : 'station-minor', cultures.of(s.culture), s.seed);
-      return add({
+      const e = {
         kind: 'station', art, name: s.name, culture: s.culture, color: galaxy.cultureColor(s.culture),
         spin: mulberry32(s.seed)() * TAU, radius: art.radius, key: s.key, market: s.market, station: s, x: s.x, y: s.y,
-      });
+      };
+      return s.period ? addOrbiter(e, s) : add(e);
     });
 
     // ---------- Jump gates and wormholes ----------
@@ -101,7 +121,11 @@ const Scene = (() => {
     // ---------- Deep space ----------
     // Sites are big or few, so all of them are checked each frame; their rocks are built when near.
     const deep = DeepSites.build(galaxy);
-    for (const e of deep.entities) { addWide(e); if (e.key) byKey.set(e.key, e); }
+    for (const e of deep.entities) {
+      if (e.circles) { addOrbiter(e, e.circles); continue; } // a moon round a brown dwarf or rogue planet
+      addWide(e);
+      if (e.key) byKey.set(e.key, e);
+    }
     const deepLazy = new Map(deep.lazy.map((l) => [l.site.id, l]));
     const sitesBuilt = new Set();
     function ensureSite(id) {
@@ -113,7 +137,6 @@ const Scene = (() => {
     }
 
     // ---------- Per system, built when first near ----------
-    const systemCount = galaxy.systems ? galaxy.systems.length : 1;
     const bySystem = (list) => {
       const out = Array.from({ length: systemCount }, () => []);
       list.forEach((o, i) => out[o.system || 0].push([o, i]));
@@ -184,17 +207,21 @@ const Scene = (() => {
     }
     const ensureAll = () => { for (let i = 0; i < systemCount; i++) ensure(i); for (const id of deepLazy.keys()) ensureSite(id); };
     // The systems whose disc comes within `range` of (x, y).
+    // Returns the indices of those systems.
     const ensureNear = (x, y, range) => {
-      if (!galaxy.systems) { ensure(0); return; }
-      for (const sys of galaxy.systems) if (Math.hypot(sys.origin.x - x, sys.origin.y - y) - sys.radius * 1.1 <= range + MARGIN) ensure(sys.index);
+      if (!galaxy.systems) { ensure(0); return [0]; }
+      const out = [];
+      for (const sys of galaxy.systems) if (Math.hypot(sys.origin.x - x, sys.origin.y - y) - sys.radius * 1.1 <= range + MARGIN) { ensure(sys.index); out.push(sys.index); }
       for (const [id, l] of deepLazy) if (!sitesBuilt.has(id) && Math.hypot(l.site.x - x, l.site.y - y) - l.site.r <= range + MARGIN) ensureSite(id);
+      return out;
     };
 
     // Everything that may be within `range` of (x, y): the big things that reach it, and all
     // filed in the grid cells around it.
     function near(x, y, range) {
-      ensureNear(x, y, range);
+      const systems = ensureNear(x, y, range);
       const out = [];
+      for (const si of systems) for (const e of orbitersOf[si]) if (Math.hypot(e.x - x, e.y - y) - (e.extent || e.radius) <= range + MARGIN) out.push(e);
       for (const e of wide) {
         if (e.motion && e.motion.type === 'path') pose(e); // a mover is wherever it is now
         if (Math.hypot(e.x - x, e.y - y) - (e.extent || e.radius) <= range) out.push(e);
@@ -217,7 +244,19 @@ const Scene = (() => {
       else if (!byKey.has(key) && typeof key === 'string') ensure(systemOfKey(key));
       return byKey.get(key) || null;
     };
-    return { entities, stations, gates, stars, near, byKey, get, ensure, ensureAll, ensureSite, built: (i) => built.has(i) };
+    // Everything that goes round to where it is at t (seconds of the orbit clock): the galaxy's
+    // data first (world/orbits.js), then the entities from it.
+    function move(t) {
+      Orbits.place(galaxy, t);
+      for (const [e, o] of orbiters) {
+        const x0 = e.x, y0 = e.y;
+        if (o.around) { const a = Orbits.angleAt(o, t); e.x = o.around.x + Math.cos(a) * o.orbit; e.y = o.around.y + Math.sin(a) * o.orbit; } else { e.x = o.x; e.y = o.y; }
+        e.moved.x = e.x - x0; e.moved.y = e.y - y0;
+        if (e.star) e.lightAngle = Math.atan2(e.star.y - e.y, e.star.x - e.x);
+      }
+    }
+
+    return { entities, stations, gates, stars, near, move, byKey, get, ensure, ensureAll, ensureSite, built: (i) => built.has(i) };
   }
 
   // Position, heading and thrust of an entity at time t. A deep-space mover runs on the real clock

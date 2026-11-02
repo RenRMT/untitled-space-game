@@ -3,14 +3,17 @@
 // (flight/travel.js) and the tests all read the same layout:
 // - a star at the centre, at (0, 0),
 // - planets on orbits that widen outward: hot rocky worlds inside, temperate ones in the middle,
-//   gas and ice giants outside; some with rings, giants with moons,
+//   gas and ice giants outside; some with rings, giants with moons. They go round: each planet,
+//   moon and station at a planet has its orbit, angle (at t = 0) and period, and world/orbits.js
+//   moves them; what stays put (fields, gates, the parked stations, wrecks) keeps out of the band
+//   each planet sweeps where it can,
 // - asteroid belts (a main belt between the inner and outer planets, often an outer one near the
 //   edge; either can be left out) and a few free-floating asteroid fields, every rock placed here
 //   with a stable key,
 // - nebulae in the outer system: clouds made of overlapping blobs. Inside one, security is a
 //   level lower (except right by a station) and sensors reach half as far (game/outfitting.js),
-// - stations orbiting planets (a capital and a major station, both with shipyards, and minor
-//   ones) and bases out in space (mining camps in a belt or field, a salvage yard among wrecks),
+// - stations orbiting planets in a low orbit, inside their moons (a capital and a major station,
+//   both with shipyards, and minor ones) and bases parked out in space (mining camps in a belt or field, a salvage yard among wrecks),
 //   each built in one of three cultures (art only: how it looks and its colour, art/culture.js),
 //   and, with overrides.waystation ({ name, opposite? }), an android-run waystation on the outer
 //   edge (opposite: across the system from its first gate, and the nebulae kept clear of it),
@@ -32,6 +35,7 @@
 
 import { TAU, clamp, dist } from '../core/math.js';
 import { hashInt, mulberry32, nextSeed, seedToInt, weightedPick } from '../core/rng.js';
+import { Orbits } from './orbits.js';
 import { Security } from './security.js';
 
 const SolarSystem = (() => {
@@ -39,7 +43,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 5;
+  const VERSION = 6;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -120,6 +124,9 @@ const SolarSystem = (() => {
   };
   // Nominal station sizes for keeping things clear of them (the art decides the real size).
   const STATION_SIZE = { major: 260, minor: 140 };
+  // A planet's station keeps a low orbit this far above the planet's reach (rings included); its
+  // moons start this far out, clear of the station's lane.
+  const LOW_ORBIT = 420, MOON_LANE = 900;
   const GATE_SIZE = 320;
   const WORMHOLE_COLOR = '#b6a8ff'; // a wormhole's on the map and in space (a gate's is its culture's)
   const WAYSTATION_CLEAR = 6000; // no pirate packs this close to the waystation
@@ -193,18 +200,18 @@ const SolarSystem = (() => {
       const angle = rp() * TAU;
       const p = {
         id: planets.length, name: `${name} ${ROMAN[planets.length]}`, type, r, ring, ringTilt: -0.35 + (rp() - 0.5) * 0.5,
-        seed: nextSeed(rp) % 9973, orbit, angle, ...polar(angle, orbit), moons: [],
+        seed: nextSeed(rp) % 9973, orbit, angle, period: Orbits.period('planet', orbit), ...polar(angle, orbit), moons: [],
       };
       p.body = ring ? r * 1.95 : r * 1.1; // how far the planet itself reaches
-      p.extent = p.body; // ... and with its moons
+      p.extent = p.body + LOW_ORBIT + STATION_SIZE.major; // ... with a station's low orbit, and its moons
       const n = P.moons[type] ? count(rp, P.moons[type]) : 0;
       for (let k = 0; k < n; k++) {
         const mr = Math.round(between(rp, [55, 95]));
-        const d = p.body + 300 + k * 280 + mr;
+        const d = p.body + MOON_LANE + k * 300 + mr;
         const a = rp() * TAU;
         const m = {
           id: moons.length, parent: p.id, name: `${p.name} ${'abcd'[k]}`, type: moonKinds ? moonKinds[moons.length % moonKinds.length] : weightedPick(MOON_TYPES, rp()), r: mr,
-          ringTilt: 0, seed: nextSeed(rp) % 9973, orbit: d, x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
+          ringTilt: 0, seed: nextSeed(rp) % 9973, orbit: d, angle: a, period: Orbits.period('moon', d), x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d,
         };
         moons.push(m);
         p.moons.push(m.id);
@@ -263,15 +270,10 @@ const SolarSystem = (() => {
       stations.push(s);
       return s;
     };
-    // A spot beside a planet, clear of its rings and moons.
-    function besidePlanet(p, size) {
-      const d = p.body + STATION_SIZE[size] + 240, a0 = rs() * TAU;
-      let at = null;
-      for (let i = 0; i < 24; i++) {
-        at = { x: p.x + Math.cos(a0 + i * 0.6) * d, y: p.y + Math.sin(a0 + i * 0.6) * d };
-        if (p.moons.every((id) => dist(moons[id], at) > moons[id].r + STATION_SIZE[size] + 220)) break;
-      }
-      return at;
+    // A low orbit round a planet: above its rings, inside its moons (their lane starts further out).
+    function besidePlanet(p) {
+      const d = p.body + LOW_ORBIT, angle = rs() * TAU;
+      return { orbit: d, angle, period: Orbits.period('station', d), x: p.x + Math.cos(angle) * d, y: p.y + Math.sin(angle) * d };
     }
     const free = new Set(planets.map((p) => p.id));
     const take = (p) => { free.delete(p.id); return p; };
@@ -279,27 +281,29 @@ const SolarSystem = (() => {
     const nearest = (list, d) => [...list].sort((a, b) => Math.abs(a.orbit - d) - Math.abs(b.orbit - d))[0];
     if (P.stations.capital) {
       const capitalAt = take(temperate.find((p) => p.type === 'terran') || nearest(temperate.length ? temperate : planets, R * 0.3));
-      addStation({ name: `${makeName()} Station`, size: 'major', planet: capitalAt.id, ...besidePlanet(capitalAt, 'major'), market: { kind: 'system', type: 'capital' } });
+      addStation({ name: `${makeName()} Station`, size: 'major', planet: capitalAt.id, ...besidePlanet(capitalAt), market: { kind: 'system', type: 'capital' } });
     }
     const giants = planets.filter((p) => free.has(p.id) && (p.type === 'gas' || p.type === 'blue') && p.orbit < R * 0.7);
     const majorAt = giants.length ? giants[0] : planets.filter((p) => free.has(p.id)).sort((a, b) => a.orbit - b.orbit)[0];
-    if (P.stations.major && majorAt) addStation({ name: `${makeName()} Hub`, size: 'major', planet: take(majorAt).id, ...besidePlanet(majorAt, 'major'), market: { kind: 'system', type: 'major' } });
+    if (P.stations.major && majorAt) addStation({ name: `${makeName()} Hub`, size: 'major', planet: take(majorAt).id, ...besidePlanet(majorAt), market: { kind: 'system', type: 'major' } });
     const rest = planets.filter((p) => free.has(p.id));
     for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(rs() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
     for (const p of rest.slice(0, count(rs, P.stations.minor))) {
-      addStation({ name: `${makeName()} ${rs() < 0.5 ? 'Port' : 'Station'}`, size: 'minor', planet: take(p).id, ...besidePlanet(p, 'minor'), market: { kind: 'system', type: 'minor' } });
+      addStation({ name: `${makeName()} ${rs() < 0.5 ? 'Port' : 'Station'}`, size: 'minor', planet: take(p).id, ...besidePlanet(p), market: { kind: 'system', type: 'minor' } });
     }
 
-    // What things must keep clear of: the star's glow, each planet with its moons, each station
-    // and gate.
+    // What things must keep clear of: the star's glow, each parked station and each gate (the
+    // stations at planets go round with them).
     let gates = [];
     const blockers = () => [
       { x: 0, y: 0, r: star.reach },
-      ...planets.map((p) => ({ x: p.x, y: p.y, r: p.extent })),
-      ...stations.map((s) => ({ x: s.x, y: s.y, r: s.reach })),
+      ...stations.filter((s) => s.planet === undefined).map((s) => ({ x: s.x, y: s.y, r: s.reach })),
       ...gates.map((g) => ({ x: g.x, y: g.y, r: g.reach })),
     ];
     const clear = (at, pad, list = blockers()) => list.every((b) => dist(b, at) >= b.r + pad);
+    // ... and the band each planet sweeps with its moons and station as it goes round: whether
+    // something reaching r from `at` stays out of every one.
+    const clearOfOrbits = (at, r) => planets.every((p) => Math.abs(Math.hypot(at.x, at.y) - p.orbit) >= p.extent + r);
 
     // ---------- Jump gates: in the outer system, toward the system each leads to ----------
     const rg = stream(0x6a7e);
@@ -307,7 +311,7 @@ const SolarSystem = (() => {
       let at = null;
       for (let tries = 0; tries < 80 && !at; tries++) {
         const c = polar(g.angle + (tries ? (rg() - 0.5) * Math.min(1.6, tries * 0.06) : 0), R * between(rg, [0.74, 0.84]));
-        if (clear(c, 2500) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1200)) at = c;
+        if (clear(c, 2500) && (tries > 60 || clearOfOrbits(c, GATE_SIZE + 600)) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1200)) at = c;
       }
       at = at || polar(g.angle, R * 0.8);
       const culture = Math.floor(rg() * SETTLED);
@@ -324,6 +328,7 @@ const SolarSystem = (() => {
       const spread = between(rf, P.fields.spread);
       const at = polar(rf() * TAU, between(rf, [R * 0.3, R * 0.9 - spread]));
       if (!clear(at, spread + 1500) || beltAt(at.x, at.y, spread + 800) || fields.some((f) => dist(f, at) < f.spread + spread + 4000)) continue;
+      if (tries < 200 && !clearOfOrbits(at, spread + 300)) continue; // out of the planets' way, where there's room
       if (nebulae.some((neb) => dist(neb, at) < neb.r + spread)) continue; // out in the open, where a camp can sit
       fields.push({ id: fields.length, name: `${makeName()} Field`, ...at, spread, rocks: count(rf, P.fields.rocks) });
     }
@@ -345,6 +350,7 @@ const SolarSystem = (() => {
     for (let tries = 0; P.stations.yard && tries < 200 && !yard; tries++) {
       const at = polar(rs() * TAU, between(rs, [R * 0.45, R * 0.8]));
       if (!clear(at, 3500) || nebulaAt(at.x, at.y) || beltAt(at.x, at.y, 1500) || stations.some((s) => dist(s, at) < 6000)) continue;
+      if (tries < 150 && !clearOfOrbits(at, 1300)) continue; // (its wrecks lie up to 800 out)
       yard = addStation({ name: `${makeName()} Yard`, size: 'minor', ...at, market: { kind: 'outpost', type: 'salvage yard' } });
     }
     // Cultures: the capital's is the first; the others take turns, so all three are present.
@@ -364,7 +370,7 @@ const SolarSystem = (() => {
         // Opposite: near the far side from the first gate, straying further the longer it looks.
         const a = wayOpposite ? Math.atan2(gates[0].y, gates[0].x) + Math.PI + (rw() - 0.5) * Math.min(Math.PI, 0.3 + tries * 0.02) : rw() * TAU;
         const c = polar(a, R * between(rw, [0.88, 0.93]));
-        if (clear(c, 3000) && nebulae.every((n) => dist(n, c) > n.r + 6000) && !beltAt(c.x, c.y, 2000) && stations.every((o) => dist(o, c) > 7000) && gates.every((g) => dist(g, c) > 7000)) at = c;
+        if (clear(c, 3000) && (tries > 200 || clearOfOrbits(c, 800)) && nebulae.every((n) => dist(n, c) > n.r + 6000) && !beltAt(c.x, c.y, 2000) && stations.every((o) => dist(o, c) > 7000) && gates.every((g) => dist(g, c) > 7000)) at = c;
       }
       at = at || (waySpot ? { ...waySpot } : polar(rw() * TAU, R * 0.9));
       addStation({ name: overrides.waystation.name, size: 'minor', ...at, culture: ANDROID, waystation: true, market: { kind: 'outpost', type: 'waystation' } });
@@ -377,7 +383,7 @@ const SolarSystem = (() => {
       let at = null;
       for (let tries = 0; tries < 300 && !at; tries++) {
         const c = polar(rt() * TAU, R * between(rt, [0.3, 0.6]));
-        if (clear(c, 3000) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1500) && stations.every((o) => dist(o, c) > 6000 - tries * 10)) at = c;
+        if (clear(c, 3000) && (tries > 200 || clearOfOrbits(c, 600)) && !nebulaAt(c.x, c.y) && !beltAt(c.x, c.y, 1500) && stations.every((o) => dist(o, c) > 6000 - tries * 10)) at = c;
       }
       if (at) addStation({ name: `${name} Transit`, size: 'minor', ...at, market: { kind: 'outpost', type: 'transport hub' } });
     }
@@ -423,9 +429,12 @@ const SolarSystem = (() => {
     const { spacing, orbit: [o0, o1], clear: packClear, margin } = Sec.PACK;
     const rk = stream(0x9ac5);
     const packBlock = blockers();
-    const packFits = (at) => Math.hypot(at.x, at.y) <= R - margin - o1
-      && clear(at, packClear + o1, packBlock.filter((b, i) => i === 0 || i > planets.length))
-      && planets.every((p) => dist(p, at) >= p.extent + 400 + o1)
+    // loose (a nebula's ambush, where nothing else fits): 1 kept only out of the planets' own way,
+    // 2 not even that (a planet may sweep by it as it goes round).
+    const packFits = (at, loose = 0) => Math.hypot(at.x, at.y) <= R - margin - o1
+      && clear(at, packClear + o1, packBlock)
+      // out of the planets' way, and further out of their stations':
+      && (loose > 1 || planets.every((p) => Math.abs(Math.hypot(at.x, at.y) - p.orbit) >= p.extent + o1 + (!loose && stations.some((st) => st.planet === p.id) ? packClear : 400)))
       && packs.every((k) => dist(k, at) >= spacing)
       && stations.every((st) => !st.waystation || dist(st, at) >= WAYSTATION_CLEAR + o1); // its safe zone
     let shipCount = 0;
@@ -452,9 +461,9 @@ const SolarSystem = (() => {
       return { x: n.x + b.dx + Math.cos(a) * d, y: n.y + b.dy + Math.sin(a) * d };
     };
     for (const n of P.pirates.nebulaAmbushes ? nebulae : []) {
-      for (let tries = 0; tries < 60; tries++) {
+      for (let tries = 0; tries < 200; tries++) {
         const at = inside(n);
-        if (nebulaAt(at.x, at.y) && packFits(at)) { addAmbush(at); break; }
+        if (nebulaAt(at.x, at.y) && packFits(at, tries < 60 ? 0 : tries < 140 ? 1 : 2)) { addAmbush(at); break; }
       }
     }
     for (let n = count(rk, P.pirates.lawlessAmbushes), tries = 0; n > 0 && tries < 200; tries++) {
@@ -496,6 +505,7 @@ const SolarSystem = (() => {
       const at = derelictSpot();
       if (Math.hypot(at.x, at.y) > R - 1500 || securityAt(at.x, at.y) >= 2 || !clear(at, 1200)
         || stations.some((s) => dist(s, at) < 4000) || contacts.some((c) => dist(c, at) < P.derelicts.spacing)) continue;
+      if (tries < 300 && !clearOfOrbits(at, 900)) continue; // (its wrecks lie up to 450 out)
       const c = addContact('derelict', at.x, at.y, 700);
       const culture = randomCulture(rd);
       if (rd() < 0.4) addWreck('wreck-station', culture, at.x, at.y, { contact: c.id, name: CONTACT_TYPES.derelict.label });
@@ -509,13 +519,13 @@ const SolarSystem = (() => {
     }
 
     // ---------- Asteroids ----------
-    // Every rock: { key, x, y, type, r, seed, spin0, tumble }. None inside a planet's reach or
-    // under a station.
+    // Every rock: { key, x, y, type, r, seed, spin0, tumble }. None in a planet's path or under a
+    // station.
     const asteroids = [];
     const rockBlock = blockers().slice(1);
     function rock(r, x, y, types) {
       const at = { x, y };
-      if (rockBlock.some((b) => dist(b, at) < b.r + 120)) return;
+      if (rockBlock.some((b) => dist(b, at) < b.r + 120) || !clearOfOrbits(at, 120)) return;
       asteroids.push({
         key: `a${asteroids.length}`, x, y, type: weightedPick(types, r()), r: 8 + r() ** 2.2 * 44,
         seed: nextSeed(r), spin0: r() * TAU, tumble: (r() - 0.5) * 0.5,
