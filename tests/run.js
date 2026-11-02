@@ -20,6 +20,7 @@ import { ArtItems } from '../src/art/items.js';
 import { SpriteCache } from '../src/art/sprite-cache.js';
 import { Entities } from '../src/flight/entities.js';
 import { Scene } from '../src/flight/scene.js';
+import { DeepSites } from '../src/flight/deep-sites.js';
 import { Interactions } from '../src/flight/interactions.js';
 import { Collide } from '../src/flight/collide.js';
 import { Hazards } from '../src/rules/hazards.js';
@@ -99,7 +100,8 @@ const sceneOf = (seed) => {
 };
 // A scene with every system built.
 const fullScene = (g, cultures = ArtCulture.forGalaxy(g)) => { const sc = Scene.create(g, cultures); sc.ensureAll(); return sc; };
-const thingsOf = (seed, kind) => sceneOf(seed).entities.filter((e) => e.kind === kind);
+// A system's things of a kind (deep-space sites' own, flight/deep-sites.js, have keys starting 'd' or a site).
+const thingsOf = (seed, kind) => sceneOf(seed).entities.filter((e) => e.kind === kind && !e.site && !String(e.key || '').startsWith('d'));
 // What art/render.js can draw.
 const STAR_CLASSES = ['M', 'K', 'G', 'A', 'B'];
 const PLANET_TYPES = ['blue', 'terran', 'desert', 'ice', 'gas', 'lava'];
@@ -339,9 +341,31 @@ test('the scene builds each system the first time something looks near it, with 
   assert(a.built(far.index) && !a.built(0), 'built where looked');
   a.ensureAll();
   for (let i = g.systems.length - 1; i >= 0; i--) b.ensure(i); // the other way round
+  for (const s of [...g.sites].reverse()) b.ensureSite(s.id); // and the deep-space sites' rocks
   const keys = (sc) => sc.entities.map((e) => `${e.kind}:${e.key}`).sort();
   assert.deepStrictEqual(keys(a), keys(b));
-  assert.strictEqual(a.entities.filter((e) => e.kind === 'asteroid').length, g.asteroids.length);
+  assert.strictEqual(a.entities.filter((e) => e.kind === 'asteroid' && !e.key.startsWith('d')).length, g.asteroids.length);
+});
+
+test('deep-space sites in flight: each kind has a form, the rocks lie clear of the systems and keep their keys', () => {
+  for (const seed of [1, 2]) {
+    const g = galaxies.get(seed), sc = sceneOf(seed);
+    for (const s of g.sites) assert(DeepSites.FORM[s.kind], `${s.kind} has no form in flight`);
+    const deep = sc.entities.filter((e) => e.form);
+    for (const kind of new Set(g.sites.map((s) => s.kind))) {
+      const form = DeepSites.FORM[kind];
+      if (form === 'sky' && kind !== 'globular-cluster') continue;
+      if (form === 'map') continue;
+      assert(deep.some((e) => (e.site && e.site.kind === kind) || e.form === form), `${kind}: nothing in flight`);
+    }
+    const rocks = sc.entities.filter((e) => e.kind === 'asteroid' && e.key.startsWith('d'));
+    assert(rocks.length > 0, 'some sites hold rocks');
+    for (const a of rocks) assert(!g.systemAt(a.x, a.y), `${a.key} lies in a system`);
+    assert.strictEqual(new Set(rocks.map((a) => a.key)).size, rocks.length, 'rock keys are unique');
+    for (const e of deep) assert(Number.isFinite(e.x) && Number.isFinite(e.y) && e.radius > 0, `${e.key}: bad place or size`);
+  }
+  const crowds = DeepSites.crowds(galaxies.get(1));
+  assert(DeepSites.crowdAt(crowds, 0, 0).k > 0.8, 'the core\'s sky is crowded');
 });
 
 test('a star, planets on widening orbits, belts, fields and nebulae, all inside the edge', () => {
@@ -671,7 +695,7 @@ test('asteroids have unique keys that survive a rebuild', () => {
   const s = galaxies.get(1);
   const rebuilt = Scene.create(s, ArtCulture.forGalaxy(s));
   rebuilt.ensureAll();
-  const a = thingsOf(1, 'asteroid'), b = rebuilt.entities.filter((e) => e.kind === 'asteroid');
+  const a = sceneOf(1).entities.filter((e) => e.kind === 'asteroid'), b = rebuilt.entities.filter((e) => e.kind === 'asteroid'); // deep-space sites' rocks too
   assert(a.length > 100, `only ${a.length} asteroids`);
   assert.strictEqual(new Set(a.map((e) => e.key)).size, a.length, 'duplicate asteroid keys');
   assert.deepStrictEqual(a.map((e) => [e.key, e.x, e.y]), b.map((e) => [e.key, e.x, e.y]));

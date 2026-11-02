@@ -860,10 +860,17 @@ const Art = (() => {
     terran: { c: ['#1d3b6e', '#2f6fa8', '#d9c38a', '#4f8a3c', '#2e5e2e', '#7a6a5a', '#eef2f4'], t: [0.47, 0.52, 0.54, 0.6, 0.66, 0.72], line: '#8ad0ff', ring: ['#e3c99a', '#b8996c'] },
     desert: { c: ['#7a3f22', '#a8582f', '#c9774a', '#e0a06a', '#f0c999'], t: [0.42, 0.48, 0.54, 0.6], line: '#ffc08a', ring: ['#e3c99a', '#b8996c'] },
     ice: { c: ['#2c4f73', '#5d8fbd', '#a7cbe2', '#dcebf4', '#ffffff'], t: [0.44, 0.49, 0.54, 0.6], line: '#cfeaff', ring: ['#dfe9f5', '#9fb3cc'] },
-    gas: { c: ['#5a3424', '#9a5a34', '#cf9358', '#ecc994', '#b56b3e'], t: [0.2, 0.4, 0.6, 0.8], line: '#ffcf94', ring: ['#e3c99a', '#b8996c'] },
+    gas: { c: ['#5a3424', '#9a5a34', '#cf9358', '#ecc994', '#b56b3e'], t: [0.2, 0.4, 0.6, 0.8], line: '#ffcf94', ring: ['#e3c99a', '#b8996c'], bands: true },
     lava: { c: ['#ffb03a', '#ff6a1a', '#3b2a26', '#2a201d', '#4a3a34'], t: [0.42, 0.46, 0.55, 0.64], line: '#ff9a5a', ring: ['#b89a8a', '#7a5a4a'] },
+    // Brown dwarfs (art/sites.js): banded like a gas giant, by spectral class; not system planets.
+    'dwarf-L': { c: ['#3a1410', '#6a2418', '#a03a20', '#d0602e', '#7a2c1a'], t: [0.2, 0.4, 0.6, 0.8], line: '#ff8a5a', ring: ['#b89a8a', '#7a5a4a'], bands: true, hidden: true },
+    'dwarf-T': { c: ['#2a0e24', '#4e1a40', '#7a2a5e', '#a8487e', '#5e2048'], t: [0.2, 0.4, 0.6, 0.8], line: '#e87ab8', ring: ['#b89a8a', '#7a5a4a'], bands: true, hidden: true },
+    'dwarf-Y': { c: ['#160e1e', '#2a1a36', '#42284e', '#5e3a68', '#30203c'], t: [0.2, 0.4, 0.6, 0.8], line: '#b48ad8', ring: ['#b89a8a', '#7a5a4a'], bands: true, hidden: true },
+    // Rogue planets (art/sites.js): no star of their own, so darker and colder than system worlds.
+    'rogue-ice': { c: ['#101a2a', '#22364e', '#3e5c7a', '#6a8aa8', '#a8c0d6'], t: [0.44, 0.49, 0.54, 0.6], line: '#9ab8d8', ring: ['#8a9ab0', '#5a6a80'], hidden: true },
+    'rogue-dark': { c: ['#0c0e12', '#181c24', '#262c38', '#3a4252', '#58647a'], t: [0.44, 0.5, 0.56, 0.62], line: '#7e94a8', ring: ['#8a9ab0', '#5a6a80'], hidden: true },
   };
-  const PLANET_TYPES = Object.keys(PLANETS);
+  const PLANET_TYPES = Object.keys(PLANETS).filter((k) => !PLANETS[k].hidden);
 
   function hash3(x, y, z, s) {
     let h = (x * 374761393 + y * 668265263 + z * 1274126177 + s * 144269) | 0;
@@ -892,7 +899,7 @@ const Art = (() => {
       return P.c[1 + Math.floor(v * 3.99)];
     }
     let h = fbm(x * 1.8 + 3, y * 1.8 + 3, z * 1.8 + 3, s);
-    if (pl.type === 'gas') h = (Math.sin(y * 9 + h * 7) + 1) / 2;
+    if (P.bands) h = (Math.sin(y * 9 + h * 7) + 1) / 2;
     if (pl.type === 'terran' && Math.abs(y) > 0.84) return '#eef2f4';
     if (pl.type === 'ice' && Math.abs(y) > 0.7) h = Math.max(h, 0.6);
     for (let i = 0; i < P.t.length; i++) if (h < P.t[i]) return P.c[i];
@@ -991,7 +998,7 @@ const Art = (() => {
     ctx.lineJoin = ctx.lineCap = 'round';
     const region = (p, fa = 0.1, sa = 0.55, w = 0.8) => { ctx.globalAlpha = fa; ctx.fill(p); ctx.globalAlpha = sa; ctx.lineWidth = w; ctx.stroke(p); };
     const line = (pts, a, w) => { ctx.globalAlpha = a; ctx.lineWidth = w; ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(...q) : ctx.moveTo(...q))); ctx.stroke(); };
-    if (type === 'gas') {
+    if (P.bands) {
       ctx.save();
       ctx.rotate(tilt);
       const n = 5 + Math.floor(rnd() * 3);
@@ -1034,7 +1041,7 @@ const Art = (() => {
     if (pl.ring) ring(Math.PI, TAU);
     ctx.save();
     ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.clip();
-    if (pl.type === 'blue' || pl.type === 'gas') {
+    if (pl.type === 'blue' || P.bands) {
       ctx.fillStyle = pl.type === 'blue' ? P.c[3] : P.c[2];
       ctx.fillRect(-r, -r, r * 2, r * 2);
       ctx.rotate(tilt);
@@ -1136,7 +1143,7 @@ const Art = (() => {
     const { r } = pl, P = PLANETS[pl.type], tilt = pl.ringTilt ?? -0.35;
     const { v, f } = icosphere(curV().coarse ? 1 : 2);
     const s = (pl.seed || 1) % 9973, sea = P.t ? P.t[1] : 0.5;
-    const H = v.map((p) => (pl.type === 'gas' || pl.type === 'blue' || curV().smoothN ? 0.5 : fbm(p[0] * 1.8 + 3, p[1] * 1.8 + 3, p[2] * 1.8 + 3, s)));
+    const H = v.map((p) => (P.bands || pl.type === 'blue' || curV().smoothN ? 0.5 : fbm(p[0] * 1.8 + 3, p[1] * 1.8 + 3, p[2] * 1.8 + 3, s)));
     const Vs = v.map((p, i) => p.map((a) => a * r * (1 + Math.max(0, H[i] - sea) * 0.4)));
     const tris = f.map(([a, b, c]) => {
       const m = [0, 1, 2].map((i) => (v[a][i] + v[b][i] + v[c][i]) / 3);
@@ -1198,6 +1205,10 @@ const Art = (() => {
     M: ['#ffd9c2', '#ff8a5c', '#e8502e', '#b02a1e', '#701812', '#3e0d0a'],
     B: ['#ffffff', '#dff0ff', '#a9d4ff', '#6aa8ff', '#3a6ad9', '#1e3a8a'],
     A: ['#ffffff', '#f4f6ff', '#d8e2ff', '#aabcf0', '#7088c8', '#3a4a80'],
+    F: ['#ffffff', '#fffbe8', '#fff0c0', '#ffd88a', '#e0a050', '#8a5a2a'],
+    O: ['#ffffff', '#e4ecff', '#b4c8ff', '#7a96ff', '#4a5ae0', '#24288a'],
+    D: ['#ffffff', '#f0f8ff', '#d0e8ff', '#9cc4f0', '#5a84c0', '#2a4070'], // white dwarf
+    W: ['#ffffff', '#dcfaff', '#9af0ff', '#4ad0f0', '#2a80c8', '#183a80'], // Wolf–Rayet
   };
 
   function starLine(ctx, st, t) {
@@ -1850,7 +1861,7 @@ const Art = (() => {
     // sprite helpers, and the per-frame build budget (sprite-cache.js) every cache spends from.
     hatch, kit: { LIGHT, BAYER, norm, dot, sub, cross, hash3, noise3, fbm, icosphere, ramp, level, quant, dprOf, canvas, idOf, budget },
     STYLES, config, PLANET_TYPES,
-    VARIANTS: Object.entries(STYLE_VARIANTS).map(([id, s]) => ({ id, base: s.base, label: s.label })), baseOf, variantOf, pickV, withV, get V() { return V; }, STAR_CLASSES: Object.keys(STAR_CLASSES),
+    VARIANTS: Object.entries(STYLE_VARIANTS).map(([id, s]) => ({ id, base: s.base, label: s.label })), baseOf, variantOf, pickV, withV, get V() { return V; }, STAR_CLASSES: Object.keys(STAR_CLASSES), STAR_PAL: STAR_CLASSES,
 
     ASTEROID_TYPES: Object.keys(ASTEROIDS), ASTEROIDS,
     drawAsset, drawPlanet, drawStar, drawAsteroid,
