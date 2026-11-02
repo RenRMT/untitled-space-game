@@ -9,6 +9,11 @@
 //   browser.frames(n)                 run n frames at 60 fps (every queued animation callback)
 //   browser.key(key)                  a keydown on the window
 //   browser.badDraws                  draw calls that got a non-finite number (NaN, Infinity)
+//
+// install() also puts in a performance.now() and a Date.now() that run with the frames (see now()
+// below), and seeds Math.random (options.random, default 1; the RANDOM_SEED environment
+// variable overrides it), so a run plays out the same every time: the game rolls fights, loot
+// and effects with it.
 
 const IDENTITY = [1, 0, 0, 1, 0, 0];
 const multiply = (m, [a, b, c, d, e, f]) => [
@@ -191,12 +196,20 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
 
   const windowListeners = {};
   let queue = [];
-  let clock = 0;
+  // The page's clock: performance.now() runs with the frames (each a 60th of a second), plus a
+  // microsecond a reading, so time measured while working (a frame's build budget) still passes
+  // and loops that work until a budget is spent end. Nothing in a run depends on how fast the
+  // machine is (the landing's zoom keeps to real time, for one).
+  let clock = 1000, read = clock;
+  const now = () => (read = Math.max(read, clock) + 0.001);
+  // ... and the wall clock (Date.now: the game's Clock, the research and production clocks, the
+  // market's drift, the deep-space sites that move) with it, from a fixed date.
+  const EPOCH = Date.UTC(2026, 0, 1);
   const href = `http://localhost/index.html${search}`;
   // An image (the HUD's status icons, drawn from SVG): loaded at once, so drawing it is checked.
   class Image { constructor() { Object.assign(this, { complete: true, naturalWidth: 48, width: 48, height: 48, src: '' }); } }
   const globals = {
-    document, localStorage, Path2D, DOMMatrix, Image,
+    document, localStorage, Path2D, DOMMatrix, Image, performance: { now, timeOrigin: 0 },
     innerWidth: width, innerHeight: height, devicePixelRatio: dpr,
     location: { search, href, pathname: '/index.html' },
     history: { replaceState() {} },
@@ -207,12 +220,12 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
   };
 
   Object.assign(rt, {
+    epoch: EPOCH,
     globals, document, storage, Element, Canvas, Ctx2D,
     // Run n frames: every animation callback queued so far, at 60 fps.
     frames(n = 1, stepMs = 1000 / 60) {
-      if (!clock) clock = performance.now();
       for (let i = 0; i < n; i++) {
-        clock += stepMs;
+        clock = Math.max(clock + stepMs, read);
         const run = queue;
         queue = [];
         for (const fn of run) fn(clock);
@@ -231,8 +244,16 @@ function createRuntime({ width = 1280, height = 800, dpr = 2, search = '' } = {}
 }
 
 // Install the runtime on globalThis (once per process: the game's scripts are global).
-function install(options) {
+function install(options = {}) {
   const rt = createRuntime(options);
+  let a = Number(process.env.RANDOM_SEED ?? options.random ?? 1) >>> 0; // mulberry32, as src/core/rng.js
+  Math.random = () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  Date.now = () => rt.epoch + performance.now();
   Object.assign(globalThis, rt.globals);
   globalThis.window = globalThis;
   return rt;

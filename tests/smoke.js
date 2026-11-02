@@ -3,9 +3,14 @@
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
 // settings, and landing: on every kind of planet and moon, and the surface run (deposits mined,
-// the day side, take-off fuel, jettisoning, losses and caches left on a surface). It opens on the introduction (switched off in the game for now, so the test asks for it
-// with ?intro) and the waystation's three missions, which the first four tests play through. Each step checks its effect; at the end nothing may have been drawn at a
-// non-finite position. The steps share one game, in order, as a player would play them.
+// the day side, take-off fuel, jettisoning, losses and caches left on a surface).
+// It plays with ?intro&missions&pirates, which turn on what the game has switched off for now
+// (the introduction, the waystation's three missions, which the first four tests play through,
+// and the pirates), so those keep working; their tests are marked [off: ...]. The game as it
+// ships, with no flags, has its own run: tests/smoke-default.js. Each step checks its effect; at
+// the end nothing may have been drawn at a non-finite position. The steps share one game, in
+// order, as a player would play them; Math.random is seeded (tests/browser-stub.js), so a run
+// plays out the same every time (RANDOM_SEED=n tries another).
 
 import assert from 'node:assert';
 import { install } from './browser-stub.js';
@@ -30,12 +35,19 @@ const { ArtBodies, Galaxy } = G; // the tests use them too
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
 const game = (src) => inGame(scope, src);
 
+// Tests of what the game has switched off for now (notes/hazards.md, notes/archived-systems.md):
+// pirates and fights with ships (?pirates), the introduction (?intro), the opening missions and
+// the squad they bring (?missions; no other way to get a squad member yet), and the jobs board's
+// machinery (no job texts written yet). Kept so those still work when they come back, and marked
+// in the output so what guards the game as it ships is plain to see.
+const off = (flag, name, fn) => test(`[off: ${flag}] ${name}`, fn);
+
 let failed = 0;
 function test(name, fn) {
-  const t0 = Date.now();
+  const t0 = process.hrtime.bigint(); // (Date.now runs with the game's frames: browser-stub.js)
   try {
     fn();
-    console.log(`ok   ${name} (${Date.now() - t0} ms)`);
+    console.log(`ok   ${name} (${(process.hrtime.bigint() - t0) / 1000000n} ms)`);
   } catch (e) {
     failed++;
     console.log(`FAIL ${name}\n     ${e.stack.split('\n').slice(0, 4).join('\n     ')}`);
@@ -51,6 +63,8 @@ game(`
     return e;
   };
   globalThis.__startStation = startStation;
+  // A fight under way broken off, as tickFight (game/combat.js) ends one: the ship got away.
+  globalThis.__breakOff = () => { if (!fight.s) return; const s = fight.s; fight.s = null; fight.final = s; endFight('fled'); };
   // A point on the surface landed on, from its landing spot (the day and the dust move over the ground).
   globalThis.__rel = (x, y) => [x - surfaceRun.W.start[0], y - surfaceRun.W.start[1]];
   globalThis.__night = (x, y, secs = 60) => { const d = Hazards.daylight(surfaceRun.site, simTime, __rel(x, y)); return !d.day && d.in > secs; };
@@ -104,7 +118,7 @@ function until(cond, maxFrames, each = '') {
   return game(cond);
 }
 
-test('a new game opens on the introduction (with ?intro): the pod is talked in, flown to the waystation and docked', () => {
+off('?intro', 'a new game opens on the introduction (with ?intro): the pod is talked in, flown to the waystation and docked', () => {
   assert.strictEqual(game('INTRO_ENABLED'), false, 'switched off unless asked for');
   assert.strictEqual(game('MISSIONS_ENABLED'), false, 'switched off unless asked for');
   browser.frames(3);
@@ -182,7 +196,7 @@ test('a new game opens on the introduction (with ?intro): the pod is talked in, 
   assert.match(textOf(browser.document.getElementById('st-sub')), /Waystation/);
 });
 
-test('the first mission: accepted at the waystation, the pirates beaten, the android escorted home, and it joins the squad', () => {
+off('?missions', 'the first mission: accepted at the waystation, the pirates beaten, the android escorted home, and it joins the squad', () => {
   const body = browser.document.getElementById('st-body'), comms = browser.document.getElementById('comms');
   const tab = onStation, press = pressOnStation;
   // Docked after the introduction: only the Missions tab, and no launching before accepting.
@@ -298,7 +312,7 @@ test('the first mission: accepted at the waystation, the pirates beaten, the and
   game(`StationMenu.showTab('missions')`);
 });
 
-test('the second mission: mining and gas, an android signal, a hostile android, and the AI logic module settles the debt', () => {
+off('?missions', 'the second mission: mining and gas, an android signal, a hostile android, and the AI logic module settles the debt', () => {
   const comms = browser.document.getElementById('comms');
   const tab = onStation, press = pressOnStation;
   const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
@@ -424,7 +438,7 @@ test('the second mission: mining and gas, an android signal, a hostile android, 
   game('artStyle.set("line"); combatMode.set("rounds"); fight.grace = 0; placeBeside(startStation())');
 });
 
-test('the gate mission: the squad member unblocks the gate under attack, and gets its first combat logic module', () => {
+off('?missions', 'the gate mission: the squad member unblocks the gate under attack, and gets its first combat logic module', () => {
   const comms = browser.document.getElementById('comms');
   const tab = onStation, press = pressOnStation;
   const talkThrough = () => { for (let i = 0; i < 12 && game('!!talk.lines'); i++) game('Comms.next()'); };
@@ -566,9 +580,12 @@ test('moons and nebulae come from art/bodies.js, in every style', () => {
     browser.frames(2);
     assert.ok(game(`frameList.some((e) => e.kind === 'moon' && visible(e))`), `a moon on screen in ${style}`);
   }
+  // (The frame's build budget is in real milliseconds; lifted here, so how many chunks a frame
+  // builds doesn't depend on how fast the machine is. The budget's own test is further on.)
   const before = game('ArtBodies.stats().builds');
-  game(`{ const n = world.galaxy.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
+  game(`Art.config.buildBudgetMs = Infinity; { const n = world.galaxy.nebulae[0]; placeShip(n.x + n.blobs[0].dx, n.y + n.blobs[0].dy); }`);
   for (const style of game('ART_STYLES')) { game(`artStyle.set('${style}')`); browser.frames(4); }
+  game('Art.config.buildBudgetMs = 4');
   assert.ok(game('ArtBodies.stats().builds') > before + 20, 'nebula chunks were built');
   game(`artStyle.set('line'); { const st = __startStation(); placeShip(st.x, st.y + st.radius + 300); }`);
   browser.frames(2);
@@ -812,7 +829,7 @@ test('researches a logic package: paid up front, built on the real clock, and th
   browser.frames(2);
 });
 
-test('logic intents become orders: guard fires on the ward\'s attacker, retreat falls back behind the leader', () => {
+off('?missions', 'logic intents become orders: guard fires on the ward\'s attacker, retreat falls back behind the leader', () => {
   const orders = (intent) => game(`(() => {
     const c = (id, x, y, o = {}) => ({ id, x, y, angle: 0, hull: 10, shield: 0, stats: { hull: 10, shield: 0 }, ...o });
     const s = { player: c('player', 0, 0), allies: [c('w1', -100, 0), c('w2', -100, 100)],
@@ -1189,7 +1206,10 @@ test('hazards: a solar flare is warned of; a planet\'s shadow shelters the ship,
   browser.frames(30);
   assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · sheltered/);
   const rad = game('cargo.rad');
-  game('placeShip(ship.x + 3000, ship.y - 3000, 0)'); // out of the shadow
+  // Out of the shadow: sideways to the sunlight (the planet goes round its star, so the shadow
+  // points wherever it is now).
+  game(`{ const S = world.galaxy.stars[__terran.system], dx = __terran.x - S.x, dy = __terran.y - S.y, d = Math.hypot(dx, dy);
+    placeShip(ship.x - dy / d * 3000, ship.y + dx / d * 3000, 0); }`);
   browser.frames(30);
   assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · EXPOSED/);
   assert.ok(game('cargo.rad') > rad, 'the wave irradiates the ship in the open');
@@ -1473,6 +1493,15 @@ test('travels on the system map', () => {
 
 // Somewhere a pirate flies, posed for now, and the ship placed 800 units from it (in attack
 // range, outside the range where pirates attack on their own).
+// A fight test leaves no fight behind, even when it fails part way: the steps share one game.
+function fightTest(name, fn) {
+  off('?pirates', name, () => {
+    try { fn(); } finally {
+      game('__breakOff()');
+      browser.frames(300); // the result panel times out
+    }
+  });
+}
 function meetPirate() {
   game(`globalThis.__pirate = __find((e) => e.kind === 'ship' && isHostile(e) && !cargo.removed.has(e.key));`);
   assert.ok(game('!!__pirate'), 'there are pirates somewhere');
@@ -1489,16 +1518,15 @@ function meetPirate() {
   assert.strictEqual(game('fight.s.enemies.length'), m[2] ? Number(m[2]) : 1, 'the whole pack, and only the pack, fights');
 }
 
-test('fights in rounds to the end', () => {
+fightTest('fights in rounds to the end', () => {
   game(`combatMode.set('rounds')`);
   meetPirate();
   assert.strictEqual(game('fight.mode'), 'rounds');
   assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
-  assert.ok(['won', 'lost', 'fled', null].includes(game('fight.result')));
-  browser.frames(300); // the result panel times out
+  assert.ok(['won', 'lost', 'fled'].includes(game('fight.result')), `ended with a result: ${game('fight.result')}`);
 });
 
-test('abilities in a fight: the player spends a charge from the panel, a wingman by its use line', () => {
+fightTest('abilities in a fight: the player spends a charge from the panel, a wingman by its use line', () => {
   game(`combatMode.set('rounds'); cargo.kit = { 'emp-charge': 2, 'repair-nanites': 1 }`);
   meetPirate();
   browser.frames(2);
@@ -1517,10 +1545,9 @@ test('abilities in a fight: the player spends a charge from the panel, a wingman
   assert.ok(game(`!cargo.kit['repair-nanites'] && fight.s.player.hull > 10`), 'the wingman used the nanites on the leader');
   game('firstMember().program.shift(); cargo.lab.done.pop()');
   assert.ok(until('!inFight()', 120 * 60), 'the fight ends');
-  browser.frames(300);
 });
 
-test('fights in real time, then gets away', () => {
+fightTest('fights in real time, then gets away', () => {
   game(`combatMode.set('realtime')`);
   meetPirate();
   assert.strictEqual(game('fight.mode'), 'realtime');
@@ -1543,10 +1570,9 @@ test('fights in real time, then gets away', () => {
   const away = `{ const a = fight.s ? Math.atan2(ship.y - fight.s.anchor.y, ship.x - fight.s.anchor.x) : 0; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`;
   assert.ok(until('!inFight()', 120 * 60, away), 'the fight ends');
   game('ship.targetSpeed = 0');
-  browser.frames(300);
 });
 
-test('the wingman flies in formation, assists the leader in both combat modes, and is repaired at a dock', () => {
+off('?missions', 'the wingman flies in formation, assists the leader in both combat modes, and is repaired at a dock', () => {
   assert.strictEqual(game('cargo.squad.length'), 1, 'a new game has one wingman');
   const id = game('cargo.squad[0].id');
   game('repairSquad()'); // an earlier fight may have left it disabled until the next dock
@@ -1668,8 +1694,11 @@ const winFight = (what) => {
 // Dock at a station (by key), on the Missions tab.
 function dockAt(key) {
   if (game('!!docked')) game('launch()');
+  // (A pirate pack met on the way, in this ?pirates galaxy, isn't what these tests are about: away
+  // from it, and left alone while docking.)
+  game('__breakOff(); fight.grace = Math.max(fight.grace, 5)');
   game(`{ const st = world.scene.stations.find((s) => s.key === '${key}'); placeShip(st.x, st.y + st.radius + 150); dock(st); StationMenu.showTab('missions'); }`);
-  assert.strictEqual(game('docked && docked.station.key'), key, 'docked');
+  assert.strictEqual(game('docked && docked.station.key'), key, `docked (${game(`fight.wreckT > 0 ? 'the ship was lost: ' + JSON.stringify([cargo.hull, cargo.heat ?? hazard.heat, cargo.rad, cargo.fuel]) : inFight() ? 'in a fight' : actions.state('dock', world.scene.stations.find((s) => s.key === '${key}')).label`)})`);
 }
 
 // The game has no job texts at the moment (story/job-texts.js), so the job tests write their own:
@@ -1708,7 +1737,7 @@ function removeTestJobs() {
   rebuildBoard();
 }
 
-test('jobs: every station posts one, named for it; a hunt is taken, fought and handed in, and opens production there', () => {
+off('no job texts', 'jobs: every station posts one, named for it; a hunt is taken, fought and handed in, and opens production there', () => {
   installTestJobs();
   game(`cargo.story.add('gates'); showGates(); combatMode.set('rounds'); fight.grace = 1e9; cargo.hull = SHIP.hull; repairSquad()`);
   assert.ok(game(`world.galaxy.stations.filter((st) => !st.waystation && st.site === undefined).every((st) => cargo.board.list.some((j) => j.tier === 'station' && j.scope === st.key))`), 'every station has a job of its own (but the observatories out in deep space)');
@@ -1763,7 +1792,7 @@ test('jobs: every station posts one, named for it; a hunt is taken, fought and h
   assert.strictEqual(game('objective()'), null, 'nothing under way');
 });
 
-test('jobs: an escort with a twist on the comms, handed in where it delivers; goods handed over; abandoning starts over', () => {
+off('no job texts', 'jobs: an escort with a twist on the comms, handed in where it delivers; goods handed over; abandoning starts over', () => {
   // An escort, delivered elsewhere, with a wave that comes for you after a call on the comms.
   game(`globalThis.__job = cargo.board.list.find((j) => j.escort && j.escort.from === undefined && j.handIn
     && j.steps.some((s) => s.wave && s.wave.rush && s.say) && j.steps.every((s) => s.type === 'go' || s.type === 'fight'));
@@ -1871,14 +1900,17 @@ test('in Cruise a tap on empty space keeps your speed; a double-tap stops', () =
     canvas.dispatch('pointerdown', at);
     canvas.dispatch('pointerup', at);
   };
+  // Far past any real timestamp: earlier taps in the run are stamped with performance.now(), and
+  // one of those within 0.4 s would make the first tap here the second of a double-tap.
+  const T = 1e9;
   game('ship.targetSpeed = 200');
-  tap(21, 50000);
+  tap(21, T);
   assert.strictEqual(game('ship.targetSpeed'), 200, 'one tap: still flying');
-  tap(22, 50250);
+  tap(22, T + 250);
   assert.strictEqual(game('ship.targetSpeed'), 0, 'a double-tap: stopped');
   game('ship.targetSpeed = 200');
-  tap(23, 60000);
-  tap(24, 61000);
+  tap(23, T + 10000);
+  tap(24, T + 11000);
   assert.strictEqual(game('ship.targetSpeed'), 200, 'two taps a second apart are two taps');
   game('ship.targetSpeed = 0');
 });
@@ -1898,7 +1930,7 @@ test('text size, colours and motion apply at once and are remembered', () => {
   assert.strictEqual(Theme.color.hostile, red);
 });
 
-test('back from another app mid-fight, flight waits for a tap', () => {
+off('?pirates', 'back from another app mid-fight, flight waits for a tap', () => {
   game('pauseForResume()');
   const t0 = game('simTime');
   browser.frames(5);
@@ -2064,7 +2096,8 @@ test('regard has consequences: docking refused, prices, pirates letting you pass
   browser.frames(20);
   assert.ok(!game('inFight()'), 'friendly pirates leave you be');
   assert.ok(game(`world.travel && Reputation.passage(cargo.rep)`), 'and their ambushes let a trip pass');
-  game('cargo.rep.drifter = 0');
+  // (It circles on: beside it again, where it is now.)
+  game('cargo.rep.drifter = 0; Scene.pose(__pirate, simTime); placeShip(__pirate.x + __pirate.radius + 300, __pirate.y)');
   assert.ok(until('inFight()', 60), 'neutral pirates attack');
   winFight('the pack');
   // Every pirate of a pack destroyed cost regard with the Drifters, and pleased their enemies.
