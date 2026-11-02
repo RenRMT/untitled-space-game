@@ -3,9 +3,15 @@
 // - Local: the system the ship is in (off in deep space and during map travel): the star, orbits, planets and
 //   moons, belts and fields, nebulae, every station and gate, and the contacts the player knows
 //   of (SystemMap.knowledge, see rules/knowledge.js): identified ones by type, pinged ones as signals.
-// - Galaxy: the star of every system charted (entered at least once), by name (who holds it
-//   shows on its callout: world/galaxy.js), and the gate links between them; a link to a system not yet charted leads
-//   to a '?'. The system the ship is in is ringed; in deep space, the ship shows where it is.
+// - Galaxy: the galaxy's shape (world/galaxy-shape.js: its glow, bar, arms and dust lanes, drawn
+//   once to a layer of its own), every system's star (starlight is seen from afar: a faint dot
+//   until the system is charted, entered at least once, then in its class's colour with its
+//   name), the gate links (a link to a system not yet charted is dashed, wormholes violet), and the
+//   deep-space sites (world/deep-space.js): the luminous ones from the start, the dark ones once
+//   sensors find them; moving ones where they are now. Sites and names show as the view zooms in.
+//   The system the ship is in is ringed; in deep space, the ship shows where it is.
+//   A selection's callout says where in the galaxy it is (zone, arm) and the fields there: the
+//   interstellar medium, dust and cosmic rays. ?dev's F cycles a field overlay.
 // ?dev shows every system and contact, plus the testing buttons (Jump, Contacts).
 // A mission's objective (SystemMap.objective, set by the flight view) shows as an amber ring; it
 // can be picked and travelled to like anything else.
@@ -23,7 +29,9 @@ import { Display } from '../core/display.js';
 import { MathUtil } from '../core/math.js';
 import { Params } from '../core/store.js';
 import { Theme } from '../core/theme.js';
+import { DeepSpace } from '../world/deep-space.js';
 import { Factions } from '../world/factions.js';
+import { Galaxy } from '../world/galaxy.js';
 import { Security } from '../world/security.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { Callout } from './callout.js';
@@ -48,6 +56,10 @@ const SystemMap = (() => {
   // Moons by their art/bodies.js type.
   const MOON_COLOR = { grey: '#8e8a84', ice: '#bcd3e2', sulfur: '#d6bf55', rust: '#a35a3b', dark: '#86838e' };
   const UNCHARTED = '#8a95b3';
+  const STAR_COLOR = { M: '#ffb08a', K: '#ffd27a', G: '#fff1c4', A: '#e6eeff', B: '#a8c8ff' };
+  const SITES = DeepSpace.KINDS; // label and colour per kind of site
+  const now = () => Date.now() / 1000; // moving sites run on the real clock
+  const siteAt = (s) => (s.path ? DeepSpace.positionAt(s, now()) : s);
   const TOP_BAR = 52;
   const BOTTOM_BAR = 56; // at least; the bar wraps on narrow screens (bottomBar() measures it)
   const ARRIVE_EDGE = 0.95; // travel to a system ends this far out from its star, in system radii
@@ -81,6 +93,11 @@ const SystemMap = (() => {
   // How much of a contact the map shows: 'known', 'ping' or null.
   const contactState = (c) => (showContacts || !fog() ? 'known' : fog().contactState(c.id));
   const charted = (s) => !fog() || fog().visited(s.index);
+  // How much of a deep-space site the map shows: 'known', 'ping' or null.
+  const siteState = (s) => (!fog() || !fog().siteState ? 'known' : fog().siteState(s));
+  const shownSites = () => (galaxy.sites || []).filter((s) => siteState(s));
+  let fieldOverlay = 0; // ?dev: which field overlay (0 none, 1 medium, 2 dust, 3 cosmic rays)
+  const OVERLAYS = [null, 'medium', 'dust', 'cosmic rays'];
 
   // scale = screen px per world unit; (ox, oy) = the world point at the screen's top-left.
   // Each view keeps its own pan and zoom while the other is shown.
@@ -89,7 +106,7 @@ const SystemMap = (() => {
   let isOpen = false;
   let fitted = false;
   // Local view: { station } | { planet } | { gate } | { contact } | { objective } | { point: { x, y } };
-  // galaxy view: { system } | { point: { x, y } }
+  // galaxy view: { system } | { site } | { point: { x, y } }
   let selected = null;
   let hovered = null;
   let drawQueued = false;
@@ -109,6 +126,7 @@ const SystemMap = (() => {
     marker = null;
     kept.local = kept.galaxy = null;
     fitted = false;
+    layers.clear();
     setLocal(galaxy.systems[galaxy.stations[galaxy.startStation].system]);
     if (isOpen) fit();
     updateCallout();
@@ -141,9 +159,9 @@ const SystemMap = (() => {
     requestDraw();
   }
 
-  // What the galaxy view frames: the charted systems and those their gates lead to, if the player
-  // may know of them yet.
-  const shownSystems = () => galaxy.systems.filter((s) => access.system(s) && (charted(s) || linked(s).some(charted)));
+  // What the galaxy view shows: every system (its star is seen from afar; it is named once
+  // charted). With the showcase alone, the charted ones and those their gates lead to.
+  const shownSystems = () => (galaxy.shape ? galaxy.systems : galaxy.systems.filter((s) => access.system(s) && (charted(s) || linked(s).some(charted))));
   const linked = (s) => galaxy.links.flatMap(([a, b]) => (a === s.index ? [galaxy.systems[b]] : b === s.index ? [galaxy.systems[a]] : []));
 
   // Frame the local system, or every system the galaxy view shows.
@@ -156,7 +174,11 @@ const SystemMap = (() => {
     const bottom = bottomBar();
     const availW = view.w - pad * 2, availH = view.h - TOP_BAR - bottom;
     let x0, y0, x1, y1;
-    if (mode === 'galaxy') {
+    if (mode === 'galaxy' && galaxy.shape) {
+      // The whole disc.
+      const R = galaxy.shape.R * 1.08;
+      x0 = -R; x1 = R; y0 = -R; y1 = R;
+    } else if (mode === 'galaxy') {
       const list = shownSystems();
       x0 = Math.min(...list.map((s) => s.origin.x - s.radius)); x1 = Math.max(...list.map((s) => s.origin.x + s.radius));
       y0 = Math.min(...list.map((s) => s.origin.y - s.radius)); y1 = Math.max(...list.map((s) => s.origin.y + s.radius));
@@ -169,6 +191,7 @@ const SystemMap = (() => {
     }
     view.scale = Math.min(availW / (x1 - x0), availH / (y1 - y0));
     view.minScale = view.scale * 0.5;
+    if (mode === 'galaxy' && galaxy.shape) view.maxScale = 0.5;
     view.ox = (x0 + x1) / 2 - view.w / 2 / view.scale;
     view.oy = (y0 + y1) / 2 - (TOP_BAR + availH / 2) / view.scale;
     requestDraw();
@@ -215,7 +238,7 @@ const SystemMap = (() => {
   }
 
   // The selection ring's radius, in px.
-  const markRadius = (sel) => (sel.point ? 7 : sel.planet ? dot(sel.planet.r, 3.5) + 6 : sel.system ? STAR_DOT + 6 : 10);
+  const markRadius = (sel) => (sel.point ? 7 : sel.planet ? dot(sel.planet.r, 3.5) + 6 : sel.system ? STAR_DOT + 6 : sel.site ? siteDot(sel.site) + 6 : 10);
 
   // The player's marker: a pin where it is (local view only; it marks a place in a system).
   function drawMarker() {
@@ -455,24 +478,188 @@ const SystemMap = (() => {
   // A system in the galaxy view is just its star, this many px across (half).
   const STAR_DOT = 5;
 
+  // The galaxy's shape as a picture, drawn once per galaxy to an offscreen canvas spanning
+  // ±SPAN of R (and once per field overlay): its glow, warm in the core and blue on the arms,
+  // darkened by the dust lanes.
+  const SPAN = 1.45, LAYER = 288;
+  const layers = new Map();
+  function layer(kind) {
+    if (layers.has(kind)) return layers.get(kind);
+    const c = document.createElement('canvas');
+    c.width = c.height = LAYER;
+    const g = c.getContext('2d'), img = g.createImageData(LAYER, LAYER), R = galaxy.shape.R, F = galaxy.space;
+    for (let j = 0; j < LAYER; j++) {
+      for (let i = 0; i < LAYER; i++) {
+        const x = ((i + 0.5) / LAYER * 2 - 1) * SPAN * R, y = ((j + 0.5) / LAYER * 2 - 1) * SPAN * R, o = (j * LAYER + i) * 4;
+        let rgb, a;
+        if (kind === 'glow') {
+          const d = Math.min(1.4, galaxy.shape.density(x, y)), dust = F.dustAt(x, y), warm = Math.exp(-((Math.hypot(x, y) / (0.3 * R)) ** 2));
+          a = Math.min(1, d * 0.62) * (1 - 0.7 * dust);
+          rgb = [150 + 105 * warm, 168 + 50 * warm, 255 - 120 * warm];
+        } else if (kind === 'medium') {
+          const m = F.mediumAt(x, y);
+          rgb = { molecular: [120, 90, 200], cold: [80, 140, 255], warm: [255, 120, 180], hot: [255, 170, 80], void: [40, 40, 40] }[m.phase];
+          a = m.phase === 'void' ? 0.5 : 0.15 + 0.6 * m.density;
+        } else if (kind === 'dust') { rgb = [200, 150, 100]; a = F.dustAt(x, y) * 0.9; } else { rgb = [120, 255, 160]; a = F.cosmicRaysAt(x, y) * 0.8; }
+        img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = Math.round(a * 255);
+      }
+    }
+    g.putImageData(img, 0, 0);
+    layers.set(kind, c);
+    return c;
+  }
+  function drawLayer(kind, alpha = 1) {
+    const R = galaxy.shape.R * SPAN, [x0, y0] = toScreen(-R, -R), size = 2 * R * view.scale;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(layer(kind), x0, y0, size, size);
+    ctx.restore();
+  }
+
+  // A site's dot on the map: its true size, never smaller than its kind's glyph.
+  const siteDot = (s) => Math.max(s.kind === 'smbh' ? 6 : s.r > 20000 ? 4 : 3, s.r * view.scale);
+  // Site labels show once zoomed in this far (px per world unit): the disc's radius 1100 px across.
+  // The landmarks (the black hole, the dwarf galaxy) are always named.
+  const labelScale = () => (galaxy.shape ? 1100 / galaxy.shape.R : 0);
+  const LANDMARKS = new Set(['smbh', 'satellite-galaxy']);
+
+  function drawSite(s, state) {
+    const p = siteAt(s), [x, y] = toScreen(p.x, p.y), color = SITES[s.kind].color, rad = siteDot(s);
+    if (x < -rad - 40 || y < -rad - 40 || x > view.w + rad + 40 || y > view.h + rad + 40) return;
+    if (state === 'ping') {
+      ctx.fillStyle = UNCHARTED;
+      ctx.font = Theme.font(12);
+      ctx.textAlign = 'center';
+      ctx.fillText('?', x, y + 4);
+      ctx.textAlign = 'left';
+      return;
+    }
+    ctx.strokeStyle = ctx.fillStyle = color;
+    ctx.lineWidth = 1.2;
+    switch (s.kind) {
+      case 'stellar-stream':
+        ctx.globalAlpha = 0.55;
+        for (const q of s.points) { const [qx, qy] = toScreen(q.x, q.y); ctx.fillRect(qx - 1, qy - 1, 2, 2); }
+        ctx.globalAlpha = 1;
+        return;
+      case 'hii-region': case 'molecular-cloud': case 'satellite-galaxy': case 'nuclear-cluster': {
+        // A soft cloud (its blobs, if it has them).
+        const blobs = s.blobs || [{ dx: 0, dy: 0, r: s.r }];
+        for (const b of blobs) {
+          const [bx, by] = toScreen(s.x + b.dx, s.y + b.dy), br = Math.max(3, b.r * view.scale);
+          const g = ctx.createRadialGradient(bx, by, 0, bx, by, br);
+          g.addColorStop(0, hexToRgba(color, s.kind === 'molecular-cloud' ? 0.45 : 0.32));
+          g.addColorStop(1, hexToRgba(color, 0));
+          ctx.fillStyle = g;
+          ctx.beginPath(); ctx.arc(bx, by, br, 0, Math.PI * 2); ctx.fill();
+        }
+        break;
+      }
+      case 'supernova-remnant': case 'wolf-rayet': case 'kilonova-remnant':
+        // A shell.
+        ctx.globalAlpha = 0.7;
+        ctx.setLineDash(s.kind === 'kilonova-remnant' ? [2, 3] : []);
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fill();
+        break;
+      case 'smbh': {
+        const g = ctx.createRadialGradient(x, y, 0, x, y, rad * 1.8);
+        g.addColorStop(0, '#000'); g.addColorStop(0.35, '#000'); g.addColorStop(0.5, hexToRgba(color, 0.9)); g.addColorStop(1, hexToRgba(color, 0));
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(x, y, rad * 1.8, 0, Math.PI * 2); ctx.fill();
+        // Its jet, both ways.
+        const L = s.jetReach * view.scale;
+        ctx.strokeStyle = hexToRgba(color, 0.25);
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(x - Math.cos(s.jet) * L, y - Math.sin(s.jet) * L); ctx.lineTo(x + Math.cos(s.jet) * L, y + Math.sin(s.jet) * L); ctx.stroke();
+        break;
+      }
+      case 'open-cluster': case 'globular-cluster':
+        ctx.globalAlpha = 0.25;
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+        ctx.globalAlpha = 1;
+        for (const m of s.members || []) { const [mx, my] = toScreen(s.x + m.dx, s.y + m.dy); ctx.fillRect(mx - 1, my - 1, 2, 2); }
+        break;
+      case 'stellar-black-hole': case 'microquasar':
+        ctx.fillStyle = '#000';
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(x, y, rad, 0, Math.PI * 2); ctx.stroke();
+        if (s.jet !== undefined) {
+          const a = DeepSpace.phase(s, now()).jet, L = Math.max(10, s.jetReach * view.scale * 0.5);
+          ctx.beginPath(); ctx.moveTo(x - Math.cos(a) * L, y - Math.sin(a) * L); ctx.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); ctx.stroke();
+        }
+        break;
+      case 'pulsar': case 'magnetar': case 'neutron-star': {
+        ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill();
+        if (s.kind !== 'neutron-star') {
+          const a = s.kind === 'pulsar' ? DeepSpace.phase(s, now()).beam : 0.6, L = 9;
+          ctx.beginPath(); ctx.moveTo(x - Math.cos(a) * L, y - Math.sin(a) * L); ctx.lineTo(x + Math.cos(a) * L, y + Math.sin(a) * L); ctx.stroke();
+        }
+        break;
+      }
+      case 'interstellar-object': case 'hypervelocity-star': {
+        // Where it is now, with a trail behind it.
+        const L = 24 / Math.max(1e-9, Math.hypot(s.path.vx, s.path.vy) * view.scale);
+        const [tx, ty] = toScreen(p.x - s.path.vx * L, p.y - s.path.vy * L);
+        const g = ctx.createLinearGradient(tx, ty, x, y);
+        g.addColorStop(0, hexToRgba(color, 0)); g.addColorStop(1, hexToRgba(color, 0.8));
+        ctx.strokeStyle = g;
+        ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y, s.kind === 'hypervelocity-star' ? 2.5 : 1.8, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'white-dwarf':
+        ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+        if (s.planetaryNebula) { ctx.strokeStyle = hexToRgba('#7affd0', 0.7); ctx.beginPath(); ctx.arc(x, y, Math.max(4, s.ring * view.scale), 0, Math.PI * 2); ctx.stroke(); }
+        break;
+      default:
+        // A star or a body: a dot.
+        ctx.beginPath(); ctx.arc(x, y, Math.min(rad, 3), 0, Math.PI * 2); ctx.fill();
+    }
+    if (view.scale >= labelScale() || LANDMARKS.has(s.kind) || selected?.site === s || hovered?.site === s) {
+      ctx.font = Theme.font(10);
+      ctx.fillStyle = hexToRgba(color, 0.9);
+      ctx.fillText(s.name, x + rad + 4, y + 3);
+    }
+  }
+
   function drawGalaxy() {
     const list = shownSystems();
-    // Gate links, star to star: solid between charted systems, dashed toward one not yet charted.
+    const spiral = !!galaxy.shape;
+    if (spiral) {
+      // The glow fades as the view closes in (it is a coarse picture; up close you are inside it).
+      drawLayer('glow', clamp((view.minScale * 2 * 3) / view.scale, 0.18, 1));
+      if (dev && fieldOverlay) drawLayer(OVERLAYS[fieldOverlay], 0.85);
+    }
+    // Gate links, star to star: solid between charted systems, dashed toward one not yet charted;
+    // wormholes in their own colour.
     ctx.lineWidth = 1.5;
     for (const [a, b] of galaxy.links) {
       const A = galaxy.systems[a], B = galaxy.systems[b];
       if (!list.includes(A) || !list.includes(B)) continue;
-      const both = charted(A) && charted(B);
+      if (spiral && !charted(A) && !charted(B)) continue; // a link is known from either end
+      if (spiral && !(access.system(A) && access.system(B))) continue;
+      const both = charted(A) && charted(B), hole = (galaxy.wormholes || []).some(([x, y]) => x === a && y === b);
       const [ax, ay] = toScreen(A.origin.x, A.origin.y), [bx, by] = toScreen(B.origin.x, B.origin.y);
-      ctx.strokeStyle = both ? 'rgba(125, 249, 255, 0.4)' : 'rgba(138, 149, 179, 0.4)';
+      ctx.strokeStyle = hole ? 'rgba(182, 168, 255, 0.6)' : both ? 'rgba(125, 249, 255, 0.4)' : 'rgba(138, 149, 179, 0.4)';
       ctx.setLineDash(both ? [] : [6, 6]);
       ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
     }
     ctx.setLineDash([]);
+    if (spiral) for (const s of galaxy.sites) { const st = siteState(s); if (st) drawSite(s, st); }
     ctx.textAlign = 'center';
     for (const s of list) {
       const [x, y] = toScreen(s.origin.x, s.origin.y);
       if (!charted(s)) {
+        if (spiral) {
+          // Starlight: a faint dot, unnamed.
+          ctx.fillStyle = hexToRgba(STAR_COLOR[s.star.cls] || Theme.color.star, 0.55);
+          ctx.beginPath(); ctx.arc(x, y, STAR_DOT - 2, 0, Math.PI * 2); ctx.fill();
+          continue;
+        }
         ctx.fillStyle = Theme.color.bg; // the link stops short of the '?'
         ctx.beginPath(); ctx.arc(x, y, STAR_DOT + 4, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = UNCHARTED;
@@ -480,13 +667,18 @@ const SystemMap = (() => {
         ctx.fillText('?', x, y + 6);
         continue;
       }
-      ctx.fillStyle = Theme.color.star;
+      ctx.fillStyle = spiral ? STAR_COLOR[s.star.cls] || Theme.color.star : Theme.color.star;
       ctx.beginPath(); ctx.arc(x, y, STAR_DOT, 0, Math.PI * 2); ctx.fill();
       ctx.font = Theme.font(12);
       ctx.fillStyle = '#e6ebff';
       ctx.fillText(s.name.toUpperCase(), x, y + STAR_DOT + 20);
     }
     ctx.textAlign = 'left';
+    if (spiral && dev && fieldOverlay) {
+      ctx.font = Theme.font(11);
+      ctx.fillStyle = Theme.color.cyan;
+      ctx.fillText(`Overlay: ${OVERLAYS[fieldOverlay]} (F)`, 14, TOP_BAR + (perf ? 40 : 16));
+    }
   }
 
   // Performance readout (?perf or ?dev, or the P key), under the top bar.
@@ -508,8 +700,14 @@ const SystemMap = (() => {
     const question = (cx, cy) => { ctx.fillStyle = UNCHARTED; ctx.textAlign = 'center'; ctx.fillText('?', cx, cy + 4); ctx.textAlign = 'left'; };
     if (mode === 'galaxy') {
       row((cx, cy) => { ctx.fillStyle = Theme.color.star; ctx.beginPath(); ctx.arc(cx, cy, 3.5, 0, 7); ctx.fill(); }, 'charted system');
-      row(question, 'uncharted system');
+      if (galaxy.shape) row((cx, cy) => { ctx.fillStyle = 'rgba(255, 210, 122, 0.55)'; ctx.beginPath(); ctx.arc(cx, cy, 2.5, 0, 7); ctx.fill(); }, 'uncharted system');
+      else row(question, 'uncharted system');
       row((cx, cy) => { ctx.strokeStyle = 'rgba(125, 249, 255, 0.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); }, 'gate link');
+      if (galaxy.shape) {
+        row((cx, cy) => { ctx.strokeStyle = 'rgba(182, 168, 255, 0.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); }, 'wormhole');
+        row((cx, cy) => { ctx.strokeStyle = SITES['supernova-remnant'].color; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.stroke(); }, 'deep-space site');
+        row(question, 'unidentified source');
+      }
     } else {
       row((cx, cy) => { ctx.fillStyle = '#aab3cc'; diamond(cx, cy, 5); ctx.strokeStyle = '#aab3cc'; ctx.beginPath(); ctx.arc(cx, cy, 8, 0, 7); ctx.stroke(); }, 'capital station');
       row((cx, cy) => { ctx.fillStyle = '#aab3cc'; diamond(cx, cy, 3.5); }, 'station / base');
@@ -537,7 +735,7 @@ const SystemMap = (() => {
   // ---------- Selection & its callout ----------
 
   // Where a pick is, in world units.
-  const placeOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || (p.system && p.system.origin) || p.point;
+  const placeOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || (p.system && p.system.origin) || (p.site && siteAt(p.site)) || p.point;
 
   function pick(sx, sy, tolerancePx) {
     const [wx, wy] = toWorld(sx, sy);
@@ -548,8 +746,9 @@ const SystemMap = (() => {
       if (d < tolerancePx && d < bestD) { bestD = d; best = sel; }
     };
     if (mode === 'galaxy') {
-      // A system by its star, or else any point in space.
+      // A system by its star, a site, or else any point in space.
       for (const s of shownSystems()) consider(s.origin, { system: s }, STAR_DOT);
+      if (galaxy.shape) for (const s of shownSites()) if (s.kind !== 'stellar-stream' && s.kind !== 'nuclear-cluster') consider(siteAt(s), { site: s }, Math.min(siteDot(s), 40));
       return best || { point: { x: wx, y: wy } };
     }
     for (const s of system.stations) consider(s, { station: s }, 2);
@@ -562,7 +761,7 @@ const SystemMap = (() => {
     return { point: { x: wx, y: wy } };
   }
 
-  const pickedOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || p.system;
+  const pickedOf = (p) => p.station || p.planet || p.gate || p.contact || p.objective || p.system || p.site;
   const samePick = (a, b) => !!a && !!b && (a.point && b.point ? a.point.x === b.point.x && a.point.y === b.point.y
     : !a.point && !b.point && pickedOf(a) === pickedOf(b));
 
@@ -583,6 +782,12 @@ const SystemMap = (() => {
       const from = player || o, a = Math.atan2(from.y - o.y, from.x - o.x);
       const name = charted(p.system) ? `the ${p.system.name} system` : 'the uncharted system';
       return { kind: 'system', id: p.system.index, x: o.x + Math.cos(a) * R * ARRIVE_EDGE, y: o.y + Math.sin(a) * R * ARRIVE_EDGE, name };
+    }
+    if (p.site) {
+      // A big site to its middle; a small one stops at its edge, on the side the ship comes from.
+      const o = siteAt(p.site), known = siteState(p.site) === 'known', from = player || o, a = Math.atan2(from.y - o.y, from.x - o.x);
+      const stop = p.site.r > 20000 ? 0 : p.site.r + 1500;
+      return { kind: 'point', x: o.x + Math.cos(a) * stop, y: o.y + Math.sin(a) * stop, name: known ? p.site.name : 'the unidentified source', site: p.site.id };
     }
     return { kind: 'point', x: p.point.x, y: p.point.y, name: 'the marked point' };
   }
@@ -619,7 +824,22 @@ const SystemMap = (() => {
     if (p.planet) return p.planet.name;
     if (p.contact) return contactState(p.contact) === 'known' ? CONTACT[p.contact.type].label : 'Unidentified signal';
     if (p.objective) return p.objective.label;
+    if (p.site) return siteState(p.site) === 'known' ? p.site.name : 'Unidentified source';
     return null;
+  }
+
+  // Where in the galaxy a point is, and the fields there, for the callout: zone (and arm), then
+  // the medium, dust and cosmic rays.
+  const PHASE = { molecular: 'molecular cloud', cold: 'cold gas', warm: 'warm gas', hot: 'hot gas', void: 'near-empty bubble' };
+  function galaxyLines(at) {
+    if (!galaxy.shape) return [];
+    const z = galaxy.shape.zoneAt(at.x, at.y), F = galaxy.space, m = F.mediumAt(at.x, at.y);
+    const zone = z.zone === 'arm' ? `${galaxy.arms[z.arm].name}, ${z.side === 'inner' ? 'trailing' : 'leading'} edge` : Galaxy.ZONE_LABEL[z.zone];
+    const pct = (v) => `${Math.round(v * 100)}%`;
+    return [
+      { text: zone, color: '#aab3cc' },
+      { text: `Medium: ${PHASE[m.phase]} · dust ${pct(F.dustAt(at.x, at.y))} · cosmic rays ${pct(F.cosmicRaysAt(at.x, at.y))}`, color: '#8a95b3' },
+    ];
   }
 
   // The marker, if it is on this pick.
@@ -637,8 +857,11 @@ const SystemMap = (() => {
     // A charted system says who holds it.
     const sys = selected.system && charted(selected.system) ? selected.system : null;
     const holder = sys && (sys.holder ? Factions.get(sys.holder) : { name: 'No one', color: UNCHARTED });
+    const site = selected.site && siteState(selected.site) === 'known' ? selected.site : null;
+    const kindLine = site && { text: `${SITES[site.kind].label}${site.parent !== undefined ? ` in ${galaxy.sites[site.parent].name}` : ''}`, color: SITES[site.kind].color };
     callout.show({
-      lines: [name && { text: name, kind: 'name' }, holder && { text: `${sys.region.label} · ${holder.name}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color }].filter(Boolean),
+      lines: [name && { text: name, kind: 'name' }, kindLine, holder && { text: `${sys.region.label} · ${holder.name}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
+        ...(mode === 'galaxy' ? galaxyLines(at) : [])].filter(Boolean),
       actions: [
         mode === 'galaxy'
           ? { id: 'travel', label: 'Travel', kind: 'primary', enabled: !why, title: why || 'Plot a course here' }
@@ -818,6 +1041,7 @@ const SystemMap = (() => {
     if (e.key === 'm' || e.key === 'M') isOpen ? close() : open();
     else if (e.key === 'Escape') close();
     else if (e.key === 'p' || e.key === 'P') { perf = !perf; requestDraw(); }
+    else if (dev && isOpen && mode === 'galaxy' && galaxy.shape && (e.key === 'f' || e.key === 'F')) { fieldOverlay = (fieldOverlay + 1) % OVERLAYS.length; requestDraw(); }
     else if (isOpen && (e.key === 'g' || e.key === 'G')) setMode('galaxy');
     else if (isOpen && (e.key === 'l' || e.key === 'L') && !localOff()) setMode('local');
   });

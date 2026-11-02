@@ -164,7 +164,7 @@ const IdleRules = (() => {
     const moons = [...MOON_TYPES, ...MOON_TYPES.map(() => MOON_TYPES[Math.floor(r() * MOON_TYPES.length)])];
     for (let i = moons.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [moons[i], moons[j]] = [moons[j], moons[i]]; }
     const counts = Object.fromEntries(Object.entries(MOONS).map(([k, [a, b]]) => { const c = a + Math.floor(r() * (b - a + 1)); return [k, [c, c]]; }));
-    return { galaxy: { system: { kinds: { planets, moons }, moons: counts } } };
+    return { galaxy: { spiral: false, system: { kinds: { planets, moons }, moons: counts } } };
   }
   function world(seed, layout = 1) {
     if (layout >= 2) {
@@ -174,7 +174,7 @@ const IdleRules = (() => {
         if (w.stations.length === Config.BUILDS.length && w.waystation && NEEDED.every((g) => goods.has(g))) return w;
       }
     }
-    return layoutOf(seed, Galaxy.generate(seed), 1);
+    return layoutOf(seed, Galaxy.generate(seed, { galaxy: { spiral: false } }), 1);
   }
   function layoutOf(seed, galaxy, layout) {
     const star = galaxy.stars[0];

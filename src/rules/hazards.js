@@ -106,7 +106,9 @@ const Hazards = (() => {
       ref: 10000, min: 0.4, max: 3, // its strength: by ref / distance from the star, kept in [min, max]
     },
     storm: { period: 150, length: 30, wind: 140 }, // ion storms: one per stretch per nebula, this long, pushing this hard (units/s²)
-    fuel: { travel: 2500, dash: 2 }, // map travel: one per this many units; a dash (× a surface's fuelBurn)
+    // Map travel: one per this many units (a courier's tank of 100 cruises half the galaxy's radius;
+    // the hop to a neighbouring system takes about a third of it); a dash (× a surface's fuelBurn).
+    fuel: { travel: 8000, dash: 2 },
     surface: {
       day: { period: 240, length: 80, sweep: 40 }, // a day on every surface: this long, this much of it in sunlight; the sunrise moves this fast over the ground
       vent: 12, ventReach: 40, // heat per second right over a vent, fading out this far past its rim
@@ -217,10 +219,11 @@ const Hazards = (() => {
     for (const m of sheltered ? [] : place.moons) {
       const out = Math.hypot(x - m.x, y - m.y) - m.r;
       if (out >= R.moonReach) continue;
-      const parent = place.planets[m.parent];
+      const parent = place.planets.find((p) => p.id === m.parent); // ids are the galaxy's, the list may be one system's
       rad += (parent && GIANTS.includes(parent.type) ? R.giantMoon : R.moon) * clamp(1 - out / R.moonReach, 0, 1);
     }
-    const f = flare(seed, t);
+    // No star (deep space, between the systems): no flares.
+    const f = star ? flare(seed, t) : { phase: 'calm', in: Infinity, left: 0, start: Infinity };
     const shadow = f.phase === 'calm' ? null : shadowed(place, x, y, o.blockers);
     if (f.phase === 'wave' && !shadow) {
       const k = clamp(F.ref / d, F.min, F.max);

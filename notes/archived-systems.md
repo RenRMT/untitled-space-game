@@ -322,6 +322,12 @@ see exactly what was taken out.
   gates with a set culture, wormholes, and a kitbashed Drifter station culture. To bring the
   galaxy back: restore `regions.js` and `Galaxy.generate`'s `grow()`, the tutorial/gateway params
   and the gate naming by destination system from `2164e6d`.
+  **Since brought back, differently (November 2026):** the galaxy is a barred spiral of about
+  forty systems again (`notes/galaxy.md`), the showcase its start on an outer arm, with gate trunks
+  along the arms and deep-space sites between the systems. Regions are by where a system lies (its
+  arm or zone, settled or frontier), not the old political regions; those, the local situations
+  and the factions' territories are still out. The showcase alone is still there for the idle
+  game (`galaxy.spiral: false`).
 - **The factions** are six, one per culture: Wedge, Block, Shard, Drifters (the pirate packs are
   theirs), Aliens and Androids (who run the waystations). All are neutral to each other and to
   the player, except the aliens: hostile to everyone, and the player starts Hostile with them

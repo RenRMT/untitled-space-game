@@ -6,6 +6,7 @@ import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { Research } from '../rules/research.js';
+import { DeepSpace } from '../world/deep-space.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
 import { stopMining } from './mining.js';
@@ -147,6 +148,7 @@ export function sense() {
   const k = world.galaxy.nebulaAt(ship.x, ship.y) ? NEBULA_SENSORS : 1;
   const found = world.knowledge.sense(ship.x, ship.y, SHIP.sensorRange * k, SHIP.pingRange * k);
   for (const c of found) notify(`Sensors: ${SolarSystem.CONTACT_TYPES[c.type].prompt} identified`, 3);
+  for (const s of found.sites || []) notify(`Sensors: ${DeepSpace.KINDS[s.kind].label.toLowerCase()} found · ${s.name}`, 3);
 }
 
 // Put the ship at a world position, at rest.

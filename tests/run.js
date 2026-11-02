@@ -10,6 +10,8 @@ import { Security } from '../src/world/security.js';
 import { SYSTEM_CONFIG } from '../src/world/system-config.js';
 import { SolarSystem } from '../src/world/solar-system.js';
 import { Galaxy } from '../src/world/galaxy.js';
+import { GalaxyShape } from '../src/world/galaxy-shape.js';
+import { DeepSpace } from '../src/world/deep-space.js';
 import { Factions } from '../src/world/factions.js';
 import { ArtUtil } from '../src/art/util.js';
 import { ArtCulture } from '../src/art/culture.js';
@@ -82,16 +84,21 @@ function test(name, fn) {
 }
 
 const SEEDS = Array.from({ length: 40 }, (_, i) => i + 1).concat(['abc', 'Untitled']);
-const galaxies = new Map(SEEDS.map((s) => [s, Galaxy.generate(s, SYSTEM_CONFIG)]));
+// Whole galaxies (about forty systems each) for fewer seeds than the systems on their own.
+const GALAXY_SEEDS = SEEDS.slice(0, 10).concat(['abc', 'Untitled']);
+const galaxies = new Map(GALAXY_SEEDS.map((s) => [s, Galaxy.generate(s, SYSTEM_CONFIG)]));
 // A system as the generator makes one from each seed on its own, with its default params (the
-// galaxy's one system is a showcase of one of each thing: see its own test).
+// galaxy's start system is a showcase of one of each thing: see its own test).
 const systems = new Map(SEEDS.map((seed) => [seed, SolarSystem.generate(seed, { params: SYSTEM_CONFIG.params })]));
-// The flight view's scene of a galaxy, built once per seed.
+// The flight view's scene of a galaxy, built once per seed, every system of it (it builds them
+// lazily, as the flight view comes near: see its own test).
 const scenes = new Map();
 const sceneOf = (seed) => {
-  if (!scenes.has(seed)) { const g = galaxies.get(seed); scenes.set(seed, Scene.create(g, ArtCulture.forGalaxy(g))); }
+  if (!scenes.has(seed)) { const g = galaxies.get(seed), sc = Scene.create(g, ArtCulture.forGalaxy(g)); sc.ensureAll(); scenes.set(seed, sc); }
   return scenes.get(seed);
 };
+// A scene with every system built.
+const fullScene = (g, cultures = ArtCulture.forGalaxy(g)) => { const sc = Scene.create(g, cultures); sc.ensureAll(); return sc; };
 const thingsOf = (seed, kind) => sceneOf(seed).entities.filter((e) => e.kind === kind);
 // What art/render.js can draw.
 const STAR_CLASSES = ['M', 'K', 'G', 'A', 'B'];
@@ -110,9 +117,13 @@ test('generation is deterministic', () => {
 
 // ---------- The galaxy ----------
 
-test('the galaxy is one system: one of each planet, moon and station, a field, a nebula, and a gate and wormhole into each other', () => {
+// The galaxy as the showcase alone (galaxy.spiral false: the idle game's stage).
+const SHOWCASE = { ...SYSTEM_CONFIG, galaxy: { ...SYSTEM_CONFIG.galaxy, spiral: false } };
+const showcases = new Map(SEEDS.slice(0, 12).concat(['abc']).map((s) => [s, Galaxy.generate(s, SHOWCASE)]));
+
+test('the showcase alone: one of each planet, moon and station, a field, a nebula, and a gate and wormhole into each other', () => {
   const MOON_TYPES = ['grey', 'ice', 'rust', 'dark', 'sulfur'];
-  for (const [seed, g] of galaxies) {
+  for (const [seed, g] of showcases) {
     const where = `seed ${seed}`;
     assert.strictEqual(g.systems.length, 1, `${where}: systems`);
     const [s] = g.systems;
@@ -121,6 +132,7 @@ test('the galaxy is one system: one of each planet, moon and station, a field, a
     assert.strictEqual(g.systemAt(0, 0), s);
     assert.strictEqual(g.systemAt(s.radius * 2, 0), null, `${where}: deep space beyond the edge`);
     assert.strictEqual(g.securityAt(s.radius * 2, 0), 0);
+    assert.deepStrictEqual([g.shape, g.sites], [null, []], `${where}: no galaxy round it`);
     // One of each planet and moon type, no belts, one field and one nebula.
     assert.deepStrictEqual(s.planets.map((p) => p.type).sort(), [...PLANET_TYPES].sort(), `${where}: planets`);
     assert.deepStrictEqual(s.moons.map((m) => m.type).sort(), [...MOON_TYPES].sort(), `${where}: moons`);
@@ -152,6 +164,184 @@ test('the galaxy is one system: one of each planet, moon and station, a field, a
     for (const k of ['stations', 'asteroids', 'wrecks', 'gates', 'pockets']) assert.strictEqual(new Set(g[k].map((o) => o.key)).size, g[k].length, `${where}: ${k} keys`);
     assert(g.pockets.length >= 3, `${where}: gas pockets`);
   }
+});
+
+test('the galaxy: a barred spiral from the seed, its zones where they belong', () => {
+  for (const seed of [1, 7, 'abc']) {
+    const a = GalaxyShape.create(seed), b = GalaxyShape.create(seed), R = a.R;
+    assert.strictEqual(JSON.stringify([a.bar, a.arms]), JSON.stringify([b.bar, b.arms]), `seed ${seed}: the same shape every time`);
+    assert(a.arms.filter((x) => x.major).length === 2 && a.arms.length <= 4, `seed ${seed}: two major arms and up to two spurs`);
+    // The major arms rise from the bar's two ends and reach out toward the rim.
+    for (const arm of a.arms.filter((x) => x.major)) {
+      const root = a.armPoint(arm, 0), tip = a.armPoint(arm, 1);
+      assert(Math.abs(Math.hypot(root.x, root.y) - a.bar.half) < 1, `seed ${seed}: an arm starts at the bar's end`);
+      assert(Math.hypot(tip.x, tip.y) > 0.9 * R, `seed ${seed}: an arm reaches the rim`);
+      for (const t of [0.3, 0.6, 0.9]) {
+        const p = a.armPoint(arm, t);
+        assert.strictEqual(a.zoneAt(p.x, p.y).zone, 'arm', `seed ${seed}: on an arm's spine at ${t}`);
+      }
+    }
+    assert.strictEqual(a.zoneAt(0, 0).zone, 'core');
+    assert.strictEqual(a.zoneAt(Math.cos(a.bar.angle) * a.bar.half * 0.8, Math.sin(a.bar.angle) * a.bar.half * 0.8).zone, 'bar');
+    assert.strictEqual(a.zoneAt(R * 1.2, 0).zone, 'halo');
+    // Densest at the centre, denser on an arm than beside it.
+    const p = a.armPoint(a.arms[0], 0.5), out = { x: p.x * 1.15, y: p.y * 1.15 };
+    assert(a.density(0, 0) > a.density(p.x, p.y) && a.density(p.x, p.y) > a.density(out.x, out.y), `seed ${seed}: density`);
+  }
+});
+
+test('about forty systems along the shape, far apart, settled in the habitable band; the showcase starts on an outer arm', () => {
+  for (const seed of [1, 2, 7, 'abc', 'Untitled']) {
+    const g = galaxies.get(seed), where = `seed ${seed}`, R = g.shape.R, P = Galaxy.params.systems;
+    assert(g.systems.length >= 36 && g.systems.length <= P.count, `${where}: ${g.systems.length} systems`);
+    for (const s of g.systems) {
+      const d = Math.hypot(s.origin.x, s.origin.y);
+      assert(d >= P.core && d + s.radius <= R, `${where}: ${s.name} at ${Math.round(d)}`);
+      for (const o of g.systems) if (o !== s) assert(Math.hypot(o.origin.x - s.origin.x, o.origin.y - s.origin.y) >= P.spacing, `${where}: ${s.name} and ${o.name} too close`);
+      assert.strictEqual(s.zone, g.shape.zoneAt(s.origin.x, s.origin.y).zone, `${where}: ${s.name}'s zone`);
+      assert.strictEqual(g.systemAt(s.origin.x, s.origin.y), s);
+      // Frontier systems have no capital; settled ones (in the band) do.
+      if (s.index > 0) assert.strictEqual(s.stations.some((st) => st.market.type === 'capital'), s.settled, `${where}: ${s.name}'s capital`);
+    }
+    // Most systems sit on the arms.
+    assert(g.systems.filter((s) => s.zone === 'arm').length > g.systems.length / 2, `${where}: systems on the arms`);
+    // The start: the showcase (its waystation, every planet type) on a major arm, three quarters out.
+    const [home] = g.systems, d = Math.hypot(home.origin.x, home.origin.y) / R;
+    assert(d > 0.7 && d < 0.8 && home.zone === 'arm' && g.arms[home.arm].major, `${where}: the start at ${d.toFixed(2)} R in ${home.zone}`);
+    assert.deepStrictEqual(home.planets.map((p) => p.type).sort(), [...PLANET_TYPES].sort(), `${where}: the showcase's planets`);
+    assert.strictEqual(g.stations[g.waystation].system, 0, `${where}: the waystation`);
+    assert.strictEqual(g.stations[g.startStation].system, 0, `${where}: the start station`);
+    assert.strictEqual(new Set(g.systems.map((s) => s.name)).size, g.systems.length, `${where}: system names`);
+    // Deep space between them: no system, lawless, and the galaxy's fields.
+    const gap = { x: (g.systems[0].origin.x + g.systems[1].origin.x) / 2 + 1, y: (g.systems[0].origin.y + g.systems[1].origin.y) / 2 };
+    if (!g.systemAt(gap.x, gap.y)) {
+      const r = g.regionAt(gap.x, gap.y);
+      assert(r.system === null && r.security === 0 && r.zone && r.medium && r.dust >= 0 && r.cosmicRays >= 0, `${where}: deep space`);
+      assert.deepStrictEqual(g.placeAt(gap.x, gap.y).stars, [], `${where}: no star's hazards in deep space`);
+    }
+    assert.strictEqual(g.placeAt(home.origin.x, home.origin.y).stars[0], home.star);
+  }
+});
+
+test('sparse gates: a trunk along each major arm, one link across the bar, a wormhole to the core, the start into its arm', () => {
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`;
+    assert(g.links.length >= 5 && g.links.length <= 12, `${where}: ${g.links.length} links`);
+    assert(g.wormholes.length >= 1, `${where}: a wormhole`);
+    for (const [a, b] of g.links) assert(a < b && g.systems[a] && g.systems[b], `${where}: link ${a}-${b}`);
+    // The start has a Wedge gate into the network.
+    const own = g.gates.filter((x) => x.system === 0);
+    assert(own.some((x) => !x.wormhole && SolarSystem.CULTURES[x.culture].lineage === 'wedge'), `${where}: the start's gate`);
+    // Every gate leads to the gate at the other end of its link, in that system, of the same kind.
+    for (const x of g.gates) {
+      const there = g.gates[x.link];
+      assert(there.system === x.to && there.to === x.system && !!there.wormhole === !!x.wormhole, `${where}: ${x.name}`);
+      assert(g.links.some(([a, b]) => (a === x.system && b === x.to) || (b === x.system && a === x.to)), `${where}: ${x.name}'s link`);
+    }
+    // The gated systems are all one network.
+    const gated = new Set(g.links.flat()), seen = new Set([0]), todo = [0];
+    while (todo.length) { const i = todo.pop(); for (const [a, b] of g.links) { const j = a === i ? b : b === i ? a : -1; if (j >= 0 && !seen.has(j)) { seen.add(j); todo.push(j); } } }
+    assert.deepStrictEqual([...gated].filter((i) => !seen.has(i)), [], `${where}: gated systems cut off from the start`);
+    // A wormhole reaches in toward the core.
+    const [w0, w1] = g.wormholes[0], inner = Math.min(...[w0, w1].map((i) => Math.hypot(g.systems[i].origin.x, g.systems[i].origin.y)));
+    assert(inner < 0.55 * g.shape.R, `${where}: the wormhole stays out at ${Math.round(inner)}`);
+  }
+});
+
+test('deep space: every kind of site where it belongs, clear of the systems and the black hole', () => {
+  const seen = new Set();
+  for (const [seed, g] of galaxies) {
+    const where = `seed ${seed}`, R = g.shape.R, P = DeepSpace.params;
+    assert.strictEqual(new Set(g.sites.map((s) => s.key)).size, g.sites.length, `${where}: site keys`);
+    assert.strictEqual(new Set(g.sites.map((s) => s.name)).size, g.sites.length, `${where}: site names`);
+    g.sites.forEach((s, i) => assert.strictEqual(s.id, i));
+    const smbh = g.sites.filter((s) => s.kind === 'smbh');
+    assert(smbh.length === 1 && smbh[0].x === 0 && smbh[0].y === 0, `${where}: one black hole at the centre`);
+    for (const s of g.sites) {
+      seen.add(s.kind);
+      const K = DeepSpace.KINDS[s.kind];
+      assert(K, `${where}: kind ${s.kind}`);
+      assert.strictEqual(s.visible, K.visible, `${where}: ${s.name}`);
+      if (s.parent !== undefined) {
+        const p = g.sites[s.parent];
+        assert(Math.hypot(s.x - p.x, s.y - p.y) <= p.r, `${where}: ${s.name} outside ${p.name}`);
+        continue;
+      }
+      if (s.path) {
+        // Moving: its path keeps 1.5 system radii from every star.
+        const a = DeepSpace.positionAt(s, -s.path.t0), b = DeepSpace.positionAt(s, s.path.period - 1e-6 - s.path.t0);
+        assert(Math.hypot(a.x - b.x, a.y - b.y) > R, `${where}: ${s.name} crosses the galaxy`);
+        for (let t = 0; t < s.path.period; t += s.path.period / 200) {
+          const p = DeepSpace.positionAt(s, t - s.path.t0);
+          for (const sys of g.systems) assert(Math.hypot(p.x - sys.origin.x, p.y - sys.origin.y) > sys.radius * 1.5 - 1, `${where}: ${s.name} through ${sys.name}`);
+        }
+        continue;
+      }
+      if (['smbh', 'nuclear-cluster', 'stellar-stream', 'satellite-galaxy'].includes(s.kind)) continue;
+      assert(Math.hypot(s.x, s.y) >= P.hole + s.r - 1, `${where}: ${s.name} in the core`);
+      for (const sys of g.systems) assert(Math.hypot(s.x - sys.origin.x, s.y - sys.origin.y) >= sys.radius + P.clear + s.r - 1, `${where}: ${s.name} by ${sys.name}`);
+      // The kind's own zones (a little leeway: the zone at its centre, or its kind's outer ones).
+      const z = g.shape.zoneAt(s.x, s.y), key = z.zone === 'arm' ? `arm-${z.side}` : z.zone;
+      assert(K.zones[key] || (K.zones.halo && z.zone === 'halo') || z.zone === 'rim' || z.zone === 'halo', `${where}: ${s.name} (${s.kind}) in ${key}`);
+    }
+    // The satellite galaxy lies beyond the rim.
+    for (const s of g.sites.filter((x) => x.kind === 'satellite-galaxy')) assert(Math.hypot(s.x, s.y) > R * 1.25);
+    // The fields: dust lanes on the arms' trailing edges, cosmic rays strongest at the core,
+    // shielded inside the dark clouds.
+    const F = g.space;
+    assert(F.cosmicRaysAt(0, 0) > F.cosmicRaysAt(R * 0.8, 0), `${where}: cosmic rays`);
+    for (const c of g.sites.filter((x) => x.kind === 'molecular-cloud')) {
+      assert.strictEqual(F.mediumAt(c.x + c.blobs[0].dx, c.y + c.blobs[0].dy).phase, 'molecular', `${where}: ${c.name}'s gas`);
+    }
+    for (let x = -R; x <= R; x += R / 7) for (let y = -R; y <= R; y += R / 7) {
+      for (const v of [F.dustAt(x, y), F.cosmicRaysAt(x, y), F.mediumAt(x, y).density]) assert(v >= 0 && v <= 1, `${where}: a field out of 0..1`);
+    }
+  }
+  // Across the seeds, every kind turns up.
+  assert.deepStrictEqual(Object.keys(DeepSpace.KINDS).filter((k) => !seen.has(k)), [], 'kinds never placed');
+});
+
+test('deep-space sites do things over time: a pulsar sweeps, a nova bursts, a Cepheid pulses', () => {
+  const g = galaxies.get(1);
+  const pulsar = g.sites.find((s) => s.kind === 'pulsar'), nova = g.sites.find((s) => s.kind === 'recurrent-nova'), cep = g.sites.find((s) => s.kind === 'variable-star');
+  if (pulsar) assert(Math.abs(DeepSpace.phase(pulsar, pulsar.spin).beam - DeepSpace.phase(pulsar, 0).beam - Math.PI * 2) < 1e-9, 'a turn per spin');
+  if (nova) {
+    const states = Array.from({ length: 200 }, (_, i) => DeepSpace.phase(nova, (i / 200) * nova.period).burst);
+    assert(states.some(Boolean) && !states.every(Boolean), 'bursts now and then');
+  }
+  if (cep) {
+    const b = Array.from({ length: 50 }, (_, i) => DeepSpace.phase(cep, (i / 50) * cep.period).brightness);
+    assert(Math.max(...b) - Math.min(...b) > 0.3, 'pulses');
+  }
+  assert.strictEqual(DeepSpace.phase(g.sites.find((s) => s.kind === 'rogue-planet'), 5), null);
+});
+
+test('dark sites are found by sensors from far off, and pinged along a cruise; luminous ones are known from the start', () => {
+  const g = galaxies.get(1), k = Knowledge.create(g, { fresh: true });
+  const lit = g.sites.find((s) => s.visible), dark = g.sites.find((s) => !s.visible && !s.path);
+  assert.strictEqual(k.siteState(lit), 'known');
+  assert.strictEqual(k.siteState(dark), null);
+  k.passSites(dark.x + dark.r + Knowledge.SITE.ping - 100, dark.y);
+  assert.strictEqual(k.siteState(dark), 'ping');
+  const found = k.sense(dark.x + dark.r + 1000, dark.y);
+  assert(found.sites.some((s) => s.id === dark.id), 'identified');
+  assert.strictEqual(k.siteState(dark), 'known');
+  assert.strictEqual(k.counts().sites.known, found.sites.length);
+  k.save();
+});
+
+test('the scene builds each system the first time something looks near it, with the same keys whatever the order', () => {
+  const g = galaxies.get(2), a = Scene.create(g, ArtCulture.forGalaxy(g)), b = Scene.create(g, ArtCulture.forGalaxy(g));
+  assert(!a.built(0) && a.entities.every((e) => !['asteroid', 'item', 'wreck', 'gas'].includes(e.kind)), 'nothing small is built up front');
+  assert.strictEqual(a.stations.length, g.stations.length);
+  const far = g.systems[g.systems.length - 1];
+  a.near(far.origin.x, far.origin.y, 5000);
+  assert(a.built(far.index) && !a.built(0), 'built where looked');
+  a.ensureAll();
+  for (let i = g.systems.length - 1; i >= 0; i--) b.ensure(i); // the other way round
+  const keys = (sc) => sc.entities.map((e) => `${e.kind}:${e.key}`).sort();
+  assert.deepStrictEqual(keys(a), keys(b));
+  assert.strictEqual(a.entities.filter((e) => e.kind === 'asteroid').length, g.asteroids.length);
 });
 
 test('a star, planets on widening orbits, belts, fields and nebulae, all inside the edge', () => {
@@ -237,7 +427,7 @@ test('six factions, one per culture: all neutral to each other but the aliens, h
 });
 
 test('the system has its region, factions and stations owned by the faction of their culture', () => {
-  for (const [seed, g] of galaxies) {
+  for (const [seed, g] of showcases) {
     const where = `seed ${seed}`, [s] = g.systems;
     assert.deepStrictEqual([s.region.key, s.holder, s.branch, s.situations], ['home', null, null, []], where);
     const here = new Set(s.factions.map((f) => f.id));
@@ -479,7 +669,9 @@ test('every system has a profitable trade run between its stations', () => {
 
 test('asteroids have unique keys that survive a rebuild', () => {
   const s = galaxies.get(1);
-  const a = thingsOf(1, 'asteroid'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'asteroid');
+  const rebuilt = Scene.create(s, ArtCulture.forGalaxy(s));
+  rebuilt.ensureAll();
+  const a = thingsOf(1, 'asteroid'), b = rebuilt.entities.filter((e) => e.kind === 'asteroid');
   assert(a.length > 100, `only ${a.length} asteroids`);
   assert.strictEqual(new Set(a.map((e) => e.key)).size, a.length, 'duplicate asteroid keys');
   assert.deepStrictEqual(a.map((e) => [e.key, e.x, e.y]), b.map((e) => [e.key, e.x, e.y]));
@@ -530,7 +722,7 @@ test('the Mine shortcut picks the nearest asteroid within mining range of its ed
 test('art ids name what an asset is built from, so a rebuilt scene finds its sprites again', () => {
   const s = galaxies.get(1);
   const cultures = ArtCulture.forGalaxy(s);
-  const x = Scene.create(s, cultures).entities.filter((e) => e.art), y = Scene.create(s, cultures).entities.filter((e) => e.art);
+  const x = fullScene(s, cultures).entities.filter((e) => e.art), y = fullScene(s, cultures).entities.filter((e) => e.art);
   assert.deepStrictEqual(x.map((e) => e.art.id), y.map((e) => e.art.id), 'rebuilt with other ids');
   const seen = new Map(); // art id -> a fingerprint of the blueprint
   const print = (bp) => `${bp.type}|${bp.parts.length}|${bp.radius.toFixed(3)}|${bp.label}`;
@@ -680,7 +872,7 @@ test('keys are unique across everything that can leave the world, and survive a 
   assert.strictEqual(thingsOf(1, 'ship').length, 0, 'the showcase has no pirates');
   // With the pirates turned back on, their ships keep their keys through a rebuild.
   const s = Galaxy.generate(1, { ...SYSTEM_CONFIG, galaxy: { system: { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } } } });
-  const a = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship'), b = Scene.create(s, ArtCulture.forGalaxy(s)).entities.filter((e) => e.kind === 'ship');
+  const a = fullScene(s).entities.filter((e) => e.kind === 'ship'), b = fullScene(s).entities.filter((e) => e.kind === 'ship');
   assert(a.length > 15, `only ${a.length} ships`);
   assert(a.every((e) => e.role === 'fighter' || e.role === 'freighter'), 'ship without a role');
   assert.deepStrictEqual(a.map((e) => [e.key, e.role]), b.map((e) => [e.key, e.role]));
@@ -2111,11 +2303,15 @@ test('hazards: the star heats the inner system, giants and moons irradiate, stat
   for (const st of g.stations) assert.strictEqual(at(st.x, st.y).rad, 0, `${st.name}: a station shelters its approach`);
   // A flare's wave adds heat and radiation, unless the ship is in a shadow.
   const wave = (() => { let t = 0; while (Hazards.flare(g.seed, t).phase !== 'wave') t += 1; return t; })();
-  const behind = [terran.x * 1.1, terran.y * 1.1], open = [terran.x * 1.1 + 3000, terran.y * 1.1 - 3000];
-  const sun = (pt) => Hazards.exposure(g, g.seed, pt[0], pt[1], wave);
+  // Each system's hazards are its own (galaxy.placeAt); deep space has no star and no flares.
+  const place = g.placeAt(terran.x, terran.y), S = place.stars[0];
+  const behind = [S.x + (terran.x - S.x) * 1.1, S.y + (terran.y - S.y) * 1.1], open = [behind[0] + 3000, behind[1] - 3000];
+  const sun = (pt) => Hazards.exposure(place, g.seed, pt[0], pt[1], wave);
+  const far = g.systems[0].origin, deep = [far.x + g.systems[0].radius * 1.5, far.y];
+  if (!g.systemAt(...deep)) assert.deepStrictEqual([Hazards.exposure(g.placeAt(...deep), g.seed, ...deep, wave).flare.phase, Hazards.exposure(g.placeAt(...deep), g.seed, ...deep, wave).heat], ['calm', 0], 'no flare in deep space');
   assert.ok(sun(behind).shadow, 'behind the terran planet');
   assert(sun(open).rad > 0 && !sun(open).shadow, 'out in the open, the wave comes through');
-  assert(sun(open).heat > Hazards.exposure(g, g.seed, open[0], open[1], calm).heat, 'and heats');
+  assert(sun(open).heat > Hazards.exposure(place, g.seed, open[0], open[1], calm).heat, 'and heats');
   assert.strictEqual(sun(behind).rad, at(...behind).rad, 'sheltered');
 });
 
@@ -2135,6 +2331,11 @@ test('hazards: ion storms in a nebula push the ship, and fuel: dashes, take-offs
   assert(courier.fuel / Hazards.config.fuel.dash >= 40, 'a tank holds dozens of dashes');
   assert(Hazards.takeoffFuel(1.6, 1) < courier.fuel / 5, 'and several heavy take-offs');
   assert(Hazards.travelFuel(2 * 40000) < courier.fuel / 2, 'crossing the system by map travel takes less than half a tank');
+  // Between the systems: a hop to a neighbour (a quarter million units) is a good share of a tank,
+  // the rim to the core more than a tank holds.
+  const hop = Hazards.travelFuel(250000), deep = Hazards.travelFuel(0.75 * GalaxyShape.params.radius);
+  assert(hop > courier.fuel / 6 && hop < courier.fuel / 2, `a hop between systems costs ${hop}`);
+  assert(deep > courier.fuel, 'the core is beyond one tank from the start');
 });
 
 test('surface bursts: vents erupt and lightning strikes on their own seeded rhythms, a warning first', () => {
@@ -2766,7 +2967,7 @@ function withTestJobs(fn) {
 }
 
 test('jobs: the board places what job texts write, pays by tier, and the log keeps them', () => withTestJobs(() => {
-  for (const [seed, g] of galaxies) {
+  for (const [seed, g] of showcases) { // one system: the test texts post a job at each capital and camp
     const where = `seed ${seed}`, B = Jobs.board(g);
     assert.deepStrictEqual(Jobs.board(g).list.map((j) => [j.id, j.reward.credits]), B.list.map((j) => [j.id, j.reward.credits]), `${where}: the same every time`);
     assert.deepStrictEqual(B.list.map((j) => j.tier).sort(), ['faction', 'station', 'station'], `${where}: jobs`);
@@ -2792,7 +2993,7 @@ test('jobs: the board places what job texts write, pays by tier, and the log kee
   }
   // The log keeps a job like the opening missions: accepted where, how many times, abandoned,
   // and progress that can go down again (goods sold before they're handed in).
-  const B = Jobs.board(galaxies.get(1)), J = B.list.find((j) => j.steps.length === 1 && j.steps[0].type === 'bring');
+  const B = Jobs.board(showcases.get(1)), J = B.list.find((j) => j.steps.length === 1 && j.steps[0].type === 'bring');
   const log = Missions.create(null, B.byId);
   assert(log.accept(J.id, 'st1') && log.at(J.id) === 'st1' && log.attempt(J.id) === 1);
   log.set(J.id, 's0', J.steps[0].n);
