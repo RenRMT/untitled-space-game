@@ -35,6 +35,9 @@
 //   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
 //     storm fronts) with gaps to fly through, or open sea on worlds with a sea. W.site.leave: how far
 //     past the edge the player has left the site.
+//   dungeon: { area: [i0, j0, i1, j1], rooms } instead of a site: a labyrinth of chambers and passages
+//     cut into solid high ground (on the 'cavern' surface, game/dungeon.js); W.dungeon then holds its
+//     rooms ({ x, y, r, role: 'start' | 'chamber' | 'deep', hops }) and links. W.site is unset.
 //   ArtSurface.sample(type, kind)  // 3×3 world showing one asset in its centre tile (asset sheets);
 //     kind: a | b | c | plateau | edge | outer | inner | saddle | small0.. | hole0.. | tall0..
 //   ArtSurface.project(w, x, y, z, style), tiltOf(style), padOf(style), heightAt(w, x, y), shadowShift(z),
@@ -232,6 +235,27 @@ const ArtSurface = (() => {
       p: { near: 0.4, far: 0.06 },
     };
   }
+  // Caverns: the ground of a labyrinth (generate with o.dungeon; game/dungeon.js): worn rock floors
+  // and crystal beds between high cave walls, glowing crystals and pools. Added after the moons, so
+  // the others keep their seeds (TYPES order).
+  B.cavern = {
+    label: 'Caverns', line: '#9ab8ff', hatch: true,
+    a: { name: 'Cave floor', sub: 'Worn dark rock', col: '#4b4f5e', amp: 1, wave: 60, rough: 2.2 },
+    b: { name: 'Flowstone', sub: 'Smooth, banded mineral', col: '#5c6378', amp: 0.6, wave: 30, rough: 0.8, cracks: '#2a2d38' },
+    c: { name: 'Crystal bed', sub: 'Glinting blue grit', col: '#44566e', amp: 0.4, wave: 40, rough: 1.2, speck: '#8ad0ff' },
+    high: { name: 'Cave wall', top: '#2a2c36', wall: '#1f212a', strata: '#4a4f62', h: 56, prof: [[0, 6], [0.35, 3.5], [0.38, 1.5], [0.7, 0.8], [0.72, 0], [1, 0]], jit: 0.7 },
+    small: [
+      { name: 'Rubble', sub: 'Fallen rock, below flight altitude', kind: 'rocks', col: '#33363f' },
+      { name: 'Crystals', sub: 'Small clusters, glowing tips', kind: 'cones', col: '#2c4a66', top: '#8ad0ff', emit: true },
+    ],
+    cSmall: 1,
+    hole: [
+      { name: 'Shaft', sub: 'A narrow, dark drop', r: 12, d: 11, floor: '#0d0e14' },
+      { name: 'Glow pool', sub: 'Still water lit from below', r: 19, d: 6, floor: '#1d2a3a', water: '#3f8fc0', emit: true },
+    ],
+    tall: [{ name: 'Stalagmite', sub: 'Leaning rock blade, 68 units tall', kind: 'spike', col: '#2a2c36', col2: '#4a4f62', top: '#3a3d4a' }],
+    p: { near: 0.4, far: 0.1 },
+  };
   for (const b of Object.values(B)) {
     b.LN = hex(b.line);
     for (const k of ['a', 'b', 'c']) { b[k].c = hex(b[k].col); if (b[k].cracks) b[k].cc = hex(b[k].cracks); if (b[k].speck) b[k].sc = hex(b[k].speck); }
@@ -391,7 +415,8 @@ const ArtSurface = (() => {
     const th = vals[Math.min(vals.length - 1, Math.floor((1 - cover) * vals.length))], cx = w >> 1, cy = h >> 1;
     for (let i = 0; i <= w; i++) for (let j = 0; j <= h; j++) C[i][j] = C[i][j] >= th && !(Math.abs(i - cx) <= 2 && Math.abs(j - cy) <= 2) ? 1 : 0;
     const W = { type, seed, w, h, C, G, G2, props: {}, start: [cx * T, cy * T] };
-    if (o.site) yield* rim(W, o.site);
+    if (o.dungeon) yield* dungeon(W, o.dungeon);
+    else if (o.site) yield* rim(W, o.site);
     for (let j = 0; j < h; j++, yield) for (let i = 0; i < w; i++) {
       if (C[i][j] || C[i + 1][j] || C[i][j + 1] || C[i + 1][j + 1]) continue;
       let near = false;
@@ -399,7 +424,7 @@ const ArtSurface = (() => {
       const mx = (i + 0.5) * T, my = (j + 0.5) * T;
       const on = bi.sea && rawHeight(W, mx, my) < bi.sea.level - 0.5 ? 'water' : 'land';
       const pick = (list, salt) => { const ok = list.filter((v) => (v.on || 'land') === on); return ok.length ? list.indexOf(ok[Math.floor(hash(i, j, seed + salt) * ok.length)]) : -1; };
-      const r = hash(i, j, seed * 7 + 1), start = Math.abs(i + 0.5 - cx) < 2 && Math.abs(j + 0.5 - cy) < 2;
+      const r = hash(i, j, seed * 7 + 1), start = Math.abs(i + 0.5 - W.start[0] / T) < 2 && Math.abs(j + 0.5 - W.start[1] / T) < 2;
       const inC = on === 'land' && bi.cSmall !== undefined && weights(W, mx, my)[2] > 0.5;
       let t = null, v = -1;
       if (!start && r < tallP) { t = 'tall'; v = pick(bi.tall, 51); }
@@ -431,6 +456,79 @@ const ArtSurface = (() => {
       if (e <= inner || e >= outer) continue;
       if (bi.sea) { G[i][j] = 0; G2[i][j] = 0; C[i][j] = 0; } else C[i][j] = gapN(i, j) > gapAt ? 0 : 1;
     }
+  }
+  // A labyrinth instead of a landing site (o.dungeon: { area: [i0, j0, i1, j1] in corners, rooms }):
+  // solid high ground everywhere, with chambers carved out of it (rough ellipses), the first round the
+  // landing spot by the area's south edge (W.start moves there), joined by winding passages two or
+  // three corners wide: a spanning tree of the nearest links, and a few more for loops.
+  // W.dungeon: { area, rooms: [{ x, y, r, role, hops }] (surface units; role 'start' | 'chamber' |
+  // 'deep': the one most passages from the start, for a boss one day), links: [[a, b]] }.
+  function* dungeon(W, o) {
+    const { C, seed } = W, [a0, b0, a1, b1] = o.area, cx = W.w >> 1, cy = b1 - 7; // the landing chamber: by the south edge
+    let n = 0;
+    const rnd = () => hash(n++, 0xd0, seed + 91);
+    for (let i = 0; i <= W.w; i++) for (let j = 0; j <= W.h; j++) C[i][j] = 1;
+    const rooms = [{ x: cx, y: cy, rx: 4.5, ry: 4 }];
+    for (let k = 0; rooms.length < (o.rooms || 14) && k < 600; k++) {
+      const rx = 3 + rnd() * 4, ry = 3 + rnd() * 3.5;
+      const x = a0 + rx + 3 + rnd() * (a1 - a0 - 2 * rx - 6), y = b0 + ry + 3 + rnd() * (b1 - b0 - 2 * ry - 6);
+      if (rooms.some((r) => Math.abs(r.x - x) < r.rx + rx + 5 && Math.abs(r.y - y) < r.ry + ry + 5)) continue;
+      rooms.push({ x, y, rx, ry });
+    }
+    yield;
+    const d2 = (a, b) => (rooms[a].x - rooms[b].x) ** 2 + (rooms[a].y - rooms[b].y) ** 2;
+    const links = [], tree = [0];
+    while (tree.length < rooms.length) {
+      let best = null;
+      for (const a of tree) for (let b = 0; b < rooms.length; b++) if (!tree.includes(b) && (!best || d2(a, b) < best.d)) best = { a, b, d: d2(a, b) };
+      tree.push(best.b);
+      links.push([best.a, best.b]);
+    }
+    // Loops: each room's nearest neighbour it isn't joined to, now and then.
+    const linked = (a, b) => links.some(([p, q]) => (p === a && q === b) || (p === b && q === a));
+    for (let a = 0; a < rooms.length; a++) {
+      if (rnd() > 0.3) continue;
+      const b = rooms.map((_, k) => k).filter((k) => k !== a && !linked(a, k)).sort((p, q) => d2(a, p) - d2(a, q))[0];
+      if (b !== undefined) links.push([a, b]);
+    }
+    const dig = (i, j) => { if (i >= 2 && j >= 2 && i <= W.w - 2 && j <= W.h - 2) C[i][j] = 0; };
+    for (const r of rooms) {
+      for (let i = Math.floor(r.x - r.rx - 2); i <= Math.ceil(r.x + r.rx + 2); i++) for (let j = Math.floor(r.y - r.ry - 2); j <= Math.ceil(r.y + r.ry + 2); j++) {
+        const e = ((i - r.x) / r.rx) ** 2 + ((j - r.y) / r.ry) ** 2;
+        if (e < 1 + 0.6 * (fbm(i * 0.35, j * 0.35, seed + 93) - 0.5)) dig(i, j);
+      }
+    }
+    yield;
+    // A passage: a walk from room to room, mostly toward the end, now and then a step aside.
+    for (const [a, b] of links) {
+      const wd = rnd() < 0.5 ? 2 : 3, ex = Math.round(rooms[b].x), ey = Math.round(rooms[b].y);
+      let x = Math.round(rooms[a].x), y = Math.round(rooms[a].y);
+      for (let step = 0; step < 2000 && (x !== ex || y !== ey); step++) {
+        const dx = ex - x, dy = ey - y, side = rnd() < 0.18;
+        if (rnd() < Math.abs(dx) / (Math.abs(dx) + Math.abs(dy))) { if (side && dy) y += rnd() < 0.5 ? 1 : -1; else x += Math.sign(dx); }
+        else if (side && dx) x += rnd() < 0.5 ? 1 : -1;
+        else y += Math.sign(dy);
+        x = clamp(x, a0, a1); y = clamp(y, b0, b1);
+        for (let u = 0; u < wd; u++) for (let v = 0; v < wd; v++) dig(x + u - 1, y + v - 1);
+      }
+      yield;
+    }
+    // How many passages from the start each room is; the furthest (the largest of them) is the deep one.
+    const hops = rooms.map(() => Infinity), queue = [0];
+    hops[0] = 0;
+    while (queue.length) {
+      const a = queue.shift();
+      for (const [p, q] of links) {
+        const b = p === a ? q : q === a ? p : -1;
+        if (b >= 0 && hops[b] > hops[a] + 1) { hops[b] = hops[a] + 1; queue.push(b); }
+      }
+    }
+    const deep = rooms.reduce((best, r, k) => (hops[k] > hops[best] || (hops[k] === hops[best] && r.rx * r.ry > rooms[best].rx * rooms[best].ry) ? k : best), 0);
+    W.start = [cx * T, cy * T];
+    W.dungeon = {
+      area: o.area, links,
+      rooms: rooms.map((r, k) => ({ x: r.x * T, y: r.y * T, r: Math.min(r.rx, r.ry) * T, role: k === 0 ? 'start' : k === deep ? 'deep' : 'chamber', hops: hops[k] })),
+    };
   }
   const CARD_C = { plateau: [1, 1, 1, 1], edge: [1, 1, 0, 0], outer: [1, 0, 0, 0], inner: [1, 1, 0, 1], saddle: [1, 0, 1, 0] };
   function sample(type, kind) {

@@ -6,7 +6,9 @@ hazardous places. There's no fighting: mining runs on the real-time combat rules
 that never fire back, and the danger comes from flying: collisions, the star's heat, radiation
 round the gas giants and the moons, solar flares to shelter from, ion storms, and running out of
 fuel. Planets and moons can be landed on, to mine deposits of goods found nowhere else before the
-sun comes up, each with a hazard of its own. Utility gear (radiators, radiation shielding, tanks,
+sun comes up, each with a hazard of its own. One planet is a trial of something else: Zantal VI, the start
+system's blue giant, has a labyrinth of caverns to explore instead of a landing site, with no hazards
+and its deepest chamber kept for a boss one day (`src/game/dungeon.js`). Utility gear (radiators, radiation shielding, tanks,
 cargo pods) and consumables used from the HUD (coolant, purges, fuel canisters, seismic charges)
 let a run last longer. `notes/hazards.md` is the plan.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
@@ -85,7 +87,7 @@ the lab 60 times faster;
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel), HUD, the frame loop |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel; `dungeon.js`: the test labyrinth on one planet), HUD, the frame loop |
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |

@@ -18,6 +18,7 @@
 //   Take off is refused; Jettison leaves cargo behind until it's enough, and with not even enough for
 //   an empty hold, Call a tow gives the ship up.
 // - The scan before landing: what a planet's or moon's card says of its surface (siteScan).
+// - The test dungeon (game/dungeon.js): one planet's surface a labyrinth of caverns, no hazards.
 // Flight time runs on while landed, so the day comes round and the system moves on.
 // Part of the flight view; src/main.js starts it.
 
@@ -35,6 +36,7 @@ import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight
 import { hazard, meterWarnings, trackMeters } from './hazards.js';
 import { SURFACE_SPEED, landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
+import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon } from './dungeon.js';
 import { dashSafe } from './dash.js';
 import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
@@ -63,7 +65,8 @@ export const nextField = { value: null };
 // What a body's surface does to a ship (Hazards.surface), a moon's by its planet's type too.
 export function bodySite(e) {
   const G = world.galaxy, moon = e.kind === 'moon' && G.moons.find((m) => m.name === e.key);
-  return Hazards.surface(e.kind, e.body.type, e.body.seed, moon ? G.planets[moon.parent]?.type : undefined);
+  const site = Hazards.surface(e.kind, e.body.type, e.body.seed, moon ? G.planets[moon.parent]?.type : undefined);
+  return isDungeon(e) ? dungeonSite(site) : site; // the test dungeon: no hazards (game/dungeon.js)
 }
 const goodName = (kind) => Goods.type(kind)?.name || kind;
 // A good's colour (rules/goods.js), or as light as `light` at least (to stand out on dark ground).
@@ -79,7 +82,7 @@ export function siteScan(e) {
   const site = bodySite(e), d = Hazards.daylight(site, simTime);
   const goods = [...new Set(site.deposits.map(([k]) => goodName(k)))].join(', ');
   const sun = !hotDay(site) ? '' : d.day ? ' · Day side now' : ` · Sunrise in ${mmss(d.in)}`;
-  const tone = site.tag === 'Mild' ? 'good' : site.rad >= 1 || site.heat > Hazards.config.heat.cool ? 'hostile' : 'warn';
+  const tone = site.tag === 'Mild' || site.dungeon ? 'good' : site.rad >= 1 || site.heat > Hazards.config.heat.cool ? 'hostile' : 'warn';
   return { tag: site.tag, tone, detail: `${site.hazard} · Deposits: ${goods} · Yield ×${site.rich}${sun} · Take-off ${takeoffNeed(site)} fuel` };
 }
 
@@ -99,7 +102,8 @@ function hazardNear(W, site, x, y) {
 
 // The ship set down on a body's surface W (game/landing.js): a fresh field of nodes.
 export function enterSurface(e, W) {
-  const site = bodySite(e), T = ArtSurface.T, [i0, j0, i1, j1] = W.site.rect;
+  // Nodes round the landing site, or all through a labyrinth (the landing spot kept clear).
+  const site = bodySite(e), T = ArtSurface.T, [i0, j0, i1, j1] = W.site ? W.site.rect : W.dungeon.area;
   const field = nextField.value ?? Math.floor(Math.random() * 1e9);
   nextField.value = null;
   const ok = (x, y, r) => ArtSurface.siteDist(W, x, y) < -T && ArtSurface.open(W, x, y, r + 10);
@@ -119,6 +123,7 @@ export function enterSurface(e, W) {
       good: d.kind, name: `${d.rich ? 'Rich ' : ''}${goodName(d.kind)} ${d.material === 'gas' ? 'pocket' : 'node'}`, color: goodColor(d.kind), edge: goodColor(d.kind, 0.78),
     })),
   });
+  if (W.dungeon) enterDungeon(W); else dungeonRun.W = null;
   const rich = surfaceRun.deposits.filter((d) => d.rich).length;
   notify(`${site.label} · ${site.hazard} · ${surfaceRun.deposits.length} nodes${rich ? `, ${rich} rich` : ''} · yield ×${site.rich}`, 3.5, { tone: site.tag === 'Mild' ? 'info' : 'warn' });
 }
@@ -130,6 +135,7 @@ export function leaveSurface() {
   setMode('stranded', false);
   surfaceRun.e = null;
   surfaceRun.exp = null;
+  dungeonRun.W = null;
 }
 
 // ---------- Each step on the surface ----------
@@ -231,6 +237,7 @@ export function tickSurface(dt) {
   trackMeters(dt);
   meterWarnings();
   pickUp(C, dt);
+  tickDungeon(C); // charting a labyrinth, and its chambers found
   autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
   tickFight(dt); // mining a deposit (and the effects of it)
   // Take off: short of fuel for it, Jettison or Call a tow (their buttons).
@@ -723,6 +730,7 @@ export function surfaceLines() {
   const need = takeoffNeed();
   if (cargo.fuel + 1e-6 < need) out.push([`NOT ENOUGH FUEL TO TAKE OFF · ${need} needed`, COLORS.hostile]);
   if (hold.free < 1) out.push(['HOLD FULL · the tools stop', COLORS.amber]);
+  if (site.dungeon) out.push(...dungeonLines());
   out.push([`${surfaceRun.deposits.length} node${surfaceRun.deposits.length === 1 ? '' : 's'} · hold ${cargo.items.length}/${SHIP.cargo} · yield ×${site.rich} · take-off ${need} fuel`, COLORS.hud]);
   return out;
 }

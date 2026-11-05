@@ -2519,6 +2519,39 @@ test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pock
   takeOffTo();
 });
 
+test('the test dungeon: Zantal VI is a labyrinth of caverns with no hazards; the ship charts it chamber by chamber', () => {
+  game(`fight.grace = 1e9; cargo.items = []; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; hazard.heat = 0; cargo.rad = 0; artStyle.set('line')`);
+  game(`globalThis.__body = __find((e) => e.name === 'Zantal VI'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
+  assert.ok(game('isDungeon(__body)') && !game(`isDungeon(__find((e) => e.name === 'Zantal V'))`), 'one planet only');
+  assert.strictEqual(game('siteScan(__body).tone'), 'good', 'the scan calls it safe');
+  landOn('Zantal VI');
+  const W = 'surfaceRun.W';
+  assert.strictEqual(game(`${W}.type`), 'cavern');
+  assert.ok(game(`!${W}.site && ${W}.dungeon.rooms.length`) >= 12, 'chambers, no landing site');
+  assert.strictEqual(game(`${W}.dungeon.rooms.filter((r) => r.role === 'deep').length`), 1, 'one deepest chamber');
+  assert.ok(game(`${W}.dungeon.rooms.find((r) => r.role === 'deep').hops`) >= 3, 'some passages away');
+  assert.ok(game('surfaceRun.deposits.length') >= 15, 'nodes about the caverns');
+  // Every chamber can be reached from the landing spot (a flood over open ground).
+  assert.ok(game(`(() => {
+    const W = surfaceRun.W, T = ArtSurface.T, step = T / 2, key = (x, y) => x + ',' + y, seen = new Set(), q = [[W.start[0], W.start[1]]];
+    seen.add(key(...q[0]));
+    while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[step, 0], [-step, 0], [0, step], [0, -step]]) { const nx = x + dx, ny = y + dy, k = key(nx, ny); if (seen.has(k) || ArtSurface.blocked(W, nx, ny, 12)) continue; seen.add(k); q.push([nx, ny]); } }
+    return W.dungeon.rooms.every((r) => [...seen].some((k) => { const [x, y] = k.split(',').map(Number); return Math.hypot(x - r.x, y - r.y) < r.r; }));
+  })()`), 'every chamber reachable');
+  // No hazards: a stay costs nothing, heat and radiation stay down.
+  browser.frames(300);
+  assert.ok(game('hazard.heat') < 1 && game('cargo.rad') === 0 && game('landing.phase') === 'surface', 'no heat, no radiation, still down');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /CHAMBERS 1\/\d+ · the deepest still ahead/);
+  // Flying into the deepest chamber: it's charted, and counted.
+  game(`{ const r = surfaceRun.W.dungeon.rooms.find((r) => r.role === 'deep'); Object.assign(landing.craft, { x: r.x, y: r.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
+  browser.frames(2);
+  assert.ok(game('charted(landing.craft.x, landing.craft.y)'), 'charted round the ship');
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /CHAMBERS 2\/\d+ · the deepest found/);
+  // No rim to fly past (no W.site): Take off is the way out.
+  takeOffTo();
+  game('cargo.items = []; cargo.surfaceDrops = {}');
+});
+
 test('planets, moons and stations go round with flight; a ship parked by a station is carried along, still in docking range', () => {
   if (game('!!docked')) game('launch()');
   game(`globalThis.__st = world.scene.stations.find((s) => s.station.planet !== undefined); placeBeside(__st);

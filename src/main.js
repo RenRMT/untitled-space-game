@@ -79,9 +79,10 @@ import * as loop from './game/loop.js';
 import * as warp from './game/warp.js';
 import * as landing from './game/landing.js';
 import * as surfaceRun from './game/surface-run.js';
+import * as dungeon from './game/dungeon.js';
 
 const parts = [state, options, world, cargo, outfitting, lab, industry, restoration, intro, missions, jobs, docking, squad, mining, travel,
-  selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun];
+  selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);
