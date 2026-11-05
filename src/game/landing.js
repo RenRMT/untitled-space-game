@@ -28,7 +28,8 @@
 //   landingShipScale()          the ship's size in space as it dives in or comes out (0..1)
 //   surfacePerf()               lines about the surface for the performance overlay (game/loop.js)
 //   surfaceAt(sx, sy) -> [x, y] the point of the ground under a point of the screen (CSS px)
-// What there is to do down there (deposits, hazards, take-off fuel): game/surface-run.js.
+// What there is to do down there (deposits, hazards, take-off fuel): game/surface-run.js. One planet
+// has a labyrinth of caverns instead of a landing site, and no rim (game/dungeon.js).
 // Part of the flight view; src/main.js starts it.
 
 import { Art } from '../art/render.js';
@@ -57,6 +58,7 @@ import { warp } from './warp.js';
 import { world } from './world.js';
 import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
 import { updateCombatPanel } from './combat.js';
+import { dungeonOpts, drawDungeonMinimap, isDungeon } from './dungeon.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
 // surface (art/surface.js), moons on their type's (moonSurface: 'moon-' and the type).
@@ -92,8 +94,10 @@ const GEN_STEPS = 3 * (SIZE + 1) + 1; // about how many next()s generating one t
 function entry(e) {
   let s = surfaces.get(e.key);
   if (!s) {
-    const type = e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
-    s = { gen: ArtSurface.generateSteps(type, e.body.seed, { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] }), steps: 0, W: null, far: {}, tiles: {} };
+    // The test dungeon's planet: a labyrinth of caverns instead of a landing site (game/dungeon.js).
+    const type = isDungeon(e) ? 'cavern' : e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
+    const o = isDungeon(e) ? dungeonOpts(SIZE) : { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] };
+    s = { gen: ArtSurface.generateSteps(type, e.body.seed, o), steps: 0, W: null, far: {}, tiles: {} };
     surfaces.set(e.key, s);
   }
   return s;
@@ -301,7 +305,7 @@ function fly(W, dt, climbing = false) {
   } else if (hit > Collide.config.surfaceSafe * 0.5) Feedback.emit('bump');
   tickSurface(dt);
   if (landing.wrecked) takeOff();
-  else if (landing.phase === 'surface' && ArtSurface.siteDist(W, C.x, C.y) > W.site.leave && takeOff() === false) {
+  else if (landing.phase === 'surface' && W.site && ArtSurface.siteDist(W, C.x, C.y) > W.site.leave && takeOff() === false) {
     C.x = x0; C.y = y0; C.vx = C.vy = 0; ship.targetSpeed = 0; // held at the rim
   }
 }
@@ -451,6 +455,7 @@ export function drawLanding(time) {
 // rectangle on it, and the ship's place and heading in the site.
 function drawSurfaceMinimap() {
   const L = landing, e = L.e, W = surface().W, { x: x0, y: y0, size } = minimapBox();
+  if (W.dungeon) { drawDungeonMinimap({ x: x0, y: y0, size }, L.craft, surfaceMarks()); return; } // the labyrinth as charted
   const cx = x0 + size / 2, cy = y0 + size / 2, R = size * 0.42, k = R / e.body.r;
   ctx.save();
   ctx.fillStyle = 'rgba(5, 6, 10, 0.75)';
@@ -505,9 +510,9 @@ function drawSurfaceMinimap() {
 function drawSurfaceHud() {
   const L = landing, W = surface().W, I = view.inset, pad = 12, left = pad + I.l, lh = Math.round(19 * Theme.scale);
   const box = minimapBox(), room = box.x - 12 - left;
-  const lines = [[`${L.e.name.toUpperCase()} · LANDING SITE`, COLORS.planet]];
+  const lines = [[`${L.e.name.toUpperCase()} · ${W.dungeon ? 'CAVERNS' : 'LANDING SITE'}`, COLORS.planet]];
   if (L.phase === 'surface') lines.push(...surfaceLines());
-  if (L.phase === 'surface' && ArtSurface.siteDist(W, L.craft.x, L.craft.y) > W.site.leave - 2 * ArtSurface.T) lines.push(['Past the rim: fly on to take off', COLORS.amber]);
+  if (L.phase === 'surface' && W.site && ArtSurface.siteDist(W, L.craft.x, L.craft.y) > W.site.leave - 2 * ArtSurface.T) lines.push(['Past the rim: fly on to take off', COLORS.amber]);
   ctx.save();
   ctx.font = Theme.font(14);
   let y = pad + I.t + lh - 4;
