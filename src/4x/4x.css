@@ -1,0 +1,45 @@
+/* The 4X game's page (4x/index.html), over the UI kit in its Line style (src/ui/kit.css,
+   kit-line.css): the map on a full-screen canvas, a header with where the view is and the zoom
+   bands, and a card along the bottom for the picked thing and its orders. */
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); font: 15px/1.4 var(--sans); overflow: hidden; }
+#map { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; cursor: grab; user-select: none; -webkit-user-select: none; }
+body.targeting #map { cursor: crosshair; }
+
+.x-head {
+  position: fixed; z-index: 3; top: 0; left: 0; right: 0; box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px; padding: calc(env(safe-area-inset-top, 0px) + 12px) 16px 10px;
+  background: linear-gradient(var(--bg) 60%, transparent); pointer-events: none;
+}
+.x-head > * { pointer-events: auto; }
+.x-head .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#place { font: 700 18px/1.15 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.x-hint { font: 400 12px/1.3 var(--mono); color: var(--cyan); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.x-hint:empty { display: none; }
+
+/* The zoom bands: three joined buttons, the one the view is in lit. */
+.x-zoom { flex: none; display: flex; border: 1px solid var(--line-strong); border-radius: var(--r-md); overflow: hidden; background: var(--bg); }
+.x-zoom button {
+  min-height: 36px; padding: 0 12px; background: none; border: 0; border-left: 1px solid var(--line-strong); cursor: pointer;
+  font: 700 12px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); touch-action: manipulation;
+}
+.x-zoom button:first-child { border-left: 0; }
+.x-zoom button:hover { color: var(--cyan); }
+.x-zoom button.on { color: var(--bg); background: var(--cyan); }
+.x-zoom button:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+
+/* The card: the picked thing, along the bottom, a phone's width at most. */
+.x-card {
+  position: fixed; z-index: 4; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); transform: translateX(-50%);
+  width: min(520px, calc(100% - 32px)); box-sizing: border-box; padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
+}
+.x-card[hidden] { display: none; }
+.x-acts { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.x-acts:empty { display: none; }
+.x-acts .ui-btn { flex: 1; }
+
+@media (max-width: 420px) {
+  .x-zoom button { padding: 0 9px; letter-spacing: 0.08em; }
+  #place { font-size: 15px; }
+}
