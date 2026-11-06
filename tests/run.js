@@ -72,6 +72,8 @@ import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
 import { IdleSave } from '../src/idle/save.js';
 import { ArtStationRoles } from '../src/art/station-roles.js';
+import { Orbits4X } from '../src/4x/orbits.js';
+import { World4X } from '../src/4x/world.js';
 
 let failed = 0;
 // ONLY=text runs just the tests whose names include it (by hand, while working on them).
@@ -4858,6 +4860,67 @@ test('idle: a new system once every station is built: legacy from what was earne
   const migrated = IdleRules.read(Save.migrate(old, IdleSave.MIGRATIONS));
   assert(migrated && migrated.legacy.points === 0 && migrated.earned === 0);
   assert.deepStrictEqual(migrated.foremen, s.built, 'a save from before foremen keeps its orders going');
+});
+
+// ---------- The 4X game (4x/, notes/4x.md) ----------
+
+test('4x orbit rules: what may go round what', () => {
+  const base = [
+    { key: 'star', kind: 'star', parent: null },
+    { key: 'p', kind: 'planet', parent: 'star', orbit: 9000, angle: 0, period: 100 },
+    { key: 'm', kind: 'moon', parent: 'p', orbit: 900, angle: 0, period: 10 },
+  ];
+  assert.deepStrictEqual(Orbits4X.check(base), []);
+  const ok = [...base,
+    { key: 's1', kind: 'station', parent: 'p', orbit: 500, angle: 0, period: 10 },
+    { key: 's2', kind: 'station', parent: 'm', orbit: 200, angle: 0, period: 10 },
+    { key: 'u1', kind: 'ship', parent: 's1', orbit: 170, angle: 0, period: 10 },
+    { key: 'u2', kind: 'ship', parent: 'm', orbit: 300, angle: 0, period: 10 },
+    { key: 'b', kind: 'belt', parent: 'star', orbit: 20000, width: 2000 },
+    { key: 'g', kind: 'graveyard', parent: 'p', point: 'L4' },
+  ];
+  assert.deepStrictEqual(Orbits4X.check(ok), []);
+  const bad = (n, why) => assert(Orbits4X.check([...ok, n]).length > 0, why);
+  bad({ key: 'x', kind: 'station', parent: 'p', orbit: 700, angle: 0, period: 10 }, 'a second station round one planet');
+  bad({ key: 'x', kind: 'station', parent: 'star', orbit: 700, angle: 0, period: 10 }, 'a station round the star');
+  bad({ key: 'x', kind: 'moon', parent: 'm', orbit: 70, angle: 0, period: 10 }, 'a moon round a moon');
+  bad({ key: 'x', kind: 'ship', parent: 'star', orbit: 700, angle: 0, period: 10 }, 'a ship round the star');
+  bad({ key: 'x', kind: 'ship', parent: 'g', orbit: 70, angle: 0, period: 10 }, 'a ship round a graveyard');
+  bad({ key: 'x', kind: 'planet', parent: 'p', orbit: 70, angle: 0, period: 10 }, 'a planet round a planet');
+  bad({ key: 'x', kind: 'graveyard', parent: 'p', point: 'L1' }, 'a graveyard off L4 and L5');
+  bad({ key: 'x', kind: 'star', parent: null }, 'two stars');
+  assert(Orbits4X.check(base.slice(0, 1)).length > 0, 'no planet');
+  assert(!Orbits4X.canHost(ok, 'station', 'p') && Orbits4X.canHost(base, 'station', 'p') && Orbits4X.canHost(ok, 'ship', 's2') && !Orbits4X.canHost(ok, 'ship', 'star'));
+  // Placed: everything on its orbit; the graveyard on the planet's orbit, 60° ahead of it.
+  const sys = { x: 100, y: -50, nodes: ok };
+  Orbits4X.place(sys, 37);
+  const by = Object.fromEntries(ok.map((n) => [n.key, n]));
+  for (const n of ok) if (n.orbit && n.kind !== 'belt') assert(Math.abs(dist(n, by[n.parent]) - n.orbit) < 1e-6, n.key);
+  assert(Math.abs(dist(by.g, by.star) - 9000) < 1e-6 && Math.abs(dist(by.g, by.p) - 9000) < 1e-6, 'L4 is as far from the planet as from the star');
+});
+
+test('4x start system: a star, one planet, a station round it and a ship; ships fly to where they are sent and park', () => {
+  for (const seed of [1, 7, 'abc']) {
+    const w = World4X.create(seed);
+    const kinds = w.start.nodes.map((n) => n.kind).sort();
+    assert.deepStrictEqual(kinds, ['planet', 'ship', 'star', 'station']);
+    assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []);
+    assert.strictEqual(w.systems.length, w.galaxy.systems.length, 'the main game\'s galaxy, every system in it');
+    assert.strictEqual(w.start.radius, w.galaxy.systems[0].radius, 'the main game\'s play area');
+    const ship = w.units()[0];
+    assert.strictEqual(ship.parent, 'st0');
+    assert(w.order(ship.key, 'star'), 'not round the star');
+    assert(w.order('st0', 'p0'), 'stations take no orders');
+    assert.strictEqual(w.order(ship.key, 'p0'), null);
+    for (let i = 0; i < 6000 && ship.free; i++) w.step(0.05);
+    assert(!ship.free && ship.parent === 'p0', 'parked round the planet');
+    w.step(5);
+    assert(Math.abs(dist(ship, w.node('p0')) - ship.orbit) < 1e-6, 'and goes round it');
+    assert.strictEqual(w.order(ship.key, 'p0'), `Already in orbit round ${w.node('p0').name}`);
+    assert.strictEqual(w.order(ship.key, 'st0'), null);
+    for (let i = 0; i < 6000 && ship.free; i++) w.step(0.05);
+    assert.strictEqual(ship.parent, 'st0');
+  }
 });
 
 if (failed) {
