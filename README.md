@@ -84,8 +84,10 @@ The 4X game is a fourth page, `/4x/` (`4x/index.html`, code in `src/4x/`): the m
 the main game's scale, played as a map instead of a ship. One camera zooms without a break from the
 flight view out to the star system and the galaxy (Flight / System / Galaxy in the header, or 1 / 2 / 3;
 the wheel or a pinch). The player no longer flies a ship: they pick a unit and order it to a station,
-planet or moon (Move, then the place; or right-click / long-press it), and it flies there and parks in
-orbit. Orbits follow the 4X rules (`src/4x/orbits.js`: planets round the star, moons round planets,
+planet or moon and it flies there: round a station, planet or moon it parks in orbit, at a point in space it holds.
+How orders are given is one of four prototypes to compare (`?move=button | tap | drag | path`, or the
+header's Move button; `notes/4x-movement-research.md`), and `?testbed` gives the whole start system
+with three ships. Orbits follow the 4X rules (`src/4x/orbits.js`: planets round the star, moons round planets,
 at most one station round a planet or moon, idle ships round a station, planet or moon, asteroids in
 belts, wrecks in graveyards at Lagrange points). For now the start system is a star, one planet, a
 station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/4x.md` is the plan.

@@ -5,7 +5,8 @@
 //   - planets (one or more) go round the star,
 //   - moons (none or more) go round a planet,
 //   - a station goes round a planet or a moon, at most one to each,
-//   - a ship that is idle goes round a station, a planet or a moon,
+//   - a ship that is idle goes round a station, a planet or a moon, or holds a point in space it
+//     was sent to (`hold: { x, y }`, no parent),
 //   - an asteroid belt is a band round the star (never a field in one place): it has a radius and
 //     a width, and no position of its own,
 //   - a graveyard of wrecks sits at a planet's L4 or L5 Lagrange point: on the planet's orbit, 60°
@@ -64,6 +65,7 @@ const Orbits4X = (() => {
       const hosts = HOSTS[n.kind];
       if (!hosts) { out.push(`${n.key}: no such kind "${n.kind}"`); continue; }
       if (n.kind === 'star') { if (n.parent != null) out.push(`${n.key}: the star goes round nothing`); continue; }
+      if (n.kind === 'ship' && (n.hold || n.free) && n.parent == null) continue; // holding a point, or under way
       const p = byKey.get(n.parent);
       if (!p) { out.push(`${n.key}: goes round "${n.parent}", which isn't in the system`); continue; }
       if (!hosts.includes(p.kind)) out.push(`${n.key}: a ${n.kind} can't go round a ${p.kind} (only ${hosts.join(', ')})`);
@@ -90,6 +92,8 @@ const Orbits4X = (() => {
       if (done.has(n.key)) return;
       done.add(n.key);
       if (n.kind === 'star') { n.x = system.x; n.y = system.y; n.a = 0; return; }
+      if (n.free) return; // a ship under way: its own position (4x/world.js moves it)
+      if (n.hold) { n.x = n.hold.x; n.y = n.hold.y; return; } // a ship holding a point in space
       const p = byKey.get(n.parent);
       if (!p) return;
       put(p);
@@ -99,7 +103,6 @@ const Orbits4X = (() => {
         n.x = at.x; n.y = at.y; n.a = p.a + (n.point === 'L5' ? -1 : 1) * (TAU / 6);
         return;
       }
-      if (n.free) return; // a ship under way: its own position (4x/world.js moves it)
       n.a = n.angle + (TAU * t) / n.period;
       n.x = p.x + Math.cos(n.a) * n.orbit;
       n.y = p.y + Math.sin(n.a) * n.orbit;
