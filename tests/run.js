@@ -4923,6 +4923,34 @@ test('4x start system: a star, one planet, a station round it and a ship; ships 
   }
 });
 
+test('4x move orders: to a point a ship holds there, along a path it passes each stop, and the testbed system keeps the rules', () => {
+  for (const seed of [1, 7, 'abc']) {
+    const w = World4X.create(seed, { testbed: true });
+    assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []);
+    assert(w.hosts().length > 2 && w.units().length === 3, 'more places to go and three ships');
+    assert.strictEqual(new Set(w.units().map((u) => u.parent)).size, 3, 'the ships start round different places');
+    const ship = w.units()[0], p = { x: ship.x + 4000, y: ship.y - 3000 };
+    assert(w.eta(ship.key, p) > 0 && w.eta(ship.key, { x: ship.x + 8000, y: ship.y }) > w.eta(ship.key, p), 'further takes longer');
+    assert.strictEqual(w.order(ship.key, { x: NaN, y: 0 }), 'Nowhere to go');
+    assert(w.order(ship.key, { path: [p, 'star'] }), 'not round the star, even at the end of a path');
+    assert.strictEqual(w.order(ship.key, p), null);
+    for (let i = 0; i < 6000 && ship.free; i++) w.step(0.05);
+    assert(!ship.free && ship.hold && ship.parent === null, 'holding');
+    assert(Math.hypot(ship.x - p.x, ship.y - p.y) < 1e-6, 'at the point');
+    assert.deepStrictEqual(Orbits4X.check(w.start.nodes), [], 'a ship holding a point keeps the rules');
+    w.step(30);
+    assert(Math.hypot(ship.x - p.x, ship.y - p.y) < 1e-6, 'and stays there');
+    const host = w.hosts().find((h) => h.kind === 'moon') || w.hosts()[0];
+    const a = { x: p.x, y: p.y + 2500 }, b = { x: p.x + 2500, y: p.y + 2500 };
+    assert.strictEqual(w.order(ship.key, { path: [a, b, host.key] }), null);
+    let passed = false;
+    for (let i = 0; i < 40000 && ship.free; i++) { w.step(0.05); if (ship.free && ship.route.length === 1) passed = true; }
+    assert(passed, 'passed the stops on the way');
+    assert(!ship.free && !ship.hold && ship.parent === host.key, 'parked round the last stop');
+    assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []);
+  }
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

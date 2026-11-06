@@ -27,6 +27,14 @@ body.targeting #map { cursor: crosshair; }
 .x-zoom button.on { color: var(--bg); background: var(--cyan); }
 .x-zoom button:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
 
+/* The way move orders are given (4x/movement.js): one button that cycles the prototypes. */
+.x-scheme {
+  flex: none; min-height: 36px; padding: 0 10px; background: var(--bg); cursor: pointer; touch-action: manipulation;
+  border: 1px solid var(--amber, #ffcf5a); border-radius: var(--r-md); color: var(--amber, #ffcf5a);
+  font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap;
+}
+.x-scheme:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
 /* The card: the picked thing, along the bottom, a phone's width at most. */
 .x-card {
   position: fixed; z-index: 4; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); transform: translateX(-50%);
@@ -40,6 +48,8 @@ body.targeting #map { cursor: crosshair; }
 .x-acts .ui-btn { flex: 1; }
 
 @media (max-width: 420px) {
-  .x-zoom button { padding: 0 9px; letter-spacing: 0.08em; }
+  .x-head { gap: 8px; padding-left: 12px; padding-right: 12px; }
+  .x-zoom button { padding: 0 7px; letter-spacing: 0.04em; font-size: 11px; }
+  .x-scheme { padding: 0 7px; font-size: 11px; letter-spacing: 0.04em; }
   #place { font-size: 15px; }
 }

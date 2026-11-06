@@ -7,10 +7,19 @@
 // orbit is too small to show folds into what it goes round, and the start system folds into its
 // star once it's a few px across.
 //
-//   MapView.create(canvas, world, { onPick(pick | null), onOrder(pick) }) -> view
+//   MapView.create(canvas, world, { onPick, onOrder, onPress?, onDrag?, onRelease? }) -> view
 //     pick: { key } for a node of the start system, { system: i } for a system's star
-//     view.draw(now, { selected, targeting })   one frame (selected: a node key; targeting: the
-//                                               order being given, so valid hosts are ringed)
+//     onPick(pick | null, at)    a tap; at: { x, y } screen px, world: { x, y } world units
+//     onOrder(pick | null, at)   a right-click or a long press (pick: only places a ship can park)
+//     onPress(pick, at) -> bool  a press starts: true claims the pointer (no panning) for a drag;
+//     onDrag(at) -> bool           then each move past the threshold (at.snap: the place a ship could
+//     onRelease(at)                park under the finger, or null); false gives the drag back to the
+//                                  camera; on release (at.moved: whether it ever left the threshold)
+//     view.draw(now, { selected, targeting, rings, preview })   one frame (selected: a node key;
+//                                               targeting / rings: valid hosts are ringed; preview:
+//                                               an order being shaped, { from, stops, finger, label,
+//                                               pulse }: from a ship key, stops [{ key } | { x, y }],
+//                                               finger a screen point to write the label above)
 //     view.go(band, at?)                        ease to 'flight' | 'system' | 'galaxy' (at: a node
 //                                               key to centre on, for flight)
 //     view.follow(key | null)                   keep a node in the middle
@@ -40,7 +49,7 @@ const MapView = (() => {
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const smooth = (a, b, v) => { const x = clamp((v - a) / (b - a), 0, 1); return x * x * (3 - 2 * x); };
 
-  function create(canvas, world, { onPick, onOrder }) {
+  function create(canvas, world, { onPick, onOrder, onPress, onDrag, onRelease }) {
     const ctx = canvas.getContext('2d', { alpha: false });
     const galaxy = world.galaxy, sys = world.start, R = galaxy.shape.R;
     const cultures = ArtCulture.forGalaxy(galaxy);
@@ -122,7 +131,7 @@ const MapView = (() => {
 
     let last = performance.now(), shown = []; // shown: what was drawn and where, for picking
     let aiming = false; // giving an order: a tap picks only the places a ship can park
-    function draw(now, { selected = null, targeting = false } = {}) {
+    function draw(now, { selected = null, targeting = false, rings = false, preview = null } = {}) {
       Art.beginFrame();
       aiming = targeting;
       const t = world.t, dt = Math.min(0.1, (now - last) / 1000);
@@ -171,7 +180,7 @@ const MapView = (() => {
         ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, TAU); ctx.stroke();
         ctx.fillStyle = INK; ctx.fillText(sys.name.toUpperCase(), c.x, c.y + 22);
         shown.push({ pick: { system: 0 }, x: c.x, y: c.y, r: 12, rank: 5 });
-      } else drawSystem(c, k, t, selected, targeting);
+      } else drawSystem(c, k, t, selected, targeting || rings, preview);
       ctx.textAlign = 'left';
     }
 
@@ -188,13 +197,15 @@ const MapView = (() => {
       Art.drawStar(ctx, { ...star, r: rpx }, STYLE, { x: p.x, y: p.y, t });
     }
 
-    function drawSystem(c, k, t, selected, targeting) {
+    function drawSystem(c, k, t, selected, targeting, preview) {
       const nodes = sys.nodes, byKey = new Map(nodes.map((n) => [n.key, n]));
       const at = (n) => toScreen(n.x, n.y);
-      // A node shows when its orbit (and every orbit above it) is big enough to see.
+      // A node shows when its orbit (and every orbit above it) is big enough to see. The player's
+      // ships always show, so they can be picked and dragged at any zoom (over their host's dot).
       const visible = (n) => {
+        if (n.kind === 'ship') return true;
         for (let m = n; m && m.kind !== 'star'; m = byKey.get(m.parent)) {
-          if (m.kind === 'ship' && m.free) continue;
+          if (m.kind === 'ship' && (m.free || m.hold)) continue;
           if (m.kind !== 'belt' && m.kind !== 'graveyard' && m.kind !== 'ship' && m.parent !== 'star' && m.orbit * k < 6) return false;
         }
         return true;
@@ -210,7 +221,7 @@ const MapView = (() => {
       ctx.beginPath(); ctx.arc(c.x, c.y, sys.radius * k, 0, TAU); ctx.stroke();
       ctx.setLineDash([]);
       for (const n of nodes) {
-        if (n.kind === 'star' || n.kind === 'graveyard' || (n.kind === 'ship' && n.free)) continue;
+        if (n.kind === 'star' || n.kind === 'graveyard' || (n.kind === 'ship' && (n.free || n.hold))) continue;
         if (n.kind === 'belt') {
           ctx.strokeStyle = 'rgba(178, 157, 132, 0.25)'; ctx.lineWidth = Math.max(1, n.width * k); ctx.setLineDash([2, 4]);
           ctx.beginPath(); ctx.arc(c.x, c.y, n.orbit * k, 0, TAU); ctx.stroke();
@@ -235,16 +246,41 @@ const MapView = (() => {
         else if (n.kind === 'station') station(n, p, rpx, t);
         else if (n.kind === 'ship') ship(n, p, rpx, t);
         else graveyard(p);
-        shown.push({ pick: { key: n.key }, kind: n.kind, x: p.x, y: p.y, r: Math.max(n.kind === 'ship' ? 12 : 14, rpx), rank: { ship: 0, station: 1, moon: 2, graveyard: 2, planet: 3 }[n.kind] });
+        shown.push({ pick: { key: n.key }, kind: n.kind, x: p.x, y: p.y, r: Math.max(n.kind === 'ship' ? 22 : 14, rpx), rank: { ship: 0, station: 1, moon: 2, graveyard: 2, planet: 3 }[n.kind] });
       }
 
-      // A ship under way: a dashed line to where it's going.
+      // A ship under way: a dashed line through the stops still to reach; a ship holding a point
+      // in space: a small cross under it.
       for (const s of world.units()) {
+        if (s.hold) { const p = at(s); cross(p, 5, 'rgba(255, 207, 90, 0.5)'); continue; }
         if (!s.free) continue;
-        const a = at(s), b = at(byKey.get(s.target));
-        ctx.strokeStyle = s.key === selected ? AMBER : 'rgba(255, 207, 90, 0.4)'; ctx.setLineDash([4, 5]);
-        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        ctx.setLineDash([]);
+        route(s, s.route, s.key === selected ? AMBER : 'rgba(255, 207, 90, 0.4)', [4, 5]);
+      }
+
+      // An order being shaped: its route brighter, its end ringed (a body) or crossed (a point), and
+      // what it is written above the finger (or above the end).
+      if (preview) {
+        const s = byKey.get(preview.from);
+        if (s && preview.stops?.length) {
+          route(s, preview.stops, AMBER, [6, 4], 1.6);
+          const end = preview.stops[preview.stops.length - 1], p = toScreen(...xy(end));
+          if (end.key) { const n = byKey.get(end.key); ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(12, n.r * k) + 10, 0, TAU); ctx.stroke(); ctx.lineWidth = 1; }
+          else cross(p, 8, AMBER);
+          if (preview.label) {
+            const f = preview.finger, lx = f ? f.x : p.x, ly = f ? f.y - 64 : p.y - 26;
+            ctx.font = Theme.font(12); ctx.textAlign = 'center';
+            const w = ctx.measureText(preview.label).width + 16, x0 = clamp(lx - w / 2, 8, W - w - 8);
+            ctx.fillStyle = 'rgba(5, 6, 10, 0.85)'; ctx.fillRect(x0, ly - 15, w, 22);
+            ctx.strokeStyle = AMBER; ctx.strokeRect(x0 + 0.5, ly - 14.5, w - 1, 21);
+            ctx.fillStyle = AMBER; ctx.fillText(preview.label, x0 + w / 2, ly);
+          }
+        }
+        if (s && preview.pulse) {
+          const p = at(s), r = 14 + 10 * preview.pulse;
+          ctx.strokeStyle = AMBER; ctx.globalAlpha = 1 - preview.pulse * 0.6; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.stroke();
+          ctx.globalAlpha = fade; ctx.lineWidth = 1;
+        }
       }
 
       // Giving an order: every place a ship could park ringed.
@@ -287,6 +323,23 @@ const MapView = (() => {
       ctx.globalAlpha = 1;
     }
 
+    // Where a stop is now, in world units.
+    function xy(stop) { if (stop.key) { const n = world.node(stop.key); return [n.x, n.y]; } return [stop.x, stop.y]; }
+    // A dashed line from a ship through a list of stops.
+    function route(s, stops, color, dash, width = 1) {
+      const a = toScreen(s.x, s.y);
+      ctx.strokeStyle = color; ctx.lineWidth = width; ctx.setLineDash(dash);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y);
+      for (const st of stops) { const p = toScreen(...xy(st)); ctx.lineTo(p.x, p.y); }
+      ctx.stroke();
+      ctx.setLineDash([]); ctx.lineWidth = 1;
+    }
+    function cross(p, r, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(p.x - r, p.y - r); ctx.lineTo(p.x + r, p.y + r); ctx.moveTo(p.x + r, p.y - r); ctx.lineTo(p.x - r, p.y + r); ctx.stroke();
+      ctx.lineWidth = 1;
+    }
+
     // A planet or moon in Line art at its true size, or a dot in its colour when too small to read.
     function body(n, p, rpx, lightAngle) {
       if (rpx < 7) {
@@ -321,7 +374,7 @@ const MapView = (() => {
 
     // A ship: its art once it reads (facing along its orbit, or where it's going), else a dart.
     function ship(n, p, rpx, t) {
-      const dir = n.free ? n.dir : n.a + Math.PI / 2;
+      const dir = n.free || n.hold ? n.dir : n.a + Math.PI / 2;
       if (rpx < 6) {
         ctx.save();
         ctx.translate(p.x, p.y); ctx.rotate(dir);
@@ -349,12 +402,12 @@ const MapView = (() => {
 
     // The nearest thing drawn under (x, y), the smaller kinds winning a close call; for an order
     // (hosts), only the places a ship can park.
-    function pickAt(x, y, hosts = false) {
+    function pickAt(x, y, hosts = false, slop = 6) {
       let best = null, bd = Infinity;
       for (const s of shown) {
         if (hosts && !Orbits4X.HOSTS.ship.includes(s.kind)) continue;
         const d = Math.hypot(s.x - x, s.y - y);
-        if (d > s.r + 6) continue;
+        if (d > s.r + slop) continue;
         const score = d + s.rank * 2;
         if (score < bd) { bd = score; best = s.pick; }
       }
@@ -367,21 +420,27 @@ const MapView = (() => {
       cam.x += before.x - after.x; cam.y += before.y - after.y;
       followKey = null; want.x = cam.x; want.y = cam.y; want.k = cam.k;
     }
+    const DRAG = 10, PRESS = 500, SNAP = 40; // px before a press is a drag; ms for a long press; px a drag snaps to a place
     const pointers = new Map();
-    let downAt = null, moved = false, pinch = null, press = null;
+    let downAt = null, moved = false, pinch = null, press = null, claimed = false;
     const local = (e) => { const b = canvas.getBoundingClientRect(); return { x: e.clientX - b.left, y: e.clientY - b.top }; };
+    const at = (p, extra) => ({ x: p.x, y: p.y, world: toWorld(p.x, p.y), ...extra });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
       canvas.setPointerCapture?.(e.pointerId);
       const p = local(e);
-      if (e.button === 2) { const it = pickAt(p.x, p.y, true); if (it) onOrder(it); return; }
+      if (e.button === 2) { onOrder(pickAt(p.x, p.y, true), at(p)); return; }
       pointers.set(e.pointerId, p);
       if (pointers.size === 1) {
         downAt = p; moved = false;
+        claimed = !!onPress?.(pickAt(p.x, p.y), at(p));
         clearTimeout(press);
-        press = setTimeout(() => { if (!moved && downAt) { const it = pickAt(downAt.x, downAt.y, true); downAt = null; if (it) onOrder(it); } }, 550);
+        if (!claimed) press = setTimeout(() => { if (!moved && downAt) { const q = downAt; downAt = null; onOrder(pickAt(q.x, q.y, true), at(q)); } }, PRESS);
       }
-      if (pointers.size === 2) { const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; moved = true; }
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; moved = true;
+        if (claimed) { claimed = false; onRelease?.(at(p, { cancel: true, moved: true, snap: null })); }
+      }
     });
     canvas.addEventListener('pointermove', (e) => {
       if (!pointers.has(e.pointerId)) return;
@@ -392,21 +451,30 @@ const MapView = (() => {
         if (pinch.d > 0) zoomAt(d / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2);
         pinch.d = d;
       } else if (pointers.size === 1) {
-        if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > 6) moved = true;
-        if (moved) { cam.x -= (p.x - prev.x) / cam.k; cam.y -= (p.y - prev.y) / cam.k; followKey = null; want.x = cam.x; want.y = cam.y; want.k = cam.k; }
+        if (downAt && Math.hypot(p.x - downAt.x, p.y - downAt.y) > DRAG) { moved = true; clearTimeout(press); }
+        if (!moved) return;
+        if (claimed) {
+          if (onDrag(at(p, { snap: pickAt(p.x, p.y, true, SNAP) })) === false) claimed = false;
+          else return;
+        }
+        cam.x -= (p.x - prev.x) / cam.k; cam.y -= (p.y - prev.y) / cam.k; followKey = null; want.x = cam.x; want.y = cam.y; want.k = cam.k;
       }
     });
-    const up = (e) => {
+    const up = (e, cancel = false) => {
       if (!pointers.has(e.pointerId)) return;
       const p = pointers.get(e.pointerId);
       pointers.delete(e.pointerId);
       clearTimeout(press);
       if (pointers.size < 2) pinch = null;
-      if (!pointers.size && !moved && downAt) onPick(pickAt(p.x, p.y, aiming));
+      if (!pointers.size && claimed) {
+        claimed = false;
+        onRelease(at(p, { cancel, moved, snap: moved ? pickAt(p.x, p.y, true, SNAP) : null }));
+        if (!moved && !cancel && downAt) onPick(pickAt(p.x, p.y, aiming), at(p));
+      } else if (!pointers.size && !moved && downAt && !cancel) onPick(pickAt(p.x, p.y, aiming), at(p));
       if (!pointers.size) downAt = null;
     };
-    canvas.addEventListener('pointerup', up);
-    canvas.addEventListener('pointercancel', (e) => { moved = true; up(e); });
+    canvas.addEventListener('pointerup', (e) => up(e));
+    canvas.addEventListener('pointercancel', (e) => { moved = true; up(e, true); });
     canvas.addEventListener('wheel', (e) => { e.preventDefault(); const p = local(e); zoomAt(Math.exp(-e.deltaY * 0.0015), p.x, p.y); }, { passive: false });
 
     resize();
@@ -415,7 +483,7 @@ const MapView = (() => {
     const u = world.units()[0];
     if (u) { cam.x = u.x; cam.y = u.y; }
     return {
-      draw, go, follow, resize, inset, pickAt,
+      draw, go, follow, resize, inset, pickAt, toScreen, toWorld,
       get band() { return bandOf(cam.k); },
       get camera() { return { ...cam }; },
       get zooms() { return { ...Z }; },
