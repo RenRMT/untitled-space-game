@@ -4951,6 +4951,67 @@ test('4x move orders: to a point a ship holds there, along a path it passes each
   }
 });
 
+test('4x building: an Outpost or a Starbase round a planet or moon, one each; dismantling re-parks ships round the body', () => {
+  for (const seed of [1, 7, 'abc']) {
+    for (const testbed of [false, true]) {
+      const w = World4X.create(seed, { testbed });
+      assert.deepStrictEqual(Object.keys(World4X.STATIONS), ['outpost', 'starbase']);
+      const taken = w.start.nodes.find((n) => n.kind === 'station');
+      assert(w.canBuild('star', 'outpost'), 'not round the star');
+      assert(w.canBuild(taken.key, 'outpost'), 'not round a station');
+      assert(w.canBuild(taken.parent, 'outpost'), 'one station round a body');
+      assert(w.canBuild(taken.parent, 'shipyard'), 'no such kind');
+      assert(w.build(taken.parent, 'starbase').why);
+      assert(w.dismantle(w.units()[0].key), 'ships are not dismantled');
+      // Dismantle the start station: the ship parked round it parks round its body, and keeps going round.
+      const ship = w.units().find((u) => u.parent === taken.key);
+      const body = w.node(taken.parent);
+      if (ship) {
+        const before = { x: ship.x, y: ship.y };
+        assert.strictEqual(w.dismantle(taken.key), null);
+        assert.strictEqual(ship.parent, body.key);
+        assert(Math.abs(Math.atan2(ship.y - body.y, ship.x - body.x) - Math.atan2(before.y - body.y, before.x - body.x)) < 1e-6, 'from where it was');
+        w.step(3);
+        assert(Math.abs(dist(ship, body) - ship.orbit) < 1e-6, 'round the body');
+      } else assert.strictEqual(w.dismantle(taken.key), null);
+      assert(!w.node(taken.key) && !w.start.nodes.includes(taken));
+      assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []);
+      // Undo puts it back; then take it away again and build each kind.
+      assert.strictEqual(w.restore(taken), null);
+      assert(w.restore(taken), 'not twice');
+      assert.strictEqual(w.dismantle(taken.key), null);
+      const r = w.build(body.key, 'outpost');
+      assert(r.key && !r.why);
+      const st = w.node(r.key);
+      assert.strictEqual(st.size, 'minor');
+      assert.strictEqual(st.owner, 'player');
+      assert(w.building(st) !== null, 'being built');
+      const g = w.ghostAt(body.key);
+      assert(Math.hypot(st.x - g.x, st.y - g.y) < 1e-6, 'where its ghost was');
+      w.step(5);
+      assert.strictEqual(w.building(st), null, 'built');
+      assert(Math.abs(dist(st, body) - st.orbit) < 1e-6 && st.orbit > World4X.parkOrbit(body), 'round the body, past the ships parked there');
+      assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []);
+      assert(w.build(body.key, 'starbase').why, 'still one each');
+      // A ship on its way to a station that is dismantled goes to the body instead.
+      const u = w.units()[0];
+      assert.strictEqual(w.order(u.key, st.key), null);
+      w.step(0.1);
+      assert.strictEqual(w.dismantle(st.key), null);
+      assert.deepStrictEqual(u.route, [{ key: body.key }]);
+      for (let i = 0; i < 20000 && u.free; i++) w.step(0.05);
+      assert.strictEqual(u.parent, body.key);
+      const big = w.build(body.key, 'starbase');
+      assert.strictEqual(w.node(big.key).size, 'major');
+      assert.notStrictEqual(big.key, r.key, 'a new key each time');
+      if (testbed) {
+        const moon = w.buildHosts().find((n) => n.kind === 'moon' && !w.canBuild(n.key, 'outpost'));
+        if (moon) { assert(w.build(moon.key, 'outpost').key, 'round a moon'); assert.deepStrictEqual(Orbits4X.check(w.start.nodes), []); }
+      }
+    }
+  }
+});
+
 if (failed) {
   console.log(`\n${failed} test(s) failed`);
   process.exit(1);

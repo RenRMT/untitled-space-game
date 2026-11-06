@@ -19,6 +19,7 @@
       <span id="place"></span>
       <span id="hint" class="x-hint" role="status" aria-live="polite"></span>
     </div>
+    <button type="button" id="mode" class="x-mode" aria-pressed="false" title="Build stations round planets and moons (B)">Build</button>
     <button type="button" id="scheme" class="x-scheme" title="How move orders are given (a prototype each)">Move</button>
     <div id="zoom" class="x-zoom" role="group" aria-label="Zoom">
       <button type="button" data-band="flight">Flight</button>
@@ -26,13 +27,17 @@
       <button type="button" data-band="galaxy">Galaxy</button>
     </div>
   </header>
-  <!-- The picked thing: what it is, where, and the orders it takes. -->
-  <section id="card" class="ui x-card" hidden>
-    <p id="card-kind" class="ui-label"></p>
-    <h2 id="card-name" class="ui-title"></h2>
-    <p id="card-status" class="ui-note"></p>
-    <div id="card-acts" class="x-acts"></div>
-  </section>
+  <div class="x-dock">
+    <!-- Build mode: the kinds of station to build (4x/building.js), over the card. -->
+    <div id="tray" class="ui x-tray" role="toolbar" aria-label="Stations to build" hidden></div>
+    <!-- The picked thing: what it is, where, and the orders it takes. -->
+    <section id="card" class="ui x-card" hidden>
+      <p id="card-kind" class="ui-label"></p>
+      <h2 id="card-name" class="ui-title"></h2>
+      <p id="card-status" class="ui-note"></p>
+      <div id="card-acts" class="x-acts"></div>
+    </section>
+  </div>
   <script type="module" src="../src/4x/main.js"></script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 // writes are dropped, and the game carries on with what it has for the session.
 //
 //   Params.has(key), Params.get(key)     the page's URL parameters (?seed=, ?dev, ?fresh, ...)
-//   Params.set(key, value)               change one in the address bar, without reloading
+//   Params.set(key, value), Params.delete(key)   change one in the address bar, without reloading
 //   Store.get(key, fallback)             a saved string, or fallback
 //   Store.set(key, value), Store.remove(key)
 //   Store.getJSON(key, fallback), Store.setJSON(key, value)
@@ -22,6 +22,14 @@ const Params = (() => {
       try {
         const url = new URL(location.href);
         url.searchParams.set(key, value);
+        history.replaceState(null, '', url);
+      } catch (e) { /* file:// in some browsers */ }
+    },
+    delete(key) {
+      params.delete(key);
+      try {
+        const url = new URL(location.href);
+        url.searchParams.delete(key);
         history.replaceState(null, '', url);
       } catch (e) { /* file:// in some browsers */ }
     },
