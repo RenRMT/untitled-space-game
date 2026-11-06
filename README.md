@@ -87,7 +87,9 @@ the wheel or a pinch). The player no longer flies a ship: they pick a unit and o
 and it flies there: round a station, planet or moon it parks in orbit, at a point in space it holds.
 How orders are given is one of four prototypes to compare (`?move=button | tap | drag | path`, or the
 header's Move button; `notes/4x-movement-research.md`), and `?testbed` gives the whole start system
-with three ships. Orbits follow the 4X rules (`src/4x/orbits.js`: planets round the star, moons round planets,
+with three ships. The header's Build button switches to building an Outpost or a Starbase round a
+planet or moon, or dismantling a station, in one of three prototypes to compare (`?build=menu | ghost |
+drag`; `notes/4x-building-research.md`). Orbits follow the 4X rules (`src/4x/orbits.js`: planets round the star, moons round planets,
 at most one station round a planet or moon, idle ships round a station, planet or moon, asteroids in
 belts, wrecks in graveyards at Lagrange points). For now the start system is a star, one planet, a
 station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/4x.md` is the plan.
@@ -101,7 +103,7 @@ station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel; `dungeon.js`: the test labyrinth on one planet), HUD, the frame loop |
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
-| `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
+| `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |

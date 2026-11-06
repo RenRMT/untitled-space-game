@@ -20,6 +20,13 @@
 //                                               an order being shaped, { from, stops, finger, label,
 //                                               pulse }: from a ship key, stops [{ key } | { x, y }],
 //                                               finger a screen point to write the label above)
+//                                               build: a station being placed or taken away
+//                                               (4x/building.js), { marks: [{ key, ok }], ghost:
+//                                               { type, body?, at?, ok } (on a body's orbit, or at a
+//                                               screen point), drag: { from, finger, off }, label,
+//                                               finger }
+//     view.pickAt(x, y, filter?, slop?)         the thing drawn under a screen point; filter: true
+//                                               for the places a ship can park, or a list of kinds
 //     view.go(band, at?)                        ease to 'flight' | 'system' | 'galaxy' (at: a node
 //                                               key to centre on, for flight)
 //     view.follow(key | null)                   keep a node in the middle
@@ -36,10 +43,12 @@ import { Art } from '../art/render.js';
 import { mulberry32 } from '../core/rng.js';
 import { Theme } from '../core/theme.js';
 import { Orbits4X } from './orbits.js';
+import { World4X } from './world.js';
 
 const MapView = (() => {
   const STYLE = 'line';
   const TAU = Math.PI * 2;
+  const GOOD = '#7dff9a', BAD = '#ff6b6b';
   const INK = '#7df9ff', DIM = 'rgba(125, 249, 255, 0.55)', CHALK = '#e9eef2', AMBER = '#ffcf5a';
   const PLANET_COLOR = { gas: '#e0a868', blue: '#6f97d8', terran: '#58b07a', desert: '#d9a066', ice: '#cfe6f5', lava: '#ff7a3a' };
   const MOON_COLOR = { grey: '#8e8a84', ice: '#bcd3e2', sulfur: '#d6bf55', rust: '#a35a3b', dark: '#86838e' };
@@ -81,6 +90,15 @@ const MapView = (() => {
         art.set(n.key, n.kind === 'station' ? ArtBlueprints.create(n.size === 'major' ? 'station-major' : 'station-minor', c, n.seed) : ArtBlueprints.create('fighter-light', c, n.seed));
       }
       return art.get(n.key);
+    }
+    // A station's ghost: the art of the kind being placed, one per kind, in the player's culture.
+    const ghosts = new Map();
+    function ghostArt(type) {
+      if (!ghosts.has(type)) {
+        const size = World4X.STATIONS[type]?.size, culture = world.units()[0]?.culture ?? 0;
+        ghosts.set(type, ArtBlueprints.create(size === 'major' ? 'station-major' : 'station-minor', cultures.of(culture), 977));
+      }
+      return ghosts.get(type);
     }
     const specks = (() => { const r = mulberry32(7919); return Array.from({ length: 160 }, () => ({ x: r(), y: r(), a: 0.12 + r() * 0.35, s: r() < 0.1 ? 1.4 : 0.9 })); })();
 
@@ -131,7 +149,7 @@ const MapView = (() => {
 
     let last = performance.now(), shown = []; // shown: what was drawn and where, for picking
     let aiming = false; // giving an order: a tap picks only the places a ship can park
-    function draw(now, { selected = null, targeting = false, rings = false, preview = null } = {}) {
+    function draw(now, { selected = null, targeting = false, rings = false, preview = null, build = null } = {}) {
       Art.beginFrame();
       aiming = targeting;
       const t = world.t, dt = Math.min(0.1, (now - last) / 1000);
@@ -180,7 +198,7 @@ const MapView = (() => {
         ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, TAU); ctx.stroke();
         ctx.fillStyle = INK; ctx.fillText(sys.name.toUpperCase(), c.x, c.y + 22);
         shown.push({ pick: { system: 0 }, x: c.x, y: c.y, r: 12, rank: 5 });
-      } else drawSystem(c, k, t, selected, targeting || rings, preview);
+      } else drawSystem(c, k, t, selected, targeting || rings, preview, build);
       ctx.textAlign = 'left';
     }
 
@@ -197,7 +215,7 @@ const MapView = (() => {
       Art.drawStar(ctx, { ...star, r: rpx }, STYLE, { x: p.x, y: p.y, t });
     }
 
-    function drawSystem(c, k, t, selected, targeting, preview) {
+    function drawSystem(c, k, t, selected, targeting, preview, build) {
       const nodes = sys.nodes, byKey = new Map(nodes.map((n) => [n.key, n]));
       const at = (n) => toScreen(n.x, n.y);
       // A node shows when its orbit (and every orbit above it) is big enough to see. The player's
@@ -266,14 +284,7 @@ const MapView = (() => {
           const end = preview.stops[preview.stops.length - 1], p = toScreen(...xy(end));
           if (end.key) { const n = byKey.get(end.key); ctx.strokeStyle = AMBER; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(12, n.r * k) + 10, 0, TAU); ctx.stroke(); ctx.lineWidth = 1; }
           else cross(p, 8, AMBER);
-          if (preview.label) {
-            const f = preview.finger, lx = f ? f.x : p.x, ly = f ? f.y - 64 : p.y - 26;
-            ctx.font = Theme.font(12); ctx.textAlign = 'center';
-            const w = ctx.measureText(preview.label).width + 16, x0 = clamp(lx - w / 2, 8, W - w - 8);
-            ctx.fillStyle = 'rgba(5, 6, 10, 0.85)'; ctx.fillRect(x0, ly - 15, w, 22);
-            ctx.strokeStyle = AMBER; ctx.strokeRect(x0 + 0.5, ly - 14.5, w - 1, 21);
-            ctx.fillStyle = AMBER; ctx.fillText(preview.label, x0 + w / 2, ly);
-          }
+          if (preview.label) { const f = preview.finger; tag(preview.label, f ? f.x : p.x, f ? f.y - 64 : p.y - 26, AMBER); }
         }
         if (s && preview.pulse) {
           const p = at(s), r = 14 + 10 * preview.pulse;
@@ -294,6 +305,8 @@ const MapView = (() => {
         }
         ctx.setLineDash([]);
       }
+
+      if (build) drawBuild(build, byKey, visible, k, t);
 
       // The pick: a turning dashed ring.
       const sel = selected && byKey.get(selected);
@@ -321,6 +334,69 @@ const MapView = (() => {
         ctx.fillText(text, p.x, y);
       }
       ctx.globalAlpha = 1;
+    }
+
+    // Building (4x/building.js): the bodies a station can (green) or can't (red) go round, the ghost
+    // of the one being placed, a station being dragged off, and what it all is above the finger.
+    function drawBuild(b, byKey, visible, k, t) {
+      ctx.lineWidth = 1.2;
+      for (const m of b.marks || []) {
+        const n = byKey.get(m.key);
+        if (!n || !visible(n)) continue;
+        const p = toScreen(n.x, n.y), r = Math.max(10, n.r * k) + 8;
+        ctx.strokeStyle = m.ok ? GOOD : BAD; ctx.globalAlpha = m.ok ? 0.9 : 0.45; ctx.setLineDash([3, 4]);
+        ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, TAU); ctx.stroke();
+      }
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      let at = null;
+      const g = b.ghost;
+      if (g) {
+        const host = g.body && byKey.get(g.body), color = g.ok ? GOOD : BAD;
+        if (host) {
+          const w = world.ghostAt(host.key), p = toScreen(host.x, host.y);
+          at = toScreen(w.x, w.y);
+          ctx.strokeStyle = color; ctx.setLineDash([2, 4]); ctx.globalAlpha = 0.6;
+          ctx.beginPath(); ctx.arc(p.x, p.y, Math.hypot(at.x - p.x, at.y - p.y), 0, TAU); ctx.stroke();
+          ctx.setLineDash([]); ctx.lineWidth = 2; ctx.globalAlpha = 1;
+          ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(10, host.r * k) + 8, 0, TAU); ctx.stroke();
+          ctx.lineWidth = 1.2;
+        } else at = g.at;
+        if (at) {
+          const spec = World4X.STATIONS[g.type] || { r: 100 }, rpx = Math.max(10, spec.r * k);
+          const bp = ghostArt(g.type), s = rpx / (bp.radius || 100);
+          ctx.save();
+          ctx.globalAlpha = 0.55;
+          ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * at.x, dpr * at.y);
+          Art.drawAsset(ctx, bp, STYLE, { angle: 0, t, thrust: 0 });
+          ctx.restore();
+          ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(at.x, at.y, rpx + 6, 0, TAU); ctx.stroke();
+          ctx.lineWidth = 1;
+        }
+      }
+      const d = b.drag && byKey.get(b.drag.from);
+      if (d && b.drag.finger) {
+        const p = toScreen(d.x, d.y), f = b.drag.finger;
+        ctx.strokeStyle = b.drag.off ? BAD : DIM; ctx.setLineDash([5, 4]); ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(f.x, f.y); ctx.stroke();
+        ctx.setLineDash([]);
+        if (b.drag.off) { cross(f, 9, BAD); ctx.strokeStyle = BAD; ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(10, d.r * k) + 8, 0, TAU); ctx.stroke(); }
+        ctx.lineWidth = 1;
+      }
+      if (b.label) {
+        const f = b.finger || at;
+        if (f) tag(b.label, f.x, b.finger ? f.y - 64 : f.y - 30, g ? (g.ok ? GOOD : BAD) : b.drag?.off ? BAD : AMBER);
+      }
+    }
+
+    // A label in a box, centred on x, kept on screen.
+    function tag(text, x, y, color) {
+      ctx.font = Theme.font(12); ctx.textAlign = 'center';
+      y = clamp(y, top + 22, H - bottom - 12); // clear of the header and the card
+      const w = ctx.measureText(text).width + 16, x0 = clamp(x - w / 2, 8, W - w - 8);
+      ctx.fillStyle = 'rgba(5, 6, 10, 0.85)'; ctx.fillRect(x0, y - 15, w, 22);
+      ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.strokeRect(x0 + 0.5, y - 14.5, w - 1, 21);
+      ctx.fillStyle = color; ctx.fillText(text, x0 + w / 2, y);
     }
 
     // Where a stop is now, in world units.
@@ -360,16 +436,25 @@ const MapView = (() => {
     // A station: its art once it reads, else a diamond in its culture's colour.
     function station(n, p, rpx, t) {
       if (rpx < 6) {
-        const r = 3.5;
+        const r = n.size === 'major' ? 4 : 3, f = world.building(n);
         ctx.fillStyle = galaxy.cultureColor(n.culture);
         ctx.beginPath(); ctx.moveTo(p.x, p.y - r); ctx.lineTo(p.x + r, p.y); ctx.lineTo(p.x, p.y + r); ctx.lineTo(p.x - r, p.y); ctx.closePath(); ctx.fill();
+        if (f != null) underway(p, r + 2, f);
         return;
       }
-      const bp = artOf(n), s = rpx / (bp.radius || 100);
+      const bp = artOf(n), s = rpx / (bp.radius || 100), f = world.building(n);
       ctx.save();
+      if (f != null) ctx.globalAlpha *= 0.3 + 0.5 * f;
       ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * p.x, dpr * p.y);
       Art.drawAsset(ctx, bp, STYLE, { angle: n.a + Math.PI / 2, t, thrust: 0 });
       ctx.restore();
+      if (f != null) underway(p, rpx, f);
+    }
+    // A station still being built: a ring filling round it.
+    function underway(p, rpx, f) {
+      ctx.strokeStyle = GOOD; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, rpx + 6, -Math.PI / 2, -Math.PI / 2 + TAU * f); ctx.stroke();
+      ctx.lineWidth = 1;
     }
 
     // A ship: its art once it reads (facing along its orbit, or where it's going), else a dart.
@@ -402,10 +487,11 @@ const MapView = (() => {
 
     // The nearest thing drawn under (x, y), the smaller kinds winning a close call; for an order
     // (hosts), only the places a ship can park.
-    function pickAt(x, y, hosts = false, slop = 6) {
+    function pickAt(x, y, filter = false, slop = 6) {
+      const kinds = filter === true ? Orbits4X.HOSTS.ship : Array.isArray(filter) ? filter : null;
       let best = null, bd = Infinity;
       for (const s of shown) {
-        if (hosts && !Orbits4X.HOSTS.ship.includes(s.kind)) continue;
+        if (kinds && !kinds.includes(s.kind)) continue;
         const d = Math.hypot(s.x - x, s.y - y);
         if (d > s.r + slop) continue;
         const score = d + s.rank * 2;

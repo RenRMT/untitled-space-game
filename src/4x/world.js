@@ -22,6 +22,18 @@
 //     world.eta(shipKey, dest) -> seconds            a rough time to get there, from where things are now
 //     world.stopAt(stop) -> { x, y } where a stop (a node key or a point) is now
 //     world.step(dt)                 run the clock on: orbits go round, ships under way fly
+//   Building (prototypes, 4x/building.js, notes/4x-building-research.md): the player builds an
+//   Outpost or a Starbase round a planet or moon (at most one station round each) and dismantles any
+//   station.
+//     World4X.STATIONS[type]         { name, size, r }: 'outpost' (minor art), 'starbase' (major art)
+//     world.buildHosts() -> [nodes]  the planets and moons a station may go round
+//     world.canBuild(bodyKey, type) -> null | why not
+//     world.build(bodyKey, type) -> { key } | { why }
+//     world.dismantle(stationKey) -> null | why not  ships parked round it park round its body;
+//                                    ships on the way to it go to its body instead
+//     world.restore(station) -> null | why not       put a dismantled station back (Undo)
+//     world.ghostAt(bodyKey) -> { x, y, angle }    where a station built now would sit
+//     world.building(node) -> 0..1 | null           how far a station being built has come
 // A ship under way has `free` and `route` (its stops still to reach, each { key } or { x, y }); a
 // ship holding a point has `hold` { x, y } and no parent. Positions are world units, as in the main
 // game. ES module (`World4X`); also runs in Node.
@@ -34,6 +46,14 @@ const World4X = (() => {
   const SHIP = { speed: 700, accel: 420, r: 22 }; // a courier's drive (rules/loadout.js), world units
   // How far out a ship parks round each kind of host: past the body's surface, or the station's hull.
   const parkOrbit = (host) => (host.kind === 'station' ? 170 : host.r + (host.kind === 'planet' ? 280 : 170));
+  // The kinds of station the player can build, and how far out one goes round its body (past a
+  // ship's parking orbit round it). A new one starts at the top of its body, where its ghost was.
+  const STATIONS = {
+    outpost: { name: 'Outpost', size: 'minor', r: 90 },
+    starbase: { name: 'Starbase', size: 'major', r: 130 },
+  };
+  const stationOrbit = (body) => body.r + (body.kind === 'planet' ? 480 : 300);
+  const BUILD_TIME = 2; // seconds a new station takes to finish
 
   function create(seed, { testbed = false } = {}) {
     const galaxy = Galaxy.generate(seed);
@@ -50,7 +70,10 @@ const World4X = (() => {
       units: () => start.nodes.filter((n) => n.kind === 'ship'),
       hosts: () => start.nodes.filter((n) => Orbits4X.HOSTS.ship.includes(n.kind)),
       order, eta, stopAt, step,
+      buildHosts: () => start.nodes.filter((n) => Orbits4X.HOSTS.station.includes(n.kind)),
+      canBuild, build, dismantle, restore, ghostAt, building,
     };
+    let built = 0;
     Orbits4X.place(start, 0);
 
     // A destination as a list of stops: { key } for a body, { x, y } for a point.
@@ -81,6 +104,71 @@ const World4X = (() => {
       if (!ship.free) ship.v = 0;
       Object.assign(ship, { free: true, route: stops, hold: null, parent: null });
       return null;
+    }
+
+    // ---------- Building ----------
+
+    function canBuild(bodyKey, type) {
+      if (!STATIONS[type]) return 'No such kind of station';
+      const body = byKey.get(bodyKey);
+      if (!body) return 'Nothing there';
+      if (!Orbits4X.HOSTS.station.includes(body.kind)) return `Stations go round a planet or moon, not a ${body.kind}`;
+      if (!Orbits4X.canHost(start.nodes, 'station', bodyKey)) {
+        const there = start.nodes.find((n) => n.kind === 'station' && n.parent === bodyKey);
+        return `${body.name} already has ${there.name}`;
+      }
+      return null;
+    }
+
+    function ghostAt(bodyKey) {
+      const body = byKey.get(bodyKey), d = stationOrbit(body), a = -Math.PI / 2;
+      return { x: body.x + Math.cos(a) * d, y: body.y + Math.sin(a) * d, angle: a };
+    }
+
+    function build(bodyKey, type) {
+      const why = canBuild(bodyKey, type);
+      if (why) return { why };
+      const body = byKey.get(bodyKey), spec = STATIONS[type], d = stationOrbit(body), period = Orbits4X.period('station', d);
+      const culture = start.nodes.find((n) => n.kind === 'ship')?.culture ?? 0;
+      const n = { key: `b${++built}`, kind: 'station', type, owner: 'player', name: `${body.name} ${spec.name}`, parent: bodyKey, r: spec.r,
+        culture, seed: 977 + built * 131, size: spec.size, orbit: d, period, angle: ghostAt(bodyKey).angle - (TAU * w.t) / period, builtAt: w.t };
+      start.nodes.push(n);
+      byKey.set(n.key, n);
+      Orbits4X.place(start, w.t);
+      return { key: n.key };
+    }
+
+    function dismantle(key) {
+      const st = byKey.get(key);
+      if (!st || st.kind !== 'station') return 'Only stations can be dismantled';
+      const body = byKey.get(st.parent);
+      start.nodes.splice(start.nodes.indexOf(st), 1);
+      byKey.delete(key);
+      for (const s of w.units()) {
+        if (s.parent === key && !s.free) {
+          // Park round the body from where it is now, going on round from there.
+          const d = parkOrbit(body), a = Math.atan2(s.y - body.y, s.x - body.x), period = Orbits4X.period('ship', d);
+          Object.assign(s, { parent: body.key, orbit: d, period, angle: a - (TAU * w.t) / period });
+        }
+        if (s.free) s.route = s.route.map((stop) => (stop.key === key ? { key: body.key } : stop));
+      }
+      Orbits4X.place(start, w.t);
+      return null;
+    }
+
+    function restore(st) {
+      if (!st || st.kind !== 'station' || byKey.has(st.key)) return 'Nothing to put back';
+      if (!Orbits4X.canHost(start.nodes, 'station', st.parent)) return `${byKey.get(st.parent)?.name || 'Its body'} has a station already`;
+      start.nodes.push(st);
+      byKey.set(st.key, st);
+      Orbits4X.place(start, w.t);
+      return null;
+    }
+
+    function building(n) {
+      if (!n || n.builtAt == null) return null;
+      const f = (w.t - n.builtAt) / BUILD_TIME;
+      return f < 1 ? Math.max(0, f) : null;
     }
 
     // Time at a courier's drive over a distance from rest to rest: speeding up, cruising, slowing.
@@ -192,7 +280,7 @@ const World4X = (() => {
     return nodes;
   }
 
-  return { create, SHIP, parkOrbit };
+  return { create, SHIP, STATIONS, parkOrbit };
 })();
 
 export { World4X };

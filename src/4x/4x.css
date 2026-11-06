@@ -27,6 +27,35 @@ body.targeting #map { cursor: crosshair; }
 .x-zoom button.on { color: var(--bg); background: var(--cyan); }
 .x-zoom button:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
 
+/* Build mode on or off: lit while building. */
+.x-mode {
+  flex: none; min-height: 36px; padding: 0 10px; background: var(--bg); cursor: pointer; touch-action: manipulation;
+  border: 1px solid var(--good, #7dff9a); border-radius: var(--r-md); color: var(--good, #7dff9a);
+  font: 700 12px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
+}
+.x-mode.on { background: var(--good, #7dff9a); color: var(--bg); }
+.x-mode:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* The tray (4x/building.js): the kinds of station, and Remove or a bin; a kind is tapped or dragged out. */
+.x-tray[hidden] { display: none; }
+.x-tray { display: flex; gap: 8px; }
+.x-tray-item {
+  flex: 1; min-height: 52px; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 0 10px;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-lg); cursor: grab;
+  color: var(--hud); font: 700 12px/1.1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase;
+  touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.x-tray-item.on { border-color: var(--good, #7dff9a); color: var(--good, #7dff9a); box-shadow: inset 0 0 0 1px var(--good, #7dff9a); }
+.x-tray-item.bin { cursor: pointer; color: var(--dim); border-style: dashed; }
+.x-tray-item.bin.on { border-color: var(--warn); color: var(--warn); box-shadow: inset 0 0 0 1px var(--warn); }
+.x-tray-item:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+/* The icons: a station as a diamond (larger for a Starbase), the bin as a cross. */
+.x-tray-icon { flex: none; width: 10px; height: 10px; border: 1.5px solid currentColor; transform: rotate(45deg); }
+.x-tray-icon.major { width: 15px; height: 15px; }
+.x-tray-icon.bin { border: 0; transform: none; position: relative; width: 12px; height: 12px; }
+.x-tray-icon.bin::before, .x-tray-icon.bin::after { content: ''; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1.5px; margin-left: -0.75px; background: currentColor; transform: rotate(45deg); }
+.x-tray-icon.bin::after { transform: rotate(-45deg); }
+
 /* The way move orders are given (4x/movement.js): one button that cycles the prototypes. */
 .x-scheme {
   flex: none; min-height: 36px; padding: 0 10px; background: var(--bg); cursor: pointer; touch-action: manipulation;
@@ -35,10 +64,16 @@ body.targeting #map { cursor: crosshair; }
 }
 .x-scheme:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
-/* The card: the picked thing, along the bottom, a phone's width at most. */
-.x-card {
+/* Along the bottom, a phone's width at most: the tray (build mode) over the card. */
+.x-dock {
   position: fixed; z-index: 4; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 12px); transform: translateX(-50%);
-  width: min(520px, calc(100% - 32px)); box-sizing: border-box; padding: 14px 16px;
+  width: min(520px, calc(100% - 32px)); display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+}
+.x-dock > * { pointer-events: auto; }
+
+/* The card: the picked thing. */
+.x-card {
+  box-sizing: border-box; padding: 14px 16px;
   display: flex; flex-direction: column; gap: 6px;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-lg);
 }
@@ -50,6 +85,8 @@ body.targeting #map { cursor: crosshair; }
 @media (max-width: 420px) {
   .x-head { gap: 8px; padding-left: 12px; padding-right: 12px; }
   .x-zoom button { padding: 0 7px; letter-spacing: 0.04em; font-size: 11px; }
-  .x-scheme { padding: 0 7px; font-size: 11px; letter-spacing: 0.04em; }
+  .x-scheme, .x-mode { padding: 0 7px; font-size: 11px; letter-spacing: 0.04em; }
+  .x-pre { display: none; }
+  .x-tray-item { padding: 0 6px; font-size: 11px; letter-spacing: 0.04em; }
   #place { font-size: 15px; }
 }
