@@ -83,13 +83,13 @@ export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1,
     c.textBaseline = 'middle';
     c.fillText(text, bx + w / 2, by + h / 2 + 0.5);
   }
-  if (selected && name) { // its name above it (its menu's buttons fan out below)
+  if (selected && name) { // its name above it, clear of its brackets (its menu's buttons fan out below)
     c.font = Theme.font(12);
     c.textAlign = 'center';
     c.textBaseline = 'bottom';
     c.lineWidth = 3;
     c.strokeStyle = 'rgba(5, 6, 10, 0.85)';
-    const ny = -s / 2 - (count > 1 ? 12 : 6);
+    const ny = -s / 2 - 12 - 5; // over the selection's brackets (game/selection.js, 12 px out)
     c.strokeText(name, 0, ny);
     c.fillStyle = color;
     c.fillText(name, 0, ny);

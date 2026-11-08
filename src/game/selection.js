@@ -176,7 +176,7 @@ export function placeMenu() {
   const e = selected && selected.e;
   if (!e || !ContextCard.isOpen) return;
   const [x, y] = worldToScreen(e.x, e.y);
-  ContextCard.place(x, y, (hitRadius(e) + 12 / view.zoom) * view.zoom);
+  ContextCard.place(x, y, menuRadius(hitRadius(e), view.zoom));
 }
 
 // Corner brackets around the selected object, and a dashed line to the approach target.
@@ -194,19 +194,28 @@ export function drawSelection(t) {
     ctx.setLineDash([]);
   }
   const e = selected && selected.e;
-  if (e) {
-    ctx.strokeStyle = isHostile(e) ? HOSTILE_COLOR : SELECT_COLOR;
-    ctx.globalAlpha = 0.7 + 0.25 * Math.sin(t * 4);
-    ctx.lineWidth = 2 / view.zoom;
-    brackets(rx(e.x), ry(e.y), hitRadius(e), { arm: 22 });
-  }
+  if (e) selectionMark(rx(e.x), ry(e.y), hitRadius(e), t, view.zoom, isHostile(e) ? HOSTILE_COLOR : SELECT_COLOR);
   ctx.restore();
 }
+// The selection's brackets, pulsing, round something `radius` across (k: screen px to a unit of
+// the current transform): in space, and on a planet's surface (game/surface-run.js) the same.
+export function selectionMark(x, y, radius, t, k, color = SELECT_COLOR) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.7 + 0.25 * Math.sin(t * 4);
+  ctx.lineWidth = 2 / k;
+  brackets(x, y, radius, { arm: 22, k });
+  ctx.restore();
+}
+// How far out from its centre the context menu sits round a selection `radius` across, in screen
+// px (k: screen px to a unit of radius): just outside its brackets.
+export const menuRadius = (radius, k) => (radius + 12 / k) * k;
 
 // Corner brackets around something `radius` across (selection, a ship in a fight), with arms up
-// to `arm` screen px; `open` (0..1) pushes them out (a lock coming on).
-export function brackets(x, y, radius, { open = 0, arm = 18 } = {}) {
-  const R = (radius + 12 / view.zoom) * (1 + open * 0.9), len = Math.min(R * 0.45, arm / view.zoom);
+// to `arm` screen px; `open` (0..1) pushes them out (a lock coming on). k: screen px to a unit of
+// the current transform (the flight view's zoom unless given).
+export function brackets(x, y, radius, { open = 0, arm = 18, k = view.zoom } = {}) {
+  const R = (radius + 12 / k) * (1 + open * 0.9), len = Math.min(R * 0.45, arm / k);
   ctx.beginPath();
   for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
     ctx.moveTo(x + sx * R, y + sy * (R - len));

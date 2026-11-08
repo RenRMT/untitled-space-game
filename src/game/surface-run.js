@@ -42,6 +42,7 @@ import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
 import { DROP_PX, STACK_PX, dropColor, drawDrop, stackDrops } from './draw-world.js';
+import { menuRadius, selectionMark } from './selection.js';
 import { SHIP, TAU, clamp, ctx, debris, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
 import { world } from './world.js';
@@ -526,22 +527,15 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     }
     drawRing(p[0], p[1], dep.radius * zoom + 10, Math.min(1, mine.t / mine.total), 3);
   }
-  // The selection: a node or a drop ringed, its context menu round it.
+  // The selection, as in space (game/selection.js): brackets round a node or a drop (a drop: round
+  // its icon, DROP_PX across on the screen), its context menu just outside them. In screen px here.
   const sel = surfaceSel.it;
   if (sel && selGone(sel)) selectOnSurface(null);
   else if (sel) {
-    const q = scr(sel.x, sel.y), r = isDeposit(sel) ? sel.radius * zoom + 16 : DROP_PX / 2 + 6;
-    if (q) { // (a drop too: it has no ring of its own)
-      ctx.strokeStyle = COLORS.cyan;
-      ctx.globalAlpha = 0.7 + 0.25 * Math.sin(time * 4);
-      ctx.lineWidth = 2;
-      ctx.setLineDash([6, 5]);
-      ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, TAU); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-    }
+    const q = scr(sel.x, sel.y), r = isDeposit(sel) ? sel.radius * zoom : DROP_PX / 2;
+    if (q) selectionMark(q[0], q[1], r, time, 1);
     ContextCard.show(selCard(sel));
-    if (q) ContextCard.place(q[0], q[1], r);
+    if (q) ContextCard.place(q[0], q[1], menuRadius(r, 1));
   }
   ctx.restore();
 }
