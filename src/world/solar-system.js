@@ -43,7 +43,7 @@ const SolarSystem = (() => {
 
   // Bump whenever a change to the generator moves things around for the same seed and settings,
   // so saved charts and cargo from the old layout are not reused.
-  const VERSION = 6;
+  const VERSION = 7;
 
   const DEFAULTS = {
     radius: 48000, // the system's edge, in world units from the star
@@ -71,12 +71,16 @@ const SolarSystem = (() => {
     // Security by distance (world units) to the nearest station: at most `high` away is high
     // security, then low; further than `low` is lawless. A nebula takes a level off,
     // except right by a station.
-    security: { high: 8000, low: 26000 },
+    // cap: the most security anywhere in the system (an outside system's is rough, an alien one lawless).
+    security: { high: 8000, low: 26000, cap: 2 },
     // Pirates: the system is split into cells this big, each rolling for packs as world/security.js
     // says for the security at its centre, scaled by `density`. Plus ambushes: one per nebula
     // and a few in lawless space.
     // nebulaAmbushes: whether every nebula hides an ambush.
-    pirates: { cell: 13000, density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true },
+    // level: the system's level (1..5, world/galaxy.js): with one, no packs where security is high and
+    // their gear by the level (Security.levelTier); without, by the security alone (Security.PIRATES).
+    // faction: whose ships they are ('drifter' raiders, or 'alien').
+    pirates: { cell: 13000, density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true, level: null, faction: 'drifter' },
     derelicts: { count: [6, 9], spacing: 6000 },
     // Gas pockets per nebula (by its radius: `per` units of radius each, within count), at least
     // `spacing` apart and `clear` from the pirates lying in wait there; r: their size.
@@ -394,7 +398,7 @@ const SolarSystem = (() => {
     const stationDist = (x, y) => stations.reduce((m, s) => Math.min(m, Math.hypot(x - s.x, y - s.y)), Infinity);
     function securityAt(x, y) {
       const d = stationDist(x, y);
-      const level = d <= SEC.high ? 2 : d <= SEC.low ? 1 : 0;
+      const level = Math.min(SEC.cap ?? 2, d <= SEC.high ? 2 : d <= SEC.low ? 1 : 0);
       return level < 2 && nebulaAt(x, y) ? Math.max(0, level - 1) : level;
 
     }
@@ -436,10 +440,12 @@ const SolarSystem = (() => {
       // out of the planets' way, and further out of their stations':
       && (loose > 1 || planets.every((p) => Math.abs(Math.hypot(at.x, at.y) - p.orbit) >= p.extent + o1 + (!loose && stations.some((st) => st.planet === p.id) ? packClear : 400)))
       && packs.every((k) => dist(k, at) >= spacing)
-      && stations.every((st) => !st.waystation || dist(st, at) >= WAYSTATION_CLEAR + o1); // its safe zone
+      && stations.every((st) => !st.waystation || dist(st, at) >= WAYSTATION_CLEAR + o1) // its safe zone
+      && (!P.pirates.level || securityAt(at.x, at.y) < 2); // with a level: none in high security
     let shipCount = 0;
     const addPack = (at, size, tier, ambush) => {
-      const k = { id: packs.length, x: at.x, y: at.y, tier, ambush, level: securityAt(at.x, at.y), ships: [] };
+      if (P.pirates.level) tier = Sec.levelTier(rk, P.pirates.level, securityAt(at.x, at.y));
+      const k = { id: packs.length, x: at.x, y: at.y, tier, ambush, level: securityAt(at.x, at.y), faction: P.pirates.faction || 'drifter', ships: [] };
       for (let i = 0; i < size; i++) {
         const orbit = o0 + rk() * (o1 - o0);
         k.ships.push({ key: `s${shipCount++}`, orbit, speed: (rk() < 0.5 ? -1 : 1) * (160 + rk() * (ambush ? 60 : 30)), a0: rk() * TAU, seed: nextSeed(rk) });

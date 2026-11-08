@@ -4,9 +4,9 @@
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
 // settings, and landing: on every kind of planet and moon, and the surface run (deposits mined,
 // the day side, take-off fuel, jettisoning, losses and caches left on a surface).
-// It plays with ?intro&missions&pirates, which turn on what the game has switched off for now
-// (the introduction, the waystation's three missions, which the first four tests play through,
-// and the pirates), so those keep working; their tests are marked [off: ...]. The game as it
+// It plays with ?intro&missions&pirates&hazards&sites, which turn on what the game has switched off
+// for now (the introduction, the waystation's three missions, which the first four tests play
+// through, the pirates of the showcase, the hazards and the landing sites), so those keep working; their tests are marked [off: ...]. The game as it
 // ships, with no flags, has its own run: tests/smoke-default.js. Each step checks its effect; at
 // the end nothing may have been drawn at a non-finite position. The steps share one game, in
 // order, as a player would play them; Math.random is seeded (tests/browser-stub.js), so a run
@@ -16,7 +16,7 @@ import assert from 'node:assert';
 import { install } from './browser-stub.js';
 
 // The stand-in browser first: the game's modules use the DOM as they load.
-const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro&missions&pirates' }); // ?intro, ?missions, ?pirates: play them though they're off
+const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&intro&missions&pirates&hazards&sites' }); // ?intro, ?missions, ?pirates: play them though they're off
 const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
@@ -1355,7 +1355,7 @@ test('no edge: the ship flies on out of the system into deep space', () => {
 
 test('a jump gate is offline until the gates come online, then takes the ship to the next system and back; wormholes are never offline', () => {
   game('globalThis.__gate = world.scene.gates.find((g) => !g.gate.wormhole && g.gate.system === 0); globalThis.__there = world.scene.gates[__gate.gate.link]; globalThis.__hole = world.scene.gates.find((g) => g.gate.wormhole)');
-  assert.ok(game('!!__gate && !!__there && !!__hole'), 'the start has a gate, and the galaxy a wormhole');
+  assert.ok(game('!!__gate && !!__there'), 'the start has a gate'); // (the territories' galaxy has no wormhole: hole checks below only with one)
   assert.strictEqual(game('__there.gate.link'), game('__gate.gate.id'), 'the gates lead to each other');
   assert.notStrictEqual(game('__there.gate.system'), 0, 'into another system');
   assert.strictEqual(game('__gate.art.culture.lineage'), 'wedge', 'a Wedge gate');
@@ -1367,8 +1367,10 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   assert.deepStrictEqual(game(`[actions.state('jump', __gate).ok, actions.state('jump', __gate).label]`), [false, 'Gate offline']);
   assert.strictEqual(game('__gate.name'), 'Jump gate');
   assert.match(game('describe(__gate).subtitle'), /^Offline/);
-  assert.notStrictEqual(game(`actions.state('jump', __hole).label`), 'Gate offline');
-  assert.match(game('describe(__hole).subtitle'), /^Wormhole to the .* Wormhole\b/);
+  if (game('!!__hole')) {
+    assert.notStrictEqual(game(`actions.state('jump', __hole).label`), 'Gate offline');
+    assert.match(game('describe(__hole).subtitle'), /^Wormhole to the .* Wormhole\b/);
+  }
   game('cargo.story.add("gates"); showGates()');
   assert.match(game('__gate.name'), /Gate$/);
   assert.match(game('describe(__gate).subtitle'), /^Jump gate to the .* Gate\b/);
@@ -1532,7 +1534,8 @@ fightTest('abilities in a fight: the player spends a charge from the panel, a wi
   browser.frames(2);
   const panel = () => textOf(browser.document.getElementById('combat').querySelector('.cb-abil'));
   const labels = () => browser.document.getElementById('combat').querySelector('.cb-abil').children.map((b) => b.getAttribute('aria-label'));
-  assert.deepStrictEqual(labels(), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
+  assert.deepStrictEqual(labels().slice(0, 3).map((l) => l.split(' (')[0]), ['Overload', 'Salvo', 'Mark target'], 'the class\'s three skills first (a DPS)');
+  assert.deepStrictEqual(labels().slice(3), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
   assert.match(panel(), /×1.*×2/, 'with its charges');
   // The player: an EMP on the enemy targeted.
   game('fight.s.player.hull = Math.min(fight.s.player.hull, 10)');
@@ -2161,7 +2164,7 @@ test('landing on each kind of planet and a moon: down to the surface, flying rou
     assert.ok(game('modes.has("landed")'), 'Take off shows');
     // Flying: a drag's heading and speed (here set directly) move the ship over the ground (out of a
     // dust storm's wind, game/surface-run.js).
-    game('while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1)');
+    game('while (Hazards.dustFront(surfaceRun.site, simTime) || Hazards.dustFront(surfaceRun.site, simTime + 3)) skipTime(1)');
     const x0 = game('landing.craft.x');
     game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
     browser.frames(30);

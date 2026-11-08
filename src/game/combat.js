@@ -14,6 +14,7 @@ import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { Scene } from '../flight/scene.js';
 import { Abilities } from '../rules/abilities.js';
+import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Mining } from '../rules/mining.js';
 import { Reputation } from '../rules/reputation.js';
@@ -28,6 +29,7 @@ import { actions, docked } from './docking.js';
 import { rescued } from './hazards.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing } from './landing.js';
+import { guardianDown } from './dungeon.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
@@ -109,7 +111,19 @@ export function heldPose(e, name) {
 export function enemySpec(e, name) {
   const back = fight.returning.get(e.key); // still flying back from an earlier fight
   const [vx, vy] = back ? [back.vx, back.vy] : pathVelocity(e);
-  return { id: e.key, name, stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.hitRadius || e.radius } };
+  return { id: e.key, name, stats: foeStats(e), body: { x: e.x, y: e.y, vx, vy, angle: e.a, radius: e.hitRadius || e.radius } };
+}
+// An enemy's stats: its gear (by role and tier), the aliens' a good deal tougher and harder hitting,
+// a dungeon's guardians as they're made (game/dungeon.js: e.stats).
+export const ALIEN = { hull: 1.35, shield: 1.25, damage: 1.25 };
+export function foeStats(e) {
+  if (e.stats) return e.stats;
+  const st = Loadout.stats(Loadout.npc(e.role, e.tier || 1));
+  if (e.faction !== 'alien') return st;
+  return {
+    ...st, hull: Math.round(st.hull * ALIEN.hull), shield: Math.round(st.shield * ALIEN.shield), firepower: st.firepower * ALIEN.damage,
+    weapons: st.weapons.map((w) => ({ ...w, damage: w.damage * ALIEN.damage })),
+  };
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
@@ -127,7 +141,7 @@ export function packOf(target) {
 export const THREAT = { weak: 1.6, even: 0.7 }; // our edge (their time to beat us over ours to beat them)
 export function threat(target) {
   const pack = packOf(target);
-  const theirs = pack.map((e) => ({ stats: Loadout.stats(Loadout.npc(e.role, e.tier || 1)) }));
+  const theirs = pack.map((e) => ({ stats: foeStats(e) }));
   const ours = [{ stats: SHIP, hull: cargo.hull }, ...allySpecs()];
   const hp = (side) => side.reduce((t, c) => t + (c.hull ?? c.stats.hull) + (c.stats.shield || 0), 0);
   const avg = (side, k) => side.reduce((t, c) => t + (c.stats[k] || 0), 0) / side.length;
@@ -201,7 +215,7 @@ export function endExtraction() {
 function playerSpec() {
   const P = pilot();
   return {
-    id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull, shield: shieldNow(),
+    id: 'player', name: `${SHIP.name} (you)`, stats: SHIP, hull: cargo.hull, shield: shieldNow(), cls: SHIP.cls,
     body: { x: P.x, y: P.y, vx: P.vx, vy: P.vy, angle: P.angle, radius: SHIP.radius },
   };
 }
@@ -279,6 +293,44 @@ export function engage(target, ambushed = false) {
   if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
 }
 
+// A dungeon's guardians waking (game/dungeon.js): a real-time fight on the surface, without the
+// squad (it waits in orbit). Mining stops for it; guardians woken while one is on join it.
+const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: true, body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
+const guardianPose = (g) => ({ x: g.x, y: g.y, a: g.angle, thrust: 0, role: 'fighter', tier: g.tier, radius: g.radius, name: g.name, guardian: g });
+export function engageOnSurface(foes) {
+  if (!foes.length || landing.phase !== 'surface' || landing.wrecked || fight.wreckT > 0) return;
+  if (fight.s && !fight.extract) {
+    for (const g of foes) {
+      if (fight.ships.has(g.key)) continue;
+      fightMode().join(fight.s, guardianSpec(g));
+      fight.ships.set(g.key, guardianPose(g));
+      fightLog(`${g.name} wakes`);
+    }
+    return;
+  }
+  if (fight.s) endExtraction();
+  fight.mode = 'realtime';
+  fight.extract = false;
+  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  fight.s = fightMode().start(rng, playerSpec(), foes.map(guardianSpec), { target: null, ambushed: true, allies: [] });
+  if (godMode) fight.s.player.invulnerable = true;
+  fight.ships = new Map(foes.map((g) => [g.key, guardianPose(g)]));
+  const boss = foes.find((g) => g.boss), what = boss ? `The ${boss.name} wakes!` : `${foes.length > 1 ? `${foes.length} sentinels wake` : 'A sentinel wakes'}!`;
+  fight.log = [what];
+  fight.lowHull = false;
+  fight.lockers = new Set();
+  fight.result = null;
+  setMode('in-combat', true);
+  notify(what, 2, { tone: 'hostile' });
+}
+// Taking off in the middle of one: it's over, the guardians left as they were.
+export function endSurfaceFight() {
+  if (!fight.s || fight.extract) return;
+  fight.final = fight.s;
+  fight.s = null;
+  endFight('fled');
+}
+
 // A pirate flying into range joins a fight under way (in modes where ships can join).
 export function joinFight(e) {
   const s = fight.s;
@@ -301,7 +353,10 @@ export function joinFight(e) {
 export const letsPass = (e) => e.pack !== undefined && Reputation.passage(cargo.rep);
 export function checkAggro(list) {
   if (docked || Settings.isOpen || FactionsMenu.isOpen) return;
-  const near = (e) => isHostile(e) && !letsPass(e) && !fight.dying.has(e.key) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= CombatCore.config.aggroRange;
+  // Not in high security: hostiles keep out of a fight there (their packs lie outside it, but the
+  // stations go round their planets).
+  const near = (e) => isHostile(e) && !letsPass(e) && !fight.dying.has(e.key) && Math.hypot(e.x - ship.x, e.y - ship.y) - e.radius <= CombatCore.config.aggroRange
+    && (e.pack === undefined || world.galaxy.securityAt(e.x, e.y) < 2);
   if (fight.s && fightMode().join) {
     for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);
     return;
@@ -320,8 +375,10 @@ export function playEvents(s, events) {
   const look = fightMode().look;
   const jitter = () => (Math.random() - 0.5) * 30; // so numbers landing together don't overlap
   for (const ev of events) {
+    if (ev.type === 'ability') { skillLanded(s, ev); continue; }
     if (ev.type !== 'shot') continue;
     const d = ev.delay || 0, hit = d + look.after;
+    if (ev.skill) fightLog(`${ev.from === 'player' ? 'You' : (s.allies || []).find((a) => a.id === ev.from)?.name || 'Enemy'}: ${Abilities.ABILITIES[ev.skill].name} · −${ev.damage}`);
     // Mining: chips (or puffs of gas) off the rock with each hit.
     const rock = fight.ships.get(ev.to)?.rock;
     if (rock && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => chips(rock, 2, 90) });
@@ -331,10 +388,10 @@ export function playEvents(s, events) {
     if (ev.hullDamage > 0 && !rock) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
     if (ev.to === 'player' && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => Feedback.emit('hit', { hull: ev.hullDamage > 0 }) });
     if (look.sum) { if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0); }
-    else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${ev.damage}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
+    else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${Math.round(ev.damage)}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
     else fight.fx.push({ type: 'number', delay: hit, t: 0.8, max: 0.8, at: ev.to, jx: jitter(), text: 'miss', color: COLORS.dim });
     if (ev.destroyed) {
-      const blowUp = ev.to === 'player' ? playerDestroyed : wings.has(ev.to) ? () => wingDisabled(ev.to) : () => shipDestroyed(ev.to);
+      const blowUp = ev.to === 'player' ? (landing.on ? () => lostOnSurface('Shot down in the caverns') : playerDestroyed) : wings.has(ev.to) ? () => wingDisabled(ev.to) : () => shipDestroyed(ev.to);
       // An enemy is done for at once, though it blows up a moment later: until then it must not
       // start or join another fight.
       if (ev.to !== 'player' && !wings.has(ev.to)) fight.dying.add(ev.to);
@@ -354,13 +411,13 @@ export function playEvents(s, events) {
 
 // Damage numbers that add up: hits on a ship in quick succession show as one growing number.
 export function addDamage(id, amount, hull) {
-  const f = fight.fx.find((x) => x.type === 'number' && x.at === id && x.max - x.t < 0.45);
+  const f = fight.fx.find((x) => x.type === 'number' && x.at === id && typeof x.sum === 'number' && x.max - x.t < 0.45);
   if (f) {
     f.sum += amount;
-    f.text = `−${f.sum}`;
+    f.text = `−${Math.round(f.sum)}`;
     if (hull) f.color = COLORS.flame;
   } else {
-    fight.fx.push({ type: 'number', delay: 0, t: 1, max: 1, at: id, jx: (Math.random() - 0.5) * 24, sum: amount, text: `−${amount}`, color: hull ? COLORS.flame : COLORS.cyan });
+    fight.fx.push({ type: 'number', delay: 0, t: 1, max: 1, at: id, jx: (Math.random() - 0.5) * 24, sum: amount, text: `−${Math.round(amount)}`, color: hull ? COLORS.flame : COLORS.cyan });
   }
 }
 
@@ -376,7 +433,9 @@ export function explode(x, y, r) {
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   if (p?.rock) { fight.dying.delete(key); rockBroken(p.rock); return; }
-  if (!cargo.removed.has(key) && world.scene.get(key)?.pack !== undefined) Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
+  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); return; } // a dungeon's (game/dungeon.js)
+  const was = world.scene.get(key);
+  if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
   if (!p) { saveCargo(); return; }
@@ -450,7 +509,7 @@ export function endFight(result) {
     saveCargo();
     return;
   }
-  if (result === 'lost') {
+  if (result === 'lost' && !landing.on) {
     // Controls and the map stay locked until the wreck is towed home (towHome).
     fight.wreckT = 2.6;
   } else {
@@ -540,18 +599,39 @@ export function tickFight(dt) {
 // An ability (rules/abilities.js) used in the fight under way: a charge from the kit, by the player or
 // a squad member, on a combatant (by id), if it's ready. Shown over the target and in the panel's log.
 export function useAbility(s, user, id, targetId) {
-  if (!s || s.over || (cargo.kit[id] || 0) < 1) return false;
+  const a = Abilities.ABILITIES[id];
+  if (!s || s.over || !a) return false;
+  // A class skill: the user's class has it (no charges); a consumable: a charge from the kit.
+  if (a.skill ? !Classes.skills(user.cls || (user === s.player ? SHIP.cls : null)).includes(id) : (cargo.kit[id] || 0) < 1) return false;
   const target = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === targetId);
   const ev = Abilities.use(user, id, target, s.t);
   if (!ev) return false;
+  const who = user === s.player ? 'You' : user.name, on = target === user ? '' : ` on ${target === s.player ? 'you' : target.name}`;
+  if (a.skill) {
+    if (ev.cast > 0) fight.fx.push({ type: 'number', delay: 0, t: Math.max(0.6, ev.cast), max: Math.max(0.6, ev.cast), at: user.id, jx: 0, text: `${a.name}…`, color: COLORS.cyan });
+    if (user === s.player) fightLog(`${a.name}${ev.cast > 0 ? ` · activating ${ev.cast} s` : ''}`);
+    Feedback.emit('skill');
+    return true;
+  }
   addTo(cargo.kit, id, -1);
   saveCargo();
-  const a = Abilities.ABILITIES[id], friend = a.on === 'friend';
+  const friend = a.on === 'friend';
   fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: target.id, jx: 0, text: ev.amount ? `+${Math.round(ev.amount)}` : a.name, color: friend ? COLORS.good : COLORS.flame });
-  const who = user === s.player ? 'You' : user.name, on = target === user ? '' : ` on ${target === s.player ? 'you' : target.name}`;
   fightLog(`${who} used ${a.name}${on}`);
   return true;
 }
+// A skill landing (rules/abilities.js resolve): what it did, over its target, and a line.
+function skillLanded(s, ev) {
+  const a = Abilities.ABILITIES[ev.ability];
+  if (!a) return;
+  const name = (id) => (id === 'player' ? 'you' : ([...(s.allies || []), ...s.enemies].find((c) => c.id === id) || {}).name || '');
+  const friendly = a.on !== 'enemy';
+  fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: ev.to, jx: (Math.random() - 0.5) * 20, text: ev.amount ? `+${Math.round(ev.amount)}` : a.name, color: friendly ? COLORS.good : COLORS.flame });
+  if (ev.amount !== undefined && ev.ability === 'nanite-field' && ev.to !== ev.from) return; // one line for the whole field
+  const who = ev.from === 'player' ? 'You' : name(ev.from), on = ev.to === ev.from ? '' : ` on ${name(ev.to)}`;
+  fightLog(`${who}: ${a.name}${on}`);
+}
+
 // A seismic charge (game/field.js): a burst of damage on the rock the tools are on, played as a hit
 // from the ship (chips, the number, and the rock breaking if it was enough).
 export function blastRock(amount) {
@@ -563,12 +643,39 @@ export function blastRock(amount) {
 }
 
 // The player's ability buttons: what each would be used on (yourself, or the enemy you're targeting).
-const playerTarget = (s, id) => (Abilities.ABILITIES[id].on === 'friend' ? s.player.id : s.focus);
-export function abilityButtons(s) {
-  return Abilities.LIST.filter((a) => cargo.kit[a.id] > 0).map((a) => {
-    const t = [s.player, ...s.enemies].find((c) => c.id === playerTarget(s, a.id));
-    return { id: `ability:${a.id}`, code: a.code, label: a.name, count: cargo.kit[a.id], enabled: Abilities.ready(s.player, a.id, t, s.t) };
+// A Healer's friendly skills go to whoever on your side is worst off (by hull, then shields).
+function playerTarget(s, id) {
+  const a = Abilities.ABILITIES[id];
+  if (a.on === 'self') return s.player.id;
+  if (a.on === 'enemy') return s.focus;
+  if (!a.skill) return s.player.id;
+  const side = [s.player, ...CombatCore.allies(s)], key = id === 'restore' ? (c) => c.shield / Math.max(1, c.stats.shield) : (c) => c.hull / Math.max(1, c.stats.hull);
+  return side.reduce((b, c) => (key(c) < key(b) ? c : b)).id;
+}
+// The player's buttons: the class's three skills (keys 1–3), each with its cooldown, then the kit's
+// consumables.
+export function skillButtons(s) {
+  return Classes.skills(SHIP.cls).map((id, i) => {
+    const a = Abilities.ABILITIES[id], t = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === playerTarget(s, id));
+    const cd = Math.max(0, (s.player.cooldowns?.[id] ?? -Infinity) - s.t), busy = s.player.casting?.id === id;
+    return {
+      id: `ability:${id}`, code: a.code, label: `${a.name} (${i + 1})`, skill: true, key: String(i + 1),
+      badge: busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : String(i + 1), cooling: cd > 0 ? cd / a.cooldown : 0,
+      enabled: !!t && Abilities.ready(s.player, id, t, s.t),
+    };
   });
+}
+export function abilityButtons(s) {
+  return [...(extracting() ? [] : skillButtons(s)), ...Abilities.LIST.filter((a) => cargo.kit[a.id] > 0).map((a) => {
+    const t = [s.player, ...s.enemies].find((c) => c.id === playerTarget(s, a.id));
+    return { id: `ability:${a.id}`, code: a.code, label: a.name, count: cargo.kit[a.id], enabled: !!t && Abilities.ready(s.player, a.id, t, s.t) };
+  })];
+}
+// A skill by its key (1–3), in a fight with ships.
+export function useSkillKey(n) {
+  const s = fight.s, id = s && !extracting() && Classes.skills(SHIP.cls)[n];
+  if (!id) return false;
+  return useAbility(s, s.player, id, playerTarget(s, id));
 }
 
 // Target an enemy (a tap on it, its marker or its row; manual: false, picked by the tools on their
@@ -802,4 +909,9 @@ export function init() {
     if (fight.s && fightMode().press) fightMode().press(fight.s, id); // Flee
     if (id === 'close') { fight.result = null; CombatPanel.hide(); }
   };
+  // Keys 1–3: the class's skills, in a fight with ships (the field bar has them otherwise).
+  window.addEventListener('keydown', (e) => {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !/^[1-3]$/.test(e.key) || !fight.s || fight.extract) return;
+    useSkillKey(Number(e.key) - 1);
+  });
 }

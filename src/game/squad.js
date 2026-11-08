@@ -6,10 +6,11 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { CombatCore } from '../combat/combat-core.js';
 import { Flight } from '../flight/flight.js';
 import { Abilities } from '../rules/abilities.js';
+import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Squad } from '../rules/squad.js';
-import { cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
+import { applyShip, cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode, useAbility } from './combat.js';
 import { escorts } from './jobs.js';
 import { escorting, mission, workSpot } from './missions.js';
@@ -86,7 +87,7 @@ export function tickWings(dt) {
 export function allySpecs() {
   return activeSquad().filter((m) => wings.has(m.id)).map((m) => {
     const w = wings.get(m.id);
-    return { id: m.id, name: m.name, stats: w.stats, hull: m.hullPoints, body: { x: w.x, y: w.y, vx: w.vx, vy: w.vy, angle: w.angle, radius: w.radius } };
+    return { id: m.id, name: m.name, stats: w.stats, hull: m.hullPoints, cls: m.cls, body: { x: w.x, y: w.y, vx: w.vx, vy: w.vy, angle: w.angle, radius: w.radius } };
   });
 }
 
@@ -106,9 +107,13 @@ export function logicContext(s, a) {
     leaderTarget: s.focus ?? null, dist: distance, targetOf: (e) => CombatCore.aimAt(s, e).id,
     // A `use` line runs when there's a charge in the kit, the ability is off cooldown for this ship
     // and would help, and its target is on the right side (rules/abilities.js).
+    // A class skill (rules/classes.js) needs no charge, but the member's class has to have it, and
+    // one used on itself only goes on itself.
     ready: (skill, t) => {
       const ab = Abilities.ABILITIES[skill], foe = s.enemies.includes(t);
-      return !!ab && (cargo.kit[skill] || 0) > 0 && foe === (ab.on === 'enemy') && Abilities.ready(a, skill, t, s.t);
+      if (!ab || foe !== (ab.on === 'enemy')) return false;
+      if (ab.skill) return Classes.skills(memberOf(a.id)?.cls).includes(skill) && (ab.on !== 'self' || t === a) && Abilities.ready(a, skill, t, s.t);
+      return (cargo.kit[skill] || 0) > 0 && Abilities.ready(a, skill, t, s.t);
     },
   };
 }
@@ -259,7 +264,12 @@ export function testProgram(m) {
       self, leader, enemies, allies, leaderTarget: enemies[f.leaderTarget] ? enemies[f.leaderTarget].id : null,
       dist: (a, b) => Math.hypot(a.x - b.x, a.y - b.y),
       targetOf: (e) => at(e, enemies.indexOf(e)),
-      ready: (skill, t) => { const ab = Abilities.ABILITIES[skill]; return !!ab && (cargo.kit[skill] || 0) > 0 && enemies.includes(t) === (ab.on === 'enemy'); },
+      ready: (skill, t) => {
+        const ab = Abilities.ABILITIES[skill];
+        if (!ab || enemies.includes(t) !== (ab.on === 'enemy')) return false;
+        if (ab.skill) return Classes.skills(m.cls).includes(skill) && (ab.on !== 'self' || t === self) && Abilities.ready({ ...self, cooldowns: {} }, skill, t, 0);
+        return (cargo.kit[skill] || 0) > 0;
+      },
     };
     const { line, intent } = Logic.decide(m.program, ctx, logicLines());
     const who = [self, leader, ...allies, ...enemies].find((c) => c.id === (intent.target || intent.ward));
@@ -269,7 +279,46 @@ export function testProgram(m) {
 
 // Squad programs as the station menu sees them: the members, what research has unlocked, how
 // many lines run, and editing a member's lines (only lines that check go in).
+export const SQUAD_MAX = 3; // wingmen at most
+export const HIRE_PRICE = 1500;
+// A new wingman of a class: an android ship with the player's starting gear and its class's program.
+export function recruit(cls) {
+  if (cargo.squad.length >= SQUAD_MAX || cargo.credits < HIRE_PRICE) return false;
+  const seed = (Math.random() * 4294967296) >>> 0;
+  if (cargo.squad.some((m) => m.seed === seed)) return false;
+  cargo.credits -= HIRE_PRICE;
+  const m = Squad.member(seed, { cls: Classes.valid(cls), program: Classes.program(cls) });
+  m.program = m.program.map((l) => Logic.read(l, logicKnown()));
+  cargo.squad.push(m);
+  buildWings();
+  notify(`${m.name} joins the squad · ${Classes.CLASSES[m.cls].name}`, 3, { tone: 'good' });
+  saveCargo();
+  return true;
+}
+// A member's class changed: its stats follow (its hull kept within the new maximum).
+export function setClass(id, cls) {
+  const m = memberOf(id);
+  if (!m || !Classes.CLASSES[cls] || m.cls === cls) return false;
+  m.cls = cls;
+  refreshWing(m);
+  m.hullPoints = Squad.stats(m).hull;
+  lineRuns.delete(id);
+  saveCargo();
+  return true;
+}
 export const programs = {
+  maxSize: SQUAD_MAX, hirePrice: HIRE_PRICE,
+  get credits() { return cargo.credits; },
+  get playerClass() { return cargo.cls; },
+  setPlayerClass(cls) {
+    if (!Classes.CLASSES[cls] || cargo.cls === cls) return false;
+    cargo.cls = cls;
+    applyShip();
+    cargo.hull = SHIP.hull;
+    saveCargo();
+    return true;
+  },
+  recruit, setClass,
   get members() { return cargo.squad; },
   get known() { return logicKnown(); },
   get limit() { return logicLines(); },

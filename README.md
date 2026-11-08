@@ -1,21 +1,37 @@
 # Untitled Space Game
 
-A browser space game: fly a ship through a procedurally generated galaxy, mine asteroids and gas
-for materials, turn them into better gear through production and research, and take it into more
-hazardous places. There's no fighting: mining runs on the real-time combat rules against rocks
-that never fire back, and the danger comes from flying: collisions, the star's heat, radiation
-round the gas giants and the moons, solar flares to shelter from, ion storms, and running out of
-fuel. Planets and moons can be landed on, to mine deposits of goods found nowhere else before the
-sun comes up, each with a hazard of its own. One planet is a trial of something else: Zantal VI, the start
-system's blue giant, has a labyrinth of caverns to explore instead of a landing site, with no hazards
-and its deepest chamber kept for a boss one day (`src/game/dungeon.js`). Utility gear (radiators, radiation shielding, tanks,
-cargo pods) and consumables used from the HUD (coolant, purges, fuel canisters, seismic charges)
-let a run last longer. `notes/hazards.md` is the plan.
+A browser space RPG: fly a ship through a procedurally generated galaxy, mine, fight, take loot from
+what you destroy, and push out from the safe core of your faction's space into harder systems.
+
+- **Factions.** Three human factions hold the settled band of the galaxy, each its own contiguous
+  territory: Wedge (where the game starts), Block and Shard. Inside a territory every system is joined
+  by jump gates; between territories there is one gate link per pair. Outside them, in the frontier,
+  are the Drifters and the Androids, reached by cruising; the aliens hold the most remote systems, by
+  the galactic core, the end game. Each system has a level (1 in Wedge space, 2 in Block and Shard, 3–4
+  outside, 5 the aliens'), shown on the map.
+- **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
+  in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
+  leave loot to pick up: components, goods and now and then a schematic.
+- **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
+  (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
+  each with an activation time and a cooldown: keys 1–3 or the combat panel's buttons in a fight.
+- **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
+  their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
+  class starts with a program that does.
+- **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth of caverns
+  (`src/game/dungeon.js`): sentinels in the chambers, a Warden in the deepest, harder the higher the
+  system's level, with loot, gear and a bounty for the Warden.
+- **Hazards are off** for now (heat, radiation, flares, ion storms, surface hazards and fuel use);
+  `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
+  with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
+
+Mining, production, research and the station services are as they were.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms
-(settled ones in the habitable band, sparse frontier ones in the core and out at the rim), far enough
-apart that crossing between them is a trip, a few jump gates and a wormhole as shortcuts, and between
+(settled ones in the habitable band, split between the three territories; sparse frontier ones in the
+core and out at the rim, the Drifters', the Androids' and the aliens'), far enough apart that crossing
+between them is a trip, the territories' jump gates as shortcuts, and between
 the systems the places a galaxy holds: the supermassive black hole at the centre, star clusters,
 H II regions and dark clouds, supernova remnants with their pulsars, black holes, white dwarfs,
 brown dwarfs, rogue planets, interstellar objects passing through, and fields of dust, gas and
@@ -44,7 +60,9 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?intro` | play the introduction on a new game (it's switched off: `INTRO_ENABLED` in `src/game/intro.js`) |
-| `?pirates` | bring the pirates back (they're switched off), for the fights still in the opening missions and the tests |
+| `?pirates` | pirates in the showcase-alone galaxy too, for the opening missions and the tests (the spiral galaxy has its hostiles anyway) |
+| `?hazards` | the hazards back (heat, radiation, flares, ion storms, surface hazards, fuel use) |
+| `?sites` | landing sites (deposits and surface hazards) instead of dungeons, Zantal VI still the empty test labyrinth |
 | `?missions` | play the opening missions (they're switched off: `MISSIONS_ENABLED` in `src/game/cargo.js`; while off, the jump gates are online from the start) |
 | `?skipintro` | skip the introduction and the opening missions |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: the jump gates online, every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
@@ -168,9 +186,9 @@ The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in
 browser (`tests/browser-stub.js`) and checks it through `G`, the game's state and functions by name,
 which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
 
-Design notes live in `notes/`: `hazards.md` is the plan the game follows now (gathering under
-hazards instead of fighting, phase by phase); `archived-systems.md` lists systems taken out of the game and how to
-bring each back (the latest: pirates and fighting switched off); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
+Design notes live in `notes/`: `hazards.md` was the plan for gathering under hazards (switched off
+now, `?hazards`); `archived-systems.md` lists systems taken out of the game and how to
+bring each back (the latest: the hazards); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
 overview (the factions, their standings and the story beats); `galaxy.md` is how the galaxy is

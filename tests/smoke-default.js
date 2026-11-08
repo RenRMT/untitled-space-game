@@ -51,14 +51,17 @@ game(`globalThis.__find = (pred) => {
   return e;
 };`);
 
-test('a new game: beside the capital, the gates online; no introduction, missions, squad or pirates', () => {
+test('a new game: beside the capital in Wedge space, the gates online; no introduction, missions or squad', () => {
   browser.frames(3);
   assert.ok(game('!intro.on && !missionsOn && !opening()'), 'straight into the game');
   assert.ok(game('gatesOnline()'), 'the gates are online from the start');
   assert.ok(game(`startStation().station.market.type === 'capital' && actions.state('dock', startStation()).inRange`), 'beside the capital, in docking range');
   assert.strictEqual(game('cargo.squad.length'), 0, 'no squad');
-  assert.strictEqual(game('world.galaxy.packs.length'), 0, 'no pirate packs');
-  assert.strictEqual(game(`world.scene.entities.filter((e) => e.kind === 'ship').length`), 0, 'no ships in space');
+  assert.strictEqual(game('world.galaxy.systems[0].faction'), 'wedge', 'the start is Wedge space');
+  // Hostiles out in low and lawless security, none in high.
+  assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');
+  assert.ok(game(`world.galaxy.packs.filter((k) => k.system === 0).every((k) => k.tier <= 2)`), 'gentle ones in the start system');
+  assert.strictEqual(game('hazardsOn'), false, 'no hazards');
   assert.deepStrictEqual(game('stationLocks().tabs'), [], 'no station services locked');
   assert.ok(game('hudShown()'), 'the HUD shows');
 });
@@ -132,6 +135,84 @@ test('the gate jumps the ship to the next system, with no story step first', () 
   browser.key('j');
   assert.ok(until('!warp.on', 60 * 3), 'the jump is over');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y).index'), game('__there.gate.system'), 'in the other system');
+});
+
+test('classes: the ship is a DPS to start, and turns Tank or Healer at a dock, its stats following', () => {
+  assert.strictEqual(game('cargo.cls'), 'dps');
+  const dpsFire = game('SHIP.firepower');
+  game(`placeBeside(startStation()); dock(startStation()); StationMenu.showTab('ship')`);
+  assert.ok(game('!!docked'), 'docked');
+  assert.match(onStation(), /Your class/);
+  game(`programs.setPlayerClass('tank')`);
+  assert.ok(game('SHIP.hull') > game('Loadout.stats(cargo.loadout).hull') && game('SHIP.firepower') < dpsFire, 'a Tank is sturdier and hits softer');
+  game(`programs.setPlayerClass('dps')`);
+  assert.strictEqual(game('SHIP.cls'), 'dps');
+});
+
+test('the squad: a wingman hired at a dock, its class program using its skills', () => {
+  game(`cargo.credits = 10000; StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Hire a wingman/);
+  pressOnStation(/^Hire Healer/);
+  assert.strictEqual(game('cargo.squad.length'), 1, 'hired');
+  assert.strictEqual(game('cargo.squad[0].cls'), 'healer');
+  assert.ok(game(`cargo.squad[0].program.some((l) => l.act === 'use' && l.skill === 'repair-beam' && l.on && !l.err)`), 'its program uses a repair beam');
+  game(`programs.setClass(cargo.squad[0].id, 'tank')`);
+  assert.ok(game(`Squad.stats(cargo.squad[0]).hull > Loadout.stats(cargo.squad[0].loadout).hull`), 'a Tank wingman');
+  game(`programs.setClass(cargo.squad[0].id, 'healer'); launch()`);
+  browser.frames(2);
+});
+
+test('a fight with hostiles: skills activate, then cool down; the healer wingman repairs; loot drops', () => {
+  game(`globalThis.__foe = __find((e) => e.kind === 'ship' && e.pirate && e.tier === 1 && !cargo.removed.has(e.key) && world.galaxy.securityAt(e.x, e.y) < 2);
+    placeShip(__foe.x + 300, __foe.y); snapWings()`);
+  assert.ok(until('!!fight.s && !fight.extract', 120), 'the pirates attack');
+  assert.strictEqual(game('fight.s.allies.length'), 1, 'the wingman fights beside you');
+  game('for (const e of fight.s.enemies) { e.stats = { ...e.stats, hull: e.stats.hull * 6 }; e.hull = e.stats.hull; }'); // long enough to see it all
+  assert.ok(game(`skillButtons(fight.s).length === 3`), 'three skill buttons');
+  game(`fight.s.player.hull = fight.s.player.stats.hull * 0.5`);
+  browser.key('1'); // overload
+  assert.ok(game(`fight.s.player.casting && fight.s.player.casting.id === 'overload'`), 'activating');
+  assert.ok(until(`!fight.s || Abilities.has(fight.s.player, 'overload', fight.s.t)`, 60), 'overload on once activated');
+  if (game('!!fight.s')) assert.ok(game(`fight.s.player.cooldowns.overload > fight.s.t`), 'and cooling down');
+  assert.ok(until(`fight.s.player.hull > fight.s.player.stats.hull * 0.5 + 1`, 60 * 10), 'the healer repairs you');
+  game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
+  assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
+  assert.strictEqual(game('fight.result'), 'won');
+  assert.ok(game(`cargo.drops.some((d) => d.key.startsWith('drop:' + __foe.key))`) || game(`cargo.removed.has(__foe.key)`), 'destroyed, its loot floating');
+});
+
+test('landing: every planet is a dungeon of guardians, its Warden in the deepest chamber, fought for loot', () => {
+  game(`fight.result = null; cargo.hull = SHIP.hull; globalThis.__body = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'desert');
+    placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
+  clickCard('land');
+  assert.ok(until('landing.phase === "surface"', 1500), 'down');
+  assert.ok(game('!!surfaceRun.W.dungeon'), 'a labyrinth');
+  assert.ok(game('dungeonRun.guards.filter((g) => g.boss).length === 1 && dungeonRun.guards.length > 3'), 'guardians and one Warden');
+  // Straight to the Warden (god mode for the test: the hull doesn't matter here).
+  game(`globalThis.__boss = dungeonRun.guards.find((g) => g.boss); fight.s && endSurfaceFight();
+    for (const g of dungeonRun.guards) if (!g.boss) g.alive = false;
+    Object.assign(landing.craft, { x: __boss.x + 250, y: __boss.y, vx: 0, vy: 0 }); cargo.hull = SHIP.hull * 50;`);
+  assert.ok(until('!!fight.s && fight.ships.has(__boss.key)', 30), 'the Warden wakes');
+  game(`fight.s.player.invulnerable = true; const b = fight.s.enemies.find((e) => e.id === __boss.key); b.hull = 5; b.shield = 0;`);
+  const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)'), credits = game('cargo.credits');
+  assert.ok(until('!__boss.alive', 60 * 20), 'the Warden destroyed');
+  assert.ok(game('dungeonRun.bossDown'));
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear looted');
+  assert.ok(game('cargo.credits') > credits, 'a bounty');
+  assert.ok(game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'loot lying on the ground');
+  game('cargo.hull = SHIP.hull; takeOff()');
+  assert.ok(until('!landing.on', 1500), 'back in space');
+});
+
+test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {
+  const r = game(`(() => {
+    const g = world.galaxy, f = (i) => g.systems[i].faction;
+    const cross = g.links.filter(([a, b]) => f(a) !== f(b));
+    return { factions: [...new Set(g.systems.map((s) => s.faction))].sort(), cross: cross.length, outsideGated: g.links.some(([a, b]) => !['wedge', 'block', 'shard'].includes(f(a)) || !['wedge', 'block', 'shard'].includes(f(b))) };
+  })()`);
+  assert.deepStrictEqual(r.factions, ['alien', 'android', 'block', 'drifter', 'shard', 'wedge']);
+  assert.strictEqual(r.cross, 3);
+  assert.strictEqual(r.outsideGated, false);
 });
 
 test('nothing was drawn at a non-finite position', () => {

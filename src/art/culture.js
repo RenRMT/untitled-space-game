@@ -125,7 +125,9 @@ const ArtCulture = (() => {
     const pirates = kitbash([...human.values()], hashInt(base, 99, 0xa47), '#d8824a', { name: 'Drifters', color: '#d8824a', kind: 'pirates' });
     const settled = galaxy.cultures.map((c) => (c.lineage === 'android' ? Object.assign(xeno(galaxy.seed).android, { cultureId: c.id })
       : c.lineage === 'kitbash' ? Object.assign(pirates, { cultureId: c.id }) : human.get(c.id)));
-    return { cultures: settled, pirates, of: (id) => settled[id] || settled[0] };
+    // The aliens' (their ships in the remote systems, and the dungeons' guardians there).
+    const alien = xeno(galaxy.seed).alien;
+    return { cultures: settled, pirates, alien, of: (id) => settled[id] || settled[0] };
   }
 
   const legacy = create('wedge', 1, '#7df9ff', { name: 'Original', kind: 'legacy', engines: 1, stripes: 0 });

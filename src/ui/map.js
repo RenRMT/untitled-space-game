@@ -682,6 +682,13 @@ const SystemMap = (() => {
     ctx.textAlign = 'center';
     for (const s of list) {
       const [x, y] = toScreen(s.origin.x, s.origin.y);
+      // Whose it is (world/galaxy.js territories), known from the start: a ring in its holder's colour.
+      const holder = spiral && s.faction && Factions.get(s.faction);
+      if (holder) {
+        ctx.strokeStyle = hexToRgba(holder.color, charted(s) ? 0.8 : 0.45);
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(x, y, STAR_DOT + 6, 0, Math.PI * 2); ctx.stroke();
+      }
       if (!charted(s)) {
         if (spiral) {
           // Starlight: a faint dot, unnamed.
@@ -733,7 +740,7 @@ const SystemMap = (() => {
       else row(question, 'uncharted system');
       row((cx, cy) => { ctx.strokeStyle = 'rgba(125, 249, 255, 0.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); }, 'gate link');
       if (galaxy.shape) {
-        row((cx, cy) => { ctx.strokeStyle = 'rgba(182, 168, 255, 0.8)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy); ctx.stroke(); }, 'wormhole');
+        for (const f of Factions.LIST) row((cx, cy) => { ctx.strokeStyle = f.color; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.stroke(); }, `${f.name}${f.id === 'alien' ? ' (end game)' : ''}`);
         row((cx, cy) => { ctx.strokeStyle = SITES['supernova-remnant'].color; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(cx, cy, 5, 0, 7); ctx.stroke(); }, 'deep-space site');
         row(question, 'unidentified source');
       }
@@ -892,7 +899,7 @@ const SystemMap = (() => {
     const kindLine = site ? { text: `${SITES[site.kind].label}${site.parent !== undefined ? ` in ${galaxy.sites[site.parent].name}` : ''}`, color: SITES[site.kind].color }
       : watched && { text: `In orbit round ${watched.name}`, color: SITES[watched.kind].color };
     callout.show({
-      lines: [name && { text: name, kind: 'name' }, kindLine, holder && { text: `${sys.region.label} · ${holder.name}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
+      lines: [name && { text: name, kind: 'name' }, kindLine, holder && { text: `${sys.region.label} · ${holder.name}${sys.level ? ` · level ${sys.level}` : ''}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
         ...(mode === 'galaxy' ? galaxyLines(at) : [])].filter(Boolean),
       actions: [
         mode === 'galaxy'

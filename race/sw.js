@@ -68,6 +68,7 @@ const FILES = [
   '../src/race/track.js',
   '../src/race/view.js',
   '../src/rules/abilities.js',
+  '../src/rules/classes.js',
   '../src/rules/goods.js',
   '../src/rules/lab.js',
   '../src/rules/loadout.js',

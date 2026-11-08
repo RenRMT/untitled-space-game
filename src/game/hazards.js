@@ -14,6 +14,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Feedback } from '../core/feedback.js';
+import { Params } from '../core/store.js';
 import { COLORS } from '../core/theme.js';
 import { Hazards } from '../rules/hazards.js';
 import { Status } from '../rules/status.js';
@@ -36,7 +37,10 @@ export const hazard = { heat: 0, exp: null, said: new Set(), rate: { heat: 0, ra
 const WARN = { heat: [60, 85], rad: [50, 75, 90], fuel: [25, 10] }; // % at which each meter warns
 const BIG_ROCK = 24; // asteroids at least this big cast a shadow
 
-export const outOfFuel = () => cargo.fuel <= 0;
+// The hazards are switched off for now (the game is back to fighting, missions and loot): no heat,
+// radiation, flares, ion storms or surface hazards, and nothing burns fuel. ?hazards brings them back.
+export const hazardsOn = Params.has('hazards');
+export const outOfFuel = () => hazardsOn && cargo.fuel <= 0;
 export const active = () => !docked && !intro.on && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0);
 
 // A warning as a meter passes a step up (again only once it has fallen below it): a vibration and
@@ -74,6 +78,7 @@ export function trackMeters(dt) {
 
 export function tickHazards(dt) {
   if (!active()) { hazard.exp = null; return; }
+  if (!hazardsOn) { hazard.exp = null; hazard.heat = 0; cargo.rad = 0; trackMeters(dt); return; }
   const G = world.galaxy, H = Hazards.config;
   const blockers = frameList.filter((e) => e.kind === 'asteroid' && e.radius >= BIG_ROCK).map((e) => ({ x: e.x, y: e.y, r: e.radius }));
   const before = hazard.exp;
@@ -100,6 +105,7 @@ export function tickHazards(dt) {
 
 // Warnings as the meters fill (and fuel as it falls); also on a surface (game/surface-run.js).
 export function meterWarnings() {
+  if (!hazardsOn) return;
   const H = Hazards.config;
   warn('heat', (100 * hazard.heat) / H.max, (p) => `Heat ${p}% · ${p >= 85 ? (landing.on ? 'take off, or out of the sun!' : 'get away from the star!') : 'move out of the heat'}`);
   warn('rad', (100 * cargo.rad) / H.max, (p) => `Radiation ${p}% · ${p >= 90 ? 'dock to decontaminate now!' : 'it stays until you dock'}`);
@@ -141,6 +147,7 @@ export function rescued() {
 // In world space, under everything: each giant's radiation belt near the camera (its band, with the
 // gaps left clear), and while a flare comes, the shadows behind the planets, moons and big rocks.
 export function drawHazards() {
+  if (!hazardsOn) return;
   const G = world.galaxy, R = Hazards.config.rad, reach = Math.max(view.w, view.h) / view.zoom;
   ctx.save();
   for (const p of G.planets) {

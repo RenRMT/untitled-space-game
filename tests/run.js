@@ -42,6 +42,7 @@ import { Restoration } from '../src/rules/restoration.js';
 import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Abilities } from '../src/rules/abilities.js';
+import { Classes } from '../src/rules/classes.js';
 import { CombatCore } from '../src/combat/combat-core.js';
 import { Combat } from '../src/combat/combat.js';
 import { RealtimeCombat } from '../src/combat/combat-realtime.js';
@@ -238,28 +239,54 @@ test('about forty systems along the shape, far apart, settled in the habitable b
   }
 });
 
-test('sparse gates: a trunk along each major arm, one link across the bar, a wormhole to the core, the start into its arm', () => {
+test('territories: Wedge round the start, Block and Shard either side, each one gate network, one link between each pair', () => {
+  const T = ['wedge', 'block', 'shard'];
   for (const [seed, g] of galaxies) {
-    const where = `seed ${seed}`;
-    assert(g.links.length >= 5 && g.links.length <= 12, `${where}: ${g.links.length} links`);
-    assert(g.wormholes.length >= 1, `${where}: a wormhole`);
-    for (const [a, b] of g.links) assert(a < b && g.systems[a] && g.systems[b], `${where}: link ${a}-${b}`);
-    // The start has a Wedge gate into the network.
-    const own = g.gates.filter((x) => x.system === 0);
-    assert(own.some((x) => !x.wormhole && SolarSystem.CULTURES[x.culture].lineage === 'wedge'), `${where}: the start's gate`);
-    // Every gate leads to the gate at the other end of its link, in that system, of the same kind.
+    const where = `seed ${seed}`, f = (i) => g.systems[i].faction;
+    assert.strictEqual(f(0), 'wedge', `${where}: the start is Wedge's`);
+    for (const id of [...T, 'drifter', 'android', 'alien']) assert(g.systems.some((s) => s.faction === id), `${where}: ${id} systems`);
+    for (const s of g.systems) {
+      assert.strictEqual(s.holder, s.faction, `${where}: ${s.name}'s holder`);
+      assert(s.level >= 1 && s.level <= 5, `${where}: ${s.name}'s level`);
+      if (T.includes(s.faction)) assert(s.settled, `${where}: ${s.name} is in the band`);
+      if (s.faction === 'alien') assert.strictEqual(s.level, 5, `${where}: the aliens' are the hardest`);
+      if (s.faction === 'alien') assert.strictEqual(s.stations.length, 0, `${where}: no stations in alien space`);
+      // Stations in their holder's culture (yards and the waystation aside).
+      for (const st of s.stations) {
+        if (st.waystation || st.market.type === 'salvage yard') continue;
+        const want = { wedge: 'wedge', block: 'block', shard: 'shard', drifter: 'kitbash', android: 'android' }[s.faction];
+        assert.strictEqual(SolarSystem.CULTURES[st.culture].lineage, want, `${where}: ${st.name} in ${s.name}`);
+      }
+      // Security no higher than its holder allows.
+      if (s.faction === 'alien') for (const k of s.packs) assert.strictEqual(k.level, 0, `${where}: lawless alien space`);
+    }
+    // Wedge is the gentlest; the outside systems harder than the territories.
+    assert(g.systems.filter((s) => s.faction === 'wedge').every((s) => s.level === 1), `${where}: Wedge level 1`);
+    assert(g.systems.filter((s) => s.faction === 'drifter' || s.faction === 'android').every((s) => s.level >= 3), `${where}: outside levels`);
+    // Gates only between territory systems: each territory one network, one link between each pair.
+    for (const [a, b] of g.links) assert(a < b && T.includes(f(a)) && T.includes(f(b)), `${where}: link ${a}-${b}`);
+    for (const t of T) {
+      const own = g.systems.filter((s) => s.faction === t).map((s) => s.index), seen = new Set([own[0]]), todo = [own[0]];
+      while (todo.length) { const i = todo.pop(); for (const [a, b] of g.links) { const j = a === i ? b : b === i ? a : -1; if (j >= 0 && f(j) === t && !seen.has(j)) { seen.add(j); todo.push(j); } } }
+      assert.strictEqual(seen.size, own.length, `${where}: ${t} is one network`);
+    }
+    for (let x = 0; x < 3; x++) for (let y = x + 1; y < 3; y++) {
+      const n = g.links.filter(([a, b]) => (f(a) === T[x] && f(b) === T[y]) || (f(a) === T[y] && f(b) === T[x])).length;
+      assert.strictEqual(n, 1, `${where}: ${T[x]}-${T[y]} links`);
+    }
+    // Every gate leads to the gate at the other end of its link, in that system, built by its own system's holder.
     for (const x of g.gates) {
       const there = g.gates[x.link];
-      assert(there.system === x.to && there.to === x.system && !!there.wormhole === !!x.wormhole, `${where}: ${x.name}`);
-      assert(g.links.some(([a, b]) => (a === x.system && b === x.to) || (b === x.system && a === x.to)), `${where}: ${x.name}'s link`);
+      assert(there.system === x.to && there.to === x.system, `${where}: ${x.name}`);
+      assert.strictEqual(SolarSystem.CULTURES[x.culture].lineage, f(x.system), `${where}: ${x.name}'s culture`);
     }
-    // The gated systems are all one network.
-    const gated = new Set(g.links.flat()), seen = new Set([0]), todo = [0];
-    while (todo.length) { const i = todo.pop(); for (const [a, b] of g.links) { const j = a === i ? b : b === i ? a : -1; if (j >= 0 && !seen.has(j)) { seen.add(j); todo.push(j); } } }
-    assert.deepStrictEqual([...gated].filter((i) => !seen.has(i)), [], `${where}: gated systems cut off from the start`);
-    // A wormhole reaches in toward the core.
-    const [w0, w1] = g.wormholes[0], inner = Math.min(...[w0, w1].map((i) => Math.hypot(g.systems[i].origin.x, g.systems[i].origin.y)));
-    assert(inner < 0.55 * g.shape.R, `${where}: the wormhole stays out at ${Math.round(inner)}`);
+    // Hostiles: none in high security, their gear by the system's level, the aliens' their own.
+    for (const k of g.packs) {
+      const s = g.systems[k.system];
+      assert(k.level < 2, `${where}: a pack in high security`);
+      assert(k.tier >= s.level && k.tier <= Math.min(5, s.level + 1), `${where}: tier ${k.tier} in a level ${s.level} system`);
+      assert.strictEqual(k.faction, s.faction === 'alien' ? 'alien' : 'drifter', `${where}: whose pack`);
+    }
   }
 });
 
@@ -989,7 +1016,7 @@ test('keys are unique across everything that can leave the world, and survive a 
     const keyed = sceneOf(seed).entities.filter((e) => e.key);
     assert.strictEqual(new Set(keyed.map((e) => e.key)).size, keyed.length, `seed ${seed}: duplicate keys`);
   }
-  assert.strictEqual(thingsOf(1, 'ship').length, 0, 'no pirates anywhere in the galaxy');
+  assert(thingsOf(1, 'ship').every((e) => e.pirate && e.pack !== undefined), 'hostile ships, in their packs');
   // With the pirates turned back on, their ships keep their keys through a rebuild.
   const s = Galaxy.generate(1, { ...SYSTEM_CONFIG, galaxy: { system: { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } } } });
   const a = fullScene(s).entities.filter((e) => e.kind === 'ship'), b = fullScene(s).entities.filter((e) => e.kind === 'ship');
@@ -1783,6 +1810,73 @@ test('abilities: a charge on a target that needs it, a cooldown, and timed effec
   assert(!Abilities.ready(me, 'jammer-pod', { ...foe, hull: 0 }, 20), 'not on the destroyed');
 });
 
+test('classes: Tank, DPS and Healer shape the stats and give three skills each', () => {
+  const base = Loadout.stats(Loadout.starter('courier'));
+  const tank = Classes.apply(base, 'tank'), dps = Classes.apply(base, 'dps'), healer = Classes.apply(base, 'healer');
+  assert(tank.hull > dps.hull && tank.shield > dps.shield && tank.firepower < dps.firepower, 'a Tank soaks, a DPS hits');
+  assert(healer.firepower < dps.firepower && healer.shield > dps.shield);
+  assert.strictEqual(Classes.valid('nonsense'), Classes.DEFAULT);
+  for (const c of Classes.LIST) {
+    const ids = Classes.skills(c.id);
+    assert.strictEqual(ids.length, 3, c.id);
+    for (const id of ids) {
+      const a = Abilities.ABILITIES[id];
+      assert(a.skill && a.cls === c.id && a.cast >= 0 && a.cooldown > a.cast, id);
+    }
+    // Its starting program checks with what every game knows (use() and hull %).
+    const known = Research.known(['tactics.use', 'maint.sense']);
+    for (const line of Classes.program(c.id)) assert(Logic.check(line, known).ok, `${c.id}: ${Logic.text(line)}: ${Logic.check(line, known).errors}`);
+  }
+});
+
+test('skills: an activation first, the effect after it, then a cooldown; taunt draws fire, fortify and a mark change damage', () => {
+  const st = Classes.apply(Loadout.stats(Loadout.starter('courier')), 'tank');
+  const foe = RealtimeCombat.ship('e', 'Foe', Loadout.stats(Loadout.npc('fighter', 1)), { x: 400, y: 0 });
+  const me = RealtimeCombat.ship('player', 'Me', st, { x: 0, y: 0 }, st.hull, { cls: 'tank' });
+  const ally = RealtimeCombat.ship('a1', 'Ally', st, { x: 0, y: 100 });
+  const s = RealtimeCombat.create(mulberry32(3), me, [foe], { allies: [ally] });
+  foe.aim = 'a1';
+  assert.strictEqual(CombatCore.aimAt(s, foe), ally, 'it picked the ally');
+  assert(Abilities.ready(me, 'taunt', me, s.t));
+  const ev = Abilities.use(me, 'taunt', me, s.t);
+  assert.strictEqual(ev.type, 'cast');
+  assert(!Abilities.ready(me, 'fortify', me, s.t), 'one activation at a time');
+  assert.strictEqual(CombatCore.aimAt(s, foe), ally, 'not yet: still activating');
+  RealtimeCombat.step(s, 0.4);
+  assert(Abilities.has(me, 'taunt', s.t), 'taunting once activated');
+  assert.strictEqual(CombatCore.aimAt(s, foe), me, 'it turns on the taunting tank');
+  assert(!Abilities.ready(me, 'taunt', me, s.t), 'cooling down');
+  // Fortify halves what gets through; a mark adds to it.
+  Abilities.use(me, 'fortify', me, s.t);
+  RealtimeCombat.step(s, 0.6);
+  assert.strictEqual(me.stats.taken, 0.5);
+  const shieldBefore = me.shield;
+  CombatCore.applyDamage(me, 10);
+  assert.strictEqual(shieldBefore - me.shield, 5);
+  Abilities.use(ally, 'mark', foe, s.t);
+  RealtimeCombat.step(s, 0.4);
+  assert.strictEqual(foe.stats.taken, 1.3);
+  // A salvo lands as a shot after its activation.
+  const dps = RealtimeCombat.ship('d', 'Dps', Classes.apply(Loadout.stats(Loadout.starter('courier')), 'dps'), { x: 0, y: -100 });
+  dps.order = {};
+  s.allies.push(dps);
+  Abilities.use(dps, 'salvo', foe, s.t);
+  const before = foe.hull + foe.shield;
+  let shot = null;
+  for (let i = 0; i < 40 && !shot; i++) shot = RealtimeCombat.step(s, 1 / 30).find((e) => e.type === 'shot' && e.skill === 'salvo');
+  assert(shot && shot.damage > 0 && foe.hull + foe.shield < before, 'the salvo hit');
+  // A heal on a friend, and the nanite field on the whole side.
+  s.over = null; foe.hull = foe.stats.hull; // (still flying, so the fight goes on)
+  me.hull = me.stats.hull / 2; ally.hull = ally.stats.hull / 2; me.invulnerable = ally.invulnerable = true;
+  const healer = RealtimeCombat.ship('h', 'Healer', Classes.apply(Loadout.stats(Loadout.starter('courier')), 'healer'), { x: 0, y: 50 });
+  healer.order = {};
+  s.allies.push(healer);
+  healer.hull = healer.stats.hull / 2; // (worth using: it's hurt too)
+  assert.strictEqual(Abilities.use(healer, 'nanite-field', healer, s.t).type, 'cast');
+  for (let i = 0; i < 60; i++) RealtimeCombat.step(s, 1 / 30);
+  assert(me.hull > me.stats.hull / 2 && ally.hull > ally.stats.hull / 2, 'the field repaired both');
+});
+
 off('?pirates', 'abilities in a fight: a silenced ship holds fire, in rounds and in real time', () => {
   const s = Combat.create(always, Combat.combatant('p', 'Me', testShip({ initiative: 1 })), [Combat.combatant('e', 'Them', testShip({ initiative: 3, hull: 1000 }))]);
   Abilities.use(s.player, 'emp-charge', s.enemies[0], s.t);
@@ -1941,7 +2035,8 @@ off('?pirates', 'pirates come in packs that follow the security level and can be
       assert(k.ships.length >= 1, `seed ${seed}: an empty pack`);
       // Ambushes are one big pack on purpose; the rest follow the table for where they are.
       if (!k.ambush) {
-        assert(P.tier.some(([t]) => t === k.tier), `seed ${seed}: tier ${k.tier} at security ${k.level}`);
+        // (A galaxy's systems have a level, which sets the tier instead: their own test.)
+        if (!scened) assert(P.tier.some(([t]) => t === k.tier), `seed ${seed}: tier ${k.tier} at security ${k.level}`);
         assert(P.size.some(([n]) => n === k.ships.length), `seed ${seed}: a pack of ${k.ships.length} at security ${k.level}`);
         packs[k.level].push(k.ships.length);
       }
@@ -2716,7 +2811,7 @@ test('the system has an android waystation alone on its outer edge, in a safe zo
     for (const k of g.packs) assert(dist(k, w) > 6000, `${where}: pirates by the waystation`);
     assert.ok(Economy.market(g.seed, w).goods.some((x) => x.buy !== null), `${where}: something for sale`);
     // Every other station is built by humans, but the Drifters' kitbashed yard; gates and wrecks too.
-    for (const o of g.stations.filter((x) => !x.waystation)) assert(o.culture < SolarSystem.SETTLED || o.culture === SolarSystem.DRIFTER, `${where}: ${o.key}`);
+    for (const o of g.stations.filter((x) => !x.waystation && x.system === 0)) assert(o.culture < SolarSystem.SETTLED || o.culture === SolarSystem.DRIFTER, `${where}: ${o.key}`);
     for (const o of [...g.gates.filter((x) => !x.wormhole), ...g.wrecks]) assert(o.culture < SolarSystem.SETTLED, `${where}: ${o.key}`);
   }
   // Built in the androids' culture, the same one squad members are; pirates borrow only from humans,
@@ -2727,7 +2822,7 @@ test('the system has an android waystation alone on its outer edge, in a safe zo
   assert.strictEqual(c.of(SolarSystem.DRIFTER), c.pirates);
   assert(c.pirates.donors.every((d) => d.lineage !== 'android'));
   assert.strictEqual(thingsOf(1, 'station').find((e) => e.station.waystation).art.culture.lineage, 'android');
-  assert.strictEqual(thingsOf(1, 'gate').find((e) => e.gate.wormhole).art.type, 'wormhole');
+  assert.strictEqual(thingsOf(1, 'gate').find((e) => !e.gate.wormhole).art.type, 'gate');
 });
 
 off('?intro', 'the introduction: lines, questions that set the art style and movement, and two waits', () => {
@@ -2989,7 +3084,7 @@ off('?missions', 'squad: each member flies its own loadout, joining with the pla
     'weapon-1': 'pulse-laser-1', shield: 'deflector-1', computer: 'flight-computer-1', engine: 'courier-drive-1', scanner: 'survey-scanner-1',
   }, 'the Courier\'s starting kit, in a fighter');
   for (const [slot, id] of Object.entries(m.loadout.fitted)) assert.strictEqual(id, Loadout.starter('courier').fitted[slot], slot);
-  assert.strictEqual(Squad.stats(m).hull, Loadout.HULLS.fighter.hull, 'no extra armour');
+  assert.strictEqual(Squad.stats(m).hull, Math.round(Loadout.HULLS.fighter.hull * Classes.CLASSES[m.cls].mods.hull), 'no extra armour (its class aside)');
   // Its own gear: a pulse laser fitted, with a mod, is what it flies with, and survives a save.
   m.loadout = { ...m.loadout, fitted: { ...m.loadout.fitted, 'weapon-1': 'pulse-laser-3' } };
   const mod = Object.keys(Mods.MODS).find((id) => Mods.fits(id, 'weapon'));

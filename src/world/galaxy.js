@@ -7,16 +7,19 @@
 // frontier systems outside it. The first is the start: the showcase (one of each planet, moon and
 // station type, a field, a nebula) on an outer arm, its waystation where the game begins. Between
 // the systems lie the deep-space sites and fields (world/deep-space.js): the black hole at the
-// centre, clusters, remnants, rogue planets and the rest. Jump gates are sparse: a trunk of gated
-// systems along each major arm, one link across the bar, a wormhole from near the core out to an
-// arm's tip, and the start's gate into its arm's trunk; everything else is reached by cruising.
+// centre, clusters, remnants, rogue planets and the rest. The settled band is split into three
+// territories (Wedge round the start, Block and Shard either side), each joined inside by jump gates,
+// one gate link between each pair; the rest of the frontier is the Drifters' and the Androids', the
+// systems furthest in the aliens', reached by cruising. Each system has a level (1..5) setting how
+// tough its hostiles and dungeons are (notes/galaxy.md).
 // With galaxy.spiral false it is the single showcase system as before (the idle game's stage).
 // Galaxy.generate gathers everything into one object that reads like a single system with a list
 // of systems around it, as the flight view (flight/scene.js, game/), map travel (flight/travel.js),
 // fog of war (rules/knowledge.js) and the map (ui/map.js) expect:
 // - systems[i]: each system as SolarSystem.generate made it, already in place, plus `index`, its
-//   `zone` and `arm` (world/galaxy-shape.js), whether it is `settled` (in the habitable band) and its
-//   politics: region { key, label }, holder (null), branch (null), factions [{ id, hidden,
+//   `zone` and `arm` (world/galaxy-shape.js), whether it is `settled` (in the habitable band), its
+//   `faction` (wedge, block, shard, drifter, android, alien) and `level` (1..5), and its
+//   politics: region { key, label }, holder (its faction; null in the showcase alone), branch (null), factions [{ id, hidden,
 //   stations }], situations ([]), places (names jobs could use),
 // - links: [[i, j]] gate links between systems by index (i < j); wormholes: the same, for the
 //   links that are wormholes,
@@ -47,7 +50,7 @@ const Galaxy = (() => {
   const SS = SolarSystem;
 
   // Bump whenever a change here moves systems or gates for the same seed.
-  const VERSION = 6;
+  const VERSION = 7;
 
   const DEFAULTS = {
     // The system's params, over SolarSystem.params: one of each planet type (inner to outer) and
@@ -96,9 +99,6 @@ const Galaxy = (() => {
       rim: { star: { classes: [['M', 5], ['K', 2], ['G', 1]] }, nebulae: { count: [0, 1] }, planets: { count: [3, 5] } },
       halo: { star: { classes: [['M', 1]] }, nebulae: { count: [0, 0] }, planets: { count: [2, 4] } },
     },
-    // Gates: along each major arm, gated systems near these points of its length (0 at the bar);
-    // wormholes: how many.
-    gates: { trunk: [0.06, 0.38, 0.68, 0.94], reach: 0.14, wormholes: 1 },
     // Observatories: some of the deep-space sites (a `share` of those of the kinds below) have a
     // station in a wide orbit round them, studying them. orbit: its distance from the site, by
     // kind (world units; a disc's by its own reach, beyond the disc), clear of what the site's
@@ -111,9 +111,24 @@ const Galaxy = (() => {
       },
       cultures: [[0, 2], [1, 2], [2, 2], [SS.DRIFTER, 3]],
     },
+    // Hostile ships in every system of the spiral: packs in its low and lawless space (none where
+    // security is high), their gear by the system's level (world/security.js levelTier).
+    hostiles: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true },
+    // Territories (notes/galaxy.md): how many of the systems furthest in are the aliens' (at least
+    // the first, up to the second while they're in the core or the bar), and the most security a
+    // system of each holder can have (outside systems are rough, the aliens' lawless).
+    territory: { aliens: [3, 6], cap: { drifter: 1, android: 1, alien: 0 } },
+    // The outside systems' stations: the Drifters' a few kitbashed stations and a yard, the
+    // Androids' one station; the aliens' none (and more wrecks).
+    drifter: { stations: { capital: false, major: false, minor: [1, 2], miningCamps: [0, 1], transport: false }, yard: 0.6, derelicts: { count: [6, 9] } },
+    android: { stations: { capital: false, major: false, minor: [1, 1], miningCamps: [0, 0], transport: false }, yard: 0, derelicts: { count: [4, 6] } },
+    alien: { stations: { capital: false, major: false, minor: [0, 0], miningCamps: [0, 0], transport: false }, yard: 0, derelicts: { count: [10, 14] } },
     // Each major arm's name, picked from these.
     armNames: ['Lantern', 'Cinder', 'Orison', 'Harrow', 'Tamsin', 'Verge', 'Halcyon', 'Ember', 'Solace', 'Wake'],
   };
+  // The three territories, and the station culture (SolarSystem.CULTURES id) each builds in.
+  const TERRITORIES = ['wedge', 'block', 'shard'];
+  const CULTURE_OF = { wedge: 0, block: 1, shard: 2 };
   const ZONE_LABEL = { core: 'Galactic core', bar: 'The bar', interarm: 'Between the arms', rim: 'Outer rim', halo: 'The halo' };
 
   // A copy of `base` with `over` merged in: plain objects merge, everything else replaces.
@@ -180,46 +195,65 @@ const Galaxy = (() => {
       if (fits(at, genR)) spots.push({ x: Math.round(at.x), y: Math.round(at.y) });
     }
 
-    // ---------- Gate links ----------
-    // Each major arm's trunk: the systems nearest the trunk's points along it, in order, linked one
-    // to the next; the two trunks' roots linked across the bar; the start into its arm's trunk; and
-    // the wormholes from the system nearest the core out to the far trunk's tip.
+    // ---------- Territories ----------
+    // Who holds each system (notes/galaxy.md): the habitable band is split into three contiguous
+    // territories by their angle round the centre, Wedge round the start and Block and Shard either
+    // side; the systems nearest the core (the core and the bar) are the aliens', the end game; the
+    // rest of the frontier is the outside civilisations', the Drifters' and the Androids'.
     const where = spots.map((p) => ({ arm: shape.armAt(p.x, p.y), zone: shape.zoneAt(p.x, p.y) }));
+    const fromC = (i) => Math.hypot(spots[i].x, spots[i].y) / R;
+    const isSettled = (i) => i === 0 || (fromC(i) >= G.habitable[0] && fromC(i) <= G.habitable[1] && where[i].zone.zone !== 'core' && where[i].zone.zone !== 'bar');
+    const T = G.territory, faction = spots.map(() => null);
+    const idx = spots.map((p, i) => i);
+    const remote = idx.filter((i) => !isSettled(i)).sort((a, b) => fromC(a) - fromC(b));
+    remote.forEach((i, k) => { if (k < T.aliens[0] || (k < T.aliens[1] && ['core', 'bar'].includes(where[i].zone.zone))) faction[i] = 'alien'; });
+    const ra = mulberry32(hashInt(base, 3, 0x7e77));
+    const outside = remote.filter((i) => !faction[i]);
+    outside.forEach((i, k) => { faction[i] = k % 5 === 1 || k % 5 === 3 ? 'android' : 'drifter'; });
+    if (ra() < 0.5 && outside.length > 2) [faction[outside[0]], faction[outside[1]]] = [faction[outside[1]], faction[outside[0]]];
+    const a0 = Math.atan2(spots[0].y, spots[0].x);
+    const signed = (i) => { let d = Math.atan2(spots[i].y, spots[i].x) - a0; while (d > Math.PI) d -= 2 * Math.PI; while (d <= -Math.PI) d += 2 * Math.PI; return d; };
+    const band = idx.filter(isSettled).sort((a, b) => Math.abs(signed(a)) - Math.abs(signed(b)));
+    const nW = Math.max(1, Math.round(band.length / 3));
+    band.slice(0, nW).forEach((i) => { faction[i] = 'wedge'; });
+    const rest = band.slice(nW).sort((a, b) => ((signed(a) + 2 * Math.PI) % (2 * Math.PI)) - ((signed(b) + 2 * Math.PI) % (2 * Math.PI)));
+    rest.forEach((i, k) => { faction[i] = k < rest.length / 2 ? 'block' : 'shard'; });
+    // How hard each system is (1..5): Wedge's the gentlest, the other two a step up, the outside
+    // systems harder (the further from the start the harder), the aliens' the hardest.
+    const dStart = (i) => Math.hypot(spots[i].x - spots[0].x, spots[i].y - spots[0].y);
+    const outD = outside.map(dStart).sort((a, b) => a - b), median = outD[Math.floor(outD.length / 2)] ?? 0;
+    const level = spots.map((p, i) => ({ wedge: 1, block: 2, shard: 2, alien: 5 })[faction[i]] ?? (dStart(i) > median ? 4 : 3));
+
+    // ---------- Gate links ----------
+    // Inside each territory its systems are joined into one network (the shortest links that join
+    // them all); between territories, one link joins each pair at their nearest systems. The
+    // outside and alien systems have no gates: they're reached by cruising.
     const links = [], wormholes = [];
-    const link = (a, b, hole = false) => {
+    const link = (a, b) => {
       if (a === b || a < 0 || b < 0) return;
       const pair = a < b ? [a, b] : [b, a];
-      if (links.some(([x, y]) => x === pair[0] && y === pair[1])) return;
-      links.push(pair);
-      if (hole) wormholes.push(pair);
+      if (!links.some(([x, y]) => x === pair[0] && y === pair[1])) links.push(pair);
     };
-    const used = new Set([0]);
-    const trunks = majors.map((arm) => {
-      const out = [];
-      for (const t of G.gates.trunk) {
-        let best = -1, bestD = Infinity;
-        spots.forEach((p, i) => {
-          const w = where[i].arm;
-          if (used.has(i) || !w || w.arm !== arm || w.d > w.w * 1.6) return;
-          const d = Math.abs(w.t - t);
-          if (d < G.gates.reach && d < bestD) { best = i; bestD = d; }
-        });
-        if (best >= 0) { used.add(best); out.push(best); }
-      }
-      for (let i = 1; i < out.length; i++) link(out[i - 1], out[i]);
-      return out;
-    });
-    if (trunks.length > 1 && trunks[0].length && trunks[1].length) link(trunks[0][0], trunks[1][0]);
     const dOf = (i, j) => Math.hypot(spots[i].x - spots[j].x, spots[i].y - spots[j].y);
-    const own = trunks[majors.indexOf(startArm)] || [];
-    const anyTrunk = trunks.flat();
-    const into = (own.length ? own : anyTrunk).reduce((b, i) => (b < 0 || dOf(0, i) < dOf(0, b) ? i : b), -1);
-    link(0, into >= 0 ? into : spots.slice(1).reduce((b, _, k) => (b < 0 || dOf(0, k + 1) < dOf(0, b) ? k + 1 : b), -1));
-    const byCore = spots.map((p, i) => i).filter((i) => i !== 0).sort((a, b) => Math.hypot(spots[a].x, spots[a].y) - Math.hypot(spots[b].x, spots[b].y));
-    const far = trunks.find((t) => t !== own && t.length) || own;
-    for (let n = 0; n < G.gates.wormholes && far.length; n++) {
-      const from = byCore.find((i) => !links.some(([a, b]) => a === i || b === i)) ?? byCore[n];
-      link(from, far[far.length - 1 - n] ?? far[0], true);
+    const members = (f) => idx.filter((i) => faction[i] === f);
+    for (const f of TERRITORIES) {
+      const list = members(f);
+      if (!list.length) continue;
+      const inTree = new Set([list[0]]);
+      while (inTree.size < list.length) {
+        let best = null;
+        for (const a of inTree) for (const b of list) if (!inTree.has(b) && (!best || dOf(a, b) < best[2])) best = [a, b, dOf(a, b)];
+        link(best[0], best[1]);
+        inTree.add(best[1]);
+      }
+    }
+    for (let x = 0; x < TERRITORIES.length; x++) {
+      for (let y = x + 1; y < TERRITORIES.length; y++) {
+        const A = members(TERRITORIES[x]), B = members(TERRITORIES[y]);
+        let best = null;
+        for (const a of A) for (const b of B) if (!best || dOf(a, b) < best[2]) best = [a, b, dOf(a, b)];
+        if (best) link(best[0], best[1]);
+      }
     }
 
     // ---------- The systems ----------
@@ -233,29 +267,37 @@ const Galaxy = (() => {
       const gates = links.flatMap(([a, b]) => (a === i ? [b] : b === i ? [a] : [])).map((j) => {
         const hole = wormholes.some(([a, b]) => (a === i && b === j) || (a === j && b === i));
         const angle = Math.atan2(spots[j].y - at.y, spots[j].x - at.x);
-        return { angle, to: j, ...(hole ? { wormhole: true } : i === 0 ? { culture: G.gate.culture } : {}) };
+        return { angle, to: j, ...(hole ? { wormhole: true } : { culture: CULTURE_OF[faction[i]] ?? G.gate.culture }) };
       });
-      const z = where[i].zone, fromC = Math.hypot(at.x, at.y) / R;
-      const settled = i === 0 || (fromC >= G.habitable[0] && fromC <= G.habitable[1] && z.zone !== 'core' && z.zone !== 'bar');
+      const z = where[i].zone, settled = isSettled(i), f = faction[i];
+      // Each system's own: its hostiles' level and side, and the most security it can have.
+      const own = { security: { cap: T.cap[f] ?? 2 }, pirates: { ...G.hostiles, level: level[i], faction: f === 'alien' ? 'alien' : 'drifter' } };
       let sys = null;
       for (let attempt = 0; attempt < 8 && (!sys || usedNames.has(sys.name)); attempt++) {
         if (i === 0) {
-          sys = SS.generate(seed, { params, gates, origin: at, waystation: { name: G.waystation.name, opposite: true } });
+          sys = SS.generate(seed, { params: merge(params, own), gates, origin: at, waystation: { name: G.waystation.name, opposite: true } });
           break;
         }
         const rs = mulberry32(hashInt(base, i, 0x5755 + attempt));
-        const kind = settled ? G.settled : G.frontier;
+        const kind = settled ? G.settled : G[f] || G.frontier;
         const zp = G.zones[zoneKey(z)] || {};
         const p = merge(merge(merge(merge(SS.params, { pirates: params.pirates }), G.generated), zp), {
           stations: { ...kind.stations, yard: rs() < kind.yard }, ...(kind.derelicts ? { derelicts: kind.derelicts } : {}),
         });
-        sys = SS.generate(hashInt(base, i, 0x5e5e + attempt), { params: merge(p, config.params), gates, origin: at });
+        sys = SS.generate(hashInt(base, i, 0x5e5e + attempt), { params: merge(merge(p, own), config.params), gates, origin: at });
       }
       usedNames.add(sys.name);
       const zl = z.zone === 'arm' ? arms[z.arm].name : ZONE_LABEL[z.zone];
       const region = i === 0 ? { key: 'home', label: `Home system · ${zl}` } : { key: settled ? 'settled' : 'frontier', label: `${zl} · ${settled ? 'settled' : 'frontier'}` };
-      Object.assign(sys, { index: i, zone: z.zone, arm: z.arm, side: z.side, settled });
-      settle(sys, G, i === 0, region);
+      Object.assign(sys, { index: i, zone: z.zone, arm: z.arm, side: z.side, settled, faction: f, level: level[i] });
+      // Its stations in its holder's culture: a territory's all its own (salvage yards the
+      // Drifters', the waystation the Androids'), an outside system's all the Drifters' or Androids'.
+      for (const st of sys.stations) {
+        if (st.waystation) continue;
+        st.culture = f === 'drifter' ? SS.DRIFTER : f === 'android' ? SS.ANDROID : st.market.type === 'salvage yard' ? SS.DRIFTER : CULTURE_OF[f] ?? st.culture;
+      }
+      settle(sys, G, false, region);
+      sys.holder = f;
       return sys;
     });
 

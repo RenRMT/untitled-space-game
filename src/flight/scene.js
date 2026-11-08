@@ -189,8 +189,9 @@ const Scene = (() => {
     const buildPirates = (si) => {
       for (const [k] of parts.packs[si]) {
         for (const s of k.ships) {
-          const art = ArtBlueprints.create(Entities.fighterClass(k.tier, s.seed), cultures.pirates, s.seed);
-          add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id }, k.x, k.y);
+          const alien = k.faction === 'alien';
+          const art = ArtBlueprints.create(Entities.fighterClass(k.tier, s.seed), alien ? cultures.alien || cultures.pirates : cultures.pirates, s.seed);
+          add({ ...Entities.fighter({ key: s.key, art, x: k.x, y: k.y, orbit: s.orbit, speed: s.speed, a0: s.a0, tier: k.tier }), pack: k.id, faction: k.faction || 'drifter', ...(alien ? { crew: 'Aliens' } : {}) }, k.x, k.y);
         }
       }
     };
