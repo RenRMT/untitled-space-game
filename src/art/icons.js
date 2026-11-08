@@ -1,5 +1,6 @@
 // Item icons for menus: an item type's own art (art/items.js), drawn by the game's renderer in
 // the current art style onto a small canvas and kept as an image URL.
+// Ship equipment (art/equipment.js) is drawn the same way: pass its kind ('laser', 'scanner', …).
 // ItemIcons.url(kind, style, size, o?) -> data URL of a size x size (CSS pixels) icon, sharp on
 // high-DPI screens; o: ArtItems.create's { shape, color }. Each kind/style/size/o is drawn once and reused.
 // Items differ a lot in shape (a long ingot, a squat canister), so each is drawn once to find
@@ -7,6 +8,7 @@
 // ES module (`ItemIcons`); needs a browser.
 
 import { ArtItems } from './items.js';
+import { ArtEquipment } from './equipment.js';
 import { Art } from './render.js';
 
 const ItemIcons = (() => {
@@ -56,7 +58,7 @@ const ItemIcons = (() => {
     const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
     const key = `${kind}|${style}|${size}|${dpr}|${o.shape ?? ''}|${o.color || ''}`;
     if (cache.has(key)) return cache.get(key);
-    const bp = ArtItems.create(kind, 1, o);
+    const bp = ArtEquipment.has(kind) ? ArtEquipment.create(kind, 1, o) : ArtItems.create(kind, 1, o);
     const px = Math.round(size * dpr);
     const texel = Math.max(1, Math.round(config.texelPx * dpr));
     // First pass, on a canvas twice the size so nothing is cut off: the item's radius spans
