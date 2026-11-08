@@ -44,7 +44,8 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // rules/abilities.js), which take no room in the hold; gambits: the logic packages owned ([id],
 // rules/research.js, bought at an outfitter or found: game/vendor.js); shop: what's been bought from
 // today's gear stock at each station ({ day, bought: { [station key]: [i] } }); pilot: the player's
-// experience and talents ({ xp, talents: [id] }, rules/progress.js: the level comes from the xp); squad: the squad members (rules/squad.js), with their loadouts and programs
+// experience and talents ({ xp, talents: [id] }, rules/progress.js: the level comes from the xp);
+// world: the elites' and raids' timers (game/traffic.js: { elites: { [system]: { n, at } }, raids: { n, next } }); squad: the squad members (rules/squad.js), with their loadouts and programs
 // and hull. missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in, the galaxy's jobs among it;
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
@@ -58,7 +59,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] },
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 } },
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
   loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
@@ -133,6 +134,7 @@ export function loadCargo(galaxy) {
   cargo.gambits = [];
   cargo.shop = null;
   cargo.pilot = { xp: 0, talents: [] };
+  cargo.world = { elites: {}, raids: { n: 0, next: 0 } };
   cargo.market = Economy.empty();
   cargo.rep = Reputation.empty();
   cargo.squad = []; // hired at a dock (game/squad.js)
@@ -358,6 +360,10 @@ export function readCargo(d, galaxy = null) {
   // Before the squad: what its programs may use.
   cargo.gambits = Array.isArray(d.gambits) ? [...new Set(d.gambits.filter((id) => Vendor.isGambit(id)))] : [];
   cargo.pilot = { xp: Math.max(0, Math.floor(d.pilot?.xp) || 0), talents: [] }; // talents once the class is read
+  if (d.world && typeof d.world === 'object') {
+    for (const [si, e] of Object.entries(d.world.elites || {})) if (e && Number.isFinite(e.n) && Number.isFinite(e.at)) cargo.world.elites[si] = { n: e.n, at: e.at };
+    if (Number.isFinite(d.world.raids?.n) && Number.isFinite(d.world.raids?.next)) cargo.world.raids = { n: d.world.raids.n, next: d.world.raids.next };
+  }
   if (d.shop && Number.isFinite(d.shop.day) && d.shop.bought && typeof d.shop.bought === 'object') {
     cargo.shop = { day: d.shop.day, bought: {} };
     for (const [key, list] of Object.entries(d.shop.bought)) if (Array.isArray(list)) cargo.shop.bought[key] = list.filter(Number.isInteger);
@@ -406,7 +412,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
-  cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, squad: cargo.squad,
+  cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
   loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
 }), 1000);

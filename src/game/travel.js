@@ -11,6 +11,7 @@ import { shards } from './mining.js';
 import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
 import { NEAR, cam, fight, notify, ship, wings } from './state.js';
+import { trafficThings } from './traffic.js';
 import { world } from './world.js';
 import { isRazed } from './structures.js';
 
@@ -82,6 +83,12 @@ export function nearbyEntities(t) {
   for (const e of missionThings()) {
     if (cargo.removed.has(e.key)) continue;
     poseAt(e, t);
+    out.push(e);
+  }
+  // Traffic, elites and raids (game/traffic.js): traffic is posed by its own step, the rest as pirates are.
+  for (const e of trafficThings()) {
+    if (Math.abs(e.x - cam.x) > NEAR || Math.abs(e.y - cam.y) > NEAR) continue;
+    if (!e.traffic) poseAt(e, t);
     out.push(e);
   }
   // The squad's ships fly with yours.

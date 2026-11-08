@@ -9,6 +9,7 @@ import { tickCollisions } from './collisions.js';
 import { updateRegion } from './draw-world.js';
 import { steady } from './input.js';
 import { trackShields } from './screen-fx.js';
+import { tickTraffic } from './traffic.js';
 import { docked } from './docking.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
@@ -58,6 +59,7 @@ export function update(dt) {
     tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
   }
   if (!docked && !landing.on && !warp.on && !fight.wrecked) trackShields(); // the shields breaking (game/screen-fx.js)
+  if (!warp.on) tickTraffic(); // freighters, patrols, elites and raids (game/traffic.js)
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 

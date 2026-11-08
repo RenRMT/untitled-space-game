@@ -67,6 +67,7 @@ const RealtimeCombat = (() => {
     if (o.cls) c.cls = o.cls; // a class (rules/classes.js): a Tank draws fire
     if (o.fixed) c.fixed = true; // holds its place (a dungeon's guardian, a turret, a station): turns to fire, never moves
     if (o.defender) c.defender = true; // a station's turret on the player's side (game/structures.js)
+    if (o.patrol) c.patrol = true; // a faction patrol on the player's side (game/traffic.js)
     if (o.shield !== undefined && o.shield !== null) c.shield = Math.min(stats.shield, Math.max(0, o.shield));
     return {
       ...c, ...(o.passive ? { passive: true } : {}), ...(o.material ? { material: o.material } : {}),

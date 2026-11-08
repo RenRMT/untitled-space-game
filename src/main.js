@@ -60,6 +60,7 @@ import * as cargo from './game/cargo.js';
 import * as outfitting from './game/outfitting.js';
 import * as vendor from './game/vendor.js';
 import * as progress from './game/progress.js';
+import * as traffic from './game/traffic.js';
 import * as missions from './game/missions.js';
 import * as jobs from './game/jobs.js';
 import * as docking from './game/docking.js';
@@ -83,7 +84,7 @@ import * as dungeon from './game/dungeon.js';
 import * as structures from './game/structures.js';
 import * as surfaceSquad from './game/surface-squad.js';
 
-const parts = [state, options, world, cargo, outfitting, vendor, progress, missions, jobs, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, vendor, progress, traffic, missions, jobs, docking, squad, mining, travel,
   selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());

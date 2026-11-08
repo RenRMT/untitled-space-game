@@ -21,6 +21,12 @@ what you destroy, and push out from the safe core of your faction's space into h
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
   each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
+- **A living galaxy.** The system the ship is in has traffic (`src/game/traffic.js`): freighters
+  plying between its stations, and patrols of named pilots circling them, who join a fight against
+  hostiles nearby unless their faction counts you Hostile. Every system of level 2 and up has a named
+  elite pirate, much tougher than its pack, with its own loot (Rare or better), a gambit and a
+  bounty; another comes after two hours. Now and then raiders come for a station: destroy them for a
+  bounty, experience and gear, or they withdraw.
 - **Levels and talents.** The pilot earns experience from what's destroyed (less for easy kills,
   none far below you), contracts by their difficulty and every Warden; the squad learns alongside.
   Levels go to 30, each a little sturdier and harder hitting; every third gives a talent point,

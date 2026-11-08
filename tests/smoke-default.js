@@ -10,6 +10,7 @@ import { install } from './browser-stub.js';
 
 const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1' });
 const { G } = await import('../src/main.js');
+const { Messages } = await import('../src/ui/messages.js');
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
 const scope = Object.create(G);
 const game = (src) => inGame(scope, src);
@@ -164,6 +165,57 @@ test('the outfitter: gambits, today\'s gear and consumables for credits; the gea
   assert.ok(game('cargo.gambits.includes("core.bool") && !!cargo.shop'), 'survives a reload');
   game('Clock.now = () => Date.now(); launch()');
   browser.frames(2);
+});
+
+test('traffic: freighters ply between stations, patrols circle them and join a fight; an elite and a raid, each with its bounty', () => {
+  if (game('!!docked')) game('launch()');
+  game('placeBeside(startStation()); tickTraffic()');
+  assert.strictEqual(game('traffic.sys'), 0, 'the start system\'s traffic');
+  assert.ok(game(`traffic.ships.some((e) => e.role === 'freighter')`), 'freighters');
+  assert.ok(game(`traffic.ships.some((e) => e.patrol)`), 'a patrol');
+  assert.ok(game(`traffic.ships.every((e) => !isHostile(e) && e.name)`), 'friendly, and named');
+  const f = game(`(() => { const e = traffic.ships.find((x) => x.role === 'freighter'); return [e.key, e.x, e.y]; })()`);
+  game('skipTime(20); tickTraffic()');
+  assert.notDeepStrictEqual(game(`(() => { const e = traffic.ships.find((x) => x.key === '${f[0]}'); return [e.key, e.x, e.y]; })()`), f, 'a freighter flies on');
+  browser.frames(1);
+  assert.ok(game(`frameList.some((e) => e.key && e.key.startsWith('traffic:'))`), 'drawn in the flight view');
+  // A patrol near a fight is on your side.
+  const specs = game(`(() => { const p = traffic.ships.find((e) => e.patrol); return patrolSpecs({ x: p.x, y: p.y }); })()`);
+  assert.ok(specs.length >= 1 && specs.every((a) => a.patrol), 'patrols as allies');
+  // In a fight: a pirate engaged by a patrol, which fires on it.
+  game(`fight.grace = 0; cargo.hull = SHIP.hull; globalThis.__pp = traffic.ships.find((e) => e.patrol);
+    globalThis.__foe = world.scene.entities.find((e) => isHostile(e) && !cargo.removed.has(e.key) && e.tier === 1);
+    Scene.pose(__foe, simTime); placeShip(__foe.x + 500, __foe.y); __pp.x = __foe.x + 300; __pp.y = __foe.y + 200;
+    react(nearbyEntities(simTime)); engage(__foe)`);
+  assert.ok(game('!!fight.s && fight.s.allies.some((a) => a.id === __pp.key && a.patrol)'), 'the patrol fights with you');
+  assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === __pp.key)`, 60 * 30), 'and fires');
+  game('if (fight.s) fight.s.over = "fled"');
+  browser.frames(3);
+  game('fight.grace = 1e9; fight.returning.clear()');
+  // An elite in a system of level 2 or more, a tier above its pirates; destroyed: a bounty, rare loot,
+  // and another only after a while.
+  game(`globalThis.__si = world.galaxy.systems.findIndex((s) => s.level >= 2 && world.galaxy.packs.some((k) => k.system === s.index));
+    { const sys = world.galaxy.systems[__si]; placeShip(sys.star.x + 3000, sys.star.y); } tickTraffic()`);
+  assert.ok(game('traffic.sys === __si && !!traffic.elite'), 'an elite');
+  assert.match(game('traffic.elite.name'), /^[A-Z][a-z]+ /);
+  assert.ok(game('isHostile(traffic.elite) && traffic.elite.stats.hull > Loadout.stats(Loadout.npc("fighter", traffic.elite.tier)).hull * 2'), 'hostile, and tough');
+  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; eliteDown(traffic.elite)');
+  assert.ok(game('cargo.credits > __cr && Object.keys(cargo.gear).length > __gear'), 'a bounty and loot');
+  assert.ok(game('!traffic.elite && cargo.world.elites[__si].at > Clock.now()'), 'gone until it respawns');
+  game('tickTraffic()');
+  assert.ok(game('!traffic.elite'), 'not straight back');
+  // A raid on a station: announced, and beaten off for a bounty.
+  game('placeBeside(startStation()); tickTraffic(); cargo.world.raids.next = 1; tickTraffic()');
+  assert.ok(game('!!traffic.raid && traffic.raid.ships.length >= 3'), 'raiders');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Raiders are attacking .* · destroy them for a bounty/);
+  assert.ok(game('traffic.raid.ships.every((e) => isHostile(e))'));
+  game('globalThis.__cr = cargo.credits; for (const k of traffic.raid.keys) cargo.removed.add(k); tickTraffic()');
+  assert.ok(game('!traffic.raid && cargo.credits > __cr'), 'the bounty');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /is safe · [\d,]+ cr bounty/);
+  // Saved: the timers.
+  game('saveCargoNow(); loadCargo(world.galaxy)');
+  assert.ok(game('cargo.world.elites[__si].at > Clock.now() && cargo.world.raids.n >= 1'), 'survives a reload');
+  game('fight.grace = 0; placeBeside(startStation())');
 });
 
 test('the gate jumps the ship to the next system, with no story step first', () => {

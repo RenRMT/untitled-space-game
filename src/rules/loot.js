@@ -119,6 +119,7 @@ const Loot = (() => {
     sentinel: { chance: 0.18, rolls: 1, floor: 'common', luck: 1.2 },
     raider: { chance: 0.12, rolls: 1, floor: 'common', luck: 1.1 },
     warden: { chance: 1, rolls: 1, floor: 'rare', luck: 2.5 },
+    elite: { chance: 1, rolls: 2, floor: 'rare', luck: 2.2 }, // a named pirate ace (game/traffic.js)
     mission: { chance: 1, rolls: 1, floor: 'uncommon', luck: 1.5 },
   };
   const PITY = { rare: 14, epic: 45 };
