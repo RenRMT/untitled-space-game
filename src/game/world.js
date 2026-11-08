@@ -16,12 +16,11 @@ import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
 import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
-import { GATE_JOB, OPENING, SALVAGE, cargo, loadCargo, opening, saveCargoNow } from './cargo.js';
-import { endIntro, introDue, startIntro, waystation } from './intro.js';
-import { buildMission, endTalk, mission, settleOpeningLoyalty, showGates, skipOpening } from './missions.js';
+import { cargo, loadCargo, saveCargoNow } from './cargo.js';
+import { endTalk, showGates } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
 import { trustOnline } from './restoration.js';
-import { SHIP, intro, notify, ship } from './state.js';
+import { SHIP, notify, ship } from './state.js';
 import { arriveAt } from './travel.js';
 
 export const world = { galaxy: null, cultures: null, scene: null, knowledge: null, travel: null, orbitT: 0 };
@@ -60,7 +59,6 @@ export function loadGalaxy(galaxy) {
   const way = galaxy.stations[galaxy.waystation];
   world.wayFace = way ? ArtCrew.create(way.seed, world.cultures.of(way.culture)) : null; // its android
   endTalk(false);
-  buildMission();
   loadCargo(galaxy);
   SystemMap.knowledge = world.knowledge;
   // An ambush is passed by once its pirates are gone, or while the pirates count you Friendly
@@ -69,17 +67,9 @@ export function loadGalaxy(galaxy) {
   SystemMap.trip = world.travel;
   Art.clearCache();
   ArtBodies.clearCache();
-  if (intro.on) endIntro({ played: false }); // a new galaxy mid-introduction: start over
-  if (!mission.site) cargo.missions.finish(OPENING); // no waystation: no opening missions
-  if (!mission.salvage) cargo.missions.finish(SALVAGE); // (or no nebula for the second)
-  if (!mission.gate) cargo.missions.finish(GATE_JOB); // (or no gate for the third)
-  else if (Params.has('skipintro') && opening()) skipOpening();
-  settleOpeningLoyalty();
   trustOnline();
   showGates();
-  if (introDue()) startIntro();
-  else if (opening()) placeBeside(waystation()); // the opening missions start and end there
-  else placeBeside(startStation());
+  placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);
 }
 // Knowledge and cargo save on a short debounce; everything is written out when the page is hidden

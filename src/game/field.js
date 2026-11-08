@@ -3,7 +3,7 @@
 // and on a planet's surface: repair nanites and shield cells as in a fight, a coolant flush (heat),
 // a radiation purge, a fuel canister and a seismic charge (on the rock the tools are locked on). Each
 // has its cooldown, in flight time. Keys 1–6 use them in the bar's order.
-// Not while docked, in the introduction, a gate jump, the descent or climb of a landing, a fight with
+// Not while docked, in a gate jump, the descent or climb of a landing, a fight with
 // ships (its panel has the fight's abilities) or the wait for a tow.
 // Part of the flight view; src/main.js starts it.
 
@@ -18,7 +18,7 @@ import { docked } from './docking.js';
 import { hazard } from './hazards.js';
 import { landing } from './landing.js';
 import { talk } from './missions.js';
-import { SHIP, fight, inShipFight, intro } from './state.js';
+import { SHIP, fight, inShipFight } from './state.js';
 import { simTime } from './update.js';
 import { warp } from './warp.js';
 
@@ -26,7 +26,7 @@ import { warp } from './warp.js';
 export const field = { cool: {} };
 
 // Whether the bar is up: out flying or on a surface, with nothing else holding the controls.
-export const fieldShown = () => !docked && !intro.on && !warp.on && !talk.lines && !SystemMap.isOpen && !inShipFight()
+export const fieldShown = () => !docked && !warp.on && !talk.lines && !SystemMap.isOpen && !inShipFight()
   && !fight.wrecked && !(fight.wreckT > 0) && !landing.wrecked && (!landing.on || landing.phase === 'surface');
 
 // The ship's meters, as rules/abilities.js reads them; rock: the one the tools are locked on, mining.

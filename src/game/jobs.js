@@ -1,4 +1,4 @@
-// The galaxy's jobs in flight (story/jobs.js; the opening missions are game/missions.js's): their
+// The galaxy's jobs in flight (story/jobs.js; joined to the flight view in game/missions.js): their
 // things in space (hostile waves, items to collect, gas pockets, the ship being escorted), their
 // progress each frame, the lines said on the comms as a step opens, where the HUD and map point,
 // and the station screen's view of them: accepting, handing in, abandoning and tracking one, and
@@ -14,7 +14,9 @@ import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtTurrets } from '../art/turrets.js';
 import { ArtCrew } from '../art/crew.js';
 import { ArtCulture } from '../art/culture.js';
+import { ArtPortraits } from '../art/portraits.js';
 import { hashInt, seedToInt } from '../core/rng.js';
+import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
@@ -25,15 +27,27 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, devUnlock, gatesOnline, hold, lootNotice, opening, saveCargo, takeLoot } from './cargo.js';
+import { addTo, cargo, hold, lootNotice, saveCargo, takeLoot } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { faceOf } from './intro.js';
+import { artStyle } from './options.js';
 import { calm, say } from './missions.js';
 import { frameList } from './selection.js';
-import { NEAR, SHIP, TAU, cam, fight, inFight, intro, notify, ship } from './state.js';
+import { NEAR, SHIP, TAU, cam, fight, inFight, notify, ship } from './state.js';
 import { world } from './world.js';
+
+// A portrait (art/portraits.js) in an art style (the current one by default), filling a square:
+// a face(ctx, size) drawer for the comms box and the station screen.
+export function faceOf(portrait, style) {
+  return (c, size) => {
+    c.fillStyle = COLORS.bg;
+    c.fillRect(0, 0, size, size);
+    c.translate(size / 2, size / 2);
+    c.scale(size / 100, size / 100);
+    ArtPortraits.draw(c, portrait, style || artStyle.value, { texel: 2 });
+  };
+}
 
 // built: per job id, its things in space for the attempt under way ({ n, steps: [[entity]] per
 // step (made when first needed), escort }); centre: where a rushing wave came in (by `${id}:${i}`),
@@ -190,7 +204,7 @@ export function jobThings() {
 // waves and items gone, pockets collected, goods in the hold; and a rushing wave sent at the ship
 // once its step opens. Each step's lines are said, when nothing else is going on, as it opens.
 export function tickJobs(dt) {
-  if (!cargo.board || intro.on) return;
+  if (!cargo.board) return;
   const L = log();
   let changed = false, calling = false;
   for (const id of activeJobs()) {
@@ -359,12 +373,9 @@ export function trackedJob() {
 
 // ---------- On the station screen ----------
 
-// Whether a job can be taken: station services open (the opening missions done), every system it
-// goes to reachable (the gates online, outside the first system), and not withdrawn: a situation's
-// jobs from a faction are, once a job in that situation has been done against it.
+// Whether a job can be taken: not withdrawn (a situation's jobs from a faction are, once a job in
+// that situation has been done against it).
 export function available(J) {
-  if (opening() && !devUnlock) return false;
-  if (!gatesOnline() && J.systems.some((s) => s !== 0)) return false;
   return !withdrawn(J);
 }
 export function withdrawn(J) {

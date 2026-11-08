@@ -1,6 +1,6 @@
 # Missions
 
-> **Pared back (October 2026):** the job texts were emptied; the opening missions remain. See `notes/archived-systems.md`.
+> **Pared back (October 2026):** the job texts were emptied. **November 2026:** the opening missions (the story missions below) were removed; only the jobs remain. See `notes/archived-systems.md`.
 >
 > **November 2026:** every station now posts combat contracts (`story/job-texts.js` CONTRACTS) with a difficulty (Easy, Normal, Hard, Elite): raider patrols (`fight`), turret batteries and pirate outposts (`assault`: an installation of turrets, with an outpost station for the harder ones, in the station's system or a nearby one), sieges (`defend`: waves at the station, its turrets fighting with you) and elite strikes a jump away. Difficulty raises the hostiles' tier and the pay, and every contract rewards gear (`rules/loot.js` mission drops: Uncommon or better from Normal up, Rare or better from Elite).
 

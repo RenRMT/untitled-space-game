@@ -47,7 +47,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // blueprints and hull refits among it); industry: each station's stock and the production orders at
 // stations (rules/industry.js); loyalty: how far each station trusts the player ({ [station key]: n },
 // raised by missions done for it; a station not in it counts Industry.LOYALTY.start); squad: the squad members (rules/squad.js), with their loadouts and programs
-// and hull. story: what has happened so far (a Set of STORY flags). missions: the mission log
+// and hull. missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in, the galaxy's jobs among it;
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
 // map follow (an id, or null for the first under way). market: station stockpiles the player's
@@ -61,36 +61,16 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [],
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
   loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
 };
-// Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
-// online by the third opening mission (until then the first system is all there is).
-export const STORY = ['intro', 'gates'];
-// ?dev (for testing): the jump gates online, every station service open and production orders
-// taken everywhere, even in a fresh game, without touching the save (see stationLocks, the jobs
-// board and game/industry.js). Combat god mode is the same switch (game/combat.js).
+// ?dev (for testing): every station service open and production orders taken everywhere, even
+// in a fresh game, without touching the save (the jobs board and game/industry.js). Combat god
+// mode is the same switch (game/combat.js).
 export const devUnlock = Params.has('dev');
-// Whether the game plays the opening missions; off while the core gameplay is reworked: none are
-// offered, the game starts beside the start station and the jump gates are online from the start
-// (they're what the third mission brings online). ?missions plays them anyway.
-export const MISSIONS_ENABLED = false;
-export const missionsOn = MISSIONS_ENABLED || Params.has('missions');
-export const gatesOnline = () => devUnlock || !missionsOn || cargo.story.has('gates');
-// The opening missions (story/missions.js), which follow the introduction and pay off the player's
-// debt: "Payment in kind", then "The remaining balance". Until the second is handed in, station
-// screens offer only Missions (and Squad, once the first has brought a squad member): see The
-// opening missions below.
-export const OPENING = 'repayment', SALVAGE = 'salvage', GATE_JOB = 'gate';
-// The waystation's missions, in the order it offers them (the third is optional).
-export const CHAIN = [OPENING, SALVAGE, GATE_JOB];
-export const opening = () => cargo.missions.status(SALVAGE) !== 'done';
 export const PICKUP_RANGE = 40; // world units beyond the item's own size
-// Items closer than this (beyond their own size) are pulled in to the ship, closing on it at
-// PULL_SPEED world units a second faster than it flies.
-export const PULL_RANGE = 220, PULL_SPEED = 450;
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
 // Drops are held still at the three-quarter turn their icons are drawn at (art/icons.js), so what
 // floats is what the menus show; dragged onto the ship, one is picked up (game/input.js).
@@ -156,8 +136,7 @@ export function loadCargo(galaxy) {
   cargo.restored = [];
   cargo.market = Economy.empty();
   cargo.rep = Reputation.empty();
-  cargo.squad = []; // the first member joins at the end of the first mission
-  cargo.story = new Set();
+  cargo.squad = []; // hired at a dock (game/squad.js)
   cargo.board = Jobs.board(galaxy);
   cargo.missions = Missions.create(null, cargo.board.byId);
   cargo.track = null;
@@ -204,23 +183,9 @@ export const CARGO_MIGRATIONS = [
     for (const it of items) if (Goods.isSalvage(it.kind)) addTo(d.components, it.kind);
     d.items = items.filter((it) => !Goods.isSalvage(it.kind));
   },
-  // 2. The mission log: a save that had played the introduction already has the wingman the
-  //    first mission brings, so that mission is done.
-  (d) => {
-    if (d.missions || !(Array.isArray(d.story) && d.story.includes('intro'))) return;
-    const log = Missions.create();
-    log.finish(OPENING);
-    d.missions = log.save();
-  },
-  // 3. The second mission: with the first done, the debt was already settled by it. (Saves of
-  //    this form carried missionsVersion: 2.)
-  (d) => {
-    if (!d.missions || d.missionsVersion >= 2) return;
-    const log = Missions.create(d.missions);
-    if (log.status(OPENING) !== 'done') return;
-    log.finish(SALVAGE);
-    d.missions = log.save();
-  },
+  // 2, 3. (The opening missions' log, since removed: nothing to do.)
+  () => {},
+  () => {},
   // 4. Research no longer unlocks equipment or hull upgrades: equipment researched becomes a
   //    schematic (sold to you at every station, as before), hull upgrades become hull refits.
   (d) => {
@@ -454,7 +419,6 @@ export function readCargo(d, galaxy = null) {
   if (d.restoreFromUse && galaxy) cargo.restored = restoredByUse(galaxy);
   cargo.market = Economy.prune(Economy.read(d.market), Clock.now());
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
-  if (Array.isArray(d.story)) cargo.story = new Set(d.story.filter((f) => STORY.includes(f)));
   if (d.missions) cargo.missions = Missions.create(d.missions, cargo.board ? cargo.board.byId : {});
   cargo.rep = Reputation.read(d.rep);
   if (d.repFromJobs && cargo.board) for (const J of cargo.board.list) if (cargo.missions.status(J.id) === 'done') Reputation.earn(cargo.rep, J);
@@ -499,7 +463,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
-  market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
+  market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
   loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
 }), 1000);
 // The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
@@ -611,21 +575,13 @@ export function lootNotice(item) {
   notify(`${R.name} loot: ${item.name} · item level ${item.loot.ilvl} · in your spare gear`, item.loot.rarity === 'common' ? 2.5 : 4, { tone: RARITY_TONE[R.id] });
 }
 
-// Floating items near the ship are pulled in to it (dt seconds of pull), and those within reach
-// are picked up: trade goods into the hold while there's room, components into their own store,
-// which never fills. A trade good that won't fit is left where it is.
-export function collectItems(list, dt = 0) {
+// Floating items dragged onto the ship (game/input.js) are picked up: trade goods into the hold
+// while there's room, components into their own store, which never fills. A trade good that won't
+// fit is left where it is. Nothing is picked up by flying near it.
+export function collectItems(list) {
   for (const e of list) {
     if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
-    let d = Math.hypot(ship.x - e.x, ship.y - e.y);
-    const fits = e.kind === 'loot' || e.mission || Goods.isSalvage(e.itemKind) || hold.free >= 1;
-    if (fits && dt > 0 && d > 0 && d < e.radius * 0.7 + PULL_RANGE) {
-      const step = Math.min(d, (Math.hypot(ship.vx, ship.vy) + PULL_SPEED) * dt);
-      e.x += ((ship.x - e.x) / d) * step;
-      e.y += ((ship.y - e.y) / d) * step;
-      if (e.drop) { e.drop.x = e.x; e.drop.y = e.y; }
-      d -= step;
-    }
+    const d = Math.hypot(ship.x - e.x, ship.y - e.y);
     if (d > e.radius * 0.7 + PICKUP_RANGE) continue;
     if (e.kind === 'loot') { // gear: into the spare gear, which takes no hold room
       if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);

@@ -185,7 +185,8 @@
   .cb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
   .cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
   .cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-  body.in-combat #context, body.in-combat #factions-btn, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
+  /* The rest of the interface (map, settings, factions, context menu, consumables) stays up in a
+     fight: the panel keeps clear of the consumables' column on the right. */
   /* Consumables in the field (ui/field-bar.js): a column of buttons up the right-hand side, above the
      corner buttons, each its icon over the charges left. */
   #field {
@@ -202,9 +203,7 @@
   .fb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
   .fb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
   .fb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-  body.docked #field, body.intro #field, body.in-combat #field, body.warping #field, body.talking #field { display: none; }
-  /* Mining (game/combat.js extract) has no panel: only the context menu and the map wait for it. */
-  body.mining #context, body.mining #map-btn { display: none; }
+  body.docked #field, body.warping #field, body.talking #field { display: none; }
 
   /* Station screen: header, the tab's content, then the icon tab bar and Launch in thumb reach.
      Sheets (#st-layer) slide up over it. */
@@ -634,12 +633,6 @@
   .cm-main { flex: 1; min-width: 0; }
   .cm-head { display: flex; align-items: center; gap: 8px; }
   .cm-from { flex: 1; min-width: 0; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--from); }
-  .cm-skip {
-    min-height: var(--hit); font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim);
-    background: none; border: 0; padding: 0 8px; margin: -14px -8px -14px 0; cursor: pointer; pointer-events: auto;
-  }
-  .cm-skip:hover, .cm-skip:focus-visible { color: var(--cyan); outline: none; }
-  .cm-skip[hidden] { display: none; }
   .cm-text { margin: 4px 0 0; color: var(--bright); overflow-wrap: anywhere; }
   .cm-text strong { color: var(--from); font-weight: 600; }
   .cm-more { margin-top: 6px; text-align: right; font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
@@ -656,14 +649,13 @@
   #resume[hidden] { display: none; }
   #resume .t { font: 700 calc(26px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
   #resume .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); }
-  body.intro #factions-btn, body.intro #map-btn, body.intro #settings-btn, body.intro #context { display: none; }
   /* Someone talking on the comms during flight: the box covers the bottom of the screen and the
      corner buttons on a narrow screen; the context menu waits until they're done. */
   body.talking #context, body.talking #factions-btn, body.talking #map-btn, body.talking #settings-btn { display: none; }
   body.warping #context, body.warping #factions-btn, body.warping #map-btn, body.warping #settings-btn { display: none; } /* a gate jump (game/warp.js) */
   /* Landing on a planet and taking off (game/landing.js): no context menu, map or factions. On the
-     surface: those buttons back but still no context menu. The way out is on the ground: a dungeon's
-     landing pad, a landing site's rim. */
+     surface: those back, the context menu for a node or a drop tapped (game/surface-run.js). The
+     way out is on the ground: a dungeon's landing pad, a landing site's rim. */
   body.landing #context, body.landing #factions-btn, body.landing #map-btn { display: none; }
   /* Short of fuel to take off (game/surface-run.js): Jettison, or with not even enough for an empty
      hold, Call a tow. */
@@ -676,7 +668,6 @@
   @media (max-width: 600px) {
     #jettison-btn, #tow-btn { bottom: calc(12px + var(--hit) + 14px + env(safe-area-inset-bottom, 0px)); }
   }
-  body.landed #context { display: none; }
 
   /* Text size (Settings > Accessibility): the DOM panels are zoomed by --ui-scale (1, 1.15, 1.3; set
      on <html> by game/options.js). A zoomed element's own lengths are zoomed too, so positions and
@@ -691,7 +682,7 @@
     bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   .panel { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((60px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
-  #combat { max-width: calc((100vw - 24px) / var(--ui-scale)); }
+  #combat { max-width: calc((100vw - 2 * (var(--hit) * var(--ui-scale) + 24px)) / var(--ui-scale)); }
   .icon-btn { zoom: var(--ui-scale); bottom: calc((12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #factions-btn { right: calc((12px + 2 * (var(--hit) * var(--ui-scale) + 8px) + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
   #map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }

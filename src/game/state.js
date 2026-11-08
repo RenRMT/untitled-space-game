@@ -1,5 +1,5 @@
 // The flight view's shared state: the canvas and view, the ship and camera, the fight, the
-// introduction's and toast's state, the screen modes (setMode) and where the ship is (here).
+// toast's state, the screen modes (setMode) and where the ship is (here).
 // Part of the flight view; src/main.js starts it.
 
 import { Display } from '../core/display.js';
@@ -37,7 +37,7 @@ export const ship = {
   thrust: 0,
 };
 
-// zoom: screen px per world unit, base (by the window's size) × k (eased: wider in the introduction).
+// zoom: screen px per world unit, base (by the window's size) × k (eased back to 1 after a change).
 export const view = { w: 0, h: 0, dpr: 1, zoom: 1, base: 1, k: 1, inset: { t: 0, r: 0, b: 0, l: 0 } };
 // The screen's safe area (notches, rounded corners, the home bar), px: CSS knows it as
 // env(safe-area-inset-*), so a hidden element padded by it is measured.
@@ -76,11 +76,6 @@ export const fight = {
   s: null, mode: 'rounds', ships: new Map(), fx: [], log: [], result: null, resultT: 0, grace: 0, wreckT: 0,
   final: null, lastShips: new Map(), wrecked: false, returning: new Map(), dying: new Set(),
 };
-// The introduction (see Introduction below): on while the escape pod is being talked in to the
-// waystation. run: the script (story/intro.js); station: the waystation's entity; face: its android's
-// portrait; flying: the pod is the player's to fly; beam: the tractor beam has it ({ t, in });
-// arrive: the pod drifting in at the start, before anyone speaks ({ t, from, to, a0, a1 }).
-export const intro = { on: false, run: null, station: null, face: null, flying: false, beam: null, arrive: null };
 export const inFight = () => !!fight.s || fight.wreckT > 0;
 // The same (mining is not a fight any more: game/mining.js).
 export const inShipFight = inFight;
@@ -101,12 +96,12 @@ export const notify = (text, t = 2, { once = false, tone = 'info' } = {}) => {
   toast.t = t;
   Messages.push(text, { tone });
 };
-// What the screen is busy with: 'intro', 'talking', 'docked', 'in-combat', 'mining', 'settings', 'landing'
+// What the screen is busy with: 'talking', 'docked', 'in-combat', 'mining', 'settings', 'landing'
 // (from the descent to a planet until back in space) and 'landed' (on its surface). Each sets the
 // body class of the same name (index.html hides controls by it); the map can't open during any of
 // those in MAP_BLOCKERS. Several can hold at once, so each is switched on and off by name.
 export const modes = new Set();
-export const MAP_BLOCKERS = ['intro', 'docked', 'in-combat', 'mining', 'settings', 'factions', 'warping', 'landing'];
+export const MAP_BLOCKERS = ['docked', 'settings', 'factions', 'warping', 'landing']; // not a fight nor mining: the interface stays up
 export function setMode(name, on) {
   if (on) modes.add(name); else modes.delete(name);
   document.body.classList.toggle(name, on);

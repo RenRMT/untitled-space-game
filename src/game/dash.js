@@ -5,8 +5,8 @@
 // back. It costs fuel (Hazards.config.fuel.dash; more in the cold of the ice planet), comes back
 // after DASH.cooldown, and for its burst and a moment after, a collision or a storm pocket does no
 // harm. It ticks once a frame, in space (game/update.js) and on a surface (game/loop.js).
-// In open flight (a mining session too) and on a surface; not docked, landing, jumping, in the
-// introduction, wrecked or in a fight with ships.
+// In open flight (a mining session too) and on a surface; not docked, landing, jumping,
+// wrecked or in a fight with ships.
 // Part of the flight view; src/main.js starts it.
 
 import { Feedback } from '../core/feedback.js';
@@ -19,7 +19,7 @@ import { docked } from './docking.js';
 import { hazardsOn, outOfFuel } from './hazards.js';
 import { SURFACE_SPEED, landing } from './landing.js';
 import { surfaceRun } from './surface-run.js';
-import { SHIP, TAU, autopilot, ctx, fight, intro, notify, ship } from './state.js';
+import { SHIP, TAU, autopilot, ctx, fight, notify, ship } from './state.js';
 import { warp } from './warp.js';
 
 // t: seconds of the burst left (below 0: since it ended); cool: seconds until the next; body: the
@@ -35,7 +35,7 @@ const surfaceDash = () => landing.on && landing.phase === 'surface';
 
 // Where the ship can dash now (the fuel aside).
 export function canDash() {
-  if (docked || intro.on || warp.on || SystemMap.isOpen || fight.wrecked || fight.wreckT > 0) return false;
+  if (docked || warp.on || SystemMap.isOpen || fight.wrecked || fight.wreckT > 0) return false;
   if (fight.s) return false; // a fight with ships flies by its own rules
   if (landing.on) return surfaceDash() && !landing.wrecked;
   return true;

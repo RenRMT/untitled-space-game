@@ -9,22 +9,20 @@ import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
-import { collectItems } from './cargo.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
 import { updateFieldBar } from './field.js';
 import { drawEntities, drawHaulers, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
-import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
+import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers } from './hud.js';
 import { tickHold } from './input.js';
-import { drawTractorBeam } from './intro.js';
 import { drawDebris, drawMining, drawMiningLabel } from './mining.js';
 import { tickDash } from './dash.js';
 import { active as hazardsOn, drawFlareGlow, drawHazards } from './hazards.js';
 import { drawHazardScreen } from './screen-fx.js';
-import { drawGateWork, objective } from './missions.js';
+import { objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
 import { drawStarfield, starCount } from './starfield.js';
-import { cam, ctx, fight, flash, here, intro, ship, view } from './state.js';
+import { cam, ctx, fight, flash, here, ship, view } from './state.js';
 import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
 import { drawLanding, drawLandingOverlay, landing, onSurface, surfacePerf, tickLanding } from './landing.js';
@@ -34,11 +32,9 @@ import { tickStructures } from './structures.js';
 
 // ---------- Main loop ----------
 
-// What follows from where things are after a step (of dt seconds): items pulled in and picked
-// up, the selection, a long press, pirates noticing the ship, reaching the player's marker, and the objective
-// shown on the map. Not while paused, so nothing is picked up behind the settings menu.
+// What follows from where things are after a step (of dt seconds): the selection, a long press, pirates noticing the ship, reaching the player's marker, and the objective
+// shown on the map. Not while paused.
 export function react(list, dt = 0) {
-  if (!fight.wrecked) collectItems(list, dt); // a lost ship waiting for its tow picks nothing up
   tickStructures(list); // stations and turrets: razed, hostile (game/structures.js)
   updateSelection(list);
   tickHold(dt);
@@ -71,9 +67,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawSelection(t);
   drawMining();
   drawDebris();
-  drawGateWork(t);
   drawParticles();
-  if (intro.on) drawTractorBeam(t);
   drawWarpWorld();
   drawShip(t);
   ctx.restore();
@@ -95,10 +89,8 @@ export function render(list = nearbyEntities(simTime)) {
   if (!moving) drawNavMarkers();
   drawFoeMarkers();
   drawDragIndicator();
-  if (hudShown()) {
-    drawMinimap(list);
-    drawHud();
-  }
+  drawMinimap(list);
+  drawHud();
   if (SystemMap.perf) drawPerf();
 }
 

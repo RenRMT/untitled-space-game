@@ -15,7 +15,7 @@ import { SHIP, fight, ship } from './state.js';
 // reach far; flight/entities.js picks it the same way).
 const SOLID = { asteroid: 1, station: 0.75 };
 
-// After the flight step, in open flight only (not while landing, jumping or in the introduction).
+// After the flight step, in open flight only (not while landing or jumping).
 export function tickCollisions() {
   if (fight.wrecked) return;
   for (const e of frameList) {

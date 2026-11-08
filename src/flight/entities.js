@@ -267,15 +267,18 @@ const Entities = (() => {
       label: named,
       mark: () => ({ color: color().dim, r: 1.5 }),
     },
+    // Drops: selectable (what it is), picked up by dragging onto the ship (game/input.js).
     item: {
-      order: 3.5,
+      order: 3.5, selectable: true,
+      card: (e) => ({ title: e.label, sub: 'Drag it onto the ship to pick it up', color: color().amber }),
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t }),
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
     },
     // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow.
     loot: {
-      order: 3.6,
+      order: 3.6, selectable: true,
+      card: (e) => ({ title: e.name, sub: 'Drag it onto the ship to pick it up', color: e.color }),
       draw(ctx, e, style, x, y, { t }) {
         const pulse = 0.5 + 0.5 * Math.sin(t * 3 + (e.x % 7));
         ctx.save();

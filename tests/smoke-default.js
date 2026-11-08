@@ -1,5 +1,5 @@
 // Smoke test for the game as a player gets it: `node tests/smoke-default.js`. tests/smoke.js plays
-// with ?intro&missions&pirates (to keep the switched-off opening, missions and fights working);
+// with ?pirates&hazards&sites (to keep the switched-off fights, hazards and sites working);
 // this one starts the game with no flags at all, in a process of its own (the game's scripts are
 // global), and plays the core loop as it ships: the start beside the capital with the gates
 // online, no squad and no pirates; docking and trading; mining; landing and taking off;
@@ -51,10 +51,9 @@ game(`globalThis.__find = (pred) => {
   return e;
 };`);
 
-test('a new game: beside the capital in Wedge space, the gates online; no introduction, missions or squad', () => {
+test('a new game: beside the capital in Wedge space, the gates online; no squad', () => {
   browser.frames(3);
-  assert.ok(game('!intro.on && !missionsOn && !opening()'), 'straight into the game');
-  assert.ok(game('gatesOnline()'), 'the gates are online from the start');
+  assert.ok(game('world.scene.gates.every((g) => !g.offline)'), 'the gates are online from the start');
   assert.ok(game(`startStation().station.market.type === 'capital' && actions.state('dock', startStation()).inRange`), 'beside the capital, in docking range');
   assert.strictEqual(game('cargo.squad.length'), 0, 'no squad');
   assert.strictEqual(game('world.galaxy.systems[0].faction'), 'wedge', 'the start is Wedge space');
@@ -62,8 +61,6 @@ test('a new game: beside the capital in Wedge space, the gates online; no introd
   assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');
   assert.ok(game(`world.galaxy.packs.filter((k) => k.system === 0).every((k) => k.tier <= 2)`), 'gentle ones in the start system');
   assert.strictEqual(game('hazardsOn'), false, 'no hazards');
-  assert.deepStrictEqual(game('stationLocks().tabs'), [], 'no station services locked');
-  assert.ok(game('hudShown()'), 'the HUD shows');
 });
 
 test('docks at the capital, buys and sells a good, and launches', () => {
@@ -82,15 +79,36 @@ test('docks at the capital, buys and sells a good, and launches', () => {
 test('mines an asteroid with the starting tools and keeps what it drops', () => {
   assert.ok(game(`!!(globalThis.__rock = __find((e) => e.kind === 'asteroid' && !e.site && Mining.yieldOf(world.galaxy.seed, e) && !cargo.removed.has(e.key)))`), 'an asteroid with a yield');
   game('cargo.items = []; placeShip(__rock.x, __rock.y + __rock.radius + 60); select(__rock)');
-  browser.frames(1);
+  browser.frames(30);
+  assert.ok(game('!mine.target'), 'selecting a rock doesn\'t mine it');
   clickCard('mine');
-  assert.ok(game('mine.target === __rock'), 'mining');
+  assert.ok(game('mine.target === __rock'), 'mining, once Mine is pressed');
   assert.ok(until('cargo.removed.has(__rock.key)', 60 * 30), 'the asteroid broke up');
-  // The tools chain on through its shards; what it all left is pulled in and collected.
-  assert.ok(until('!shards.some((e) => e.parent.key === __rock.key)', 60 * 20), 'every shard broken');
-  game('endExtraction()');
-  assert.ok(until('!cargo.drops.some((e) => e.key.startsWith("drop:" + __rock.key))', 60 * 3), 'the drops pulled in');
-  assert.ok(game('cargo.items.length') >= 1, 'something in the hold');
+  // The tools stop there: its shards wait to be mined in turn, each by its own Mine.
+  browser.frames(60 * 3);
+  assert.ok(game('!mine.target'), 'the tools don\'t chain on by themselves');
+  const shard = game('shards.filter((e) => e.parent.key === __rock.key).length');
+  if (shard) {
+    game('select(shards.find((e) => e.parent.key === __rock.key))');
+    browser.frames(1);
+    clickCard('mine');
+    assert.ok(game('!!mine.target && mine.target.shard'), 'a shard mined by hand');
+    game('endExtraction(); select(null)');
+  }
+  // What it left floats where it is: flying over it picks nothing up, dragging it onto the ship does.
+  game('globalThis.__drop = cargo.drops.find((e) => e.key === "drop:" + __rock.key); __drop && placeShip(__drop.x, __drop.y)');
+  browser.frames(60);
+  assert.ok(game('!__drop || cargo.drops.includes(__drop)'), 'not pulled in nor picked up by flying over it');
+  game('if (__drop) { placeShip(__drop.x + 400, __drop.y); ship.targetSpeed = 0 }');
+  browser.frames(1);
+  if (game('!!__drop')) {
+    const from = game('worldToScreen(__drop.x, __drop.y)'), to = game('worldToScreen(ship.x, ship.y)'), canvas = browser.document.getElementById('game');
+    canvas.dispatch('pointerdown', { pointerId: 9, pointerType: 'touch', button: 0, clientX: from[0], clientY: from[1], timeStamp: 100 });
+    canvas.dispatch('pointermove', { pointerId: 9, pointerType: 'touch', clientX: to[0], clientY: to[1] });
+    canvas.dispatch('pointerup', { pointerId: 9, pointerType: 'touch', button: 0, clientX: to[0], clientY: to[1], timeStamp: 800 });
+    assert.ok(!game('cargo.drops.includes(__drop)'), 'dragged onto the ship, picked up');
+    assert.ok(game('cargo.items.length') >= 1, 'something in the hold');
+  }
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a rock never fires back');
   game('select(null)');
 });
@@ -223,10 +241,18 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
 
 test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
   game(`fight.grace = 1e9; cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
-    cargo.drops.push(dropEntity({ key: 'drop:smoke:drag', kind: 'iron', seed: 3, x: ship.x + PULL_RANGE + 300, y: ship.y }))`);
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:drag', kind: 'iron', seed: 3, x: ship.x + 400, y: ship.y }))`);
   browser.frames(1);
+  // A tap selects it (what it is), and it's drawn as its icon, DROP_PX across.
+  const at = game(`worldToScreen(ship.x + 400, ship.y)`), DROP_PX = game('DROP_PX'), cv = browser.document.getElementById('game');
+  cv.dispatch('pointerdown', { pointerId: 5, pointerType: 'touch', button: 0, clientX: at[0] + DROP_PX * 0.4, clientY: at[1], timeStamp: 50 });
+  cv.dispatch('pointerup', { pointerId: 5, pointerType: 'touch', button: 0, clientX: at[0] + DROP_PX * 0.4, clientY: at[1], timeStamp: 120 });
+  browser.frames(1);
+  assert.strictEqual(game('selected && selected.key'), 'item:drop:smoke:drag', 'a tap on its icon selects it');
+  assert.strictEqual(game('ship.targetSpeed'), 0, 'and doesn\'t fly to it');
+  game('select(null)');
   assert.strictEqual(game(`cargo.drops.find((d) => d.key === 'drop:smoke:drag').angle`), game('DROP_ANGLE'), 'held at its icon\'s turn');
-  const from = game(`worldToScreen(ship.x + PULL_RANGE + 300, ship.y)`), to = game('worldToScreen(ship.x, ship.y)'), canvas = browser.document.getElementById('game');
+  const from = game(`worldToScreen(ship.x + 400, ship.y)`), to = game('worldToScreen(ship.x, ship.y)'), canvas = browser.document.getElementById('game');
   canvas.dispatch('pointerdown', { pointerId: 6, pointerType: 'touch', button: 0, clientX: from[0], clientY: from[1], timeStamp: 200 });
   canvas.dispatch('pointermove', { pointerId: 6, pointerType: 'touch', clientX: (from[0] + to[0]) / 2, clientY: from[1] });
   canvas.dispatch('pointermove', { pointerId: 6, pointerType: 'touch', clientX: to[0], clientY: to[1] });
@@ -285,7 +311,7 @@ test('loot: a station destroyed drops gear that floats, is picked up into the sp
   const drops = game(`cargo.drops.filter(__mine).length`);
   assert.ok(drops >= 2, 'a station drops two pieces, at least');
   assert.ok(game(`cargo.drops.filter(__mine).every((d) => Loot.RANK[d.rarity] >= Loot.RANK.uncommon)`), 'Uncommon or better');
-  game(`const d = cargo.drops.find(__mine); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime), 0.1)`);
+  game(`const d = cargo.drops.find(__mine); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime))`);
   assert.ok(game('cargo.gear[__lootId] === 1 && !!Loadout.EQUIPMENT[__lootId].loot'), 'in the spare gear, as equipment');
   assert.ok(game(`/loot/.test(toast.text)`), 'announced');
   // Fitted, then saved and read back: the same item.

@@ -7,7 +7,7 @@
 //   main.js       this file
 //   game/         the flight view: state, input, missions and jobs, combat, squad, HUD, the frame loop
 //   ui/           the DOM panels and the map
-//   story/        the introduction, the missions' data and the galaxy's jobs
+//   story/        the mission log and the galaxy's jobs
 //   combat/       combat rules: round-based and real time
 //   flight/       things in space: entities, the scene, flying, map travel
 //   art/          procedural art in two styles (Line, Low-poly)
@@ -59,7 +59,6 @@ import * as outfitting from './game/outfitting.js';
 import * as lab from './game/lab.js';
 import * as industry from './game/industry.js';
 import * as restoration from './game/restoration.js';
-import * as intro from './game/intro.js';
 import * as missions from './game/missions.js';
 import * as jobs from './game/jobs.js';
 import * as docking from './game/docking.js';
@@ -85,7 +84,7 @@ import * as dungeon from './game/dungeon.js';
 import * as structures from './game/structures.js';
 import * as surfaceSquad from './game/surface-squad.js';
 
-const parts = [state, options, world, cargo, outfitting, lab, industry, restoration, intro, missions, jobs, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, lab, industry, restoration, missions, jobs, docking, squad, mining, travel,
   selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
