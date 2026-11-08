@@ -1851,11 +1851,16 @@ test('the surface run: the scan before landing; a node selected and mined by its
   browser.frames(90);
   assert.ok(!game('mine.target'), 'no chaining from node to node');
   // Too far: Mine waits for the ship to come closer.
-  game(`{ const [sx, sy] = surfaceRun.W.start, d = surfaceRun.deposits.find((x) => Math.hypot(x.x - sx, x.y - sy) - x.radius > mineReach() + REACH + 50);
-    selectOnSurface(d); Object.assign(landing.craft, { x: sx, y: sy, vx: 0, vy: 0 }); }`);
+  // (The tools reach most of a landing site: shorter-ranged ones for this.)
+  game(`globalThis.__lock = SHIP.lockRange; SHIP.lockRange = 600;
+    { const [sx, sy] = surfaceRun.W.start, gap = (x) => Math.hypot(x.x - sx, x.y - sy) - x.radius, d = surfaceRun.deposits.slice().sort((a, b) => gap(b) - gap(a))[0];
+      selectOnSurface(d); Object.assign(landing.craft, { x: sx, y: sy, vx: 0, vy: 0 }); }`);
   browser.frames(1);
   assert.ok(game('landing.phase === "surface" && !!surfaceSel.it'), 'still down, a far node selected');
   assert.match(game('mineState(surfaceSel.it).label'), /too far/);
+  clickCard('mine');
+  assert.ok(!game('mine.target'), 'Mine does nothing from there');
+  game('SHIP.lockRange = __lock');
   // A full hold: no mining.
   game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' })); endExtraction();
     { const C = landing.craft, d = surfaceSel.it; Object.assign(C, { x: d.x - 80, y: d.y, vx: 0, vy: 0, angle: 0 }); }`);
