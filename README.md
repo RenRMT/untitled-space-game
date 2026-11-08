@@ -11,10 +11,14 @@ what you destroy, and push out from the safe core of your faction's space into h
   outside, 5 the aliens'), shown on the map.
 - **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
   in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  leave loot to pick up: components, goods and now and then a schematic.
+  leave loot to pick up: components, goods and now and then a schematic. Fights are turn-based on a
+  timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
+  its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
+  knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
+  below. Real time is the alternative in Settings.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
-  each with an activation time and a cooldown: keys 1–3 or the combat panel's buttons in a fight.
+  each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
   class starts with a program that does.

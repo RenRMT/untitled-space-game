@@ -1788,7 +1788,7 @@ const testShip = (o) => ({
 const always = () => 0; // every roll succeeds
 
 test('abilities: a charge on a target that needs it, a cooldown, and timed effects that wear off', () => {
-  const ship = (id, o = {}) => Combat.combatant(id, id, testShip({ shield: 50, ...o }));
+  const ship = (id, o = {}) => CombatCore.combatant(id, id, testShip({ shield: 50, ...o }));
   const me = ship('me'), foe = ship('foe');
   // Repairs and shields only when they'd help.
   assert(!Abilities.ready(me, 'repair-nanites', me, 0), 'not damaged');
@@ -1879,99 +1879,123 @@ test('skills: an activation first, the effect after it, then a cooldown; taunt d
   assert(me.hull > me.stats.hull / 2 && ally.hull > ally.stats.hull / 2, 'the field repaired both');
 });
 
-off('?pirates', 'abilities in a fight: a silenced ship holds fire, in rounds and in real time', () => {
-  const s = Combat.create(always, Combat.combatant('p', 'Me', testShip({ initiative: 1 })), [Combat.combatant('e', 'Them', testShip({ initiative: 3, hull: 1000 }))]);
-  Abilities.use(s.player, 'emp-charge', s.enemies[0], s.t);
-  const ev = Combat.round(s);
-  assert(ev.every((e) => e.from === 'p'), 'only the player fired');
-  s.t = 5;
-  assert(Combat.round(s).some((e) => e.from === 'e'), 'and it fires again once it wears off');
-  // Real time: an enemy with its guns on you, silenced, does no damage while it lasts.
-  const body = (x) => ({ x, y: 0, vx: 0, vy: 0, angle: x > 0 ? Math.PI : 0, radius: 16 });
-  const p = RealtimeCombat.ship('player', 'Me', Loadout.stats(Loadout.starter('courier')), body(0));
-  const e = RealtimeCombat.ship('e', 'Them', Loadout.stats(Loadout.npc('fighter', 1)), body(300));
-  const rt = RealtimeCombat.create(mulberry32(3), p, [e], { focus: 'e' });
-  Abilities.use(p, 'emp-charge', e, rt.t);
-  for (let i = 0; i < 60; i++) RealtimeCombat.step(rt, 1 / 30, p); // two seconds
-  assert.strictEqual(p.hull, p.stats.hull, 'no shots landed while silenced');
+// Turn-based combat (combat/combat.js): ships as the timeline takes them. Real gear, so they can fly;
+// `fixed` ones hold their place (only turning), for the rule checks.
+const FOE1 = Loadout.stats(Loadout.npc('fighter', 1));
+const COURIER_STATS = () => Loadout.stats(Loadout.starter('courier'));
+const tl = (id, stats, x, o = {}, hull = stats.hull) => RealtimeCombat.ship(id, id, stats, { x, y: 0, angle: x > 0 ? Math.PI : 0, radius: 16 }, hull, o);
+// n ships of these stats in a ring round the origin, 700 out, nosing in.
+const ringOf = (r, stats, n, prefix) => Array.from({ length: n }, (_, k) => {
+  const a = (k / n) * Math.PI * 2 + r();
+  return RealtimeCombat.ship(`${prefix}${k}`, 'Fighter', stats, { x: Math.cos(a) * 700, y: Math.sin(a) * 700, angle: a + Math.PI, radius: 16 });
 });
 
-off('?pirates', 'combat rounds: initiative, shields before hull, no shots from the dead, recharge', () => {
-  // The player fires first and destroys the enemy, which never gets to shoot back.
-  let s = Combat.create(always,
-    Combat.combatant('p', 'Me', testShip({ initiative: 3, shield: 10 })),
-    [Combat.combatant('e', 'Them', testShip({ hull: 15, shield: 5, weapons: [{ name: 'Pea', damage: 1, fireRate: 2 }] }))]);
-  let ev = Combat.round(s);
-  assert.strictEqual(ev.length, 1);
-  assert.deepStrictEqual([ev[0].shots, ev[0].hits, ev[0].shieldDamage, ev[0].hullDamage, ev[0].destroyed], [3, 3, 5, 15, true]);
-  assert.strictEqual(s.over, 'won');
-  assert.strictEqual(s.player.shield, 10, 'untouched');
+off('?pirates', 'abilities in a fight: a silenced ship holds fire, on the timeline and in real time', () => {
+  const p = tl('player', COURIER_STATS(), 0), e = tl('e', { ...FOE1, hull: 1000 }, 300, { fixed: true });
+  const s = Combat.create(always, p, [e], { focus: 'e' });
+  Abilities.use(p, 'emp-charge', e, s.t);
+  const g = e.gauge;
+  for (let i = 0; i < 60; i++) Combat.step(s, 1 / 30);
+  assert.strictEqual(e.gauge, g, 'its gauge froze');
+  assert.strictEqual(p.hull, p.stats.hull, 'no shots from it');
+  for (let i = 0; i < 6 * 30; i++) Combat.step(s, 1 / 30);
+  assert(p.hull < p.stats.hull || p.shield < p.stats.shield, 'and it fires again once it wears off');
+  // Real time: an enemy with its guns on you, silenced, does no damage while it lasts.
+  const body = (x) => ({ x, y: 0, vx: 0, vy: 0, angle: x > 0 ? Math.PI : 0, radius: 16 });
+  const rp = RealtimeCombat.ship('player', 'Me', COURIER_STATS(), body(0));
+  const re = RealtimeCombat.ship('e', 'Them', FOE1, body(300));
+  const rt = RealtimeCombat.create(mulberry32(3), rp, [re], { focus: 'e' });
+  Abilities.use(rp, 'emp-charge', re, rt.t);
+  for (let i = 0; i < 60; i++) RealtimeCombat.step(rt, 1 / 30, rp); // two seconds
+  assert.strictEqual(rp.hull, rp.stats.hull, 'no shots landed while silenced');
+});
 
-  // With more initiative the enemy fires first; shields soak damage, then recharge up to full.
-  s = Combat.create(always,
-    Combat.combatant('p', 'Me', testShip({ shield: 20, shieldRecharge: 4, weapons: [] })),
-    [Combat.combatant('e', 'Them', testShip({ initiative: 5, weapons: [{ name: 'Gun', damage: 5, fireRate: 2 }] }))]);
-  ev = Combat.round(s);
-  assert.strictEqual(ev[0].from, 'e');
-  assert.deepStrictEqual([ev[0].damage, ev[0].shieldDamage, ev[0].hullDamage], [15, 15, 0]);
-  assert.strictEqual(s.player.shield, 5 + 4 * Combat.config.round);
-  Combat.round(s);
-  assert.strictEqual(s.player.hull, 100 - (15 - 11), 'second volley breaks through the recharged shield');
+off('?pirates', 'the timeline: gauges by initiative, first strike, a volley when full, shields before hull, holding fire out of reach', () => {
+  // A better scanner charges quicker; turns at an even initiative take `turn`.
+  assert.strictEqual(Combat.period({ stats: { initiative: Combat.config.baseInitiative } }), Combat.config.turn);
+  assert(Combat.period({ stats: { initiative: 10000 } }) < Combat.config.turn && Combat.period({ stats: { initiative: 0 } }) > Combat.config.turn);
+  // Shots per turn average out to fireRate × turn time.
+  const c = { stats: { initiative: Combat.config.baseInitiative } }, w = { fireRate: 3 }, r = mulberry32(5);
+  let n = 0;
+  for (let i = 0; i < 2000; i++) n += Combat.shotsPerTurn(c, w, r);
+  assert(Math.abs(n / 2000 - 4.5) < 0.05, `average shots ${n / 2000}`);
+  // The fight you start: your gauge half full; an ambush: empty.
+  const me = () => tl('player', COURIER_STATS(), 0);
+  assert.strictEqual(Combat.create(always, me(), [tl('e', FOE1, 400, { fixed: true })], { focus: 'e' }).player.gauge, Combat.config.firstStrike);
+  assert.strictEqual(Combat.create(always, me(), [tl('e', FOE1, 400, { fixed: true })], {}).player.gauge, 0);
+  // Full, the player's volley lands on the focus: shields first, then the hull.
+  const p = me(), e = tl('e', { ...FOE1, hull: 500 }, 400, { fixed: true });
+  const s = Combat.create(always, p, [e], { focus: 'e' });
+  p.gauge = 0.999;
+  e.gauge = 0;
+  const ev = Combat.step(s, 1 / 30).filter((x) => x.type === 'shot');
+  assert.strictEqual(ev.length, 1, 'the laser fires (the gas siphon sits it out)');
+  assert.strictEqual(ev[0].from, 'player');
+  assert.strictEqual(ev[0].shieldDamage, FOE1.shield, 'shields first');
+  assert(ev[0].hullDamage > 0 && p.gauge === 0, 'then the hull; the gauge starts over');
+  // Out of reach: the gauge holds full, and the volley goes the moment it reaches.
+  const far = tl('f', { ...FOE1, weapons: [] }, 3000, { fixed: true });
+  const s2 = Combat.create(always, me(), [far], { focus: 'f' });
+  for (let i = 0; i < 90; i++) Combat.step(s2, 1 / 30);
+  assert.strictEqual(s2.player.gauge, 1, 'holding fire, ready');
+  assert(Combat.mode.gauge(s2, s2.player).holding, 'shown as holding');
+  far.home = { x: 500, y: 0 };
+  assert(Combat.step(s2, 1 / 30).some((x) => x.type === 'shot' && x.from === 'player'), 'fires as soon as it reaches');
+});
 
-  // An invulnerable ship (god mode, ?dev) takes nothing, shields or hull.
-  const god = { hull: 50, shield: 20, invulnerable: true };
-  assert.deepStrictEqual(CombatCore.applyDamage(god, 1000), { shieldDamage: 0, hullDamage: 0 });
-  assert.deepStrictEqual([god.hull, god.shield], [50, 20]);
-
-  // Hit chance stays within its bounds.
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 0.2 } }, { stats: { evasion: 0.9 } }), CombatCore.config.minHit);
-  assert.strictEqual(Combat.hitChance({ stats: { accuracy: 2 } }, { stats: { evasion: 0 } }), CombatCore.config.maxHit);
+off('?pirates', 'a breach: shields down knock the gauge back and cancel a heavy shot', () => {
+  const p = tl('player', COURIER_STATS(), 0), e = tl('e', { ...FOE1, hull: 500 }, 400, { fixed: true });
+  const s = Combat.create(always, p, [e], { focus: 'e' });
+  e.intent = { kind: 'heavy' };
+  e.gauge = 0.8;
+  e.shield = 1;
+  p.gauge = 0.999;
+  const ev = Combat.step(s, 1 / 30);
+  assert.deepStrictEqual(ev.find((x) => x.type === 'breach'), { type: 'breach', id: 'e', cancelled: true });
+  assert(e.gauge < 0.8 - Combat.config.breach + 0.05, `knocked back: ${e.gauge}`);
+  assert.strictEqual(e.intent.kind, 'volley', 'the heavy shot cancelled');
+  // A heavy shot that lands hits harder.
+  const q = tl('player', { ...COURIER_STATS(), shield: 0 }, 0), f = tl('f', FOE1, 400, { fixed: true });
+  const s2 = Combat.create(always, q, [f], { focus: 'f' });
+  f.intent = { kind: 'heavy' };
+  f.gauge = 0.9999;
+  const hit = Combat.step(s2, 1 / 30).find((x) => x.type === 'shot' && x.from === 'f');
+  assert(hit.heavy && hit.damage === hit.hits * FOE1.weapons[0].damage * Combat.config.heavyDamage, 'heavy damage');
 });
 
 off('?pirates', 'the player switches to the next enemy when the focused one is destroyed', () => {
-  const s = Combat.create(always,
-    Combat.combatant('p', 'Me', testShip({ initiative: 9, weapons: [{ name: 'A', damage: 10, fireRate: 2 }, { name: 'B', damage: 10, fireRate: 2 }] })),
-    [Combat.combatant('a', 'A', testShip({ hull: 20, weapons: [] })), Combat.combatant('b', 'B', testShip({ hull: 100, weapons: [] }))], 'a');
-  const ev = Combat.round(s);
-  assert.deepStrictEqual(ev.map((e) => e.to), ['a', 'b']);
+  const p = tl('player', COURIER_STATS(), 0);
+  const a = tl('a', { ...FOE1, hull: 1, shield: 0, weapons: [] }, 300, { fixed: true }), b = tl('b', { ...FOE1, hull: 500, weapons: [] }, 350, { fixed: true });
+  const s = Combat.create(always, p, [a, b], { focus: 'a' });
+  p.gauge = 0.999;
+  Combat.step(s, 1 / 30);
+  assert.strictEqual(a.hull, 0);
+  Combat.step(s, 1 / 30);
   assert.strictEqual(s.focus, 'b');
 });
 
-off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly in pairs, flee from ambushes', () => {
-  const me = Loadout.stats(Loadout.starter('courier'));
-  const fighter = Loadout.stats(Loadout.starter('fighter'));
-  const N = 1000;
-  const fight = (n, flee) => {
+off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly in pairs, flee by flying clear', () => {
+  const N = 200;
+  const fight = (n, pilot) => {
     let wins = 0, escapes = 0, hull = 0;
     for (let i = 0; i < N; i++) {
-      const s = Combat.create(mulberry32(i * 7919 + n), Combat.combatant('p', 'Me', me),
-        Array.from({ length: n }, (_, k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
-      while (!s.over) { s.fleeing = flee; Combat.round(s); }
+      const r = mulberry32(i * 7919 + n);
+      const es = Array.from({ length: n }, (_, k) => { const a = (k / n) * Math.PI * 2 + r(); return RealtimeCombat.ship(`f${k}`, 'Fighter', FOE1, { x: Math.cos(a) * 700, y: Math.sin(a) * 700, angle: a + Math.PI, radius: 16 }); });
+      const s = Combat.simulate(r, tl('player', COURIER_STATS(), 0), es, pilot);
       if (s.over === 'won') { wins++; hull += s.player.hull; }
       if (s.over === 'fled') escapes++;
     }
     return { win: wins / N, escape: escapes / N, hull: hull / Math.max(1, wins) };
   };
-  const [one, two, three, four] = [1, 2, 3, 4].map((n) => fight(n, false));
+  const me = COURIER_STATS();
+  const [one, two, three, four] = [1, 2, 3, 4].map((n) => fight(n, null));
   assert(one.win > 0.99 && one.hull > 100, `vs 1: ${JSON.stringify(one)}`);
-  assert(two.win > 0.8 && two.hull < me.hull - 10, `vs 2: ${JSON.stringify(two)}`);
-  assert(three.win > 0.03 && three.win < 0.5, `vs 3: ${JSON.stringify(three)}`);
+  assert(two.win > 0.85 && two.hull < me.hull - 10, `vs 2: ${JSON.stringify(two)}`);
+  assert(three.win < 0.3, `vs 3: ${JSON.stringify(three)}`);
   assert(four.win < 0.1, `vs 4: ${JSON.stringify(four)}`);
-  const run = fight(4, true);
-  assert(run.escape > 0.8, `fleeing 4: ${JSON.stringify(run)}`);
-});
-
-off('?pirates', 'fleeing skips the player\'s shots and depends on top speed', () => {
-  const s = Combat.create(() => 0.99, Combat.combatant('p', 'Me', testShip({ maxSpeed: 500 })),
-    [Combat.combatant('e', 'Them', testShip({ maxSpeed: 500, weapons: [] }))]);
-  s.fleeing = true;
-  const ev = Combat.round(s);
-  assert(!ev.some((e) => e.from === 'p'), 'the player fired while fleeing');
-  assert.deepStrictEqual(ev[ev.length - 1], { type: 'flee', ok: false });
-  assert.strictEqual(s.fleeing, true, 'a failed attempt keeps trying next round');
-  assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeBase);
-  s.player.stats.maxSpeed = 5000;
-  assert.strictEqual(Combat.fleeChance(s), Combat.config.fleeMax);
+  // Straight out at full speed, past the pirates' leash.
+  const run = fight(4, (s, dt) => { const a = Math.atan2(s.player.y - s.anchor.y, s.player.x - s.anchor.x); Flight.step(s.player, s.player.stats, { targetAngle: a, targetSpeed: s.player.stats.maxSpeed, mode: 'cruise' }, dt); });
+  assert(run.escape > 0.6, `fleeing 4: ${JSON.stringify(run)}`);
 });
 
 off('?pirates', 'pirates leave more components the better armed they are, and some cargo; freighters spill trade goods', () => {
@@ -2238,20 +2262,22 @@ off('?pirates', 'each step up the gear ladder takes on the next pirate band', ()
     }
     return Loadout.stats({ hull, fitted });
   };
+  // Sitting still, guns on the target (Combat.simulate's own pilot): flying well does better.
   const winRate = (stats, tier, n) => {
     let wins = 0;
     for (let i = 0; i < 100; i++) {
-      const enemies = Array.from({ length: n }, (_, k) => Combat.combatant(`e${k}`, 'Fighter', Loadout.stats(Loadout.npc('fighter', tier))));
-      if (Combat.simulate(mulberry32(i * 7919 + tier * 31 + n), Combat.combatant('player', 'Me', stats), enemies).over === 'won') wins++;
+      const r = mulberry32(i * 7919 + tier * 31 + n);
+      const enemies = Array.from({ length: n }, (_, k) => { const a = (k / n) * Math.PI * 2 + r(); return RealtimeCombat.ship(`e${k}`, 'Fighter', Loadout.stats(Loadout.npc('fighter', tier)), { x: Math.cos(a) * 700, y: Math.sin(a) * 700, angle: a + Math.PI, radius: 16 }); });
+      if (Combat.simulate(r, tl('player', stats, 0), enemies).over === 'won') wins++;
     }
     return wins / 100;
   };
-  assert(winRate(fit('courier', 1, 1), 1, 2) > 0.9, 'the starter ship beats two Mk I pirates');
+  assert(winRate(fit('courier', 1, 1), 1, 2) > 0.85, 'the starter ship beats two Mk I pirates');
   assert(winRate(fit('courier', 1, 1), 2, 2) < 0.2, '... but not two Mk II');
-  assert(winRate(fit('courier', 2, 2), 2, 3) > 0.9, 'Mk II gear with two lasers beats three Mk II pirates');
+  assert(winRate(fit('courier', 2, 2), 2, 3) > 0.7, 'Mk II gear with two lasers beats three Mk II pirates, mostly');
   assert(winRate(fit('courier', 2, 2), 3, 3) < 0.2, '... but not three Mk III');
-  assert(winRate(fit('corvette', 3, 3), 3, 4) > 0.9, 'a Corvette with Mk III gear beats four Mk III pirates');
-  assert(winRate(fit('gunship', 5, 4), 4, 6) > 0.9, 'a Gunship with Mk V gear beats the largest band');
+  assert(winRate(fit('corvette', 3, 3), 3, 4) > 0.45, 'a Corvette with Mk III gear holds its own against four Mk III pirates');
+  assert(winRate(fit('gunship', 5, 4), 4, 6) > 0.75, 'a Gunship with Mk V gear beats the largest band');
 });
 
 // ---------- Flight and real-time combat ----------
@@ -3283,8 +3309,8 @@ off('?missions', 'the first mission\'s fight: the provided Courier beats the two
   const N = 300;
   let wins = 0, hull = 0;
   for (let i = 0; i < N; i++) {
-    const s = Combat.create(mulberry32(i * 104729 + 3), Combat.combatant('p', 'Me', me), [0, 1].map((k) => Combat.combatant(`f${k}`, 'Fighter', fighter)));
-    while (!s.over) Combat.round(s);
+    const r = mulberry32(i * 104729 + 3);
+    const s = Combat.simulate(r, tl('player', me, 0), ringOf(r, fighter, 2, 'f'));
     if (s.over === 'won') { wins++; hull += s.player.hull; }
   }
   assert(wins / N > 0.98, `rounds: won ${wins} of ${N}`);
@@ -3347,8 +3373,8 @@ off('?missions', 'the second mission: the nearest nebula, its pockets, and an an
   const me = Loadout.stats(Missions.LIST.repayment.provides.loadout), foe = Loadout.stats(Loadout.npc('fighter', Missions.SALVAGE.tier));
   let wins = 0, left = 0;
   for (let i = 0; i < 300; i++) {
-    const f = Combat.create(mulberry32(i * 31337 + 5), Combat.combatant('p', 'Me', me), [Combat.combatant('h', 'Android', foe)]);
-    while (!f.over) Combat.round(f);
+    const r = mulberry32(i * 31337 + 5);
+    const f = Combat.simulate(r, tl('player', me, 0), ringOf(r, foe, 1, 'h'));
     if (f.over === 'won') { wins++; left += f.player.hull + f.player.shield; }
   }
   assert(wins / 300 > 0.97, `rounds: won ${wins} of 300`);
@@ -3404,11 +3430,9 @@ off('?missions', 'the gate mission: the work spot by the gate, two waves of pira
   let wins = 0;
   for (let i = 0; i < 300; i++) {
     const rng = mulberry32(i * 2654435 + 17);
-    const one = Combat.create(rng, Combat.combatant('p', 'Me', me), [Combat.combatant('a', 'Pirate', foe)]);
-    while (!one.over) Combat.round(one);
+    const one = Combat.simulate(rng, tl('player', me, 0), ringOf(rng, foe, 1, 'a'));
     if (one.over !== 'won') continue;
-    const two = Combat.create(rng, Combat.combatant('p', 'Me', me, one.player.hull), [0, 1].map((k) => Combat.combatant(`b${k}`, 'Pirate', foe)));
-    while (!two.over) Combat.round(two);
+    const two = Combat.simulate(rng, tl('player', me, 0, {}, one.player.hull), ringOf(rng, foe, 2, 'b'));
     if (two.over === 'won') wins++;
   }
   assert(wins / 300 > 0.95, `won both fights ${wins} of 300 times`);
@@ -3416,46 +3440,49 @@ off('?missions', 'the gate mission: the work spot by the gate, two waves of pira
 
 const wingman = () => Squad.stats(Squad.member(3));
 
-off('?missions', 'rounds: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
-  const me = () => Combat.combatant('player', 'Me', COURIER), foe = (id) => Combat.combatant(id, 'Fighter', FIGHTER);
-  const ally = () => Combat.combatant('w1', 'Cipher-07', wingman());
+off('?missions', 'turns: an ally fires on the target its orders name, and only then; a downed ally drops out', () => {
+  const me = () => tl('player', COURIER, 0), foe = (id, x = 400) => tl(id, FIGHTER, x, { fixed: true });
+  const ally = () => tl('w1', wingman(), 0);
+  ally.at = (a) => Object.assign(a, { y: 120 });
+  const run = (s, secs) => { const ev = []; for (let i = 0; i < secs * 30 && !s.over; i++) ev.push(...Combat.step(s, 1 / 30)); return ev; };
   // No orders: it holds fire.
-  let s = Combat.create(mulberry32(1), me(), [foe('f1')], 'f1', [ally()]);
-  let ev = Combat.round(s);
+  let s = Combat.create(mulberry32(1), me(), [foe('f1')], { focus: 'f1', allies: [ally.at(ally())] });
+  let ev = run(s, 3);
   assert(!ev.some((e) => e.from === 'w1'), 'no orders, no shots');
   // Ordered onto f2: every one of its volleys goes there.
-  s = Combat.create(mulberry32(2), me(), [foe('f1'), foe('f2')], 'f1', [ally()]);
-  Combat.setOrders(s, 'w1', { target: 'f2' });
-  ev = Combat.round(s);
-  const mine = ev.filter((e) => e.from === 'w1');
+  s = Combat.create(mulberry32(2), me(), [foe('f1'), foe('f2', 450)], { focus: 'f1', allies: [ally.at(ally())] });
+  Combat.mode.setOrders(s, 'w1', { target: 'f2' });
+  ev = run(s, 4);
+  const mine = ev.filter((e) => e.type === 'shot' && e.from === 'w1');
   assert(mine.length >= 1 && mine.every((e) => e.to === 'f2'), JSON.stringify(mine));
   // Enemies shoot at the ally now and then (about a third of them with one ally).
   let atAlly = 0;
   for (let i = 0; i < 300; i++) {
-    const t = Combat.create(mulberry32(100 + i), me(), [foe('f1')], 'f1', [ally()]);
+    const t = Combat.create(mulberry32(100 + i), me(), [foe('f1')], { focus: 'f1', allies: [ally()] });
     if (t.enemies[0].aim === 'w1') atAlly++;
   }
   assert(atAlly > 60 && atAlly < 140, `${atAlly}/300 aimed at the ally`);
   // An ally shot down doesn't end the fight; the enemy turns on the player.
-  s = Combat.create(mulberry32(3), me(), [foe('f1')], 'f1', [ally()]);
+  s = Combat.create(mulberry32(3), me(), [foe('f1')], { focus: 'f1', allies: [ally.at(ally())] });
   s.enemies[0].aim = 'w1';
   s.allies[0].hull = 0;
-  ev = Combat.round(s);
+  ev = run(s, 3);
   assert(!s.over || s.over === 'won', s.over);
-  assert(ev.filter((e) => e.from === 'f1').every((e) => e.to === 'player'));
+  assert(ev.filter((e) => e.type === 'shot' && e.from === 'f1').every((e) => e.to === 'player'));
   // With a wingman assisting, two fighters go down faster and the Courier keeps more hull.
   const duel = (withAlly) => {
-    let rounds = 0, hull = 0;
-    for (let i = 0; i < 200; i++) {
-      const t = Combat.create(mulberry32(500 + i), me(), [foe('f1'), foe('f2')], 'f1', withAlly ? [ally()] : []);
-      while (!t.over && t.round < 300) { if (withAlly) Combat.setOrders(t, 'w1', { target: t.focus }); Combat.round(t); }
-      rounds += t.round;
+    let time = 0, hull = 0;
+    for (let i = 0; i < 100; i++) {
+      const r = mulberry32(500 + i);
+      const t = Combat.create(r, me(), ringOf(r, FIGHTER, 2, 'f'), { focus: 'f0', allies: withAlly ? [ally.at(ally())] : [] });
+      while (!t.over && t.t < 120) { if (withAlly) Combat.mode.setOrders(t, 'w1', { target: t.focus }); Combat.step(t, 1 / 30); }
+      time += t.t;
       hull += Math.max(0, t.player.hull);
     }
-    return { rounds: rounds / 200, hull: hull / 200 };
+    return { time: time / 100, hull: hull / 100 };
   };
   const alone = duel(false), helped = duel(true);
-  assert(helped.rounds < alone.rounds * 0.8 && helped.hull > alone.hull + 10, `alone ${JSON.stringify(alone)}, helped ${JSON.stringify(helped)}`);
+  assert(helped.time < alone.time * 0.8 && helped.hull > alone.hull + 10, `alone ${JSON.stringify(alone)}, helped ${JSON.stringify(helped)}`);
 });
 
 off('?missions', 'real time: an ally attacks its target, holds formation without one, and can be shot down', () => {

@@ -4,6 +4,10 @@
 (`combat/combat.js`). You engage an enemy, then both sides trade attacks in rounds, resolved from the
 loadout's numbers. Flying matters only before a fight: which fights to take and which to avoid.
 
+**Update (November 2026):** rounds were reworked into an action timeline with the ships flying,
+telegraphed enemy intents and cancels (much of Idea A), and made the default; see
+`combat-research.md`. The combat panel became a small skill bar.
+
 **Update (October 2026):** Idea B below is now built as an alternative, `combat/combat-realtime.js`. The
 **Combat** setting chooses between **Rounds** (the default) and **Real-time**. Idea A stays parked.
 The Direct-mode fixes from "Cruise vs Direct movement" are done too, for all flying.

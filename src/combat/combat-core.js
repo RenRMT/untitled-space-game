@@ -20,7 +20,7 @@
 //                                      from a pirate's computer: the gear it unlocks for purchase
 //
 // A mode (each module's `mode`):
-//   id, flying               ships keep flying (real time), or are held in place (rounds)
+//   id, flying               ships keep flying (both modes now), or are held in place
 //   start(rng, player, enemies, { target, ambushed, allies }) -> s
 //       player, enemies, allies: { id, name, stats, hull?, body: { x, y, vx, vy, angle, radius } }
 //       target: the enemy attacked; ambushed: the pirates attacked first; allies: squad members
@@ -30,20 +30,19 @@
 //                                      or with none fly to `station` (in real time) and hold fire
 //   step(s, dt, pilot) -> events       pilot: the player ship's pose this step
 //   setFocus(s, id)                    the player picks a target
-//   press?(s, id)                      a combat panel button (Flee)
 //   join?(s, enemy)                    another ship joins the fight under way
 //   lock(s) -> 0..1                    how far the lock on the target has come (1: locked)
-//   panel(s) -> { title, button, bar?, progress }   the combat panel while the fight runs
-//   log(s, events, lines) -> lines     the panel's last lines after these events
+//   gauge?(s, c) -> { gauge, eta, holding, heavy, target }   in turns: a combatant's action gauge
+//   log(s, events, lines) -> lines     the fight log's last lines after these events
 //   look                               how its events are shown (game/combat.js): seconds a beam and a
 //                                      shield flash last (beam, shield), the wait before hits
 //                                      show (after) and before a destroyed ship blows up
 //                                      (finish), sparks(ev) per hull hit, whether hits on a ship
-//                                      add up into one number (sum), and whether the guns' field
-//                                      of fire is shown (arcs)
+//                                      add up into one number (sum), whether the guns' field
+//                                      of fire is shown (arcs), and the action gauges (gauges)
 // Events: { type: 'shot', from, to, shots, hits, damage, shieldDamage, hullDamage, destroyed,
-//   delay? } (delay: seconds before it shows), { type: 'flee', ok }, and in real time
-//   { type: 'target' | 'locked' | 'lost-lock', id }. s.player, s.enemies, s.allies and s.focus as
+//   delay?, heavy? } (delay: seconds before it shows), { type: 'target', id }, in turns
+//   { type: 'breach', id, cancelled }, and in real time { type: 'locked' | 'lost-lock', id }. s.player, s.enemies, s.allies and s.focus as
 //   named; s.over becomes 'won', 'lost' or 'fled' when the fight ends (an ally shot down drops out:
 //   only the player's ship decides the outcome).
 // ES module (`CombatCore`); also runs in Node (the tests).
@@ -105,11 +104,12 @@ const CombatCore = (() => {
     }
     return (e.aim !== 'player' && allies(s).find((a) => a.id === e.aim)) || s.player;
   }
-  // What each enemy is about to do: whom it aims at and how far its lock has come (1 where a mode
-  // has no locking: rounds), for the flight view to telegraph.
+  // What each enemy is about to do, for the flight view to telegraph: whom it aims at, how far its
+  // lock has come (real time), and in turns its gauge (0..1) and next action ('volley' | 'heavy').
   const intents = (s) => alive(s).filter((e) => !e.passive).map((e) => ({
     id: e.id, target: aimAt(s, e).id,
-    lock: e.lockT === undefined ? 1 : Math.min(1, e.lockT / Math.max(1e-6, e.stats.lockTime)),
+    lock: e.gauge !== undefined ? 1 : e.lockT === undefined ? 1 : Math.min(1, e.lockT / Math.max(1e-6, e.stats.lockTime)),
+    ...(e.gauge !== undefined ? { gauge: e.gauge, kind: e.intent ? e.intent.kind : 'volley' } : {}),
   }));
 
   // What a destroyed ship leaves floating: [{ kind, seed }] (rules/goods.js types). Seeded by the system
