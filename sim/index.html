@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en" data-ui="line">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#05060a">
+  <title>Redshift</title>
+  <!-- Redshift, the sim (notes/sim.md): outrun a black hole one star system at a time. In the game's
+       UI kit, Line or Low-poly (Settings). -->
+  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Redshift">
+  <link rel="stylesheet" href="../src/ui/kit.css">
+  <link rel="stylesheet" href="../src/ui/kit-line.css">
+  <link rel="stylesheet" href="../src/ui/kit-lowpoly.css">
+  <link rel="stylesheet" href="../src/sim/sim.css">
+</head>
+<body>
+  <canvas id="map" aria-label="The star system"></canvas>
+  <!-- Requests and events float over the map as portraits on the bodies they're about. -->
+  <div id="bubbles" class="ui" aria-live="polite"></div>
+  <header id="bar" class="ui sim-head">
+    <div class="row top">
+      <span class="culture" aria-hidden="true"></span>
+      <div class="id">
+        <span id="sys-name"></span>
+        <span id="sys-sub"></span>
+      </div>
+      <div id="clock" class="sim-clock" role="group" aria-label="Speed"></div>
+      <button id="menu-btn" class="ui-iconbtn sim-menu" type="button" aria-label="Menu" title="Menu">≡</button>
+    </div>
+    <div id="res" class="row sim-res"></div>
+    <div id="horizon" class="sim-horizon" role="meter" aria-label="Horizon" aria-valuemin="0" aria-valuemax="100">
+      <div class="lbl"><span>Horizon</span><span id="h-pct" class="num"></span><span id="h-note"></span><span id="h-gate" class="gate"></span></div>
+      <div class="bar"><i id="h-fill"></i><b style="left:50%"></b><b style="left:75%"></b><b style="left:90%"></b></div>
+    </div>
+    <button id="advisor" class="sim-advisor" type="button"><img id="adv-face" alt="" aria-hidden="true"><span id="adv-text"></span></button>
+  </header>
+  <nav id="nav" class="ui ui-nav sim-nav">
+    <div id="tabs" class="ui-tabs" role="tablist" aria-label="Views"></div>
+  </nav>
+  <div id="sheets" class="ui-layer" hidden></div>
+  <!-- Full screens: the title, the jump, a system lost. -->
+  <div id="screen" class="ui sim-screen" hidden></div>
+  <div id="toast" class="ui sim-toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="../src/sim/main.js"></script>
+</body>
+</html>

@@ -32,6 +32,12 @@ export default [
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/flight/*', '**/ui/*', '!**/ui/kit.js', '!**/ui/ui.js', '!**/ui/glyphs.js'], message: 'src/4x imports src/core, art, world, rules and the UI kit only (notes/4x.md).' }] }] },
   },
   {
+    // Redshift, the sim (sim/, src/sim/, notes/sim.md), is built on the shared layers too: core, art,
+    // world and rules, and the game's UI kit, never the main game's own state, flight or panels.
+    files: ['src/sim/**/*.js'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/flight/*', '**/ui/*', '!**/ui/kit.js', '!**/ui/ui.js', '!**/ui/glyphs.js'], message: 'src/sim imports src/core, art, world, rules and the UI kit only (notes/sim.md).' }] }] },
+  },
+  {
     // The race's and the idle game's service workers: a worker's globals, not a page's.
     files: ['race/sw.js', 'idle/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
