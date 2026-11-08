@@ -42,6 +42,8 @@ import { Restoration } from '../src/rules/restoration.js';
 import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Loot } from '../src/rules/loot.js';
+import { Vendor } from '../src/rules/vendor.js';
+import { Progress } from '../src/rules/progress.js';
 import { Structures } from '../src/rules/structures.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { Classes } from '../src/rules/classes.js';
@@ -52,7 +54,6 @@ import { JobTexts } from '../src/story/job-texts.js';
 import { Jobs } from '../src/story/jobs.js';
 import { Missions } from '../src/story/missions.js';
 import { Glyphs } from '../src/ui/glyphs.js';
-import { Status } from '../src/rules/status.js';
 import { ScreenFx } from '../src/rules/screen-fx.js';
 import { Config as RaceConfig } from '../src/race/config.js';
 import { Track } from '../src/race/track.js';
@@ -3119,6 +3120,7 @@ test('jobs: every station posts combat contracts: raiders, a battery, an outpost
 function withTestJobs(fn) {
   const { go, fight, bring } = JobTexts;
   const saved = { ...JobTexts.STATION }; // the combat contracts, out of the way meanwhile
+  const story = JobTexts.STORY.splice(0); // and the main story
   for (const k of Object.keys(JobTexts.STATION)) JobTexts.STATION[k] = [];
   JobTexts.STATION.capital = [['test-delivery', (c) => ({
     name: 'Test delivery', briefing: [`${c.st.name} needs iron.`, 'Bring some in.'],
@@ -3141,6 +3143,7 @@ function withTestJobs(fn) {
     delete JobTexts.STATION['mining camp'];
     Object.assign(JobTexts.STATION, saved);
     delete JobTexts.FACTION.wedge;
+    JobTexts.STORY.push(...story);
   }
 }
 
@@ -3351,49 +3354,19 @@ test('reputation: what regard does: prices, docking, pirates letting you pass', 
 
 test('every icon code the UI uses has a line icon', () => {
   // The codes in the panels' sources (code: 'XYZ', and the codes rules give abilities, bays and
-  // consumables), plus the tabs, slots, research groups and the context menu's actions.
-  const src = ['station.js', 'research-view.js', 'industry-view.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
+  // consumables), plus the tabs, slots, the old research groups and the context menu's actions.
+  const src = ['station.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
-  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
+  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-outfitter', 'tab-squad', 'tab-missions', 'LOG', 'OUT', 'hold', 'hull', 'face', 'android', 'open',
     'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach',
-    'HLD', 'HUL', 'SHD', 'HEAT', 'RAD', 'FUEL']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
+    'HLD', 'HUL', 'SHD']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
   const missing = [...codes].filter((c) => !Glyphs.has(c));
   assert.deepStrictEqual(missing, [], 'codes with no icon');
   for (const n of Glyphs.names) assert.match(Glyphs.svg(n, 20), /^<svg viewBox="0 0 24 24" width="20" height="20"[^>]*>.+<\/svg>$/);
 });
 
-test('status icons: a meter\'s trend, the seconds left near its limit, and the dashes a tank holds', () => {
-  // The rate eases toward what the meter did, a second.
-  let rate = 0;
-  for (let i = 0; i < 180; i++) rate = Status.smooth(rate, 15 / 60, 1 / 60); // +15 a second for 3 s
-  assert(Math.abs(rate - 15) < 0.1, `rate ${rate}`);
-  assert.strictEqual(Status.smooth(3, 1, 0), 3, 'no time, no change');
-  assert.strictEqual(Status.trend(15, 100), 'up2'); // the lava's day side
-  assert.strictEqual(Status.trend(0.8, 100), 'up'); // a moon's radiation
-  assert.strictEqual(Status.trend(0, 100), 'flat');
-  assert.strictEqual(Status.trend(-6, 100), 'down'); // shedding
-  assert.strictEqual(Status.eta(70, 100, 15), 2);
-  assert.strictEqual(Status.eta(70, 100, -6), null, 'falling: never full');
-  assert.strictEqual(Status.eta(100, 100, 5), null);
-  assert(Status.timerShown(12) && Status.timerShown(20) && !Status.timerShown(21) && !Status.timerShown(null));
-  assert.strictEqual(Status.dashesLeft(9, 2), 4);
-  assert.strictEqual(Status.dashesLeft(8, 4), 2, 'the ice planet: dashes cost twice');
-  assert.strictEqual(Status.dashesLeft(1.9, 2), 0);
-  assert.strictEqual(Status.dashesLeft(6, 2), 3, 'a whole dash despite rounding');
-});
-
-test('screen effects: nothing below a meter\'s first warning, full at its top; cracks by stage; a sputtering flame only on a low tank', () => {
-  const C = ScreenFx.config;
-  for (const m of ['heat', 'rad']) {
-    assert.strictEqual(ScreenFx.levels({ [m]: C[m][0] - 0.01 })[m], 0, m);
-    assert.strictEqual(ScreenFx.levels({ [m]: C[m][1] })[m], 1, m);
-    const mid = ScreenFx.levels({ [m]: (C[m][0] + C[m][1]) / 2 })[m];
-    assert(mid > 0 && mid < 1, `${m} ${mid}`);
-  }
-  assert.deepStrictEqual(ScreenFx.levels({}), { heat: 0, rad: 0, fuel: 0 });
-  assert.strictEqual(ScreenFx.levels({ fuel: 0.5 }).fuel, 0);
-  assert.strictEqual(ScreenFx.levels({ fuel: 0 }).fuel, 1);
+test('screen effects: cracks by stage of the hull, seeded and stable', () => {
   assert.deepStrictEqual([1, 0.5, 0.49, 0.25, 0.2, 0.1, 0.05].map(ScreenFx.crackStage), [0, 0, 1, 1, 2, 2, 3]);
   // Seeded and stable: the same cracks for a seed, and each stage keeps the ones before.
   assert.deepStrictEqual(ScreenFx.cracks(7, 2), ScreenFx.cracks(7, 2));
@@ -3406,16 +3379,6 @@ test('screen effects: nothing below a meter\'s first warning, full at its top; c
     assert(c.corner >= 0 && c.corner <= 3 && c.pts.length >= 2);
     for (const [x, y] of c.pts) assert(x >= 0 && y >= 0 && x < 0.6 && y < 0.6, `in from the corner: ${x}, ${y}`);
   }
-  // The flame: as is on a healthy tank; on a low one it chokes now and then, never flaring.
-  for (let t = 0; t < 5; t += 0.05) assert.strictEqual(ScreenFx.sputter(0.8, 0.5, t), 0.8);
-  let gaps = 0;
-  for (let t = 0; t < 30; t += 0.09) {
-    const v = ScreenFx.sputter(1, 0.05, t, 3);
-    assert(v > 0 && v <= 1);
-    if (v < 0.2) gaps++;
-  }
-  assert(gaps > 30 && gaps < 250, `gaps ${gaps}`);
-  assert.strictEqual(ScreenFx.sputter(0, 0.05, 1), 0, 'no thrust, no flame');
 });
 
 // The race (src/race/, notes/race.md): the track's loop, sliding along walls.
@@ -5019,6 +4982,94 @@ test('real time: fixed combatants hold their place on either side, and walls sto
   for (let i = 0; i < 300; i++) RealtimeCombat.step(s, 1 / 30);
   assert.deepStrictEqual([turret.x, turret.y, ally.x, ally.y], [0, 200, 0, -150], 'held in place');
   assert(raider.x >= 520 || raider.hull <= 0, 'the raider never got through the wall');
+});
+
+test('vendor: gambits by level, needing what they build on; gear rolled per station and day, capped; a gambit drop', () => {
+  for (const id of Object.keys(Research.PACKAGES).filter((x) => Research.PACKAGES[x].kind === 'logic' && !Vendor.FREE.includes(x))) {
+    assert.ok(Vendor.GAMBIT_TIER[id], `${id} has a tier`);
+    assert.ok(Vendor.gambitPrice(id) > 0, `${id} has a price`);
+  }
+  assert.ok(Vendor.gambits(1).length < Vendor.gambits(3).length && Vendor.gambits(3).length < Vendor.gambits(5).length, 'more further out');
+  assert.ok(!Vendor.gambits(5).some((id) => Vendor.FREE.includes(id)), 'the free ones are never sold');
+  const owned = new Set(Vendor.FREE);
+  assert.deepStrictEqual(Vendor.canBuyGambit('core.bool.or', owned), { ok: false, why: 'Needs core.bool@1.0' });
+  owned.add('core.bool');
+  assert.ok(Vendor.canBuyGambit('core.bool.or', owned).ok);
+  assert.strictEqual(Vendor.canBuyGambit('core.bool', owned).why, 'Owned');
+  // Gear: the same for a station and day, another the next day; never above the cap.
+  const a = Vendor.gear('s1', 3, 100), b = Vendor.gear('s1', 3, 100), c = Vendor.gear('s1', 3, 101), d = Vendor.gear('s2', 3, 100);
+  assert.deepStrictEqual(a, b);
+  assert.notDeepStrictEqual(a, c);
+  assert.notDeepStrictEqual(a, d);
+  for (let day = 0; day < 40; day++) {
+    for (const spec of Vendor.gear('s1', 2, day)) assert.ok(Loot.RANK[spec.rarity] <= Loot.RANK.uncommon, spec.rarity);
+    for (const spec of Vendor.gear('cap', 2, day, { capital: true })) assert.ok(Loot.RANK[spec.rarity] <= Loot.RANK.rare, spec.rarity);
+  }
+  assert.ok(Vendor.gear('s1', 4, 7).every((spec) => spec.ilvl >= 31 && spec.ilvl <= 40), 'at the level');
+  assert.ok(Vendor.gearPrice(a[0]) === 2 * Loot.make(a[0]).price);
+  // A drop: not owned, up to a tier above; none once all are owned.
+  const drop = Vendor.gambitDrop(1, 'warden', 1, owned);
+  assert.ok(drop && !owned.has(drop) && Vendor.GAMBIT_TIER[drop] <= 2, drop);
+  assert.strictEqual(Vendor.gambitDrop(1, 'warden', 5, new Set([...owned, ...Vendor.gambits(5)])), null);
+  assert.ok(Vendor.sellsMods('capital') && !Vendor.sellsMods('minor'));
+});
+
+test('progress: levels from experience, less for easy kills, talents by level and class, gear and hulls by level', () => {
+  assert.deepStrictEqual(Progress.of(0), { level: 1, into: 0, need: Progress.toNext(1), max: false });
+  assert.strictEqual(Progress.of(Progress.toNext(1)).level, 2);
+  let all = 0;
+  for (let l = 1; l < Progress.MAX_LEVEL; l++) { assert.ok(Progress.toNext(l + 1) > Progress.toNext(l), 'each level takes longer'); all += Progress.toNext(l); }
+  assert.ok(Progress.of(all * 2).max && Progress.of(all * 2).level === Progress.MAX_LEVEL, 'a top level');
+  assert.ok(Progress.killXP(2, 1) > Progress.killXP(1, 1), 'tougher pays more');
+  assert.ok(Progress.killXP(1, 20) < Progress.killXP(1, 1) * 0.2, 'far below you pays little');
+  assert.strictEqual(Progress.killXP(1, 30), 0);
+  assert.ok(Progress.contractXP('elite', 5, 2) > Progress.contractXP('easy', 5, 2));
+  // Levels make a ship stronger; talents add on top, some only for a class.
+  const base = { hull: 100, shield: 50, firepower: 10, classDamage: 1, accuracy: 0.6, evasion: 0.1, shieldRecharge: 5 };
+  const l10 = Progress.apply(base, 10);
+  assert.ok(l10.hull > 100 && l10.firepower > 10 && l10.classDamage > 1);
+  assert.strictEqual(Progress.apply(base, 1).hull, 100);
+  assert.strictEqual(Progress.apply(base, 1, ['bulkheads']).hull, 112);
+  assert.strictEqual(Progress.apply(base, 1, ['quick-hands']).cooldown, 0.9);
+  assert.deepStrictEqual(Progress.upgrades(['cargo-racks', 'hardpoint-retrofit']), { cargo: 0.25, hull: 0, weapons: 1 });
+  const o = (level, cls, talents = []) => ({ level, cls, talents });
+  assert.deepStrictEqual(Progress.canTake('bulkheads', o(3, 'tank')), { ok: true, why: '' });
+  assert.strictEqual(Progress.canTake('bulkheads', o(3, 'dps')).why, 'Not for this class');
+  assert.strictEqual(Progress.canTake('armour-plating', o(9, 'dps')).why, 'Opens at level 12');
+  assert.strictEqual(Progress.canTake('reinforced-frame', o(3, 'dps', ['hot-loads'])).why, 'No talent points left');
+  assert.ok(Progress.talentsFor('healer').every((t) => !t.cls || t.cls === 'healer'));
+  assert.deepStrictEqual(Progress.read(['bulkheads', 'hot-loads', 'nope', 'hot-loads'], 'dps'), ['hot-loads']);
+  assert.ok(Progress.points(30) >= Progress.talentsFor('dps').length - 1, 'nearly every talent by the top level');
+  // Gear and hulls.
+  assert.strictEqual(Progress.gearLevel({ tier: 1 }), 1);
+  assert.strictEqual(Progress.gearLevel({ loot: { ilvl: 9 } }), 1);
+  assert.ok(Progress.gearLevel({ loot: { ilvl: 41 } }) > Progress.gearLevel({ loot: { ilvl: 21 } }));
+  assert.ok(Progress.HULL_LEVEL.gunship > Progress.HULL_LEVEL.corvette);
+  assert.deepStrictEqual([1, 9, 10, 19, 20].map(Progress.lineBonus), [0, 0, 1, 1, 2]);
+});
+
+test('the main story: seven chapters, each after the last and at a higher level, further out, ending at the core; contracts repeat', () => {
+  for (const seed of [1, 7, 42]) {
+    const g = Galaxy.generate(seed), B = Jobs.board(g), story = B.list.filter((j) => j.tier === 'story');
+    assert.strictEqual(story.length, JobTexts.STORY.length, `seed ${seed}: every chapter placed`);
+    story.forEach((j, i) => {
+      assert.strictEqual(j.chapter, i + 1);
+      assert.strictEqual(j.requires, i ? story[i - 1].id : null, 'each after the one before');
+      if (i) assert.ok(j.level > story[i - 1].level, 'at a higher level');
+      assert.ok(Number.isFinite(j.reward.credits) && j.reward.credits > 0, `${j.id} pays (${j.reward.credits})`);
+      assert.ok(Jobs.offeredAt(j, g.stations[0]), 'offered at any station');
+    });
+    const last = story.at(-1);
+    assert.ok(last.systems.every((k) => g.systems[k].level === 5), 'the last at the core');
+    assert.ok(story.at(-1).reward.credits > story[0].reward.credits * 5, 'pays far more by the end');
+    assert.ok(B.list.some((j) => j.id.endsWith('/convoy') && j.escort && j.handIn), `seed ${seed}: convoys, handed in where they deliver`);
+  }
+  // A done contract can be reopened (the next day: game/jobs.js); its next attempt starts afresh.
+  const g = Galaxy.generate(1), B = Jobs.board(g), J = B.list.find((j) => j.tier === 'station'), log = Missions.create(null, B.byId);
+  assert.ok(log.accept(J.id, J.scope) && log.finish(J.id));
+  assert.ok(log.reopen(J.id) && log.status(J.id) === 'offered');
+  assert.ok(!log.reopen(J.id), 'only a done one');
+  assert.ok(log.accept(J.id, J.scope) && log.attempt(J.id) === 2, 'a second attempt');
 });
 
 if (failed) {

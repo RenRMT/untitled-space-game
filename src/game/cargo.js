@@ -1,5 +1,5 @@
 // Cargo hold and credits: items collected or bought, saved per galaxy (with the loadout, spare gear,
-// research, industry, squad and missions), and the ship's stats from its loadout (applyShip).
+// gambits, squad and missions), and the ship's stats from its loadout (applyShip).
 // Part of the flight view; src/main.js starts it.
 
 import { Clock } from '../core/clock.js';
@@ -9,19 +9,18 @@ import { Entities } from '../flight/entities.js';
 import { Economy } from '../rules/economy.js';
 import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
-import { Hazards } from '../rules/hazards.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
-import { Logistics } from '../rules/logistics.js';
 import { Loot } from '../rules/loot.js';
 import { HullMods } from '../rules/hullmods.js';
 import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
 import { Recipes } from '../rules/recipes.js';
 import { Reputation } from '../rules/reputation.js';
-import { Restoration } from '../rules/restoration.js';
 import { Research } from '../rules/research.js';
+import { Progress } from '../rules/progress.js';
 import { Squad } from '../rules/squad.js';
+import { Vendor } from '../rules/vendor.js';
 import { Classes } from '../rules/classes.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
@@ -37,16 +36,17 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // broken up by mining, ships destroyed in combat (keys are unique across kinds). drops: items
 // left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
-// (repaired at stations). fuel: what's in the tank (rules/hazards.js burns it; refuelled at
-// stations); rad: radiation taken in (it builds until a station decontaminates the ship).
+// (repaired at stations).
 // home: the last station docked at, where a lost ship is towed.
 // loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out (android gear among it, from squad ships)
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
 // loadout, rules/mods.js); kit: consumables for abilities in a fight ({ [ability id]: charges },
-// rules/abilities.js), which take no room in the hold; lab: research (rules/research.js: what's done, building and queued,
-// blueprints and hull refits among it); industry: each station's stock and the production orders at
-// stations (rules/industry.js); loyalty: how far each station trusts the player ({ [station key]: n },
-// raised by missions done for it; a station not in it counts Industry.LOYALTY.start); squad: the squad members (rules/squad.js), with their loadouts and programs
+// rules/abilities.js), which take no room in the hold; gambits: the logic packages owned ([id],
+// rules/research.js, bought at an outfitter or found: game/vendor.js); shop: what's been bought from
+// today's gear stock at each station ({ day, bought: { [station key]: [i] } }); pilot: the player's
+// experience and talents ({ xp, talents: [id] }, rules/progress.js: the level comes from the xp);
+// world: the elites' and raids' timers (game/traffic.js: { elites: { [system]: { n, at } }, raids: { n, next } }) and the
+// contracts done today (game/jobs.js: daily: { [job id]: day }); squad: the squad members (rules/squad.js), with their loadouts and programs
 // and hull. missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in, the galaxy's jobs among it;
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
@@ -55,20 +55,18 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // rep: how each faction regards the player (rules/reputation.js), moved by the jobs handed in.
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
-// restored: the restoration projects done ([id], rules/restoration.js): which stations are online.
 // loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
 // Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }).
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
-  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [],
-  missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
+  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
+  missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
   loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
 };
-// ?dev (for testing): every station service open and production orders taken everywhere, even
-// in a fresh game, without touching the save (the jobs board and game/industry.js). Combat god
-// mode is the same switch (game/combat.js).
+// ?dev (for testing): every station service open, even in a fresh game, without touching the save
+// (the jobs board). Combat god mode is the same switch (game/combat.js).
 export const devUnlock = Params.has('dev');
 export const PICKUP_RANGE = 40; // world units beyond the item's own size
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
@@ -101,16 +99,20 @@ export function validLoadout(l) {
   return { hull: l.hull, fitted, mods };
 }
 
-// SHIP from the loadout and what research adds (hull refits), and the ship drawn as its hull. When
+// SHIP from the loadout, its class, and the pilot's level and talents, and the ship drawn as its hull. When
 // more armour raises the maximum, the hull points rise with it (not when a save is loaded).
+// The pilot's level (rules/progress.js), from their experience.
+export const pilotLevel = () => Progress.of(cargo.pilot.xp).level;
+// What improves every hull the player flies (rules/loadout.js upgrades: more hold, armour, a weapon
+// slot), on top of its gear: the pilot's talents.
+export const shipUpgrades = () => Progress.upgrades(cargo.pilot.talents);
 export function applyShip({ loading = false } = {}) {
   const before = SHIP.hull, hullBefore = SHIP.name;
   // Its class (rules/classes.js) on top of its gear.
-  Object.assign(SHIP, Classes.apply(Loadout.stats(cargo.loadout, Research.upgrades(cargo.lab.done)), cargo.cls));
+  Object.assign(SHIP, Progress.apply(Classes.apply(Loadout.stats(cargo.loadout, shipUpgrades()), cargo.cls), pilotLevel(), cargo.pilot.talents));
   ship.art = (HULL_ART[cargo.loadout.hull] || HULL_ART.courier)();
   if (!loading && SHIP.name === hullBefore && SHIP.hull > before) cargo.hull += SHIP.hull - before;
   cargo.hull = clamp(cargo.hull, 0, SHIP.hull);
-  cargo.fuel = clamp(cargo.fuel, 0, SHIP.fuel);
 }
 
 export function loadCargo(galaxy) {
@@ -130,10 +132,10 @@ export function loadCargo(galaxy) {
   cargo.razed = {};
   cargo.mods = {};
   cargo.kit = {};
-  cargo.lab = Research.empty();
-  cargo.industry = Industry.empty();
-  cargo.loyalty = {};
-  cargo.restored = [];
+  cargo.gambits = [];
+  cargo.shop = null;
+  cargo.pilot = { xp: 0, talents: [] };
+  cargo.world = { elites: {}, raids: { n: 0, next: 0 }, daily: {} };
   cargo.market = Economy.empty();
   cargo.rep = Reputation.empty();
   cargo.squad = []; // hired at a dock (game/squad.js)
@@ -141,34 +143,21 @@ export function loadCargo(galaxy) {
   cargo.missions = Missions.create(null, cargo.board.byId);
   cargo.track = null;
   cargo.hull = Infinity; // full, once applyShip knows the maximum
-  cargo.fuel = Infinity; // the same
-  cargo.rad = 0;
   cargo.surfaceDrops = {}; // body key -> [{ key, kind, x, y }]: what's left lying on its surface
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
   try {
     if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS), galaxy);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
-  // Research that finished while the game was closed (before the ship: refits among it), then what
-  // industry made meanwhile (after research: its bonuses count from when they finished).
-  // One notice for all of it; the list waits for the next dock.
   news.length = 0;
-  for (const id of Research.settle(cargo.lab, Clock.now())) addNews(buildDone(id), 'research');
-  const { log } = Industry.settle(cargo.industry, Clock.now(), Industry.env(cargo.lab));
-  for (const line of Industry.summary(cargo.industry, log)) addNews(`Made while away · ${line}`, 'industry');
-  for (const line of Industry.delivered(log)) addNews(`Delivered while away · ${line}`, 'industry');
-  if (news.length) notify(`${news.length === 1 ? news[0].text : `${news.length} things finished while you were away`} · dock to see`, 4, { tone: 'good' });
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
 }
-// What finished since the player last docked (research, production), shown together on the next
-// dock (the station's "Since you last docked" sheet): [{ text, tab }]. Not saved: on load, what
-// finished while the game was closed is put here again (loadCargo).
+// What happened since the player last docked that the station screen should say, shown together on
+// the next dock (the station's "Since you last docked" sheet): [{ text, tab }]. Not saved.
 export const news = [];
 export function addNews(text, tab) { if (news.length < 30 && !news.some((n) => n.text === text)) news.push({ text, tab }); }
 
-// The notice for a finished package.
-export const buildDone = (id) => (Research.PACKAGES[id].kind === 'logic' ? `Build ok · import ${Research.title(id)}` : `Research done · ${Research.title(id)}`);
 // How a save from an older version of the game becomes the current form: step i takes a save of
 // version i to i + 1 (Save.migrate, core/save.js; saves from before versions are version 0). A
 // change to what is saved adds a step here, rather than a special case in readCargo.
@@ -332,78 +321,35 @@ export const CARGO_MIGRATIONS = [
   (d) => {
     if (!Array.isArray(d.restored)) d.restoreFromUse = true;
   },
+  // 22. No lab or industry in the game any more (notes/roadmap.md): the logic packages researched
+  //     become gambits owned; the rest of the lab, the stocks and orders, loyalty and restoration go.
+  (d) => {
+    const done = Array.isArray(d.lab?.done) ? d.lab.done : [];
+    d.gambits = done.filter((id) => Research.PACKAGES[id]?.kind === 'logic');
+    for (const k of ['lab', 'industry', 'loyalty', 'restored', 'restoreFromUse']) delete d[k];
+  },
+  // 23. Levels (rules/progress.js): a game under way starts at the level its best fitted gear asks
+  //     for, so nothing it wears is locked away; each squad member likewise by its own gear.
+  (d) => {
+    const fromGear = (l) => {
+      const ids = Object.values(l?.fitted || {}).filter(Boolean);
+      const level = Math.max(1, ...ids.map((id) => Progress.gearLevel(Loadout.EQUIPMENT[id] || (d.loot?.[id] ? Loot.make(d.loot[id]) : null))));
+      let xp = 0;
+      for (let k = 1; k < level; k++) xp += Progress.toNext(k);
+      return xp;
+    };
+    d.pilot = { xp: fromGear(d.loadout), talents: [] };
+    for (const m of Array.isArray(d.squad) ? d.squad : []) if (m && typeof m === 'object') m.xp = fromGear(m.loadout);
+  },
 ];
 // The stock a save from before stations kept their own had (migration 20): the waystation's.
 export const HOME_STOCK = '*home';
 
-// The logic packages known (rules/research.js) and how many lines of a program run.
-// Every game knows the logic for skills, use() and hull %, so a squad member's class program
-// (rules/classes.js) runs from the start; researching them adds nothing more.
-export const FREE_LOGIC = ['tactics.use', 'maint.sense'];
-export const logicKnown = () => Research.known([...new Set([...cargo.lab.done, ...FREE_LOGIC])]);
-export const logicLines = () => Squad.lineLimit(Research.lineBonus(cargo.lab.done));
-
-// A saved lab, checked: known packages only; one building with a time that makes no sense is dropped.
-export function readLab(d) {
-  const lab = Research.empty();
-  if (!d || typeof d !== 'object') return lab;
-  const ok = (id) => typeof id === 'string' && !!Research.PACKAGES[id];
-  if (Array.isArray(d.done)) lab.done = [...new Set(d.done.filter(ok))];
-  for (const id of lab.done) lab.doneAt[id] = Number.isFinite(d.doneAt?.[id]) ? d.doneAt[id] : 0;
-  const a = d.active;
-  if (a && ok(a.id) && !lab.done.includes(a.id) && Number.isFinite(a.start) && Number.isFinite(a.end) && a.end >= a.start) lab.active = { id: a.id, start: a.start, end: a.end };
-  if (Array.isArray(d.queue)) lab.queue = [...new Set(d.queue.filter((id) => ok(id) && !lab.done.includes(id) && id !== lab.active?.id))].slice(0, Research.queueMax(lab));
-  if (!lab.active && lab.queue.length) Research.enqueue(lab, lab.queue.shift(), Clock.now());
-  return lab;
-}
-
-// Saved production, checked: known goods in storage; an order whose recipe is gone, or isn't made
-// at its station's type, is dropped; a run under way with times that make no sense is forgotten.
-// home: the waystation's key, for the stock of a save from before stations kept their own.
-export function readIndustry(d, home = null) {
-  const out = Industry.empty();
-  if (!d || typeof d !== 'object') return out;
-  const whole = (n) => Math.max(0, Math.floor(n) || 0);
-  for (const [key, counts] of Object.entries(d.stock && typeof d.stock === 'object' ? d.stock : {})) {
-    const at = key === HOME_STOCK ? home : key;
-    if (!at || !counts || typeof counts !== 'object') continue;
-    for (const [kind, n] of Object.entries(counts)) {
-      if (!Recipes.item(kind) || whole(n) <= 0) continue;
-      const s = out.stock[at] || (out.stock[at] = {});
-      s[kind] = (s[kind] || 0) + whole(n);
-    }
-  }
-  const ids = new Set();
-  for (const o of Array.isArray(d.orders) ? d.orders : []) {
-    if (!o || typeof o.station !== 'string' || !Industry.canMake(o.type, o.recipe) || !Number.isInteger(o.id) || ids.has(o.id)) continue;
-    ids.add(o.id);
-    const running = Number.isFinite(o.at) && Number.isFinite(o.next) && o.next >= o.at;
-    out.orders.push({
-      id: o.id, station: o.station, name: String(o.name || o.station), type: o.type, recipe: o.recipe, left: o.left === null ? null : whole(o.left),
-      made: whole(o.made), at: running ? o.at : null, next: running ? o.next : null, paused: !!o.paused,
-    });
-  }
-  for (const r of Array.isArray(d.routes) ? d.routes : []) {
-    const route = Logistics.read(r, (kind) => !!Recipes.item(kind));
-    if (route && !out.routes.some((x) => x.id === route.id) && !(route.shuttle && out.routes.some((x) => x.shuttle === route.shuttle))) out.routes.push(route);
-  }
-  out.seq = Math.max(whole(d.seq), ...out.orders.map((o) => o.id + 1), ...out.routes.map((r) => r.id + 1), 1);
-  return out;
-}
-// The projects a game from before restoration counts as done: every one up to (and with) the last
-// that restores a station type it was using (an order there, or loyalty), so nothing it had stops.
-export function restoredByUse(galaxy) {
-  const used = new Set(cargo.industry.orders.map((o) => o.type));
-  for (const st of galaxy.stations) if (Industry.trusted(cargo.loyalty, st.key)) used.add(st.waystation ? 'waystation' : st.market.type);
-  const last = Restoration.LIST.reduce((n, p, i) => (p.type && used.has(p.type) ? i : n), -1);
-  return Restoration.LIST.slice(0, last + 1).map((p) => p.id);
-}
-// Saved loyalty, checked: a number per station.
-export function readLoyalty(d) {
-  const out = {};
-  if (d && typeof d === 'object') for (const [key, n] of Object.entries(d)) if (Number.isFinite(n)) out[key] = n;
-  return out;
-}
+// The logic packages known (rules/research.js, owned as gambits) and how many lines of a program run.
+// Every game knows the logic for skills, use() and hull % (Vendor.FREE), so a squad member's class
+// program (rules/classes.js) runs from the start.
+export const logicKnown = () => Research.known([...new Set([...cargo.gambits, ...Vendor.FREE])]);
+export const logicLines = () => Squad.lineLimit(Research.lineBonus(cargo.gambits) + Progress.lineBonus(pilotLevel()));
 
 // The parts of a save (in the current form), each checked.
 export function readCargo(d, galaxy = null) {
@@ -412,11 +358,18 @@ export function readCargo(d, galaxy = null) {
   for (const spec of Object.values(cargo.loot)) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.lootPity && typeof d.lootPity === 'object') cargo.lootPity = { rare: Math.max(0, d.lootPity.rare | 0), epic: Math.max(0, d.lootPity.epic | 0) };
   if (d.razed && typeof d.razed === 'object') for (const [key, t] of Object.entries(d.razed)) if (typeof key === 'string' && Number.isFinite(t)) cargo.razed[key] = t;
-  cargo.lab = readLab(d.lab); // before the squad: what its programs may use
-  cargo.industry = readIndustry(d.industry, galaxy?.stations[galaxy.waystation]?.key ?? null);
-  cargo.loyalty = readLoyalty(d.loyalty);
-  cargo.restored = Array.isArray(d.restored) ? [...new Set(d.restored.filter((id) => Restoration.PROJECTS[id]))] : [];
-  if (d.restoreFromUse && galaxy) cargo.restored = restoredByUse(galaxy);
+  // Before the squad: what its programs may use.
+  cargo.gambits = Array.isArray(d.gambits) ? [...new Set(d.gambits.filter((id) => Vendor.isGambit(id)))] : [];
+  cargo.pilot = { xp: Math.max(0, Math.floor(d.pilot?.xp) || 0), talents: [] }; // talents once the class is read
+  if (d.world && typeof d.world === 'object') {
+    for (const [si, e] of Object.entries(d.world.elites || {})) if (e && Number.isFinite(e.n) && Number.isFinite(e.at)) cargo.world.elites[si] = { n: e.n, at: e.at };
+    for (const [id, day] of Object.entries(d.world.daily || {})) if (Number.isFinite(day)) cargo.world.daily[id] = day;
+    if (Number.isFinite(d.world.raids?.n) && Number.isFinite(d.world.raids?.next)) cargo.world.raids = { n: d.world.raids.n, next: d.world.raids.next };
+  }
+  if (d.shop && Number.isFinite(d.shop.day) && d.shop.bought && typeof d.shop.bought === 'object') {
+    cargo.shop = { day: d.shop.day, bought: {} };
+    for (const [key, list] of Object.entries(d.shop.bought)) if (Array.isArray(list)) cargo.shop.bought[key] = list.filter(Number.isInteger);
+  }
   cargo.market = Economy.prune(Economy.read(d.market), Clock.now());
   cargo.squad = Squad.read(d.squad, logicKnown()) || cargo.squad;
   if (d.missions) cargo.missions = Missions.create(d.missions, cargo.board ? cargo.board.byId : {});
@@ -425,6 +378,7 @@ export function readCargo(d, galaxy = null) {
   if (typeof d.track === 'string' && cargo.board && cargo.board.byId[d.track]) cargo.track = d.track;
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
   cargo.cls = Classes.valid(d.cls);
+  cargo.pilot.talents = Progress.read(d.pilot?.talents, cargo.cls).slice(0, Progress.points(pilotLevel()));
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
   if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
@@ -443,8 +397,6 @@ export function readCargo(d, galaxy = null) {
         : { key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
   }
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
-  if (Number.isFinite(d.fuel)) cargo.fuel = Math.max(0, d.fuel);
-  if (Number.isFinite(d.rad)) cargo.rad = clamp(d.rad, 0, Hazards.config.max - 1);
   if (d.surfaceDrops && typeof d.surfaceDrops === 'object') {
     for (const [body, list] of Object.entries(d.surfaceDrops)) {
       const ok = (Array.isArray(list) ? list : []).filter((x) => x && typeof x.key === 'string' && Number.isFinite(x.x) && Number.isFinite(x.y) && Goods.resolve(x.kind))
@@ -460,10 +412,10 @@ export function readCargo(d, galaxy = null) {
 export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
-  drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
+  drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
-  cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
-  market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
+  cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
+  market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
   loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
 }), 1000);
 // The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
@@ -521,49 +473,6 @@ export const repairs = {
     cargo.credits -= points * REPAIR_PRICE;
     saveCargo();
     return true;
-  },
-};
-
-// Refuelling, on docking and again on launch (game/docking.js): hydrazine in the hold goes in first
-// (FUEL_PER_HYDRAZINE a unit, while at least half of one fits), then hydrazine in the stock of the
-// station docked at (fuelling.at, its key, set by docking), then fuel bought for credits, as much as
-// there is room for and the credits cover.
-//   fuelling.refuel() -> { hydrazine, credits } (what it took) | null (nothing went in)
-export const FUEL_PER_HYDRAZINE = 25;
-export const FUEL_PRICE = 6; // credits per unit (hydrazine's price over FUEL_PER_HYDRAZINE, and a little)
-export const fuelling = {
-  price: FUEL_PRICE,
-  at: null,
-  get stocked() { return fuelling.at ? Industry.stockAt(cargo.industry, fuelling.at).hydrazine || 0 : 0; },
-  get fuel() { return cargo.fuel; },
-  get max() { return SHIP.fuel; },
-  get room() { return Math.max(0, SHIP.fuel - cargo.fuel); },
-  get hydrazine() { return hold.count('hydrazine') + fuelling.stocked; },
-  // What filling up would cost in credits, after the hydrazine aboard and in storage.
-  get cost() { return Math.ceil(Math.max(0, fuelling.room - fuelling.hydrazine * FUEL_PER_HYDRAZINE)) * FUEL_PRICE; },
-  refuel() {
-    if (fuelling.room < 0.5) return null;
-    let used = 0;
-    // A unit of hydrazine while at least half of it fits; credits top up the rest.
-    const fits = () => fuelling.room >= FUEL_PER_HYDRAZINE / 2;
-    while (fits() && hold.count('hydrazine') > 0) {
-      cargo.items.splice(cargo.items.findIndex((it) => it.kind === 'hydrazine'), 1);
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
-      used++;
-    }
-    while (fits() && fuelling.stocked > 0) {
-      Industry.withdraw(cargo.industry, fuelling.at, 'hydrazine', 1);
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
-      used++;
-    }
-    const units = Math.max(0, Math.min(Math.ceil(fuelling.room), Math.floor(cargo.credits / FUEL_PRICE)));
-    if (units > 0) {
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + units);
-      cargo.credits -= units * FUEL_PRICE;
-    }
-    if (!used && units <= 0) return null;
-    saveCargo();
-    return { hydrazine: used, credits: units * FUEL_PRICE };
   },
 };
 

@@ -1,38 +1,20 @@
-// How strongly each hazard shows on the screen (game/screen-fx.js, notes/hazards.md): nothing in
-// plain flight, then growing from a meter's first warning step to its limit. Each has its own look,
-// so they can be told apart without their colour: heat a glow from the edges, radiation grain over
-// everything, a low hull cracks in the corners, low fuel an engine that sputters.
+// How damage shows on the screen (game/screen-fx.js): a low hull cracks the corners, a stage more
+// at each step down, so it can be told without reading a number.
 //
-//   ScreenFx.config                          the thresholds (shares of each meter)
-//   ScreenFx.levels({ heat, rad, fuel }) -> { heat, rad, fuel }   each 0..1 (meters as shares 0..1)
+//   ScreenFx.config                          the thresholds (hull shares)
 //   ScreenFx.crackStage(hull) -> 0..3        hull: a share; a stage more at each of config.cracks
 //   ScreenFx.cracks(seed, stage) -> [{ corner, pts: [[x, y]], w }]   seeded, stable: a stage keeps the
 //     cracks of the ones before. corner 0..3 (top left, top right, bottom right, bottom left); points
 //     in shares of the screen's shorter side, inward from that corner; w: the stroke's weight
-//   ScreenFx.sputter(thrust, fuel, t) -> the thrust to draw the flame with (fuel: a share): as is
-//     above config.fuel[0], choking out in short seeded gaps below it, more often as it empties
 // ES module (`ScreenFx`); also runs in Node (the tests).
 
 import { hashInt } from '../core/rng.js';
 
 const ScreenFx = (() => {
   const config = {
-    heat: [0.6, 0.95], // from the first heat warning to nearly overheated
-    rad: [0.5, 0.9],
-    fuel: [0.25, 0], // falling
     cracks: [0.5, 0.25, 0.1], // hull shares that each add a stage of cracks
-    sputter: { slot: 0.09, gap: [0.12, 0.55] }, // seconds a flicker lasts; the chance of a gap, at 25% fuel and empty
   };
 
-  const smoothstep = (a, b, x) => {
-    const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-    return t * t * (3 - 2 * t);
-  };
-  const levels = ({ heat = 0, rad = 0, fuel = 1 }) => ({
-    heat: smoothstep(config.heat[0], config.heat[1], heat),
-    rad: smoothstep(config.rad[0], config.rad[1], rad),
-    fuel: smoothstep(config.fuel[0], config.fuel[1], fuel),
-  });
   const crackStage = (hull) => config.cracks.filter((s) => hull < s).length;
 
   const frac = (seed, a, b) => hashInt(seed | 0, a, b) / 4294967296;
@@ -63,15 +45,7 @@ const ScreenFx = (() => {
     return out;
   }
 
-  function sputter(thrust, fuel, t, seed = 0) {
-    const k = levels({ fuel }).fuel;
-    if (thrust <= 0 || k <= 0) return thrust;
-    const S = config.sputter, slot = Math.floor(t / S.slot);
-    const gap = S.gap[0] + (S.gap[1] - S.gap[0]) * k;
-    return frac(seed, slot, 1) < gap ? thrust * 0.1 : thrust * (1 - 0.35 * k * frac(seed, slot, 2));
-  }
-
-  return { config, levels, crackStage, cracks, sputter };
+  return { config, crackStage, cracks };
 })();
 
 export { ScreenFx };

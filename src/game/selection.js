@@ -104,8 +104,8 @@ export function describe(e) {
   // A pirate's card says in one word how a fight would go (Weak, Even, Outmatched); its pack and
   // gear are a tap away, in the card's detail line.
   const t = isHostile(e) ? threat(e) : null;
-  // A planet's or moon's: the scan of its surface (game/surface-run.js): its hazard, and in the
-  // detail line what's down there.
+  // A planet's or moon's: the scan of its surface (game/surface-run.js): its dungeon's level, and in
+  // the detail line what's down there.
   const scan = !t && (e.kind === 'planet' || e.kind === 'moon') && landable(e) ? siteScan(e) : null;
   const top = t ? { tag: t.word, tone: t.tone, detail: t.detail } : scan || { tag: card.tag || '', tone: card.tone || '', detail: '' };
   const n = e.kind === 'item' ? stackOf(e).length : 1; // a stack of drops: how many

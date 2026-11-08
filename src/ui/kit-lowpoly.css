@@ -196,9 +196,6 @@
 :root[data-ui="lowpoly"] .ui-tnode[aria-expanded="true"] { border: 0; box-shadow: 0 4px 0 var(--lipc), inset 0 0 0 2px var(--glass); }
 :root[data-ui="lowpoly"] .ui-tnode.locked[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--glass); }
 :root[data-ui="lowpoly"] .ui-tnode:focus-visible { outline: none; box-shadow: 0 4px 0 var(--lipc), inset 0 0 0 2px var(--trim); }
-:root[data-ui="lowpoly"] .st-tree-lines path { stroke: var(--bay-hi); stroke-width: 2; }
-:root[data-ui="lowpoly"] .st-tree-lines path.done { stroke: var(--glass); stroke-opacity: 0.7; }
-:root[data-ui="lowpoly"] .st-lane { color: var(--mute); }
 
 /* Stat chips: glass readouts sunk in the bay; the open one lights up. */
 :root[data-ui="lowpoly"] .ui-chip { border: 0; border-radius: 0; background: var(--sky); box-shadow: var(--well); clip-path: var(--cut-s); }
@@ -425,20 +422,8 @@
 :root[data-ui="lowpoly"] .st-gauge .mark { border-radius: 0; transform: rotate(45deg); background: linear-gradient(90deg, #fff 0 50%, var(--hud) 0); }
 :root[data-ui="lowpoly"] .st-gauge .mark.cheap { background: linear-gradient(90deg, color-mix(in srgb, var(--good) 55%, #fff) 0 50%, var(--good) 0); }
 :root[data-ui="lowpoly"] .st-gauge .mark.dear { background: linear-gradient(90deg, color-mix(in srgb, var(--warn) 55%, #fff) 0 50%, var(--warn) 0); }
-:root[data-ui="lowpoly"] .st-components th, :root[data-ui="lowpoly"] .st-components td { border-top: 2px solid var(--bay-lo); }
-:root[data-ui="lowpoly"] .st-bench-cur { border: 0; border-radius: 0; background: color-mix(in srgb, var(--glass) 12%, var(--bay-hi)); box-shadow: inset 0 -2px 0 var(--glass); clip-path: var(--cut-s); color: var(--trim); }
-:root[data-ui="lowpoly"] .st-bench-cur.idle { border: 0; background: var(--bay-lo); box-shadow: inset 0 4px 0 rgba(0, 0, 0, 0.55); color: var(--mute); }
-:root[data-ui="lowpoly"] .st-bench-q::before { border-top: 2px solid var(--bay-hi); }
-:root[data-ui="lowpoly"] .st-bench-slot { border: 0; border-radius: 0; background: var(--plate-bay); clip-path: var(--cut-s); box-shadow: inset 0 -2px 0 var(--glass); }
-:root[data-ui="lowpoly"] .st-bench-slot.empty { background: var(--bay-lo); box-shadow: inset 0 3px 0 rgba(0, 0, 0, 0.55); }
-:root[data-ui="lowpoly"] .st-clause { border-left: 3px solid var(--bay-hi); }
 
-/* Production: nodes as bay plates on the board. */
-:root[data-ui="lowpoly"] .pr-board { border-radius: 0; background-color: var(--bay-lo); background-image: radial-gradient(var(--bay-hi) 1px, transparent 1px); clip-path: var(--cut-s); }
-:root[data-ui="lowpoly"] :is(.pr-node, .pr-stage, .pr-empty, .pr-detail, .pr-prod, .pr-pnode, .pr-lin .row) { border-radius: 0; }
-:root[data-ui="lowpoly"] :is(.pr-node, .pr-stage, .pr-detail, .pr-prod) { background-color: var(--bay-hi); }
-:root[data-ui="lowpoly"] .pr-stage .bar { border-radius: 0; background: var(--deep); }
-:root[data-ui="lowpoly"] .pr-pnode .prio .ar { border-radius: 0; background: var(--plate-bay); }
+:root[data-ui="lowpoly"] .st-clause { border-left: 3px solid var(--bay-hi); }
 
 /* Settings and factions: a raised bay over the dimmed flight view. */
 :root[data-ui="lowpoly"] #settings, :root[data-ui="lowpoly"] #factions { background: rgba(2, 3, 6, 0.72); }

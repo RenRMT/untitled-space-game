@@ -6,12 +6,11 @@ import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { tickFight, tickShield } from './combat.js';
 import { tickCollisions } from './collisions.js';
-import { dashing, tickDash } from './dash.js';
-import { hazard, tickHazards } from './hazards.js';
 import { updateRegion } from './draw-world.js';
 import { steady } from './input.js';
-import { tickIndustry } from './industry.js';
-import { tickLab } from './lab.js';
+import { trackShields } from './screen-fx.js';
+import { tickTraffic } from './traffic.js';
+import { docked } from './docking.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { moveMode } from './options.js';
@@ -25,7 +24,7 @@ import { SHIP, cam, debris, fadeFlash, fight, fightMode, inFight, lerp, particle
 
 export let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
 export let senseTimer = 0;
-// Flight time moved on at once, for the tests (tests/smoke.js: to a solar flare, rules/hazards.js).
+// Flight time moved on at once (a surface's step runs it on; the tests skip ahead with it).
 export function skipTime(secs) { simTime += secs; }
 
 // A ship close by something that goes round (world/orbits.js) is carried round with it, so it can
@@ -53,16 +52,14 @@ export function update(dt) {
   simTime += dt;
   tickOrbits(dt);
   if (!landing.on && !warp.on && !inFight()) carry(); // (a fight holds its ships where it has them)
-  tickDash(dt);
-  tickLab();
-  tickIndustry();
   tickAutopilot();
   // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight/flight.js).
   if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
-    Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value, coast: dashing() }, dt);
+    Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value }, dt);
     tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
   }
-  tickHazards(dt); // heat, radiation, flares, storms and fuel (game/hazards.js)
+  if (!docked && !landing.on && !warp.on && !fight.wrecked) trackShields(); // the shields breaking (game/screen-fx.js)
+  if (!warp.on) tickTraffic(); // freighters, patrols, elites and raids (game/traffic.js)
   const hx = Math.cos(ship.angle);
   const hy = Math.sin(ship.angle);
 
@@ -94,9 +91,9 @@ export function update(dt) {
   fadeFlash(dt);
   toast.t = Math.max(0, toast.t - dt);
   updateRegion();
-  // Ship sensors look for contacts around it, a few times a second (not in an ion storm).
+  // Ship sensors look for contacts around it, a few times a second.
   senseTimer -= dt;
-  if (senseTimer <= 0 && !hazard.exp?.storm) {
+  if (senseTimer <= 0) {
     senseTimer = 0.25;
     sense();
   }

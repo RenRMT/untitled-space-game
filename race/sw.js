@@ -75,6 +75,7 @@ const FILES = [
   '../src/rules/loadout.js',
   '../src/rules/logic.js',
   '../src/rules/mods.js',
+  '../src/rules/progress.js',
   '../src/rules/squad.js',
   '../src/ui/kit-lowpoly.css',
   '../src/ui/kit.css',

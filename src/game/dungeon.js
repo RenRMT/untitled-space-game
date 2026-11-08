@@ -1,14 +1,13 @@
-// The test dungeon (a trial of a surface to explore rather than a site to mine round): one planet
-// in the start system (DUNGEON) whose surface is a labyrinth of caverns (art/surface.js o.dungeon,
-// on the 'cavern' ground): chambers cut into solid rock, joined by winding passages, the landing
-// spot in a chamber by its south edge and the deepest chamber (role 'deep', the most passages
-// away) kept for a boss one day. There are no hazards down there (dungeonSite); nodes lie about
+// Dungeons: every planet's and moon's surface is a labyrinth (art/surface.js o.dungeon) cut into
+// its ground: chambers cut into solid rock, joined by winding passages, the landing spot in a
+// chamber by its south edge and the deepest chamber (role 'deep', the most passages away) held by
+// the Warden. There are no hazards down there (dungeonSite); nodes lie about
 // the chambers and passages as on any surface, and the landing pad in the first chamber is the way
 // out (EXIT: fly off it and back onto it to take off), with no rim to fly past.
 // The minimap is the cave as charted round the ship: what's come within SIGHT of it as it flies,
 // afresh on each landing; the chambers visited are counted on the HUD.
 //
-//   DUNGEON, isDungeon(e)       which planet: the start system's planet of this type
+//   isDungeon(e)                whether a body can be landed on (every planet and moon)
 //   dungeonSite(site)           a site (rules/hazards.js surface) with its hazards taken off
 //   dungeonOpts(size)           the options its surface is generated with (game/landing.js)
 //   dungeonRun                  { W, seen (tiles charted), visited (rooms by index), map (canvas) }
@@ -21,35 +20,30 @@ import { Art } from '../art/render.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
 import { CombatCore } from '../combat/combat-core.js';
-import { Params } from '../core/store.js';
 import { hashInt, mulberry32 } from '../core/rng.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
+import { Progress } from '../rules/progress.js';
+import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
-import { cargo, lootNotice, saveCargo, takeLoot } from './cargo.js';
+import { Vendor } from '../rules/vendor.js';
+import { cargo, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
 import { leave } from './surface-run.js';
+import { gainXP } from './progress.js';
+import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
 
-// Every planet and moon is a dungeon now: landing puts the ship in a labyrinth of caverns, guarded,
-// with a boss in its deepest chamber. ?sites brings back the landing sites of the surface run
-// (game/surface-run.js), with this one planet still a labyrinth, as the test dungeon was.
-export const landingSites = Params.has('sites');
-// Zantal VI in the default galaxy: the blue giant (its surface otherwise the Terran one, its rules a
-// gas giant's), which no other test or mission lands on.
-export const DUNGEON = { system: 0, type: 'blue', rooms: 16 };
-export function isDungeon(e) {
-  if (!e || (e.kind !== 'planet' && e.kind !== 'moon')) return false;
-  if (!landingSites) return true;
-  if (e.kind !== 'planet') return false;
-  const p = world.galaxy.planets.find((q) => q.name === e.key);
-  return !!p && p.system === DUNGEON.system && p.type === DUNGEON.type;
-}
+// Every planet and moon is a dungeon: landing puts the ship in a labyrinth of caverns, guarded,
+// with a boss in its deepest chamber. (The landing sites of the old surface run, with their
+// hazards, are on the archive: notes/archived-systems.md.)
+export const DUNGEON = { rooms: 16 }; // the chambers of a labyrinth with no body to scale it by
+export const isDungeon = (e) => !!e && (e.kind === 'planet' || e.kind === 'moon');
 
 // What a labyrinth is called, by the ground it's cut into (art/surface.js types).
 const DUNGEON_NAMES = { desert: 'Canyons', terran: 'Ravines', ice: 'Ice caves', lava: 'Lava tubes', gas: 'Storm maze', cavern: 'Caverns' };
@@ -70,7 +64,7 @@ export function bodyLevel(e) {
 // The labyrinth fills the middle of the surface, a margin of solid rock round it; the harder the
 // system, the more chambers (the test dungeon keeps its sixteen).
 export const dungeonOpts = (size, e) => {
-  const m = Math.round(size * 0.16), rooms = landingSites || !e ? DUNGEON.rooms : 9 + bodyLevel(e);
+  const m = Math.round(size * 0.16), rooms = !e ? DUNGEON.rooms : 9 + bodyLevel(e);
   return { w: size, h: size, dungeon: { area: [m, m, size - m, size - m], rooms }, tall: 0.015 };
 };
 
@@ -183,6 +177,7 @@ export function guardianDown(g) {
   if (!g.alive) return;
   g.alive = false;
   const R = dungeonRun, level = bodyLevel(R.e);
+  gainXP(Progress.killXP(clamp(g.tier, 1, 5), pilotLevel()) + (g.boss ? Progress.wardenXP(level) : 0), g.boss ? `the ${g.name}` : '');
   const drops = CombatCore.loot(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4)).map((d) => d.kind);
   if (g.boss) drops.push(...CombatCore.loot(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4).map((d) => d.kind));
   if (drops.length) leave(drops, g.x, g.y, `loot:${g.key}`, 30 * g.size);
@@ -194,6 +189,10 @@ export function guardianDown(g) {
     cargo.credits += bounty;
     R.bossDown = true;
     notify(`The ${g.name} is destroyed · ${bounty} credits salvaged from its core`, 4, { tone: 'good' });
+    // And a gambit in its core: one not owned yet, up to a tier above the dungeon's level
+    // (game/vendor.js; some are found only this way, further out).
+    const gambit = Vendor.gambitDrop(world.galaxy.seed ^ (R.field >>> 0), `${g.key}:gambit`, level, ownedGambits());
+    if (gambit && grantGambit(gambit)) notify(`Gambit recovered from the ${g.name}: import ${Research.title(gambit)}`, 4, { tone: 'good' });
   }
   saveCargo();
 }
@@ -274,8 +273,7 @@ export function enterDungeon(W, e = null, field = 0) {
   map.width = (a1 - a0) * PX;
   map.height = (b1 - b0) * PX;
   Object.assign(dungeonRun, { W, e, field, seen: new Uint8Array(W.w * W.h), visited: new Set(), map, at: -1, guards: [], bossDown: false, armed: false });
-  // Guardians in every dungeon but the test one (?sites keeps it as it was: empty).
-  if (e && !landingSites) dungeonRun.guards = placeGuardians(W, e, field);
+  if (e) dungeonRun.guards = placeGuardians(W, e, field);
 }
 
 // Open: a tile with any corner below the cave walls.

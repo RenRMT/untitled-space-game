@@ -11,23 +11,43 @@ what you destroy, and push out from the safe core of your faction's space into h
   outside, 5 the aliens'), shown on the map.
 - **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
   in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  leave loot to pick up: components, goods and now and then a schematic. Fights are turn-based on a
+  leave loot to pick up: components, goods and now and then a gambit. Fights are turn-based on a
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
-  below; tap a ship to target it. Active (real time) is the alternative: Settings → Combat, or B.
+  below; tap a ship to target it. It's the one combat mode (real time can still be tried with
+  `?combat=realtime`, for comparison).
   Fights play the same in space and on a surface, and the ship flies there as fast as in space.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
   each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
+- **A living galaxy.** The system the ship is in has traffic (`src/game/traffic.js`): freighters
+  plying between its stations, and patrols of named pilots circling them, who join a fight against
+  hostiles nearby unless their faction counts you Hostile. Every system of level 2 and up has a named
+  elite pirate, much tougher than its pack, with its own loot (Rare or better), a gambit and a
+  bounty; another comes after two hours. Now and then raiders come for a station: destroy them for a
+  bounty, experience and gear, or they withdraw.
+- **Levels and talents.** The pilot earns experience from what's destroyed (less for easy kills,
+  none far below you), contracts by their difficulty and every Warden; the squad learns alongside.
+  Levels go to 30, each a little sturdier and harder hitting; every third gives a talent point,
+  spent on the Ship tab (more hold, armour or a weapon mount on every hull, or sharper class
+  skills: `src/rules/progress.js`, `src/game/progress.js`). Gear asks for a level (loot by its item
+  level, Mk by Mk), hulls too, and levels 10 and 20 add program memory. A lost ship is towed home for
+  a bill, more the further out it was lost.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
-  class starts with a program that does.
+  class starts with a program that does. A program is built from **gambits**, FF12 style: the
+  building blocks (conditions such as "is charging a heavy shot" or "has Taunt", picks, actions,
+  more memory), bought at any station's outfitter (better ones further out) or found on pirates
+  and Wardens (`src/rules/vendor.js`, `src/game/vendor.js`).
+- **The outfitter.** Every station's Outfitter tab sells gambits up to its system's level, a stock of
+  gear rolled like loot (Common and Uncommon, Rare at a capital) that turns over every day,
+  consumables, and at capitals and major stations mods. Hulls are at a capital's shipyard.
 - **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth cut into its own ground
   (canyons on a desert world, ice caves, lava tubes, a storm maze on a gas giant, crater mazes on moons)
   (`src/game/dungeon.js`): turrets that never move and raiders that patrol and chase hold the
   chambers, a Warden (a heavy ship) the deepest, harder the higher the system's level, with loot,
-  gear and a bounty for the Warden. The squad lands with the ship, follows its trail through the
+  gear, a bounty and a gambit for the Warden. The squad lands with the ship, follows its trail through the
   caverns and fights beside it (`src/game/surface-squad.js`); walls stop every ship in a fight.
 - **Stations and turrets.** Every station holds 0–3 turrets in orbit round it, more in high
   security and in harder systems (`src/rules/structures.js`). Every man-made thing can be attacked
@@ -37,11 +57,18 @@ what you destroy, and push out from the safe core of your faction's space into h
   has its turrets open fire on sight. Destroyed, a faction's turret or station is a wreck until it's
   rebuilt (20 min, 90 min real time; no docking meanwhile). Friendly turrets fight on your side
   against hostiles near their station.
-- **Missions.** Every station posts combat contracts (`src/story/job-texts.js`, run by
-  `src/game/jobs.js`): a raider patrol (Easy), a turret battery (Normal), holding the station against
-  waves with its turrets beside you (Normal or Hard), a pirate outpost with its turrets in this
-  system or a nearby one (Hard), and a strike on a fortified outpost a jump away (Elite). The
-  difficulty sets the hostiles' tier, the pay and the gear rewarded.
+- **The main story.** Seven chapters (`STORY` in `src/story/job-texts.js`, placed by
+  `src/story/jobs.js` as the `story` tier), offered at every station, each once the one before is
+  done and the pilot has reached its level (1 to 24); while it waits, the Missions tab says what
+  level it opens at. It takes you from Wedge space out past the frontier to the aliens at the
+  galactic core, asked by each faction in turn as it is: Wedge's security and order, Block's
+  industry at any human cost, Shard's research as faith, the Drifters' freedom at any price, the
+  Androids' neutrality close to apathy, and the aliens, beyond understanding.
+- **Contracts.** Every station posts combat contracts (`src/story/job-texts.js`, run by
+  `src/game/jobs.js`): a raider patrol (Easy), a turret battery and a convoy escort with an ambush
+  on the way (Normal), holding the station against waves with its turrets beside you (Normal or
+  Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
+  tier, the pay and the gear rewarded. A contract handed in is posted again the next day.
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
@@ -49,9 +76,9 @@ what you destroy, and push out from the safe core of your faction's space into h
   guardians, the Warden, missions) with rarity floors, bad-luck protection (Rare at least after a
   long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
   dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
-- **Hazards are off** for now (heat, radiation, flares, ion storms, surface hazards and fuel use);
-  `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
-  with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
+- **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
+  out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
+  the race and for each surface's deposits). `notes/hazards.md` was their plan.
 
 Mining is an action you start: select a rock (or, on a surface, a deposit) and press Mine (or
 Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
@@ -62,8 +89,8 @@ the only way to pick it up: nothing is pulled in or picked up by flying near it.
 shows under the finger in space and on a surface alike, and the map, settings, factions and
 context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
 its landing pad: fly off it and back onto it to take off.
-Explanations in the menus wait behind an ⓘ. Production, research and the station services are as
-they were.
+Explanations in the menus wait behind an ⓘ. There is no production or research in the main game
+any more (the idle game has them, on the same rules: `notes/archived-systems.md`).
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms
@@ -98,11 +125,10 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
-| `?hazards` | the hazards back (heat, radiation, flares, ion storms, surface hazards, fuel use) |
-| `?sites` | landing sites (deposits and surface hazards) instead of dungeons, Zantal VI still the empty test labyrinth |
-| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
+| `?combat=realtime` | fights in real time instead of on the timeline, for comparison (not saved) |
+| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open and the jobs board up (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
-| `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
+| `?style=lowpoly`, `?move=direct` | a setting for this visit |
 
 The race is a second page beside the game: `/race/` (`race/index.html`), a lap race on a generated
 surface in the game's own ship. It opens on a title (`src/race/menu.js`, in the Low-poly UI kit): a
@@ -154,7 +180,7 @@ station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel; `dungeon.js`: the test labyrinth on one planet), HUD, the frame loop |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits and what lies about; `dungeon.js`: the labyrinth, its guardians and Warden), HUD, the frame loop |
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
 | `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
@@ -221,9 +247,10 @@ The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in
 browser (`tests/browser-stub.js`) and checks it through `G`, the game's state and functions by name,
 which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
 
-Design notes live in `notes/`: `hazards.md` was the plan for gathering under hazards (switched off
-now, `?hazards`); `archived-systems.md` lists systems taken out of the game and how to
-bring each back (the latest: the hazards); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
+Design notes live in `notes/`: `roadmap.md` is where the main game is heading (an offline MMO-like
+space RPG) and what was cut on the way; `hazards.md` was the plan for gathering under hazards (taken
+out); `archived-systems.md` lists systems taken out of the game and how to bring each back (the
+latest: the hazards); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
 overview (the factions, their standings and the story beats); `galaxy.md` is how the galaxy is

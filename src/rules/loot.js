@@ -25,7 +25,7 @@
 //
 // An item is saved as its spec { id, base, ilvl, rarity, seed } and remade from it: the seed rolls
 // its affixes the same way every time.
-//   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cls?, pity?, base?, key? }
+//   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cap? (the highest rarity: a vendor's stock), cls?, pity?, base?, key? }
 //   Loot.drops(source, key, o) -> [spec]   o: { level, seed, cls?, pity?, luck? }: a source's drops
 //   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { base, ilvl, rarity,
 //                                    affixes: [{ id, name, stat, value }], legendary? } } (as Loadout.EQUIPMENT)
@@ -119,6 +119,7 @@ const Loot = (() => {
     sentinel: { chance: 0.18, rolls: 1, floor: 'common', luck: 1.2 },
     raider: { chance: 0.12, rolls: 1, floor: 'common', luck: 1.1 },
     warden: { chance: 1, rolls: 1, floor: 'rare', luck: 2.5 },
+    elite: { chance: 1, rolls: 2, floor: 'rare', luck: 2.2 }, // a named pirate ace (game/traffic.js)
     mission: { chance: 1, rolls: 1, floor: 'uncommon', luck: 1.5 },
   };
   const PITY = { rare: 14, epic: 45 };
@@ -151,7 +152,8 @@ const Loot = (() => {
       if ((pity.epic || 0) >= PITY.epic && RANK[floor] < RANK.epic) floor = 'epic';
       else if ((pity.rare || 0) >= PITY.rare && RANK[floor] < RANK.rare) floor = 'rare';
     }
-    const rarity = rollRarity(r, o.luck || 1, floor);
+    let rarity = rollRarity(r, o.luck || 1, floor);
+    if (o.cap && RANK[rarity] > RANK[o.cap]) rarity = o.cap;
     if (pity) {
       const k = RANK[rarity];
       pity.rare = k >= RANK.rare ? 0 : (pity.rare || 0) + 1;

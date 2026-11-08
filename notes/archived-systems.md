@@ -379,6 +379,39 @@ travel, dashes, take-off and the HUD). Landing on any planet or moon is a dungeo
 (`src/game/dungeon.js`) instead of a landing site with deposits under hazards
 (`src/game/surface-run.js`, still there).
 
-**To bring it back.** `?hazards` turns the hazards on, `?sites` the landing sites (Zantal VI stays
-the empty test labyrinth); `tests/smoke.js` plays with both. Making either the default is setting
-`hazardsOn` or `landingSites` to true.
+**Removed (November 2026, `notes/roadmap.md`).** The switched-off code went too: `src/game/hazards.js`
+(the meters, flares, belts and storms in flight), `src/game/dash.js` (the flick dash, which cost
+fuel), fuel and refuelling (`fuelling` in `src/game/cargo.js`, the station's fuel row), the landing
+sites' half of `src/game/surface-run.js` (the day side, dust fronts, vents, storm pockets, lightning,
+take-off fuel, Jettison and Call a tow), the HUD's heat, radiation and fuel gauges
+(`src/rules/status.js`), the heat glow, radiation grain and sputtering flame
+(`src/game/screen-fx.js`, `src/rules/screen-fx.js`), the field consumables for them (coolant,
+radiation purges, fuel canisters, seismic charges: `src/game/field.js` leaves them out) and their
+tests. `?hazards` and `?sites` are gone. `src/rules/hazards.js` stays: the race uses it, and each
+surface's deposits come from it. Every planet and moon is a dungeon.
+
+**To bring it back.** Start from the commit before the removal (`git log -- src/game/hazards.js`):
+`?hazards` and `?sites` worked there, and `tests/smoke.js` played with both.
+
+## Industry, research and restoration in the main game (November 2026)
+
+**What changed** (`notes/roadmap.md`, phase 2). The main game's production orders, station stocks,
+haulers and routes, the real-time lab (logic packages, blueprints, refinements, hull refits,
+industry research), station restoration at the waystation and station loyalty are gone, with
+the Research and Industry tabs, "Store all" and the "Since you last docked" news of them. They
+were a factory game beside the RPG, and the idle game (`/idle/`) is that game now.
+
+- Gambits replace logic research: the same packages (`rules/research.js`, kind `logic`), owned in
+  `cargo.gambits`, bought at an outfitter by system level (`rules/vendor.js`) or found: a pirate's
+  computer now and then (where a schematic used to be), and a Warden's core always.
+- Gear is bought at the outfitter (a daily stock rolled like loot) or looted; it isn't assembled.
+  Mods are sold at capitals and major stations; consumables everywhere.
+- Every station is online; the shipyard is at every capital.
+- Hull refits are gone for now (`shipUpgrades()` in `src/game/cargo.js` is empty): talents take
+  their place (roadmap phase 3). Salvaged components have no use until then.
+- Saves: migration 22 keeps the logic packages researched as gambits and drops the rest.
+
+**Where it lives.** The rules are all still there, for the idle game: `src/rules/industry.js`,
+`recipes.js`, `research.js`, `lab.js`, `restoration.js`, `logistics.js`. The main game's wiring
+and screens were `src/game/lab.js`, `industry.js`, `restoration.js` and `src/ui/research-view.js`,
+`industry-view.js`: `git log -- src/game/industry.js` finds the commit that removed them.

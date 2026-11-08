@@ -89,21 +89,6 @@ function miningBusy(a) {
   const k = Math.min(1, mine.t / mine.total);
   return { ok: false, busy: true, inRange: true, progress: k, label: `${mineVerb(a)[1]} · ${Math.round(100 * k)}%` };
 }
-// What's left of the rock being worked (game/field.js: the seismic charge), and a blast on it: as
-// much work done at once.
-export function minedRock() {
-  const t = mine.target;
-  return t ? { hull: Mining.integrity(t) * (1 - mine.t / mine.total), material: Mining.material(t) } : null;
-}
-export function blastRock(amount) {
-  const t = mine.target;
-  if (!t) return false;
-  mine.t += (amount / Math.max(1, Mining.integrity(t))) * mine.total;
-  chips(t, 10, 140);
-  fight.fx.push({ type: 'number', delay: 0, t: 1.2, max: 1.2, at: { x: t.x, y: t.y, radius: t.radius }, jx: 0, text: `−${Math.round(amount)}`, color: COLORS.flame });
-  return true;
-}
-
 // A burst of debris: n bits flying out from (x, y), or from anywhere within `spread` of it, each
 // with a speed, life and size picked in its [min, max] and the colours taken in turn. Rock chips,
 // explosions and sparks off a hull.

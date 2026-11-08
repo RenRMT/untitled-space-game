@@ -1,28 +1,22 @@
-// Hazards on the screen, not only in the gauges (rules/screen-fx.js, notes/hazards.md): each one
-// its own look, growing from its first warning step to the limit, so a glance says what's wrong
-// and how badly without reading a number:
-// - heat: a warm glow creeping in from the edges, breathing;
-// - radiation: grain over everything, with lines of static as it nears the limit;
+// Damage on the screen, not only in the gauges (rules/screen-fx.js): each its own look, so a
+// glance says what's wrong and how badly without reading a number:
 // - a low hull: cracks in the corners, more at each step down (cleared by a repair);
 // - the shields breaking: a crackle along the edges for a moment, then a faint flicker now and
-//   then while they're down;
-// - low fuel shows on the ship instead: the flame sputters (flameThrust, game/draw-world.js and the
-//   surface's craft in game/landing.js).
-// With reduced motion (Settings) nothing breathes, flickers or crawls: the grain and glow hold still.
+//   then while they're down (and a notice and a vibration as they go: trackShields).
+// With reduced motion (Settings) nothing flickers or crawls.
 //
 //   drawHazardScreen(w, h, time)   in screen space, over the world and under the HUD (game/loop.js
 //                                  in open flight, game/landing.js on a surface)
-//   flameThrust(thrust, time)      the thrust to draw the engine's flame with
+//   trackShields()                 each step: notes the moment the shields break
 // Part of the flight view.
 
 import { COLORS } from '../core/theme.js';
-import { Hazards } from '../rules/hazards.js';
 import { ScreenFx } from '../rules/screen-fx.js';
 import { cargo } from './cargo.js';
 import { shieldNow } from './combat.js';
-import { hazard } from './hazards.js';
+import { Feedback } from '../core/feedback.js';
 import { reducedMotion } from './options.js';
-import { SHIP, ctx } from './state.js';
+import { SHIP, ctx, notify } from './state.js';
 
 const CRACKLE = 0.45; // seconds the shields' breaking shows
 const FLICKER = { every: 3.2, length: 0.18 }; // the shields down: a faint flicker this often
@@ -33,68 +27,24 @@ const rgba = (hex, a) => {
   return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
 };
 
-export const flameThrust = (thrust, time) => (SHIP.fuel ? ScreenFx.sputter(thrust, cargo.fuel / SHIP.fuel, time, fx.seed) : thrust);
+// The shields as last seen (0..1 of full), and when they last broke (performance.now, s).
+const shields = { was: null, broke: -Infinity };
+// Each step, in space or on a surface: the shields breaking (a notice, a vibration, and the crackle).
+export function trackShields() {
+  const now = shieldNow();
+  if (SHIP.shield && shields.was !== null && shields.was >= 1 && now < 0.5) {
+    shields.broke = performance.now() / 1000;
+    notify('Shields down · the hull takes the next hit', 2.5, { tone: 'warn' });
+    Feedback.emit('hazard');
+  }
+  shields.was = now;
+}
 
 export function drawHazardScreen(w, h, time) {
-  const H = Hazards.config.max;
-  const L = ScreenFx.levels({ heat: hazard.heat / H, rad: cargo.rad / H });
   ctx.save();
-  if (L.heat > 0) drawHeat(w, h, L.heat, time);
-  if (L.rad > 0) drawGrain(w, h, L.rad);
   drawCracks(w, h);
   drawShield(w, h, time);
   ctx.restore();
-}
-
-// A glow from the edges, amber turning red, deeper as it climbs.
-function drawHeat(w, h, k, time) {
-  const breathe = reducedMotion() ? 1 : 0.85 + 0.15 * Math.sin(time * (2 + 3 * k));
-  const cx = w / 2, cy = h / 2, far = Math.hypot(cx, cy), near = far * (0.75 - 0.35 * k);
-  const g = ctx.createRadialGradient(cx, cy, near, cx, cy, far);
-  const edge = k > 0.6 ? COLORS.hostile : COLORS.flame;
-  g.addColorStop(0, rgba(edge, 0));
-  g.addColorStop(0.6, rgba(COLORS.flame, 0.22 * k * breathe));
-  g.addColorStop(1, rgba(edge, 0.6 * k * breathe));
-  ctx.globalAlpha = 1;
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-}
-
-// Grain: a few noise tiles made once, laid over the screen at a new offset each frame.
-function noiseTiles() {
-  if (fx.tiles) return fx.tiles;
-  fx.tiles = [0, 1, 2].map(() => {
-    const c = document.createElement('canvas');
-    c.width = c.height = 128;
-    const g = c.getContext('2d'), img = g.createImageData(128, 128);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const v = Math.random() < 0.5 ? 255 : 0;
-      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
-      img.data[i + 3] = Math.random() < 0.35 ? 90 + Math.random() * 120 : 0;
-    }
-    g.putImageData(img, 0, 0);
-    return ctx.createPattern(c, 'repeat');
-  });
-  return fx.tiles;
-}
-function drawGrain(w, h, k) {
-  const still = reducedMotion(), tiles = noiseTiles();
-  const tile = still ? tiles[0] : tiles[Math.floor(Math.random() * tiles.length)];
-  const ox = still ? 0 : Math.floor(Math.random() * 128), oy = still ? 0 : Math.floor(Math.random() * 128);
-  ctx.save();
-  ctx.translate(-ox, -oy);
-  ctx.globalAlpha = 0.05 + 0.2 * k;
-  ctx.fillStyle = tile;
-  ctx.fillRect(0, 0, w + 128, h + 128);
-  ctx.restore();
-  if (still || k < 0.5) return;
-  // Lines of static as it nears the limit.
-  ctx.fillStyle = COLORS.hud;
-  const n = Math.floor((k - 0.5) * 8 * Math.random());
-  for (let i = 0; i < n; i++) {
-    ctx.globalAlpha = 0.06 + 0.12 * Math.random();
-    ctx.fillRect(0, Math.random() * h, w, 1 + Math.random() * 2);
-  }
 }
 
 // Cracks in the corners, each stage keeping the last's; new ones after a repair.
@@ -125,7 +75,7 @@ function drawCracks(w, h) {
 // The shields breaking: a crackle along the edges; then while down, a faint flicker now and then.
 function drawShield(w, h, time) {
   if (!SHIP.shield) return;
-  const since = performance.now() / 1000 - hazard.broke, still = reducedMotion();
+  const since = performance.now() / 1000 - shields.broke, still = reducedMotion();
   let k = 0;
   if (since < CRACKLE) k = 1 - since / CRACKLE;
   else if (shieldNow() < 0.5 && !still && time % FLICKER.every < FLICKER.length) k = 0.25;

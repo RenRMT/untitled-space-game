@@ -18,6 +18,7 @@
 //   log.accept(id, at?), log.complete(id)  offered -> active (at: the station key), ready -> done (false if not)
 //   log.finish(id)                         straight to done
 //   log.abandon(id)                        a job under way back to offered, its progress gone
+//   log.reopen(id)                         a job done offered again (a contract the next day)
 //   log.at(id), log.attempt(id), log.ids() where it was accepted, how many times, every id with a state
 //   log.count(id, obj), log.done(id, obj)  progress on an objective, and whether it's met
 //   log.set(id, obj, n)                    progress made (while active or ready: ready once every
@@ -94,6 +95,12 @@ const Missions = (() => {
       finish(id) {
         if (!def(id)) return false;
         state[id] = { ...state[id], status: 'done', progress: state[id] ? state[id].progress : {} };
+        return true;
+      },
+      // A job done, offered again (a repeatable contract): its next attempt starts afresh.
+      reopen(id) {
+        if (!jobs[id] || status(id) !== 'done') return false;
+        state[id] = { status: 'offered', progress: {}, n: state[id].n };
         return true;
       },
       // A job given up: offered again, its progress gone.

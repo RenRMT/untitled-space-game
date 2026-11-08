@@ -19,7 +19,6 @@ import { SYSTEM_CONFIG } from '../world/system-config.js';
 import { cargo, loadCargo, saveCargoNow } from './cargo.js';
 import { endTalk, showGates } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
-import { trustOnline } from './restoration.js';
 import { SHIP, notify, ship } from './state.js';
 import { arriveAt } from './travel.js';
 
@@ -67,7 +66,6 @@ export function loadGalaxy(galaxy) {
   SystemMap.trip = world.travel;
   Art.clearCache();
   ArtBodies.clearCache();
-  trustOnline();
   showGates();
   placeBeside(startStation());
   SystemMap.setPlayer(ship.x, ship.y);

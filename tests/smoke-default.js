@@ -10,6 +10,7 @@ import { install } from './browser-stub.js';
 
 const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1' });
 const { G } = await import('../src/main.js');
+const { Messages } = await import('../src/ui/messages.js');
 const inGame = new Function('__scope', '__src', 'with (__scope) return eval(__src);');
 const scope = Object.create(G);
 const game = (src) => inGame(scope, src);
@@ -60,7 +61,6 @@ test('a new game: beside the capital in Wedge space, the gates online; no squad'
   // Hostiles out in low and lawless security, none in high.
   assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');
   assert.ok(game(`world.galaxy.packs.filter((k) => k.system === 0).every((k) => k.tier <= 2)`), 'gentle ones in the start system');
-  assert.strictEqual(game('hazardsOn'), false, 'no hazards');
 });
 
 test('docks at the capital, buys and sells a good, and launches', () => {
@@ -114,12 +114,12 @@ test('mines an asteroid with the starting tools and keeps what it drops', () => 
 });
 
 test('lands on the terran planet, flies over its surface, and takes off', () => {
-  game(`globalThis.__body = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'terran'); cargo.fuel = SHIP.fuel;
+  game(`globalThis.__body = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'terran');
     placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
   clickCard('land');
   assert.ok(until('landing.phase === "surface"', 1500), 'down on the surface');
   const x0 = game('landing.craft.x');
-  game('while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1); ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
+  game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
   browser.frames(30);
   game('ship.targetSpeed = 0');
   assert.ok(game('landing.craft.x') > x0 + 20, 'flying over the ground');
@@ -128,19 +128,118 @@ test('lands on the terran planet, flies over its surface, and takes off', () => 
   assert.ok(game('Math.hypot(ship.x - __body.x, ship.y - __body.y) < __body.body.r * 2.1 + 400'), 'beside the planet');
 });
 
-test('at the waystation, goods and credits restore the first station', () => {
-  game(`globalThis.__T = Date.now(); Clock.now = () => __T;
-    globalThis.__way = world.galaxy.stations[world.galaxy.waystation];
-    globalThis.__wayAt = __find((e) => e.kind === 'station' && e.key === __way.key);
-    placeBeside(__wayAt); dock(__wayAt); StationMenu.showTab('industry')`);
-  assert.ok(game('!!docked'), 'docked at the waystation');
-  assert.match(onStation(), /Restoration0\/\d+/, 'nothing restored yet');
-  const first = game('Restoration.LIST[0]');
-  game(`for (const [k, n] of Object.entries(Restoration.LIST[0].goods)) Industry.deposit(cargo.industry, __way.key, k, n, industry.env(), __T);
-    cargo.credits = Math.max(cargo.credits, Restoration.LIST[0].credits); StationMenu.refresh()`);
-  pressOnStation('Restore');
-  assert.deepStrictEqual(game('cargo.restored'), [first.id]);
+test('the outfitter: gambits, today\'s gear and consumables for credits; the gear stock turns over each day', () => {
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; cargo.credits = 50000;
+    globalThis.__st = startStation(); placeBeside(__st); dock(__st); StationMenu.showTab('outfitter')`);
+  assert.ok(game('!!docked && StationMenu.tab === "outfitter"'), 'docked, on the Outfitter tab');
+  assert.strictEqual(game('vendor.level'), 1, 'a level 1 outfitter in Wedge space');
+  const text = onStation();
+  assert.match(text, /Gambits/);
+  assert.match(text, /import core\.bool@1\.0/);
+  assert.ok(!/import mem\.ext@3\.0/.test(text), 'the best gambits are sold further out');
+  // A gambit: bought once, known by the squad's programs from then on.
+  assert.ok(!game('logicKnown().has("core.bool")'));
+  const credits = game('cargo.credits');
+  assert.ok(game('vendor.buyGambit("core.bool")'), 'bought');
+  assert.ok(game('logicKnown().has("core.bool") && cargo.gambits.includes("core.bool")'), 'known');
+  assert.strictEqual(game('cargo.credits'), credits - game('Vendor.gambitPrice("core.bool")'), 'paid for');
+  assert.ok(!game('vendor.buyGambit("core.bool")'), 'only once');
+  assert.ok(!game('vendor.buyGambit("core.bool.or")'), 'not sold at level 1');
+  // Gear: six pieces, the same all day; one bought goes into the spare gear and is gone from the stock.
+  const stock = game('vendor.gear().map((g) => g.spec.id).join()');
+  assert.strictEqual(game('vendor.gear().length'), 6);
+  assert.ok(game('vendor.gear().every((g) => Loot.RANK[g.spec.rarity] <= Loot.RANK.rare)'), 'nothing above Rare');
+  const id = game('vendor.gear()[0].spec.id');
+  assert.ok(game('vendor.buyGear(0)') && game(`cargo.gear['${id}'] === 1`), 'bought into the spare gear');
+  assert.ok(game('vendor.gear()[0].sold') && !game('vendor.buyGear(0)'), 'sold out for today');
+  game('StationMenu.refresh()');
+  assert.match(onStation(), /Sold/);
+  game('__T += 24 * 3600 * 1000');
+  assert.notStrictEqual(game('vendor.gear().map((g) => g.spec.id).join()'), stock, 'a new stock the next day');
+  assert.ok(!game('vendor.gear()[0].sold'), 'nothing sold from it yet');
+  // A consumable: into the kit; mods at a capital.
+  assert.ok(game('vendor.buyKit("repair-nanites")') && game('cargo.kit["repair-nanites"]') >= 1, 'into the kit');
+  assert.ok(game('vendor.mods().length') > 0, 'mods at a capital');
+  // Saved: gambits owned and what was bought today.
+  game('saveCargoNow(); loadCargo(world.galaxy)');
+  assert.ok(game('cargo.gambits.includes("core.bool") && !!cargo.shop'), 'survives a reload');
   game('Clock.now = () => Date.now(); launch()');
+  browser.frames(2);
+});
+
+test('traffic: freighters ply between stations, patrols circle them and join a fight; an elite and a raid, each with its bounty', () => {
+  if (game('!!docked')) game('launch()');
+  game('placeBeside(startStation()); tickTraffic()');
+  assert.strictEqual(game('traffic.sys'), 0, 'the start system\'s traffic');
+  assert.ok(game(`traffic.ships.some((e) => e.role === 'freighter')`), 'freighters');
+  assert.ok(game(`traffic.ships.some((e) => e.patrol)`), 'a patrol');
+  assert.ok(game(`traffic.ships.every((e) => !isHostile(e) && e.name)`), 'friendly, and named');
+  const f = game(`(() => { const e = traffic.ships.find((x) => x.role === 'freighter'); return [e.key, e.x, e.y]; })()`);
+  game('skipTime(20); tickTraffic()');
+  assert.notDeepStrictEqual(game(`(() => { const e = traffic.ships.find((x) => x.key === '${f[0]}'); return [e.key, e.x, e.y]; })()`), f, 'a freighter flies on');
+  browser.frames(1);
+  assert.ok(game(`frameList.some((e) => e.key && e.key.startsWith('traffic:'))`), 'drawn in the flight view');
+  // A patrol near a fight is on your side.
+  const specs = game(`(() => { const p = traffic.ships.find((e) => e.patrol); return patrolSpecs({ x: p.x, y: p.y }); })()`);
+  assert.ok(specs.length >= 1 && specs.every((a) => a.patrol), 'patrols as allies');
+  // In a fight: a pirate engaged by a patrol, which fires on it.
+  game(`fight.grace = 0; cargo.hull = SHIP.hull; globalThis.__pp = traffic.ships.find((e) => e.patrol);
+    globalThis.__foe = world.scene.entities.find((e) => isHostile(e) && !cargo.removed.has(e.key) && e.tier === 1);
+    Scene.pose(__foe, simTime); placeShip(__foe.x + 500, __foe.y); __pp.x = __foe.x + 300; __pp.y = __foe.y + 200;
+    react(nearbyEntities(simTime)); engage(__foe)`);
+  assert.ok(game('!!fight.s && fight.s.allies.some((a) => a.id === __pp.key && a.patrol)'), 'the patrol fights with you');
+  assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === __pp.key)`, 60 * 30), 'and fires');
+  game('if (fight.s) fight.s.over = "fled"');
+  browser.frames(3);
+  game('fight.grace = 1e9; fight.returning.clear()');
+  // An elite in a system of level 2 or more, a tier above its pirates; destroyed: a bounty, rare loot,
+  // and another only after a while.
+  game(`globalThis.__si = world.galaxy.systems.findIndex((s) => s.level >= 2 && world.galaxy.packs.some((k) => k.system === s.index));
+    { const sys = world.galaxy.systems[__si]; placeShip(sys.star.x + 3000, sys.star.y); } tickTraffic()`);
+  assert.ok(game('traffic.sys === __si && !!traffic.elite'), 'an elite');
+  assert.match(game('traffic.elite.name'), /^[A-Z][a-z]+ /);
+  assert.ok(game('isHostile(traffic.elite) && traffic.elite.stats.hull > Loadout.stats(Loadout.npc("fighter", traffic.elite.tier)).hull * 2'), 'hostile, and tough');
+  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; eliteDown(traffic.elite)');
+  assert.ok(game('cargo.credits > __cr && Object.keys(cargo.gear).length > __gear'), 'a bounty and loot');
+  assert.ok(game('!traffic.elite && cargo.world.elites[__si].at > Clock.now()'), 'gone until it respawns');
+  game('tickTraffic()');
+  assert.ok(game('!traffic.elite'), 'not straight back');
+  // A raid on a station: announced, and beaten off for a bounty.
+  game('placeBeside(startStation()); tickTraffic(); cargo.world.raids.next = 1; tickTraffic()');
+  assert.ok(game('!!traffic.raid && traffic.raid.ships.length >= 3'), 'raiders');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Raiders are attacking .* · destroy them for a bounty/);
+  assert.ok(game('traffic.raid.ships.every((e) => isHostile(e))'));
+  game('globalThis.__cr = cargo.credits; for (const k of traffic.raid.keys) cargo.removed.add(k); tickTraffic()');
+  assert.ok(game('!traffic.raid && cargo.credits > __cr'), 'the bounty');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /is safe · [\d,]+ cr bounty/);
+  // Saved: the timers.
+  game('saveCargoNow(); loadCargo(world.galaxy)');
+  assert.ok(game('cargo.world.elites[__si].at > Clock.now() && cargo.world.raids.n >= 1'), 'survives a reload');
+  game('fight.grace = 0; placeBeside(startStation())');
+});
+
+test('the main story: chapter 1 at any station from the start; the next waits for its level; a contract is posted again the next day', () => {
+  if (game('!!docked')) game('launch()');
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; dock(startStation()); StationMenu.showTab('missions')`);
+  const ch = game(`cargo.board.list.filter((j) => j.tier === 'story').map((j) => j.id)`);
+  assert.strictEqual(ch.length, 7, 'seven chapters');
+  assert.match(onStation(), /Chapter 1: Papers in order/, 'chapter 1, offered here');
+  assert.doesNotMatch(onStation(), /Chapter 2/, 'not chapter 2 yet');
+  // Chapter 1 done: chapter 2 shows, waiting for level 4.
+  game(`globalThis.__xp = cargo.pilot.xp; cargo.pilot.xp = 0; applyShip(); cargo.missions.accept('${ch[0]}', startStation().key); cargo.missions.finish('${ch[0]}'); StationMenu.refresh()`);
+  assert.match(onStation(), /Chapter 2: Overtime/);
+  assert.ok(!game(`jobViews(startStation()).find((m) => m.id === '${ch[1]}').accept`), 'not offered yet');
+  assert.match(game(`jobViews(startStation()).find((m) => m.id === '${ch[1]}').note`), /Opens at level 4/);
+  game(`cargo.pilot.xp = 1e4; applyShip(); StationMenu.refresh()`);
+  assert.ok(game(`!!jobViews(startStation()).find((m) => m.id === '${ch[1]}' && m.accept)`), 'offered once the pilot is level 4');
+  // A contract handed in today is posted again tomorrow.
+  game(`globalThis.__c = cargo.board.list.find((j) => j.tier === 'station' && j.scope === startStation().key && cargo.missions.status(j.id) === 'offered');
+    cargo.missions.accept(__c.id, startStation().key); cargo.missions.finish(__c.id); cargo.world.daily[__c.id] = Vendor.day(__T)`);
+  game('jobViews(startStation())');
+  assert.strictEqual(game('cargo.missions.status(__c.id)'), 'done', 'not again today');
+  game('__T += 24 * 3600 * 1000; jobViews(startStation())');
+  assert.strictEqual(game('cargo.missions.status(__c.id)'), 'offered', 'posted again the next day');
+  game(`cargo.pilot.xp = __xp; applyShip(); Clock.now = () => Date.now(); launch()`);
   browser.frames(2);
 });
 
@@ -286,13 +385,13 @@ test('drops: the same thing lying together is one stack, named when selected, pi
   game(`cargo.items = []; cargo.drops = cargo.drops.filter((d) => !d.key.startsWith('drop:smoke'))`);
 });
 
-test('settings: combat is turn-based or active, turn-based to start; the hints wait behind the ⓘ', () => {
+test('settings: combat is turn-based, and not a setting; the hints wait behind the ⓘ', () => {
   assert.strictEqual(game('combatMode.value'), 'rounds');
   game('Settings.open()');
   const body = browser.document.getElementById('settings').querySelector('.set-body');
   const flat = (n) => [n, ...(n.children || []).flatMap((c) => (c && typeof c === 'object' ? flat(c) : []))];
   const all = () => flat(body);
-  assert.ok(all().some((n) => n.attributes && n.attributes['data-option'] === 'combat'), 'a Combat setting');
+  assert.ok(!all().some((n) => n.attributes && n.attributes['data-option'] === 'combat'), 'no Combat setting');
   assert.ok(!all().some((n) => n.className === 'set-hint'), 'no hints unasked');
   browser.document.getElementById('settings').querySelector('.set-info').dispatch('click');
   assert.ok(all().some((n) => n.className === 'set-hint'), 'the ⓘ shows them');

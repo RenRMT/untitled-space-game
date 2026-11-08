@@ -17,14 +17,15 @@ import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
+import { Progress } from '../rules/progress.js';
+import { Vendor } from '../rules/vendor.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
+import { addTo, cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
-import { rescued } from './hazards.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
 import { surfaceWalls } from './surface-squad.js';
@@ -34,7 +35,9 @@ import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
-import { lab } from './lab.js';
+import { gainXP } from './progress.js';
+import { eliteDown, orderPatrols, patrolDown, patrolSpecs, trafficShip } from './traffic.js';
+import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
@@ -81,13 +84,19 @@ export const pilot = () => (landing.phase === 'surface' ? landing.craft : ship);
 // Where a combatant is: the player ship, a wingman, or an enemy's pose.
 export function fighterPos(id) {
   if (id === 'player') { const P = pilot(); return { x: P.x, y: P.y, radius: SHIP.radius, player: true }; }
-  return fight.ships.get(id) || wings.get(id) || defenderPos(id) || fight.lastShips.get(id) || null;
+  return fight.ships.get(id) || wings.get(id) || defenderPos(id) || patrolPos(id) || fight.lastShips.get(id) || null;
 }
 // A station turret fighting on your side (game/structures.js), where it is.
 function defenderPos(id) {
   const a = fight.s && (fight.s.allies || []).find((c) => c.id === id && c.defender);
   return a ? { x: a.x, y: a.y, radius: a.radius, structure: true } : null;
 }
+// A patrol fighting on your side (game/traffic.js), where it is.
+function patrolPos(id) {
+  const a = fight.s && (fight.s.allies || []).find((c) => c.id === id && c.patrol);
+  return a ? { x: a.x, y: a.y, radius: a.radius } : null;
+}
+const isPatrol = (id) => !!fight.s && (fight.s.allies || []).some((c) => c.id === id && c.patrol);
 const isDefender = (id) => !!fight.s && (fight.s.allies || []).some((c) => c.id === id && c.defender);
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
 // drawn larger than their size (flight/entities.js SHIP_SCALE), the player's larger again
@@ -104,7 +113,7 @@ export function pathVelocity(e) {
   return [(next.x - e.x) / 0.1, (next.y - e.y) / 0.1];
 }
 
-export const shipName = (e, i, n) => (e.android && e.name ? e.name : `${Entities.ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`);
+export const shipName = (e, i, n) => ((e.android || e.elite) && e.name ? e.name : `${Entities.ROLE_LABEL[e.role] || 'Ship'}${n > 1 ? ` ${LETTERS[i] || i + 1}` : ''}`);
 export const fightLog = (line) => { fight.log = [...fight.log, line].slice(-2); };
 
 // An enemy as the flight view keeps it during a fight: its pose (held facing you, or flown on)
@@ -209,8 +218,8 @@ export function hurtShip(amount, at = null) {
   return d;
 }
 
-// The ship lost outside a fight (a hull knocked to nothing, a hazard meter full, the tank empty:
-// game/hazards.js): it spills its hold, and is towed home after a moment.
+// The ship lost outside a fight (a hull knocked to nothing): it spills its hold, and is towed home
+// after a moment.
 export function wreck(reason = 'Hull breached') {
   playerDestroyed();
   fight.wreckT = 2.6;
@@ -227,7 +236,7 @@ export function engage(target, ambushed = false) {
   endExtraction(); // mining stops for a fight
   fight.mode = combatMode.value;
   const m = fightMode();
-  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: [...allySpecs(), ...(m.flying ? defenderSpecs(target) : [])] });
+  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: [...allySpecs(), ...(m.flying ? [...defenderSpecs(target), ...patrolSpecs(target)] : [])] });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) if (!c.defender) c.invulnerable = true;
   // The ship eases to a stop as a fight starts, so it doesn't cruise on out of it, and turns to face
   // its target while it isn't steered (tickFight): in real time its forward guns need that, in
@@ -394,7 +403,8 @@ export function playEvents(s, events) {
     if (ev.destroyed) {
       const defender = isDefender(ev.to) && world.scene.get(ev.to);
       const blowUp = ev.to === 'player' ? (landing.on ? () => lostOnSurface('Shot down in the caverns') : playerDestroyed) : wings.has(ev.to) ? () => wingDisabled(ev.to)
-        : defender ? () => { explode(defender.x, defender.y, defender.radius); structureDestroyed(defender, { friendly: true }); } : () => shipDestroyed(ev.to);
+        : defender ? () => { explode(defender.x, defender.y, defender.radius); structureDestroyed(defender, { friendly: true }); }
+        : isPatrol(ev.to) ? () => patrolDown(ev.to) : () => shipDestroyed(ev.to);
       // An enemy is done for at once, though it blows up a moment later: until then it must not
       // start or join another fight.
       if (ev.to !== 'player' && !wings.has(ev.to) && !defender) fight.dying.add(ev.to);
@@ -430,19 +440,21 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
-// schematic: the blueprint for that gear, researched at once). One of the pirates' own (a pack's)
+// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a gambit
+// in its computer, owned at once: game/vendor.js). One of the pirates' own (a pack's)
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); return; } // a dungeon's (game/dungeon.js)
   if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); return; } // a station, turret or outpost (game/structures.js)
-  const was = world.scene.get(key);
+  const was = world.scene.get(key), elite = trafficShip(key)?.elite ? trafficShip(key) : null;
   if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
   if (!p) { saveCargo(); return; }
   explode(p.x, p.y, p.radius);
+  if (elite) eliteDown(elite); // a named ace (game/traffic.js): its bounty, loot and gambit
+  gainXP(Progress.killXP(p.tier || 1, pilotLevel())); // experience (game/progress.js), the squad's too
   CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
@@ -451,10 +463,10 @@ export function shipDestroyed(key) {
   Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
-  // A schematic in its computer: the blueprint for that gear, so an assembler can make it.
-  const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
-  const bp = id && Research.blueprintFor(id);
-  if (bp && lab.grant(bp)) notify(`Blueprint recovered: ${Loadout.EQUIPMENT[id].name} · assemble it at a shipyard (Production tab)`, 4);
+  // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned
+  // yet, of up to a tier above its own.
+  const g = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier) && Vendor.gambitDrop(world.galaxy.seed, key, p.tier || 1, ownedGambits());
+  if (g && grantGambit(g)) notify(`Gambit recovered: import ${Research.title(g)} · your squad can use it now`, 4, { tone: 'good' });
   saveCargo();
 }
 
@@ -478,10 +490,18 @@ export function playerDestroyed() {
   saveCargo();
 }
 
+// The tow and the patching up are billed (as far as the credits go): a share of the hull's price,
+// more the further out it was lost (its system's level: world/galaxy.js).
+export const TOW_SHARE = 0.05;
+export function towBill() {
+  const sys = world.galaxy.systemAt?.(ship.x, ship.y), level = Math.max(1, sys?.level || 1);
+  return Math.min(cargo.credits, Math.round((Loadout.HULLS[cargo.loadout.hull]?.price || 0) * TOW_SHARE * level));
+}
 export function towHome() {
+  const bill = towBill();
+  cargo.credits -= bill;
   cargo.hull = SHIP.hull; // patched up enough to fly
   guard.shield = SHIP.shield;
-  rescued(); // cooled, decontaminated, and fuel enough to reach a pump (game/hazards.js)
   fight.wrecked = false;
   setMode('in-combat', false);
   const home = cargo.home;
@@ -490,7 +510,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
-  notify(`Ship lost · towed to ${home ? home.name : startStation().name} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
+  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
 
@@ -569,6 +589,7 @@ export function tickFight(dt) {
   if (target && ship.targetSpeed === 0) P.angle = turnToward(P.angle, Math.atan2(target.y - P.y, target.x - P.x), SHIP.turnRate * dt);
   orderSquad(s);
   orderDefenders(s); // station turrets on your side (game/structures.js)
+  orderPatrols(s); // patrols on your side (game/traffic.js)
   syncStructures(s);
   const events = m.step(s, dt, P); // the player's ship has already flown this frame (update; on a surface, game/landing.js fly)
   syncAllies(s);

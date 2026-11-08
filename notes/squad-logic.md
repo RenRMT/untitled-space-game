@@ -1,5 +1,11 @@
 # Squad logic: programs, research and (later) abilities
 
+> **November 2026 (`notes/roadmap.md`):** logic packages are **gambits** now: bought outright at a
+> station's outfitter (the better ones further out) or found on pirates and Wardens, never
+> researched (`rules/vendor.js`, `game/vendor.js`). A new one, `tactics.read`, reads the fight's
+> telegraphs: `enemy.charging` (a heavy shot coming: break its shields to cancel it) and
+> `has(status)` (taunt, fortify, overload, mark, EMP, jam). What follows is the history.
+
 **Decision (October 2026):** squad members are programmed gambit style, like Final Fantasy XII:
 each runs a short program of lines (`rules/logic.js`), top down, and does what the first line
 that holds says; with none, it keeps formation. Lines are built by tapping choices in the Squad

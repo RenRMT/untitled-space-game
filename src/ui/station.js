@@ -1,15 +1,11 @@
-// The docked screen: the station header, one of the Trade / Ship / Research / Production / Missions
-// tabs,
-// and the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
+// The docked screen: the station header, one of the Trade / Ship / Outfitter / Missions tabs, and
+// the icon tab bar with Launch at the foot. Built from the UI kit (ui/kit.js): the Ship tab is a
 // schematic of the ship with a button per equipment slot, each opening a sheet of what can go there
-// (with a squad, a switcher above it steps through the members' ships too, outfitted the same way;
-// the Production tab steps through a station's orders with the same switcher);
-// the Research tab (ui/research-view.js) is a tree of packages drawn the same way, each opening a
-// sheet; the Production tab (ui/industry-view.js) draws this station's production orders as lines of
-// nodes (inputs, the stage, what it makes), this station's stock as tiles and the production pipeline,
-// the stage opening a sheet to pick its product and an input its lineage; the Missions tab is a card per mission, each opening a sheet with the briefing and objectives.
+// (with a squad, a switcher above it steps through the members' ships too, outfitted the same way);
+// the Outfitter tab sells gambits, gear, mods and consumables (game/vendor.js); the Missions tab is
+// a card per mission, each opening a sheet with the briefing and objectives.
 // StationMenu.open({ station: { name, subtitle, color, culture, ink }, market, hold, ship,
-//                    outfitting, lab, industry, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
+//                    outfitting, vendor, kit, shipyard, repairs, squad, missions, locks, artStyle, onLaunch })
 // artStyle: the art style item icons are drawn in (game/options.js ART_STYLES; 'line' if not given).
 // station.culture, station.ink: the lineage the station is built in (art/culture.js) and its line
 //   colour: the screen is drawn in that culture's materials (Low-poly) or ink (Line).
@@ -21,16 +17,13 @@
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
 //               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id),
 //               member(id) -> { loadout, upgrades, gear, mods, android: true, canMake, fit, unfit, fitMod, removeMod } }:
-//               the ship's equipment and mods, spare gear and mods, whether industry can make a
+//               the ship's equipment and mods, spare gear and mods, a
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
-// lab: { state, components, now(), progress(), status(id), enqueue(id), cancel(id), settle({ quiet }) }:
-//   research on the real-world clock (rules/research.js, game/lab.js).
-// industry: game/industry.js: production orders at stations and each station's stock (rules/industry.js).
+// vendor: game/vendor.js: what the station's outfitter sells, and buying it.
+// pilot: game/progress.js pilot: the level, experience and talents, and taking them.
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
-// fuelling: { fuel, max, room, hydrazine, price, cost, refuel() }: the tank (filled on docking and launch), filled with hydrazine
-//   aboard or in this station's stock first, then fuel bought for credits.
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
 //   (game/squad.js programs).
@@ -52,18 +45,13 @@ import { ItemIcons } from '../art/icons.js';
 import { Abilities } from '../rules/abilities.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
-import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
 import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
-import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
 import { Classes } from '../rules/classes.js';
 import { Kit } from './kit.js';
-import { Messages } from './messages.js';
-import { IndustryView } from './industry-view.js';
-import { ResearchView } from './research-view.js';
 import { UI } from './ui.js';
 
 const StationMenu = (() => {
@@ -82,9 +70,8 @@ const StationMenu = (() => {
   let openSlot = null; // the loadout slot whose sheet is open, if any
   let openMission = null; // the mission whose sheet is open, if any
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
-  let openNode = null; // the research package whose sheet is open, if any
-  let openOrder = null; // the production order sheet open (ui/industry-view.js sheet(open))
   let openYard = false; // the shipyard's sheet is open
+  let openTalents = false; // the pilot's talents sheet is open
   let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
@@ -93,15 +80,14 @@ const StationMenu = (() => {
   const { h } = UI; // ui/ui.js
 
   // ---------- The tab bar ----------
-  // Five tabs, each named under its icon (Production goes by Industry there: it fits). The squad lives on the Ship tab: it steps through your
+  // Four tabs, each named under its icon. The squad lives on the Ship tab: it steps through your
   // ship and each wingman's, and a wingman's page carries its program under its loadout (named
   // Ships once there is a squad). showTab('squad') opens it on a wingman.
   const TABS = {
-    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, research: { code: 'RSC', label: 'Research' },
-    industry: { code: 'IND', label: 'Industry' }, missions: { code: 'MSN', label: 'Missions' },
+    trade: { code: 'TRD', label: 'Trade' }, ship: { code: 'SHP', label: 'Ship' }, outfitter: { code: 'OUT', label: 'Outfitter' },
+    missions: { code: 'MSN', label: 'Missions' },
   };
-  // A dot on a tab with something waiting: a mission to hand in or a story mission offered; research
-  // finished since the Research tab was last open; a production order done or stuck.
+  // A dot on a tab with something waiting: a mission to hand in or a story mission offered.
   const tabDots = {};
   for (const t of tabs) {
     const { code, label } = TABS[t.dataset.tab];
@@ -110,17 +96,6 @@ const StationMenu = (() => {
     t.replaceChildren(icon, h('span', { class: 'lbl' }, label));
     t.setAttribute('aria-label', label);
   }
-  let researchSeen = Store.getJSON('researchSeen', 0) || 0; // how many packages were done when Research was last open
-  function researchWaiting() {
-    const lab = ctx.lab && ctx.lab.state;
-    if (lab && Array.isArray(lab.done) && lab.done.length < researchSeen) researchSeen = lab.done.length; // another galaxy's save
-    return !!(lab && Array.isArray(lab.done) && lab.done.length > researchSeen);
-  }
-  function ordersWaiting() {
-    const ind = ctx.industry;
-    return !!(ind && ind.state && ind.state.orders.some((o) => ['done', 'blocked'].includes(Industry.status(ind.state, o).id)));
-  }
-
   function renderHeader() {
     el('st-name').textContent = ctx.station.name;
     el('st-sub').textContent = ctx.station.subtitle;
@@ -242,18 +217,9 @@ const StationMenu = (() => {
       : Kit.callout(`${r.owner} · ${r.tier}: ${pct} worse prices here, buying and selling.`, 'var(--warn)');
   }
 
-  // How many of the hold's goods this station's stock can take now (game/industry.js deposit), and
-  // why none if it can't: the Industry tab still locked, or the stock full.
-  function storeRoom() {
-    const ind = ctx.industry;
-    if (!ind || !ind.state || isLocked('industry')) return { free: 0, why: 'The stock opens with the Industry tab' };
-    const free = ind.free();
-    return { free, why: free < 1 ? 'The stock here is full' : '' };
-  }
-
-  // Trade: the hold, with Sell all and Store all (always there, greyed out when there's nothing for
-  // them to do); what this station sells, by name; and what else you're carrying that it doesn't
-  // sell, with what it fetches here. (Components aren't traded: they go to refits and research.)
+  // Trade: the hold, with Sell all (always there, greyed out when there's nothing to sell); what this
+  // station sells, by name; and what else you're carrying that it doesn't sell, with what it fetches
+  // here. (Components aren't traded.)
   function renderTrade() {
     const { market, hold } = ctx;
     const full = hold.free < 1;
@@ -268,13 +234,6 @@ const StationMenu = (() => {
       for (const g of sellable) while (hold.count(g.kind) > 0 && market.sell(g.kind));
       refresh();
     };
-    // Store all: the whole hold into this station's stock (the Industry tab's), as much as fits.
-    const room = storeRoom();
-    const kinds = [...new Set(hold.items.map((it) => it.kind))];
-    const storeAll = () => {
-      for (const k of kinds) ctx.industry.deposit(k);
-      refresh();
-    };
     const empty = hold.items.length < 1;
     lead('');
     return [
@@ -282,17 +241,12 @@ const StationMenu = (() => {
       h('div', { class: 'st-holdbar' }, Kit.icon('hold', 24, { code: 'HLD' }), Kit.meter(hold.items.length / hold.capacity, { color: full ? 'var(--warn)' : null }),
         h('span', { class: 'num st-holdn' }, `${hold.items.length}/${hold.capacity}`),
         h('span', { class: 'st-acts' },
-          Kit.button('Store all', storeAll, {
-            kind: 'ghost', disabled: empty || room.free < 1,
-            title: empty ? 'Nothing in the hold' : room.why || 'Move everything in the hold into this station\'s stock',
-            aria: 'Move everything in the hold into this station\'s stock',
-          }),
           Kit.button('Sell all', sellAll, {
             kind: 'ghost', disabled: !sellable.length,
             title: empty ? 'Nothing in the hold' : sellable.length ? 'Sell everything in the hold that this station buys' : 'This station buys nothing in your hold',
             aria: 'Sell everything in the hold that this station buys',
           }))),
-      full ? Kit.callout('Your hold is full. Sell or store goods to make room.', 'var(--warn)') : null,
+      full ? Kit.callout('Your hold is full. Sell goods to make room.', 'var(--warn)') : null,
       regardLine(market.regard),
       section('Sold here', Kit.head('Sold here'),
         stocked.length ? h('div', { class: 'ui-list' }, stocked.map((g) => goodRow(g, full))) : h('p', { class: 'ui-empty' }, 'Nothing for sale here.')),
@@ -343,9 +297,6 @@ const StationMenu = (() => {
     ],
     // Utility gear does one thing each: only what it does is shown (sparse).
     utility: [
-      { code: 'COL', label: 'Heat shed', get: (i) => i.stats.cool || 0, fmt: (v) => `+${r2(v)}/s`, fmtDiff: (v) => `${r2(v)}` },
-      { code: 'RAD', label: 'Radiation stopped', get: (i) => i.stats.radGuard || 0, fmt: pct, fmtDiff: pct },
-      { code: 'FUL', label: 'Fuel', get: (i) => i.stats.fuel || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
       { code: 'CRG', label: 'Hold', get: (i) => i.stats.cargo || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
     ],
   };
@@ -418,60 +369,38 @@ const StationMenu = (() => {
       h('span', { class: 'ui-label' }, `Mods · ${list.length}/${room}`),
       room ? null : info('Mk I gear has no room for mods: Mk II and III have one, Mk IV and V two.'),
       fitted, spare,
-      room && !fitted.length && !spare.length ? info('No spare mods for this gear: assemble them at an assembler once researched.') : null,
+      room && !fitted.length && !spare.length ? info('No spare mods for this gear: capitals and major stations sell them (Outfitter tab).') : null,
     ];
   }
 
   // The outfitting of the ship the Ship tab shows: yours, or a squad member's (game/outfitting.js).
   const outfit = () => (viewedMember() && ctx.outfitting.member?.(viewing)) || ctx.outfitting;
 
-  // Where a piece of gear is waiting in a station's stock (game/industry.js), for the slot sheet: the
-  // station's name, or null.
-  function inStore(id) {
-    const s = ctx.industry?.state;
-    const key = s && Object.keys(s.stock).find((k) => s.stock[k][id] > 0);
-    return key ? ctx.industry.nameOf(key) : null;
-  }
-
-  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), and the next Mk of each
-  // line for this slot: assembled by industry, once its blueprint is researched. Each with its stat
-  // changes against what's fitted. On a squad member's ship, spare android gear is among the
-  // options too (it fits squad ships only, and isn't made).
+  // The sheet for one slot: what's fitted (Remove), then spare gear (Fit), each with its stat changes
+  // against what's fitted. On a squad member's ship, spare android gear is among the options too (it
+  // fits squad ships only). More gear: the Outfitter tab, or loot.
   function slotSheet(id) {
     const m = viewedMember(), o = outfit();
     const s = Loadout.slots(o.loadout, o.upgrades).find((x) => x.id === id);
     if (!s) return null;
     const cur = s.item;
     const npc = (e) => !!Loadout.EQUIPMENT[e].npc;
-    const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && e !== cur?.id && (!npc(e) || (o.android && o.gear[e])) && (!Loadout.EQUIPMENT[e].loot || o.gear[e]));
-    // Of each line (that industry makes), the Mk after the best you have (fitted or spare).
-    const next = new Set();
-    for (const line of new Set(ids.filter((e) => !npc(e) && !Loadout.EQUIPMENT[e].loot).map((e) => Loadout.EQUIPMENT[e].line))) {
-      const best = Math.max(0, ...[cur?.id, ...Object.keys(o.gear)].filter((e) => e && Loadout.EQUIPMENT[e].line === line).map((e) => Loadout.EQUIPMENT[e].tier));
-      const n = ids.filter((e) => Loadout.EQUIPMENT[e].line === line && Loadout.EQUIPMENT[e].tier > best && !o.gear[e]).sort((x, y) => Loadout.EQUIPMENT[x].tier - Loadout.EQUIPMENT[y].tier)[0];
-      if (n) next.add(n);
-    }
-    const rank = (e) => (o.gear[e] ? 0 : o.canMake(e) ? 1 : 2);
-    const options = ids.filter((e) => o.gear[e] || next.has(e))
-      .sort((a, b) => rank(a) - rank(b) || Loadout.EQUIPMENT[a].tier - Loadout.EQUIPMENT[b].tier)
+    const options = Object.keys(o.gear)
+      .filter((e) => Loadout.EQUIPMENT[e]?.slot === s.type && e !== cur?.id && (!npc(e) || o.android))
+      .sort((a, b) => Loadout.EQUIPMENT[b].tier - Loadout.EQUIPMENT[a].tier || Loadout.EQUIPMENT[b].price - Loadout.EQUIPMENT[a].price)
       .map((e) => {
         const item = { id: e, ...Loadout.EQUIPMENT[e] };
-        const kind = ['fit', 'make', 'locked'][rank(e)];
-        const stored = inStore(e);
         const fitted = () => {
           closeSheet();
           refresh();
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]).filter((r) => !SPARSE.has(s.type) || r.diff),
-          tag: item.loot ? `${lootTag(item)}${o.gear[e] > 1 ? ` ×${o.gear[e]}` : ''}` : kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In stock' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
-          tagTone: item.loot ? Loot.rarityOf(item.loot.rarity).color : kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
-          locked: kind === 'locked',
-          note: kind === 'fit' ? `${item.loot ? `${lootNote(item)} ` : ''}${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
-            : [stored ? `Made, and waiting in the stock at ${stored}: take it out from the Production tab there.` : '',
-              kind === 'make' ? `Assembled by a production order at ${Loadout.EQUIPMENT[e].tier > 1 ? 'the shipyard' : 'the waystation\'s bench or the shipyard'} (Production tab), from parts.` : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
+          tag: item.loot ? `${lootTag(item)}${o.gear[e] > 1 ? ` ×${o.gear[e]}` : ''}` : `Spare ×${o.gear[e]}`,
+          tagTone: item.loot ? Loot.rarityOf(item.loot.rarity).color : 'good',
+          note: `${item.loot ? `${lootNote(item)} ` : ''}${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`,
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
-          action: kind === 'fit' ? Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', disabled: !!o.blocked?.(s.id, e), title: o.blocked?.(s.id, e) || undefined, aria: `Fit ${item.name}` }) : null,
+          action: Kit.button('Fit', act(() => o.fit(s.id, e), fitted), { kind: 'primary', disabled: !!o.blocked?.(s.id, e), title: o.blocked?.(s.id, e) || undefined, aria: `Fit ${item.name}` }),
           lockLabel: null,
         });
       });
@@ -484,8 +413,8 @@ const StationMenu = (() => {
           action: Kit.button('Remove', act(() => o.unfit(s.id)), { kind: 'ghost', disabled: !!o.blocked?.(s.id, null), title: o.blocked?.(s.id, null) || undefined, aria: `Remove ${cur.name}` }),
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open mount' : 'Nothing fitted'),
         modSection(s),
-        h('span', { class: 'ui-label' }, 'Options'),
-        options.length ? options : info('Better gear for this slot is assembled at an assembler, by blueprint.'),
+        h('span', { class: 'ui-label' }, 'Spare gear'),
+        options.length ? options : info('No spare gear for this slot. Buy some at the Outfitter tab, or find it as loot.'),
       ],
     };
   }
@@ -508,32 +437,16 @@ const StationMenu = (() => {
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
   }
 
-  // The tank: filled on docking (game/docking.js), hydrazine aboard or in this station's stock first, then credits;
-  // short of credits, it tops up on launch with what's been earned meanwhile.
-  function fuelRow() {
-    const { fuelling: f } = ctx;
-    const k = clamp(f.fuel / f.max, 0, 1);
-    const room = f.room >= 0.5;
-    return h('div', { class: 'st-hull' },
-      Kit.icon('fuel', 24, { code: 'FUL' }),
-      h('div', { class: 'gauge' },
-        h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Fuel'), h('span', { class: 'num' }, `${Math.floor(f.fuel)}/${f.max}`)),
-        Kit.meter(k, { color: k < 0.25 ? 'var(--hostile)' : room ? 'var(--warn)' : 'var(--good)' })),
-      room
-        ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--warn)' } }, 'Tops up on launch')
-        : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Full'));
-  }
-
-  // The kit: consumables (rules/abilities.js), made by industry: used from the HUD (game/field.js) or in a fight.
+  // The kit: consumables (rules/abilities.js), bought at an outfitter: used from the HUD (game/field.js) or in a fight.
   function renderKit() {
     const kit = ctx.kit || {};
     const items = Abilities.LIST.filter((a) => kit[a.id] > 0).map((a) => ({ id: a.id, icon: Kit.icon(a.code, 32, { code: a.code }), name: a.name, count: kit[a.id], units: a.note }));
     return section('Kit', Kit.head('Kit', h('span', { class: 'aside' }, 'used from the HUD, or in a fight')),
       items.length ? Kit.itemTiles(items, openKit, (id) => { openKit = id; refresh(); })
-        : h('p', { class: 'ui-empty' }, 'Empty. Coolant flushes, radiation purges, fuel canisters, seismic charges, repair nanites and shield cells are made at an assembler.'));
+        : h('p', { class: 'ui-empty' }, 'Empty. Repair nanites, shield cells, EMP charges and jammer pods are sold at every outfitter.'));
   }
 
-  // Spare gear: assembled or taken out, kept aboard (it takes no hold space); sold for half. Android
+  // Spare gear: bought, found or taken out, kept aboard (it takes no hold space); sold for half. Android
   // gear (from squad ships) fits squad ships only, and isn't sold.
   function renderGear() {
     const { outfitting: o } = ctx;
@@ -731,7 +644,8 @@ const StationMenu = (() => {
     // The hold isn't shown here: it's on Trade, where it's bought and sold.
     return [
       shipSwitcher(),
-      section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null, ctx.fuelling ? fuelRow() : null),
+      section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
+      pilotRow(),
       ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class') : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
@@ -742,36 +656,84 @@ const StationMenu = (() => {
     ];
   }
 
-  // ---------- Components and costs ----------
+  // ---------- The pilot ----------
 
-  // The salvaged components in store, by kind.
-  function componentsGrid(components) {
-    return h('table', { class: 'st-components' },
-      h('tbody', {}, Goods.categories('salvage').map((cat) => {
-        const n = components[Goods.component(cat)] || 0;
-        return h('tr', {},
-          h('th', { scope: 'row' }, Goods.CATEGORIES[cat].label.replace(' components', '')),
-          h('td', { class: n ? 'has num' : 'num' }, n ? String(n) : '·'));
-      })));
+  // The pilot's level and experience (game/progress.js), a row that opens the talents sheet.
+  function pilotRow() {
+    const p = ctx.pilot;
+    if (!p) return null;
+    return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showTalents() },
+      Kit.icon('XP', 28, { code: 'XP' }),
+      h('span', { class: 'main' },
+        h('span', { class: 'title' }, `Pilot · level ${p.level}`),
+        Kit.meter(p.max ? 1 : p.into / Math.max(1, p.need), { thin: true, color: 'var(--cyan)' }),
+        h('span', { class: 'foot' }, [p.max ? 'Top level' : `${p.into.toLocaleString('en-US')} / ${p.need.toLocaleString('en-US')} XP`,
+          p.left > 0 ? `${p.left} talent point${p.left === 1 ? '' : 's'} to spend` : `${p.talents.length} talent${p.talents.length === 1 ? '' : 's'}`].join(' · '))),
+      p.left > 0 ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, `+${p.left}`) : null,
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
   }
-  // What something costs in components (and credits), with how much of each you have.
-  const costChips = (cost, credits, ...more) => h('span', { class: 'st-costs' },
-    credits ? h('span', { class: `cost num${ctx.hold.credits < credits ? ' short' : ''}`, title: 'Credits' }, `${credits.toLocaleString('en-US')} cr`) : null,
-    cost.map((c) => h('span', { class: `cost num${c.have < c.need ? ' short' : ''}`, title: Goods.type(c.kind).name }, itemIcon(c.kind, 18), `${c.have}/${c.need}`)), more);
+  // Talents: what your class can take, each opening at a level, a point each; then forgetting them
+  // all for credits.
+  function talentSheet() {
+    const p = ctx.pilot;
+    const rows = p.list().map((t) => Kit.optionRow({
+      code: 'XP', name: t.name, sub: t.note, current: t.taken,
+      tag: t.taken ? 'Taken' : `Level ${t.level}${t.cls ? ` · ${Classes.CLASSES[t.cls].name}` : ''}`, tagTone: t.taken ? 'good' : null, locked: !t.taken && p.level < t.level,
+      action: t.taken ? null : Kit.button('Take', act(() => p.take(t.id)), { kind: 'primary', disabled: !t.ok, title: t.why || undefined, aria: `Take ${t.name}` }),
+    }));
+    return {
+      title: 'Talents', code: 'XP', sub: `Level ${p.level} · ${p.left} of ${p.points} point${p.points === 1 ? '' : 's'} to spend · a point every third level`,
+      body: [
+        info('Talents make every hull you fly better (more hold, armour, a weapon mount) or sharpen your class\'s skills. Some are for one class: changing class gives their points back.'),
+        h('div', { class: 'ui-list' }, rows),
+      ],
+      foot: Kit.button('Forget all talents', act(() => p.respec()), {
+        wide: true, kind: 'ghost', price: p.respecPrice, disabled: !p.talents.length || ctx.hold.credits < p.respecPrice,
+        title: !p.talents.length ? 'No talents taken' : undefined, aria: `Forget all talents for ${p.respecPrice} credits`,
+      }),
+    };
+  }
 
-  // ---------- Research ----------
+  // ---------- Outfitter ----------
 
-  const research = ResearchView.create({
-    ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, lead, explain, info, fold,
-    openId: () => openNode,
-  });
-
-  // ---------- Production ----------
-
-  const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, info, fold, itemIcon, switcher, showTab: (name) => pick(name),
-    showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
-  });
+  // What this station's outfitter sells (game/vendor.js): gambits for the squad's programs, today's
+  // gear (compared against what's fitted in its slot), mods where they're sold, and consumables.
+  function renderOutfitter() {
+    const v = ctx.vendor;
+    if (!v) return [h('p', { class: 'ui-empty' }, 'No outfitter here.')];
+    const o = ctx.outfitting, slots = Loadout.slots(o.loadout, o.upgrades);
+    const gambits = v.gambits(), gear = v.gear(), mods = v.mods(), kit = v.kit();
+    lead(`Level ${v.level} outfitter`);
+    const gambitRows = gambits.map((g) => Kit.optionRow({
+      code: 'LOG', name: `import ${g.title}`, sub: g.note, tag: g.owned ? 'Owned' : `Tier ${g.tier}`, tagTone: g.owned ? 'good' : null, current: g.owned,
+      action: g.owned ? null : Kit.button('Buy', act(() => v.buyGambit(g.id)), { price: g.price, disabled: !g.ok, title: g.why || undefined, aria: `Buy the gambit ${g.title}` }),
+    }));
+    const gearRows = gear.map((g) => {
+      const item = { id: g.spec.id, ...g.item }, cur = slots.find((x) => x.type === item.slot)?.item || null;
+      return Kit.optionRow({
+        code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[item.slot]).filter((x) => !SPARSE.has(item.slot) || x.diff),
+        tag: g.sold ? 'Sold' : `${lootTag(item)}${g.need > 1 ? ` · lvl ${g.need}` : ''}`, tagTone: g.sold ? null : g.need > (ctx.pilot?.level ?? 99) ? 'var(--warn)' : Loot.rarityOf(item.loot.rarity).color,
+        note: [lootNote(item), g.need > (ctx.pilot?.level ?? 99) ? `Needs level ${g.need} to fit.` : ''].filter(Boolean).join(' ') || null, locked: g.sold,
+        open: openOption === `shop:${g.i}`, onToggle: g.sold ? null : () => { openOption = openOption === `shop:${g.i}` ? null : `shop:${g.i}`; refresh(); },
+        action: g.sold ? null : Kit.button('Buy', act(() => v.buyGear(g.i)), { price: g.price, disabled: ctx.hold.credits < g.price, title: ctx.hold.credits < g.price ? 'Not enough credits' : undefined, aria: `Buy ${item.name}` }),
+      });
+    });
+    const modRows = mods.map((m) => Kit.optionRow({
+      code: 'MOD', name: m.mod.name, sub: `${Loadout.SLOT_TYPES[m.mod.slot] || m.mod.slot} · ${m.mod.note}`, tag: m.count ? `Spare ×${m.count}` : '', tagTone: 'good',
+      action: Kit.button('Buy', act(() => v.buyMod(m.id)), { price: m.price, disabled: ctx.hold.credits < m.price, aria: `Buy a ${m.mod.name}` }),
+    }));
+    const kitRows = kit.map((k) => Kit.optionRow({
+      code: k.ability.code, name: k.ability.name, sub: k.ability.note, tag: k.count ? `×${k.count} aboard` : '', tagTone: 'good',
+      action: Kit.button('Buy', act(() => v.buyKit(k.id)), { price: k.price, disabled: ctx.hold.credits < k.price, aria: `Buy ${k.ability.name}` }),
+    }));
+    return [
+      explain('outfitter', 'Gambits are the building blocks of your squad\'s programs: buy one once and every wingman can use it. Better ones are sold further out, and some are only found in dungeons. Gear here turns over every day.'),
+      section('Gambits', Kit.head('Gambits', h('span', { class: 'aside' }, `${gambits.filter((g) => g.owned).length}/${gambits.length} owned`)), h('div', { class: 'ui-list' }, gambitRows)),
+      section('Gear', Kit.head('Gear', h('span', { class: 'aside' }, 'today\'s stock')), h('div', { class: 'ui-list' }, gearRows)),
+      modRows.length ? section('Mods', fold('shop-mods', `Mods · ${modRows.length}`, h('div', { class: 'ui-list' }, modRows))) : null,
+      section('Consumables', Kit.head('Consumables', h('span', { class: 'aside' }, 'used from the HUD, or in a fight')), h('div', { class: 'ui-list' }, kitRows)),
+    ];
+  }
 
   // ---------- Missions ----------
 
@@ -892,7 +854,7 @@ const StationMenu = (() => {
   function plainError(e) {
     if (!e) return null;
     const pkg = e.match(/needs import (\S+)/);
-    if (pkg) return `Needs research: ${pkg[1]}`;
+    if (pkg) return `Needs the gambit ${pkg[1]} (Outfitter tab)`;
     const aim = e.match(/can't take (\w+)/);
     if (aim) return `That action can't be aimed at ${Logic.SUBJECTS[aim[1]]?.say || aim[1]}`;
     if (/isn't a thing/.test(e)) return "That condition doesn't apply to it";
@@ -906,7 +868,7 @@ const StationMenu = (() => {
   function idleWhy(m, i) {
     const { limit, members } = ctx.squad, line = m.program[i];
     if (line.err) return null;
-    if (i >= limit) return 'Not run: out of memory (research mem.ext)';
+    if (i >= limit) return 'Not run: out of memory (the gambit mem.ext)';
     const first = m.program.slice(0, i).findIndex(Logic.alwaysRuns);
     if (first >= 0) return `Never runs: instruction ${first + 1} always applies first`;
     if (line.subject === 'ally' && members.length < 2) return 'Never true yet: no other squad member';
@@ -1012,7 +974,7 @@ const StationMenu = (() => {
     if (!m) return null;
     const known = sq.known, isNew = i >= m.program.length;
     const has = (b) => Logic.knows(known, b.pkg);
-    const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs research: ${b.pkg}` });
+    const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs the gambit ${b.pkg}` });
     const edit = (fn) => (v) => { fn(v); fitDraft(d, known, m); refresh(); };
     const check = Logic.check(d, known);
     const field = (label, ...parts) => h('div', { class: 'st-field' }, h('span', { class: 'ui-label' }, label), parts);
@@ -1057,7 +1019,7 @@ const StationMenu = (() => {
         subj.many ? field('Which one', Kit.choices(Object.values(Logic.PICKS).map((b) => item(b, b.say, d.pick === b.id)), edit((v) => { d.pick = v; }), { label: 'Which one' })) : null,
         clauses,
         canAdd ? Kit.button('+ Condition', () => { d.when.push(newClause(d, known)); refresh(); }, { kind: 'ghost', wide: true })
-          : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
+          : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (the gambit core.bool).') : null,
         field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
         d.act === 'use' ? field('Skill or kit', Kit.choices(abilitiesFor(d.subject, m).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Skill or kit' }),
@@ -1077,25 +1039,23 @@ const StationMenu = (() => {
   // ---------- Sheets ----------
 
   function sheetOptions() {
-    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet() : openNode ? research.sheet(openNode)
-      : openOrder ? industryView.sheet(openOrder) : openYard && ctx.shipyard ? yardSheet() : openNews ? newsSheet() : null;
+    return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet()
+      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNode = openOrder = openNews = null; openYard = false; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = false; refresh(); } });
   }
   function closeSheet() {
-    openSlot = openMission = openLine = openNode = openOrder = openNews = null;
-    openYard = false;
+    openSlot = openMission = openLine = openNews = null;
+    openYard = openTalents = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
   function showMission(id) { closeSheet(); openMission = id; refresh(); openSheet(); }
-  function showNode(id) { closeSheet(); openNode = id; refresh(); openSheet(); }
-  function showOrder(open) { closeSheet(); openOrder = { ...open }; refresh(); openSheet(); }
-  // Since you last docked: research done and goods made, in one sheet on docking, each a way to
-  // the screen it concerns.
+  // Since you last docked: what happened meanwhile, in one sheet on docking, each a way to the
+  // screen it concerns.
   function newsSheet() {
     const go = (name) => () => { closeSheet(); pick(name); };
     return {
@@ -1107,6 +1067,7 @@ const StationMenu = (() => {
     };
   }
   function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
+  function showTalents() { closeSheet(); openTalents = true; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;
@@ -1124,19 +1085,15 @@ const StationMenu = (() => {
   const locks = () => (ctx && ctx.locks ? ctx.locks() : { tabs: [], reason: '', launch: null });
   const isLocked = (name) => locks().tabs.includes(name);
   const tabNames = () => (tabs.length ? tabs.map((t) => t.dataset.tab) : Object.keys(RENDER));
-  const tabOpen = (name) => (name === 'ship' ? shipTabOpen() : !isLocked(name));
+  const tabOpen = (name) => !!RENDER[name] && (name === 'ship' ? shipTabOpen() : !isLocked(name)); // (a tab from an older game, gone: never open)
   const firstOpen = () => tabNames().find(tabOpen) || 'trade';
 
-  const RENDER = { trade: () => renderTrade(), ship: () => renderShip(), research: () => research.render(), industry: () => industryView.render(), missions: () => renderMissions() };
+  const RENDER = { trade: () => renderTrade(), ship: () => renderShip(), outfitter: () => renderOutfitter(), missions: () => renderMissions() };
   function refresh() {
     if (!ctx) return;
     const lock = locks();
     if (!tabOpen(tab)) tab = firstOpen();
     renderHeader();
-    if (tab === 'research' && ctx.lab && ctx.lab.state && Array.isArray(ctx.lab.state.done) && ctx.lab.state.done.length !== researchSeen) {
-      researchSeen = ctx.lab.state.done.length;
-      Store.setJSON('researchSeen', researchSeen);
-    }
     for (const t of tabs) {
       const name = t.dataset.tab;
       const on = name === tab, locked = !tabOpen(name);
@@ -1151,8 +1108,6 @@ const StationMenu = (() => {
     }
     // Something to hand in here, or a story mission offered (every station always has jobs posted).
     if (tabDots.missions) tabDots.missions.hidden = !missions().some((m) => m.here && (m.status === 'ready' || (m.status === 'offered' && !m.tier)));
-    if (tabDots.research) tabDots.research.hidden = !researchWaiting();
-    if (tabDots.industry) tabDots.industry.hidden = !ordersWaiting();
     const launch = el('st-launch');
     launch.disabled = !!lock.launch;
     launch.title = lock.launch || '';
@@ -1186,8 +1141,6 @@ const StationMenu = (() => {
     Store.set('stationTab', name);
     infoOpen = false;
     openStat = openHull = openKit = null;
-    research.reset();
-    industryView.reset();
     body.scrollTop = 0;
     refresh();
   }
@@ -1207,24 +1160,10 @@ const StationMenu = (() => {
   }
   el('st-launch').addEventListener('click', () => ctx && !locks().launch && ctx.onLaunch());
 
-  // Every second while docked: research that finished and what industry made (logged, and the
-  // screen drawn again, since what's known or stored changed), else the meters' numbers.
+  // Once a second while docked: nothing changes on its own any more (the gear stock turns over at
+  // midnight, seen on the next dock). Kept for the tests, which call it.
   let ticker = null;
-  function tick() {
-    if (!ctx || !ctx.lab) return;
-    const done = ctx.lab.settle({ quiet: true });
-    const made = ctx.industry ? ctx.industry.settle({ quiet: true }) : [];
-    if (done.length || made.length) refresh();
-    if (done.length) {
-      const logic = done.every((id) => Research.PACKAGES[id].kind === 'logic');
-      Messages.push(`${logic ? 'Build ok · import' : 'Research done ·'} ${done.map(Research.title).join(', ')}`, { tone: 'good' });
-    } else if (made.length) {
-      const lines = [...Industry.summary(ctx.industry.state, made).map((l) => `Made · ${l}`), ...Industry.delivered(made).map((l) => `Delivered · ${l}`)];
-      Messages.push(lines.join(' · '), { tone: 'good' });
-    }
-    else if (tab === 'research') research.tick();
-    else if (tab === 'industry') industryView.tick();
-  }
+  function tick() {}
 
   return {
     // options.tab: the tab to open on (if not given, the last one used; the first that isn't
@@ -1238,7 +1177,6 @@ const StationMenu = (() => {
       viewing = null;
       closeSheet();
       openStat = openHull = openKit = null;
-      research.reset();
       doneOpen = false;
       root.hidden = false;
       body.scrollTop = 0;
@@ -1252,14 +1190,13 @@ const StationMenu = (() => {
     close() {
       clearInterval(ticker);
       ticker = null;
-      research.reset();
       closeSheet();
       ctx = null;
       root.hidden = true;
       body.replaceChildren();
     },
     get isOpen() { return !!ctx; },
-    // Switch to a tab ('trade' | 'ship' | 'research' | 'industry' | 'missions') while open, unless
+    // Switch to a tab ('trade' | 'ship' | 'outfitter' | 'missions') while open, unless
     // it's locked; 'squad' is the Ship tab on a wingman.
     showTab: pick,
     get tab() { return tab; },
@@ -1276,10 +1213,6 @@ const StationMenu = (() => {
     showMission(id) { showMission(id); },
     // Open the sheet for line i of a squad member's program (i = its length: a new line).
     showLine(id, i) { showLine(id, i); },
-    // Open the sheet for a research package on the Research tab.
-    showNode(id) { showNode(id); },
-    // Open a production order's sheet (ui/industry-view.js sheet(open)).
-    showOrder(open) { showOrder(open); },
     closeSheet() { closeSheet(); refresh(); },
   };
 })();

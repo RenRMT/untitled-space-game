@@ -163,6 +163,11 @@ const Research = (() => {
       name: 'tactics.use', ver: '1.0', cat: 'tactics', requires: ['tactics.count'], time: 1.5 * H,
       cost: { credits: 2000, [c('computer')]: 9, electronics: 2 }, note: 'use(): spend a charge of an ability (repair, shield, EMP, jammer) when it will help',
     },
+    'tactics.read': {
+      name: 'tactics.read', ver: '1.0', cat: 'tactics', requires: ['combat.threat'], time: 1.5 * H,
+      cost: { credits: 1800, [c('computer')]: 6, electronics: 2 }, note: 'an enemy charging a heavy shot, and the statuses on a ship (taunt, mark, EMP...)',
+      example: L({ when: [{ prop: 'charging' }] }),
+    },
     'maint.sense': {
       name: 'maint.sense', ver: '1.0', cat: 'maint', requires: [], time: 10 * M,
       cost: { credits: 300, [c('hull')]: 2, [c('computer')]: 1 }, note: 'hull and shield left, in %',
