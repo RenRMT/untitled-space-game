@@ -9,7 +9,7 @@ import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
 import { threat } from './combat.js';
 import { actions, gapTo } from './docking.js';
-import { DROP_PX, rx, ry } from './draw-world.js';
+import { DROP_PX, rx, ry, stackOf, underStack } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
 import { landable } from './landing.js';
@@ -51,7 +51,7 @@ export function pickAt(sx, sy) {
   const slop = TAP_SLOP / view.zoom;
   let best = null, bestScore = Infinity;
   for (const e of frameList) {
-    if (!entityKey(e)) continue;
+    if (!entityKey(e) || underStack(e)) continue; // a stack of drops is picked by its top one
     const reach = hitRadius(e) + slop;
     const score = Math.hypot(wx - e.x, wy - e.y) / reach;
     if (score <= 1 && score < bestScore) { best = e; bestScore = score; }
@@ -108,8 +108,9 @@ export function describe(e) {
   // detail line what's down there.
   const scan = !t && (e.kind === 'planet' || e.kind === 'moon') && landable(e) ? siteScan(e) : null;
   const top = t ? { tag: t.word, tone: t.tone, detail: t.detail } : scan || { tag: card.tag || '', tone: card.tone || '', detail: '' };
+  const n = e.kind === 'item' ? stackOf(e).length : 1; // a stack of drops: how many
   return {
-    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
+    title: n > 1 ? `${card.title} ×${n}` : card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
     tag: top.tag, tone: top.tone, detail: top.detail,
     actions: [...states.map(([a, s]) => primary(a.id, s, e)), ...approachActions(e, states.length > 0)],
   };

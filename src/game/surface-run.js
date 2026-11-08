@@ -41,7 +41,7 @@ import { REACH, chips, drawRing, endExtraction, extract, mine, mineReach, tickMi
 import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
-import { DROP_PX, dropColor, drawDrop } from './draw-world.js';
+import { DROP_PX, STACK_PX, dropColor, drawDrop, stackDrops } from './draw-world.js';
 import { SHIP, TAU, clamp, ctx, debris, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
 import { world } from './world.js';
@@ -301,14 +301,23 @@ function tickBursts(C, dt) {
 
 // What lies on this surface under a point of the ground: the nearest whose icon (DROP_PX across on
 // the screen) is under it, give or take a finger's width.
+// A stack of the same goods (game/draw-world.js stackDrops) is taken by its top one.
 export function surfaceDropAt([x, y]) {
   const list = surfaceRun.e && cargo.surfaceDrops[surfaceRun.e.key];
   if (!list) return null;
   const reach = (DROP_PX / 2 + 8) / landedZoom();
   let best = null, bd = Infinity;
-  for (const it of list) { const d = Math.hypot(it.x - x, it.y - y); if (d < reach && d < bd) { best = it; bd = d; } }
+  for (const it of list) {
+    if (surfaceStackOf(it)[0] !== it) continue;
+    const d = Math.hypot(it.x - x, it.y - y);
+    if (d < reach && d < bd) { best = it; bd = d; }
+  }
   return best;
 }
+// The stacks lying here, from the last frame drawn (drawSurfaceRun): a drop's stack, the top one
+// first, or just itself.
+let surfaceStacks = new WeakMap();
+export const surfaceStackOf = (it) => surfaceStacks.get(it) || [it];
 // One of them dragged onto the ship (game/input.js; at (x, y) on the ground when let go): picked
 // up, trade goods while the hold has room, salvage into its store; anywhere else it stays where it
 // was let go.
@@ -352,7 +361,8 @@ export function mineState(d) {
   return { id: 'mine', label: 'Mine', enabled: true };
 }
 function selCard(x) {
-  if (!isDeposit(x)) return { title: goodName(x.kind), subtitle: 'Drag it onto the ship to pick it up', color: COLORS.amber, actions: [] };
+  const n = isDeposit(x) ? 1 : surfaceStackOf(x).length; // a stack: how many
+  if (!isDeposit(x)) return { title: n > 1 ? `${goodName(x.kind)} ×${n}` : goodName(x.kind), subtitle: 'Drag it onto the ship to pick it up', color: COLORS.amber, actions: [] };
   return { title: x.name, subtitle: `${goodName(x.good)} · ${Format.dist(Math.max(0, gapTo(x)))}`, tag: x.rich ? 'Rich' : '', color: x.color, actions: [mineState(x)] };
 }
 // Still there? (A node worked out, a drop picked up: the selection goes.)
@@ -484,9 +494,13 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     const p = at(d.x, d.y);
     if (p) drawDeposit(d, p, v.ct, time);
   }
-  for (const it of cargo.surfaceDrops[surfaceRun.e.key] || []) { // as their icons (game/draw-world.js)
+  const drops = cargo.surfaceDrops[surfaceRun.e.key] || [];
+  surfaceStacks = stackDrops(drops, (it) => it.kind, STACK_PX / zoom); // the same goods lying together: one stack
+  for (const it of drops) { // as their icons (game/draw-world.js)
+    const st = surfaceStackOf(it);
+    if (st[0] !== it) continue; // under the top of its stack
     const p = at(it.x, it.y);
-    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), time, it.key, surfaceSel.it === it);
+    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), time, it.key, surfaceSel.it === it, { count: st.length, name: goodName(it.kind) });
   }
   for (const b of debris) {
     const p = at(b.x, b.y, 4);

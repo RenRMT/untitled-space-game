@@ -53,7 +53,7 @@ import { placeShip } from './outfitting.js';
 import { select, selected } from './selection.js';
 import { drawHazardScreen, flameThrust } from './screen-fx.js';
 import { drawStarfield } from './starfield.js';
-import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles, setMode, ship, view } from './state.js';
+import { PLAYER_DRAW, SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles, setMode, ship, view } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
 import { drawSurfaceFight, drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
@@ -432,7 +432,7 @@ export function drawLanding(time) {
   // (Straight down, as in Line, the height shows only in how far off the shadow falls.)
   const q = smoothstep(0.55, 1, g), z = lerp(ALTITUDE, ArtSurface.FLY, q), st = v.st;
   const [shx, shy] = ArtSurface.shadowShift(z), gx = C.x + shx, gy = C.y + shy;
-  const sh = SurfaceGlobe.toScreen(v, gx, gy, ArtSurface.heightAt(s.W, gx, gy)), k = (SHIP.radius * 1.25 * Entities.SHIP_SCALE * SURFACE_SCALE) / ship.art.radius;
+  const sh = SurfaceGlobe.toScreen(v, gx, gy, ArtSurface.heightAt(s.W, gx, gy)), k = (SHIP.radius * PLAYER_DRAW * Entities.SHIP_SCALE * SURFACE_SCALE) / ship.art.radius;
   ctx.save();
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = smoothstep(0.4, 0.6, g);
@@ -440,7 +440,7 @@ export function drawLanding(time) {
   if (sh && sa > 0.01) {
     ctx.fillStyle = `rgba(0, 0, 0, ${sa})`;
     ctx.beginPath();
-    ctx.ellipse(sh[0], sh[1], SHIP.radius * SURFACE_SCALE * 1.3, SHIP.radius * SURFACE_SCALE * 1.3 * v.ct, 0, 0, TAU);
+    ctx.ellipse(sh[0], sh[1], SHIP.radius * SURFACE_SCALE * PLAYER_DRAW, SHIP.radius * SURFACE_SCALE * PLAYER_DRAW * v.ct, 0, 0, TAU);
     ctx.fill();
   }
   ctx.restore();

@@ -27,6 +27,10 @@ export const NAV_RANGE = 18000; // off-screen stations and gates this close get 
 // cargo.loadout) with the hull refits researched (rules/research.js) added up: handling, hold, sensor
 // ranges, mining speed, combat stats. Kept up to date in place by applyShip().
 export const SHIP = Loadout.stats(Loadout.starter('courier'));
+// How large the player's ship is drawn against its collision size (SHIP.radius): its art is a quarter
+// wider than that radius, and it's drawn larger again than other ships, so it stands out and is
+// bigger than a drop's icon (game/draw-world.js DROP_PX) at every zoom. Looks only.
+export const PLAYER_DRAW = 1.25 * 1.5;
 
 export const ship = {
   x: 0, y: 0,

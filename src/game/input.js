@@ -13,9 +13,10 @@ import { moveMode } from './options.js';
 import { act, frameList, hitRadius, pickAt, screenToWorld, select } from './selection.js';
 import { cargo, collectItems } from './cargo.js';
 import { worldToScreen } from './hud.js';
+import { stackOf, underStack } from './draw-world.js';
 import { SHIP, autopilot, canvas, fight, flyingFight, inFight, ship, view } from './state.js';
 import { landing, onSurface, surfaceAt } from './landing.js';
-import { depositAt, dropOnCraft, onCraft, selectOnSurface, surfaceDropAt } from './surface-run.js';
+import { depositAt, dropOnCraft, onCraft, selectOnSurface, surfaceDropAt, surfaceStackOf } from './surface-run.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
@@ -33,28 +34,33 @@ function dropAt(sx, sy) {
   if (landing.on) return landing.phase === 'surface' ? surfaceDropAt(surfaceAt(sx, sy)) : null;
   let best = null, bd = Infinity;
   for (const e of frameList) {
-    if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
+    if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key) || underStack(e)) continue; // a stack: by its top one
     const [x, y] = worldToScreen(e.x, e.y), d = Math.hypot(sx - x, sy - y);
     if (d <= hitRadius(e) * view.zoom + GRAB && d < bd) { best = e; bd = d; }
   }
   return best;
 }
+// A drop and the rest of its stack (game/draw-world.js stackDrops) move together.
+const stackFor = (it) => (landing.on ? surfaceStackOf(it) : stackOf(it));
 function moveDrop(it, sx, sy) {
   const [x, y] = landing.on ? surfaceAt(sx, sy) : screenToWorld(sx, sy);
-  Object.assign(it, { x, y });
-  if (it.drop) Object.assign(it.drop, { x, y });
+  for (const d of stackFor(it)) {
+    Object.assign(d, { x, y });
+    if (d.drop) Object.assign(d.drop, { x, y });
+  }
 }
 // Let go: onto the ship, picked up (the hold full, a trade good waits beside it).
 function letGo(it, sx, sy) {
   if (landing.on) {
-    if (onCraft(...surfaceAt(sx, sy))) dropOnCraft(it);
+    if (onCraft(...surfaceAt(sx, sy))) for (const d of stackFor(it)) if (!dropOnCraft(d)) break;
     return;
   }
   if (fight.wrecked) return; // a lost ship waiting for its tow picks nothing up
   const [x, y] = worldToScreen(ship.x, ship.y);
   if (Math.hypot(sx - x, sy - y) > SHIP.radius * view.zoom + ONTO) return;
+  const stack = stackFor(it);
   moveDrop(it, ...worldToScreen(ship.x, ship.y));
-  collectItems([it]);
+  collectItems(stack);
 }
 export const LONG_PRESS = 0.5; // seconds
 

@@ -261,6 +261,31 @@ test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
   assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:drag')`) && game(`cargo.items.some((it) => it.kind === 'iron')`), 'picked up');
 });
 
+test('drops: the same thing lying together is one stack, named when selected, picked up whole', () => {
+  game(`cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
+    for (const [i, kind] of ['iron', 'iron', 'iron', 'silicates'].entries()) cargo.drops.push(dropEntity({ key: 'drop:smoke:st' + i, kind, seed: 10 + i, x: ship.x + 400 + i * 3, y: ship.y }))`);
+  browser.frames(1);
+  assert.strictEqual(game(`stackOf(cargo.drops.find((d) => d.key === 'drop:smoke:st0')).length`), 3, 'the three iron stack');
+  assert.strictEqual(game(`stackOf(cargo.drops.find((d) => d.key === 'drop:smoke:st3')).length`), 1, 'the silicates apart');
+  assert.ok(game(`underStack(cargo.drops.find((d) => d.key === 'drop:smoke:st1'))`), 'the rest under the top one');
+  const at = game('worldToScreen(ship.x + 403, ship.y)');
+  game(`select(pickAt(${at[0]}, ${at[1]}))`);
+  assert.ok(['item:drop:smoke:st0', 'item:drop:smoke:st3'].includes(game('selected && selected.key')), 'a tap takes a top one');
+  game(`select(frameList.find((e) => e.key === 'drop:smoke:st0'))`);
+  assert.match(game('describe(selected.e).title'), / ×3$/, 'its card counts the stack');
+  game('select(null)');
+  // Ship size: drawn larger than a drop's icon at the smallest zoom.
+  assert.ok(game('SHIP.radius * PLAYER_DRAW * 1.375 * 2 * 0.55') > game('DROP_PX'), 'the ship outsizes a drop');
+  const from = game(`worldToScreen(cargo.drops.find((d) => d.key === 'drop:smoke:st0').x, ship.y)`), to = game('worldToScreen(ship.x, ship.y)'), cv = browser.document.getElementById('game');
+  cv.dispatch('pointerdown', { pointerId: 7, pointerType: 'touch', button: 0, clientX: from[0], clientY: from[1], timeStamp: 2000 });
+  cv.dispatch('pointermove', { pointerId: 7, pointerType: 'touch', clientX: (from[0] + to[0]) / 2, clientY: from[1] });
+  cv.dispatch('pointermove', { pointerId: 7, pointerType: 'touch', clientX: to[0], clientY: to[1] });
+  cv.dispatch('pointerup', { pointerId: 7, pointerType: 'touch', button: 0, clientX: to[0], clientY: to[1], timeStamp: 2700 });
+  assert.strictEqual(game(`cargo.items.filter((it) => it.kind === 'iron').length`), 3, 'the whole stack picked up');
+  assert.ok(game(`cargo.drops.some((d) => d.key === 'drop:smoke:st3')`), 'the silicates left');
+  game(`cargo.items = []; cargo.drops = cargo.drops.filter((d) => !d.key.startsWith('drop:smoke'))`);
+});
+
 test('settings: combat is turn-based or active, turn-based to start; the hints wait behind the ⓘ', () => {
   assert.strictEqual(game('combatMode.value'), 'rounds');
   game('Settings.open()');
