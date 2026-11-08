@@ -9,7 +9,7 @@ import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
 import { threat } from './combat.js';
 import { actions, gapTo } from './docking.js';
-import { DROP_PX, rx, ry } from './draw-world.js';
+import { DROP_PX, rx, ry, stackOf, underStack } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
 import { landable } from './landing.js';
@@ -51,7 +51,7 @@ export function pickAt(sx, sy) {
   const slop = TAP_SLOP / view.zoom;
   let best = null, bestScore = Infinity;
   for (const e of frameList) {
-    if (!entityKey(e)) continue;
+    if (!entityKey(e) || underStack(e)) continue; // a stack of drops is picked by its top one
     const reach = hitRadius(e) + slop;
     const score = Math.hypot(wx - e.x, wy - e.y) / reach;
     if (score <= 1 && score < bestScore) { best = e; bestScore = score; }
@@ -79,10 +79,10 @@ export function primary(id, state, e) {
 }
 
 // Approach: offered for things with nothing else to do (a friendly ship), and as Cancel while
-// flying to anything.
+// flying to anything. A drop offers neither: it's dragged onto the ship, in space as on a surface.
 export function approachActions(e, hasActions) {
   if (autopilot.key === entityKey(e)) return [{ id: 'cancel-approach', label: 'Cancel approach', enabled: true }];
-  return hasActions ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
+  return hasActions || e.kind === 'item' || e.kind === 'loot' ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
 }
 
 // Do an action on e: now if it can be done, else (too far, too fast) fly there and do it on arrival.
@@ -108,8 +108,9 @@ export function describe(e) {
   // detail line what's down there.
   const scan = !t && (e.kind === 'planet' || e.kind === 'moon') && landable(e) ? siteScan(e) : null;
   const top = t ? { tag: t.word, tone: t.tone, detail: t.detail } : scan || { tag: card.tag || '', tone: card.tone || '', detail: '' };
+  const n = e.kind === 'item' ? stackOf(e).length : 1; // a stack of drops: how many
   return {
-    title: card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
+    title: n > 1 ? `${card.title} ×${n}` : card.title, subtitle: `${card.sub} · ${fmtDist(gapTo(e))}`, color: card.color,
     tag: top.tag, tone: top.tone, detail: top.detail,
     actions: [...states.map(([a, s]) => primary(a.id, s, e)), ...approachActions(e, states.length > 0)],
   };
@@ -175,7 +176,7 @@ export function placeMenu() {
   const e = selected && selected.e;
   if (!e || !ContextCard.isOpen) return;
   const [x, y] = worldToScreen(e.x, e.y);
-  ContextCard.place(x, y, (hitRadius(e) + 12 / view.zoom) * view.zoom);
+  ContextCard.place(x, y, menuRadius(hitRadius(e), view.zoom));
 }
 
 // Corner brackets around the selected object, and a dashed line to the approach target.
@@ -193,19 +194,28 @@ export function drawSelection(t) {
     ctx.setLineDash([]);
   }
   const e = selected && selected.e;
-  if (e) {
-    ctx.strokeStyle = isHostile(e) ? HOSTILE_COLOR : SELECT_COLOR;
-    ctx.globalAlpha = 0.7 + 0.25 * Math.sin(t * 4);
-    ctx.lineWidth = 2 / view.zoom;
-    brackets(rx(e.x), ry(e.y), hitRadius(e), { arm: 22 });
-  }
+  if (e) selectionMark(rx(e.x), ry(e.y), hitRadius(e), t, view.zoom, isHostile(e) ? HOSTILE_COLOR : SELECT_COLOR);
   ctx.restore();
 }
+// The selection's brackets, pulsing, round something `radius` across (k: screen px to a unit of
+// the current transform): in space, and on a planet's surface (game/surface-run.js) the same.
+export function selectionMark(x, y, radius, t, k, color = SELECT_COLOR) {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.7 + 0.25 * Math.sin(t * 4);
+  ctx.lineWidth = 2 / k;
+  brackets(x, y, radius, { arm: 22, k });
+  ctx.restore();
+}
+// How far out from its centre the context menu sits round a selection `radius` across, in screen
+// px (k: screen px to a unit of radius): just outside its brackets.
+export const menuRadius = (radius, k) => (radius + 12 / k) * k;
 
 // Corner brackets around something `radius` across (selection, a ship in a fight), with arms up
-// to `arm` screen px; `open` (0..1) pushes them out (a lock coming on).
-export function brackets(x, y, radius, { open = 0, arm = 18 } = {}) {
-  const R = (radius + 12 / view.zoom) * (1 + open * 0.9), len = Math.min(R * 0.45, arm / view.zoom);
+// to `arm` screen px; `open` (0..1) pushes them out (a lock coming on). k: screen px to a unit of
+// the current transform (the flight view's zoom unless given).
+export function brackets(x, y, radius, { open = 0, arm = 18, k = view.zoom } = {}) {
+  const R = (radius + 12 / k) * (1 + open * 0.9), len = Math.min(R * 0.45, arm / k);
   ctx.beginPath();
   for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
     ctx.moveTo(x + sx * R, y + sy * (R - len));

@@ -31,8 +31,9 @@ export function drawLabels(list) {
   ctx.textAlign = 'center';
   ctx.globalAlpha = 0.75;
   const menu = ContextCard.isOpen && selected ? selected.e : null; // its menu names it
+  const drop = selected && (selected.e?.kind === 'loot') ? selected.e : null; // named over its icon (game/draw-world.js drawDrop)
   for (const e of list) {
-    if (!e.name || e === menu || !visible(e)) continue;
+    if (!e.name || e === menu || e === drop || !visible(e)) continue;
     const l = KINDS[e.kind].label(e);
     if (!l) continue;
     const [sx, sy] = worldToScreen(e.x, e.y + (e.kind === 'loot' ? DROP_PX / 2 / view.zoom : l[1])); // loot: under its icon

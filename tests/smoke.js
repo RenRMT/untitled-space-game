@@ -669,6 +669,7 @@ test('drops are never pulled in nor picked up by flying near: a tap selects one,
   assert.strictEqual(game('cargo.items.length'), 0, 'nor picked up');
   game(`select(frameList.find((e) => e.key === 'drop:smoke:pull'))`);
   assert.match(game('describe(selected.e).subtitle'), /Drag it onto the ship/);
+  assert.strictEqual(game('describe(selected.e).actions.length'), 0, 'no buttons: not even Approach');
   game('select(null)');
   assert.ok(dragOntoShip('drop:smoke:pull'), 'dragged onto the ship, picked up');
   assert.strictEqual(game('cargo.items.length'), 1);
@@ -761,7 +762,10 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   assert.match(game('toast.text'), /^Gas pocket used up · \d × /);
   assert.ok(game('!frameList.includes(__gas)'), 'and gone');
   const n = game('Mining.gasOf(world.galaxy.seed, __gas).length'), held = game('cargo.items.length');
-  for (const k of game(`cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key)).map((e) => e.key)`)) assert.ok(dragOntoShip(k), `${k} dragged in`);
+  // (Gas of one kind lying together is a stack, dragged in at once: game/draw-world.js stackDrops.)
+  for (const k of game(`cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key)).map((e) => e.key)`)) {
+    if (game(`cargo.drops.some((d) => d.key === ${JSON.stringify(k)})`)) assert.ok(dragOntoShip(k), `${k} dragged in`);
+  }
   assert.strictEqual(game('cargo.items.length'), held + n, 'its gas is in the hold');
   assert.ok(game(`cargo.items.slice(-${n}).every((it) => Goods.type(it.kind).category === 'gas')`));
 });

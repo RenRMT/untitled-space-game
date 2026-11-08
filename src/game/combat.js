@@ -40,7 +40,7 @@ import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
 import { HOSTILE_COLOR, fmtDist, frameList, isHostile, select } from './selection.js';
 import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
-import { NEAR, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
+import { NEAR, PLAYER_DRAW, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
 import { simTime } from './update.js';
 import { world } from './world.js';
 
@@ -90,9 +90,9 @@ function defenderPos(id) {
 }
 const isDefender = (id) => !!fight.s && (fight.s.allies || []).some((c) => c.id === id && c.defender);
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
-// drawn larger than their size (flight/entities.js SHIP_SCALE), the player's a quarter larger again
-// (game/draw-world.js drawShip); structures at their size.
-const shownRadius = (p) => (p.structure ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
+// drawn larger than their size (flight/entities.js SHIP_SCALE), the player's larger again
+// (game/state.js PLAYER_DRAW, game/draw-world.js drawShip); structures at their size.
+const shownRadius = (p) => (p.structure ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? PLAYER_DRAW : 1));
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 export const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
 
