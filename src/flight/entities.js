@@ -44,9 +44,10 @@ const Entities = (() => {
   const color = () => Theme.color; // looked up when drawing, so Node never needs core/theme.js
 
   // A floating item: its art, its type (rules/goods.js) and how it turns. Position and turning come
-  // from the caller's own random stream, so generated scenes stay as they were.
-  function item({ key, kind, seed, angle, tumble, x = 0, y = 0 }) {
-    const art = ArtItemsRef.create(kind, seed);
+  // from the caller's own random stream, so generated scenes stay as they were. The art is the
+  // type's own, as its icon in the menus shows it (art/icons.js draws it from the same blueprint).
+  function item({ key, kind, angle, tumble, x = 0, y = 0 }) {
+    const art = ArtItemsRef.create(kind, 1);
     return {
       kind: 'item', art, key, label: GoodsRef.type(kind).name, category: art.category, itemKind: kind,
       angle, tumble, radius: art.radius, x, y,
@@ -57,7 +58,7 @@ const Entities = (() => {
   // rarity's colour, a glow round it (the rarer, the brighter). spec: the item's saved spec.
   function lootDrop({ key, spec, x = 0, y = 0, angle = 0, tumble = 0.2 }) {
     const gear = Loot.make(spec);
-    const art = ArtEquipment.create(spec.base, (spec.seed % 97) + 1);
+    const art = ArtEquipment.create(spec.base, 1); // as its icon in the menus
     return {
       kind: 'loot', art, key, spec, name: gear.name, label: gear.name, rarity: spec.rarity, color: Loot.rarityOf(spec.rarity).color,
       angle, tumble, radius: art.radius * 1.4, x, y,
@@ -258,7 +259,7 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.angle, spin: spinning(e, t), t }),
       label: (e) => [e.color, e.radius * 1.05],
       mark: (e) => ({ color: e.color, r: 4, ring: true }),
-      card: (e, galaxy) => ({ title: e.name, sub: e.offline ? 'Offline · leads nowhere yet' : `${e.gate.wormhole ? 'Wormhole' : 'Jump gate'} to the ${galaxy.gates[e.gate.link].name}`, color: e.color }),
+      card: (e, galaxy) => ({ title: e.name, sub: e.offline ? 'Offline · leads nowhere yet' : `${e.gate.wormhole ? 'Wormhole' : 'Jump gate'} to ${galaxy.systems[e.gate.to]?.name || 'elsewhere'}`, color: e.color }),
     },
     wreck: {
       order: 3,

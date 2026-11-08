@@ -3,8 +3,8 @@
 // on the 'cavern' ground): chambers cut into solid rock, joined by winding passages, the landing
 // spot in a chamber by its south edge and the deepest chamber (role 'deep', the most passages
 // away) kept for a boss one day. There are no hazards down there (dungeonSite); nodes lie about
-// the chambers and passages as on any surface, and Take off (its button, or T) is the way out,
-// with no rim to fly past.
+// the chambers and passages as on any surface, and the landing pad in the first chamber is the way
+// out (EXIT: fly off it and back onto it to take off), with no rim to fly past.
 // The minimap is the cave as charted round the ship: what's come within SIGHT of it as it flies,
 // afresh on each landing; the chambers visited are counted on the HUD.
 //
@@ -23,13 +23,14 @@ import { SurfaceGlobe } from '../art/surface-globe.js';
 import { CombatCore } from '../combat/combat-core.js';
 import { Params } from '../core/store.js';
 import { hashInt, mulberry32 } from '../core/rng.js';
-import { COLORS } from '../core/theme.js';
+import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Structures } from '../rules/structures.js';
 import { cargo, lootNotice, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
+import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
 import { leave } from './surface-run.js';
@@ -49,6 +50,10 @@ export function isDungeon(e) {
   const p = world.galaxy.planets.find((q) => q.name === e.key);
   return !!p && p.system === DUNGEON.system && p.type === DUNGEON.type;
 }
+
+// What a labyrinth is called, by the ground it's cut into (art/surface.js types).
+const DUNGEON_NAMES = { desert: 'Canyons', terran: 'Ravines', ice: 'Ice caves', lava: 'Lava tubes', gas: 'Storm maze', cavern: 'Caverns' };
+export const dungeonName = (W) => DUNGEON_NAMES[W.type] || (W.type.startsWith('moon-') ? 'Crater maze' : 'Labyrinth');
 
 // No heat, day side, radiation, dust, vents or storm pockets; ordinary gravity; rock to mine.
 export const dungeonSite = (site) => ({
@@ -74,8 +79,8 @@ export const dungeonOpts = (size, e) => {
 // the hostiles' culture) that never move, and raiders: fighters that circle their chamber and chase
 // the ship once roused, kept out of the walls (combat/combat-realtime.js s.blocked); the deepest
 // chamber by the Warden, a heavy ship that chases too, with two turrets. They wake when the ship
-// comes within SENSE of one (and every guardian within ROUSE of it with it), and are fought in real
-// time with the squad (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the
+// comes within SENSE of one (and every guardian within ROUSE of it with it), and are fought as in space
+// (the Combat setting's mode) with the squad (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the
 // aliens' are their own. Each landing finds them afresh. Destroyed, they leave loot lying
 // (rules/goods.js goods and components, CombatCore.loot) and now and then gear (rules/loot.js:
 // sentinel, raider and warden drop tables, into the spare gear); the Warden always some, Rare or
@@ -84,11 +89,10 @@ export const GUARD = { sense: 430, rouse: 700, range: 520, bounty: 450, patrol: 
 const BOSS = { hull: 7, shield: 3, damage: 1.5, size: 2 };
 const RAIDER = { hull: 1.3, shield: 1.1, damage: 0.9, size: 1 };
 const TURRET = { damage: 0.85, size: 2 };
-const SURFACE_SPEED = 0.5, SURFACE_ACCEL = 0.6; // as the player's ship flies there (game/landing.js)
-// A ship that flies on the surface: slower, as the player's is, its guns within the caverns' reach.
+// A ship that flies on the surface: as the player's does there (game/landing.js), its guns as in space.
 function surfaceShip(st, k, alien, name) {
   const a = alien ? 1.25 : 1;
-  const weapons = st.weapons.map((w) => ({ ...w, damage: Math.round(w.damage * k.damage * a * 10) / 10, range: Math.min(w.range, GUARD.range) }));
+  const weapons = st.weapons.map((w) => ({ ...w, damage: Math.round(w.damage * k.damage * a * 10) / 10, }));
   return {
     ...st, name, hull: Math.round(st.hull * k.hull * a), shield: Math.round(st.shield * k.shield * a), weapons,
     firepower: weapons.reduce((n, w) => n + w.damage * w.fireRate, 0), maxSpeed: st.maxSpeed * SURFACE_SPEED, accel: st.accel * SURFACE_ACCEL,
@@ -198,6 +202,7 @@ export function guardianDown(g) {
 export function drawGuardians(v, zoom, dpr, time) {
   const R = dungeonRun;
   if (!R.W) return;
+  drawExit(v, zoom, dpr, time);
   const style = artStyle.value;
   for (const g of R.guards) {
     if (!g.alive || !charted(g.x, g.y)) continue;
@@ -225,16 +230,50 @@ export function drawGuardians(v, zoom, dpr, time) {
   }
 }
 
+// The landing pad on the ground: a ring and its markings, brighter once flying onto it would take
+// off, with what it does over it.
+function drawExit(v, zoom, dpr, time) {
+  const R = dungeonRun, [x, y] = R.W.start, p = SurfaceGlobe.toScreen(v, x, y, 0);
+  if (!p) return;
+  const pulse = 0.5 + 0.5 * Math.sin(time * 2.4), r = EXIT.r;
+  ctx.save();
+  ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
+  ctx.translate(p[0], p[1]);
+  ctx.strokeStyle = COLORS.cyan;
+  ctx.fillStyle = COLORS.cyan;
+  ctx.globalAlpha = (R.armed ? 0.12 : 0.06) + 0.06 * pulse;
+  ctx.beginPath(); ctx.ellipse(0, 0, r, r * v.ct, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = R.armed ? 0.55 + 0.35 * pulse : 0.35;
+  ctx.lineWidth = 2 / zoom;
+  ctx.setLineDash([10 / zoom, 7 / zoom]);
+  ctx.lineDashOffset = -time * 20 / zoom;
+  ctx.beginPath(); ctx.ellipse(0, 0, r, r * v.ct, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.beginPath(); ctx.ellipse(0, 0, r * 0.55, r * 0.55 * v.ct, 0, 0, Math.PI * 2); ctx.stroke();
+  for (let k = 0; k < 4; k++) { // chevrons pointing up: out
+    const a = (k / 4) * Math.PI * 2 + Math.PI / 4, cx = Math.cos(a) * r * 0.78, cy = Math.sin(a) * r * 0.78 * v.ct;
+    ctx.beginPath(); ctx.moveTo(cx - 5, cy + 3); ctx.lineTo(cx, cy - 3); ctx.lineTo(cx + 5, cy + 3); ctx.stroke();
+  }
+  ctx.font = `600 ${11 / zoom * 1.4}px ${Theme.mono}`;
+  ctx.textAlign = 'center';
+  ctx.globalAlpha = R.armed ? 0.95 : 0.6;
+  ctx.fillText(R.armed ? 'RETURN TO ORBIT' : 'LANDING PAD', 0, -r * v.ct - 8 / zoom);
+  ctx.restore();
+}
+
 const SIGHT = 7; // tiles round the ship charted as it flies
 const WINDOW = 48; // tiles across the minimap, round the ship
 const PX = 2; // map pixels per tile
-export const dungeonRun = { W: null, e: null, field: 0, seen: null, visited: new Set(), map: null, at: -1, guards: [], bossDown: false };
+export const dungeonRun = { W: null, e: null, field: 0, seen: null, visited: new Set(), map: null, at: -1, guards: [], bossDown: false, armed: false };
+// The way out: the landing pad where the ship set down (W.start), EXIT.r across. Once the ship has
+// flown EXIT.arm past its edge, flying back onto it takes off.
+export const EXIT = { r: 60, arm: 80 };
 
 export function enterDungeon(W, e = null, field = 0) {
   const [a0, b0, a1, b1] = W.dungeon.area, map = document.createElement('canvas');
   map.width = (a1 - a0) * PX;
   map.height = (b1 - b0) * PX;
-  Object.assign(dungeonRun, { W, e, field, seen: new Uint8Array(W.w * W.h), visited: new Set(), map, at: -1, guards: [], bossDown: false });
+  Object.assign(dungeonRun, { W, e, field, seen: new Uint8Array(W.w * W.h), visited: new Set(), map, at: -1, guards: [], bossDown: false, armed: false });
   // Guardians in every dungeon but the test one (?sites keeps it as it was: empty).
   if (e && !landingSites) dungeonRun.guards = placeGuardians(W, e, field);
 }
@@ -242,10 +281,13 @@ export function enterDungeon(W, e = null, field = 0) {
 // Open: a tile with any corner below the cave walls.
 const openTile = (C, i, j) => !(C[i][j] && C[i + 1][j] && C[i][j + 1] && C[i + 1][j + 1]);
 
-// Charts what's round the ship, and notes the chambers it comes into.
+// Charts what's round the ship, and notes the chambers it comes into; back on the pad, takes off.
 export function tickDungeon(C) {
   const R = dungeonRun, W = R.W;
   if (!W) return;
+  const pad = Math.hypot(C.x - W.start[0], C.y - W.start[1]);
+  if (!R.armed && pad > EXIT.r + EXIT.arm) R.armed = true;
+  else if (R.armed && pad < EXIT.r) { R.armed = false; takeOff(); return; }
   const T = ArtSurface.T, ti = Math.floor(C.x / T), tj = Math.floor(C.y / T), at = tj * W.w + ti;
   if (at !== R.at) {
     R.at = at;
@@ -275,7 +317,7 @@ export function dungeonLines() {
   const R = dungeonRun, W = R.W;
   if (!W) return [];
   const rooms = W.dungeon.rooms, deep = rooms.findIndex((r) => r.role === 'deep');
-  const lines = [[`CHAMBERS ${R.visited.size}/${rooms.length} · ${R.visited.has(deep) ? 'the deepest found' : 'the deepest still ahead'} · Take off (T) to leave`, COLORS.hud]];
+  const lines = [[`CHAMBERS ${R.visited.size}/${rooms.length} · ${R.visited.has(deep) ? 'the deepest found' : 'the deepest still ahead'} · back to the pad to leave`, COLORS.hud]];
   if (R.guards.length) {
     const left = R.guards.filter((g) => g.alive && !g.boss).length;
     lines.push([`LEVEL ${bodyLevel(R.e)} · ${left} guardian${left === 1 ? '' : 's'} left · ${R.bossDown ? 'Warden destroyed' : 'the Warden in the deepest chamber'}`, R.bossDown ? COLORS.good : COLORS.amber]);

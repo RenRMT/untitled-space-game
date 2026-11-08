@@ -1,6 +1,6 @@
 // The settings menu: one panel for the game's options, opened with the Settings button in flight.
-// Each option registers itself with add() and shows as a row of choices, with a line explaining
-// the selected one, or as one action button (which closes the menu once run). Options keep their
+// Each option registers itself with add() and shows as a row of choices, or as one action button
+// (which closes the menu once run); the lines explaining them show only with the header's ⓘ on. Options keep their
 // own state; this only draws them and passes clicks on.
 //
 //   Settings.add({ id, label, shortcut?, choices: [{ value, label, hint }], get(), set(value),
@@ -22,6 +22,8 @@ const Settings = (() => {
   let isOpen = false;
   let onToggle = null;
   let returnFocus = null;
+  let explain = false; // the ⓘ: hints and notes shown
+  const infoBtn = root.querySelector('.set-info');
 
   const { h } = UI; // ui/ui.js
 
@@ -44,8 +46,8 @@ const Settings = (() => {
       h('div', { class: 'seg' }, list.map((a) => h('button', {
         class: 'btn', type: 'button', 'aria-describedby': labelId, disabled: !!locked, 'data-option': o.id, onclick: run(a),
       }, a.label))),
-      hint ? h('p', { class: 'set-hint' }, hint) : null,
-      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, typeof o.note === 'function' ? o.note() : o.note) : null);
+      hint && explain ? h('p', { class: 'set-hint' }, hint) : null,
+      locked ? h('p', { class: 'set-note locked' }, locked) : o.note && explain ? h('p', { class: 'set-note' }, typeof o.note === 'function' ? o.note() : o.note) : null);
   }
 
   // One option: its label, the choices as a radio group, the selected choice's hint, and a note
@@ -72,8 +74,8 @@ const Settings = (() => {
     return h('section', { class: 'set-group' },
       h('div', { class: 'set-label' }, h('span', { id: labelId }, o.label), o.shortcut ? h('kbd', {}, o.shortcut) : null),
       h('div', { class: 'seg', role: 'radiogroup', 'aria-labelledby': labelId, onkeydown }, choices),
-      hint ? h('p', { class: 'set-hint' }, hint) : null,
-      locked ? h('p', { class: 'set-note locked' }, locked) : o.note ? h('p', { class: 'set-note' }, o.note) : null);
+      hint && explain ? h('p', { class: 'set-hint' }, hint) : null,
+      locked ? h('p', { class: 'set-note locked' }, locked) : o.note && explain ? h('p', { class: 'set-note' }, o.note) : null);
   }
 
   // Options with a `group` sit under a heading that folds them away (Accessibility, Help), closed
@@ -123,6 +125,7 @@ const Settings = (() => {
   }
 
   root.querySelector('.set-close').addEventListener('click', close);
+  if (infoBtn) infoBtn.addEventListener('click', () => { explain = !explain; infoBtn.setAttribute('aria-expanded', String(explain)); render(); });
   root.addEventListener('pointerdown', (e) => { if (e.target === root) close(); }); // the backdrop
   // While open: Escape closes, arrow keys reach the choice groups, Tab stays inside the panel, and
   // the game's and map's shortcuts (V, C, M, ...) are held back.

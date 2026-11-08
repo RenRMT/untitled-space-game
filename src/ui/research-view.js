@@ -170,7 +170,7 @@ const ResearchView = {
         tree(group),
         env.fold('research-adds', 'What research adds', bonuses()),
         env.fold('components', `Components in store · ${Object.values(lab().components || {}).reduce((t, n) => t + n, 0)}`,
-          [h('p', { class: 'ui-note' }, 'Recovered from pirates and wrecks.'), env.componentsGrid(lab().components)]),
+          [env.info('Recovered from pirates and wrecks.'), env.componentsGrid(lab().components)]),
       ];
     }
 

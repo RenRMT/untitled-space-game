@@ -1,6 +1,6 @@
 // Landing on a planet or moon, flying round its landing site (art/surface.js) and taking off again.
-// The Land action (a planet's or moon's context menu, or L) starts it; on the surface, Take off (its
-// button, or T) or flying out past the landing site's rim ends it.
+// The Land action (a planet's or moon's context menu, or L) starts it; on the surface, flying back
+// onto a dungeon's landing pad (game/dungeon.js) or out past a landing site's rim ends it.
 //
 // Landing is one continuous zoom. The camera closes in on the planet's own art, steadily (the zoom
 // grows by the same factor each moment, easing in and out at the ends) while the ship dives into
@@ -56,9 +56,9 @@ import { drawStarfield } from './starfield.js';
 import { SHIP, TAU, autopilot, cam, clamp, ctx, inFight, lerp, notify, particles, setMode, ship, view } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
-import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
+import { drawSurfaceFight, drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
 import { updateCombatPanel } from './combat.js';
-import { drawGuardians, dungeonOpts, drawDungeonMinimap, isDungeon } from './dungeon.js';
+import { drawGuardians, dungeonName, dungeonOpts, drawDungeonMinimap, isDungeon, landingSites } from './dungeon.js';
 import { drawSurfaceSquad } from './surface-squad.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
@@ -69,11 +69,12 @@ export const landable = (e) => (LANDABLE[e.kind] || []).includes(e.body.type);
 // The surface: a landing site SITE tiles across in the middle, with FRINGE tiles of ground round it
 // to see while the view is still high above.
 const SITE = 48, FRINGE = Math.ceil(3200 / ArtSurface.T), SIZE = SITE + 2 * FRINGE;
-// On the surface the ship flies slower than in space and is drawn a little smaller, against ground
-// seen from closer than space is: the whole view (ship, ground and all) is zoomed in SURFACE_ZOOM
+// On the surface the ship flies as it does in space (the same top speed and acceleration, the same
+// movement and combat settings) and is drawn a little smaller, against ground seen from closer than
+// space is: the whole view (ship, ground and all) is zoomed in SURFACE_ZOOM
 // times, and its chunks are drawn at that resolution (up to 2 device px per world unit; 1.5 on
 // touch screens, which keep less in memory).
-export const SURFACE_SPEED = 0.5; // the top speed on a surface, × the ship's (game/dash.js too)
+export const SURFACE_SPEED = 1, SURFACE_ACCEL = 1; // the top speed and acceleration on a surface, × the ship's (game/dash.js, the guardians and the squad too)
 const SURFACE_SCALE = 0.85, SURFACE_ZOOM = 1.5;
 const surfaceZoom = () => view.base * SURFACE_ZOOM;
 // The zoom: in space, until the planet is COVER times as wide as the screen's diagonal; then on the
@@ -95,8 +96,11 @@ const GEN_STEPS = 3 * (SIZE + 1) + 1; // about how many next()s generating one t
 function entry(e) {
   let s = surfaces.get(e.key);
   if (!s) {
-    // The test dungeon's planet: a labyrinth of caverns instead of a landing site (game/dungeon.js).
-    const type = isDungeon(e) ? 'cavern' : e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
+    // A dungeon (game/dungeon.js) is a labyrinth cut into the body's own ground: dunes and mesas on
+    // a desert world, ice shelves on an ice one, storm fronts on a gas giant (the test dungeon of
+    // ?sites keeps its caverns).
+    const own = e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
+    const type = isDungeon(e) && landingSites ? 'cavern' : own;
     const o = isDungeon(e) ? dungeonOpts(SIZE, e) : { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] };
     s = { gen: ArtSurface.generateSteps(type, e.body.seed, o), steps: 0, W: null, far: {}, tiles: {} };
     surfaces.set(e.key, s);
@@ -280,7 +284,7 @@ function warmTiles(s, budgetMs) {
   return { loaded: got.length, missing: got.missing, total: got.length + got.missing };
 }
 
-// Flying on the surface: the drag sets heading and speed as in space (game/input.js), slower; cliffs,
+// Flying on the surface: the drag sets heading and speed as in space (game/input.js); cliffs,
 // storm fronts and tall rocks stop the ship, bouncing it back, and a hard hit knocks its shields and
 // hull (flight/collide.js, game/combat.js hurtShip). Then the surface's own step (game/surface-run.js:
 // hazards, deposits, what lies about). Out past the rim, it takes off, if it has the fuel for it
@@ -288,7 +292,7 @@ function warmTiles(s, budgetMs) {
 // an empty tank the engine is dead. climbing: lifting off, the ship keeps drifting the way it was
 // going, above everything.
 function fly(W, dt, climbing = false) {
-  const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * 0.6 };
+  const C = landing.craft, stats = { ...SHIP, maxSpeed: SHIP.maxSpeed * SURFACE_SPEED, accel: SHIP.accel * SURFACE_ACCEL };
   const set = climbing ? 0 : (ship.targetSpeed / (SHIP.maxSpeed || 1)) * stats.maxSpeed;
   const x0 = C.x, y0 = C.y, r = SHIP.radius * SURFACE_SCALE;
   Flight.step(C, stats, { targetAngle: ship.targetAngle, targetSpeed: set, mode: moveMode.value, coast: dashing() }, dt);
@@ -442,6 +446,7 @@ export function drawLanding(time) {
   ctx.scale(k, k);
   Art.drawAsset(ctx, ship.art, style, { angle: C.angle, t: time, thrust: flameThrust(C.thrust, time) }); // sputtering on a low tank
   ctx.restore();
+  if (L.phase === 'surface') drawSurfaceFight(v, zoom, view.dpr); // over the ships, as in space
   if (L.phase === 'surface') {
     drawSurfaceWeather(view.w, view.h, time);
     if (!L.wrecked) drawHazardScreen(view.w, view.h, time); // heat, radiation, cracks, the shields (game/screen-fx.js)
@@ -511,7 +516,7 @@ function drawSurfaceMinimap() {
 function drawSurfaceHud() {
   const L = landing, W = surface().W, I = view.inset, pad = 12, left = pad + I.l, lh = Math.round(19 * Theme.scale);
   const box = minimapBox(), room = box.x - 12 - left;
-  const lines = [[`${L.e.name.toUpperCase()} · ${W.dungeon ? 'CAVERNS' : 'LANDING SITE'}`, COLORS.planet]];
+  const lines = [[`${L.e.name.toUpperCase()} · ${W.dungeon ? dungeonName(W).toUpperCase() : 'LANDING SITE'}`, COLORS.planet]];
   if (L.phase === 'surface') lines.push(...surfaceLines());
   if (L.phase === 'surface' && W.site && ArtSurface.siteDist(W, L.craft.x, L.craft.y) > W.site.leave - 2 * ArtSurface.T) lines.push(['Past the rim: fly on to take off', COLORS.amber]);
   ctx.save();
@@ -554,9 +559,5 @@ export function init() {
     id: 'land', kind: ['planet', 'moon'], verb: 'Land', key: 'l', when: landable,
     range: 500, maxSpeed: 200,
     run: land,
-  });
-  document.getElementById('takeoff-btn').addEventListener('click', takeOff);
-  window.addEventListener('keydown', (e) => {
-    if ((e.key === 't' || e.key === 'T') && landing.phase === 'surface') takeOff();
   });
 }

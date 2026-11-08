@@ -17,7 +17,7 @@ import { drawEntities, drawHaulers, drawParticles, drawShip, origin, rx, ry } fr
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers, hudShown } from './hud.js';
 import { tickHold } from './input.js';
 import { drawTractorBeam } from './intro.js';
-import { drawDebris } from './mining.js';
+import { drawDebris, drawMining, drawMiningLabel } from './mining.js';
 import { tickDash } from './dash.js';
 import { active as hazardsOn, drawFlareGlow, drawHazards } from './hazards.js';
 import { drawHazardScreen } from './screen-fx.js';
@@ -69,7 +69,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawEntities(list, t);
   drawHaulers();
   drawSelection(t);
-  drawFight();
+  drawMining();
   drawDebris();
   drawGateWork(t);
   drawParticles();
@@ -77,6 +77,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawWarpWorld();
   drawShip(t);
   ctx.restore();
+  drawFight(); // screen px (game/combat.js), as on a surface
   drawFlareGlow();
   if (hazardsOn()) drawHazardScreen(view.w, view.h, t); // heat, radiation, cracks, the shields (game/screen-fx.js)
   drawWarpOverlay();
@@ -90,6 +91,7 @@ export function render(list = nearbyEntities(simTime)) {
   const moving = warp.on || landing.on; // names and markers would hang in a gate jump's streaks, or over the globe
   if (!moving) drawLabels(list);
   drawFightOverlay();
+  drawMiningLabel();
   if (!moving) drawNavMarkers();
   drawFoeMarkers();
   drawDragIndicator();

@@ -12,7 +12,8 @@ import { Abilities } from '../rules/abilities.js';
 import { FieldBar } from '../ui/field-bar.js';
 import { SystemMap } from '../ui/map.js';
 import { addTo, cargo, saveCargo } from './cargo.js';
-import { blastRock, extracting, guard, shieldNow } from './combat.js';
+import { guard, shieldNow } from './combat.js';
+import { blastRock, minedRock } from './mining.js';
 import { docked } from './docking.js';
 import { hazard } from './hazards.js';
 import { landing } from './landing.js';
@@ -30,12 +31,11 @@ export const fieldShown = () => !docked && !intro.on && !warp.on && !talk.lines 
 
 // The ship's meters, as rules/abilities.js reads them; rock: the one the tools are locked on, mining.
 function meters() {
-  const s = fight.s, me = s?.player;
-  const t = extracting() && s.enemies.find((e) => e.id === s.focus && e.hull > 0);
+  const me = fight.s?.player;
   return {
     heat: hazard.heat, rad: cargo.rad, fuel: cargo.fuel, fuelMax: SHIP.fuel,
     hull: me ? me.hull : cargo.hull, hullMax: SHIP.hull, shield: shieldNow(), shieldMax: SHIP.shield,
-    rock: t ? { hull: t.hull, material: t.material } : null,
+    rock: minedRock(),
   };
 }
 

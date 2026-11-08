@@ -19,7 +19,8 @@ import { COLORS } from '../core/theme.js';
 import { Hazards } from '../rules/hazards.js';
 import { Status } from '../rules/status.js';
 import { cargo, saveCargo } from './cargo.js';
-import { endExtraction, shieldNow, wreck } from './combat.js';
+import { shieldNow, wreck } from './combat.js';
+import { endExtraction } from './mining.js';
 import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { landing } from './landing.js';
@@ -122,7 +123,7 @@ export function meterWarnings() {
 
 // A meter full: the ship is lost (in a fight with ships, that fight decides).
 function disable(reason) {
-  if (fight.s && !fight.extract) return;
+  if (fight.s) return;
   endExtraction();
   wreck(reason);
 }

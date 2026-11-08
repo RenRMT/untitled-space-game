@@ -3,9 +3,8 @@
 // - Deposits (rules/mining.js deposits): many small nodes on open ground round the landing site,
 //   each a unit of one of the body's goods, seeded afresh on every landing; more of them the more
 //   dangerous the site (site.rich), gathered near its vents or storm pockets, where they're rich.
-//   The ship's tools pick their own (game/mining.js autoMine) and wear them down by the same rules as
-//   an asteroid in space: the same extraction session (game/combat.js extract), flown from the ship
-//   over the ground. A tap (or E) picks one by hand. Broken up, a node leaves what it held lying
+//   The ship's tools pick their own (game/mining.js autoMine) and work them as an asteroid in space:
+//   the same timed action (game/mining.js extract). A tap (or E) picks one by hand. Broken up, a node leaves what it held lying
 //   beside it, a unit more on a hot day side (notes/hazards.md phase 4).
 // - What lies on the surface (cargo.surfaceDrops): a node's goods, cargo jettisoned and the hold
 //   of a ship lost there. Flying near it pulls it in and picks it up.
@@ -26,20 +25,19 @@ import { SurfaceGlobe } from '../art/surface-globe.js';
 import { ArtSurface } from '../art/surface.js';
 import { Feedback } from '../core/feedback.js';
 import { hashInt, seedToInt } from '../core/rng.js';
-import { COLORS, Theme } from '../core/theme.js';
-import { RealtimeCombat } from '../combat/combat-realtime.js';
+import { COLORS } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
-import { endExtraction, endSurfaceFight, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
+import { drawFight, drawFightOverlay, endSurfaceFight, hurtShip, tickFight, tickShield } from './combat.js';
 import { hazard, hazardsOn, meterWarnings, trackMeters } from './hazards.js';
 import { SURFACE_SPEED, landing, takeOff } from './landing.js';
-import { autoMine, chips } from './mining.js';
+import { autoMine, chips, drawRing, endExtraction, extract, mine, mineReach, tickMining } from './mining.js';
 import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
-import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
+import { SHIP, TAU, clamp, ctx, debris, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
 import { world } from './world.js';
 
@@ -55,7 +53,6 @@ import { world } from './world.js';
 export const surfaceRun = { e: null, W: null, site: null, field: 0, deposits: [], exp: null, burn: 0, left: new Set(), said: new Set(), vents: [], pockets: [], blast: 0, struck: new Map(), bolts: [], warn: null };
 const PICKUP = 30; // surface units between the ship and something lying there to pick it up
 const PULL = { range: 120, speed: 260 }; // what lies this close is pulled in, this much faster than the ship flies
-const DEPOSIT_RANGE = 260; // E locks the nearest deposit within this of the ship's lock range
 const AUTO_REACH = 240; // the tools pick a node on their own this close (fly to the next cluster)
 const HAZARD_NEAR = [30, 110]; // nodes gather by a vent or storm pocket: in full this far past its rim, none past this
 // The next landing's field, for the tests (tests/smoke.js): null picks one at random.
@@ -250,7 +247,8 @@ export function tickSurface(dt) {
   tickGuardians(C, dt); // its guardians waking as the ship comes near (game/dungeon.js)
   tickSurfaceSquad(dt); // the squad following the ship over the ground (game/surface-squad.js)
   autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
-  tickFight(dt); // mining a deposit (and the effects of it)
+  tickMining(dt); // and work it (space's update, which ticks it there, doesn't run here)
+  tickFight(dt); // a dungeon's fight (and the effects of it)
   // Take off: short of fuel for it, Jettison or Call a tow (their buttons).
   const short = cargo.fuel + 1e-6 < takeoffNeed(), stranded = hazardsOn && cargo.fuel + 1e-6 < Hazards.takeoffFuel(site.gravity, 0);
   setMode('short-fuel', short && !stranded && cargo.items.length > 0);
@@ -331,6 +329,22 @@ function pickUp(C, dt = 0) {
   saveCargo();
 }
 
+// What lies on this surface under a point of the ground (a finger's width round it), and one of
+// them dragged onto the ship (game/input.js): picked up, if there's room.
+export function surfaceDropAt([x, y]) {
+  const list = surfaceRun.e && cargo.surfaceDrops[surfaceRun.e.key];
+  if (!list) return null;
+  let best = null, bd = Infinity;
+  for (const it of list) { const d = Math.hypot(it.x - x, it.y - y); if (d < PICKUP + 14 && d < bd) { best = it; bd = d; } }
+  return best;
+}
+export function dropOnCraft(it) {
+  const C = landing.craft;
+  Object.assign(it, { x: C.x, y: C.y });
+  surfaceRun.left.delete(it.key);
+  pickUp(C);
+}
+
 // Leave things lying on this surface, scattered round (x, y): [kind], keyed by tag.
 export function leave(kinds, x, y, tag, spread = 30) {
   const list = (cargo.surfaceDrops[surfaceRun.e.key] ||= []);
@@ -369,18 +383,17 @@ export function depositAt(at) {
   }
   return best;
 }
-// Lock the tools on a deposit: a new session, or another deposit joins the one under way.
+// Set the tools on a deposit (or switch to it).
 export function mineDeposit(d) {
   if (!d || landing.phase !== 'surface' || landing.wrecked) return;
-  if (extracting() && fight.ships.has(d.key)) { focusOn(d.key); return; }
   extract(d);
 }
 // E: the nearest deposit within reach of a lock.
 export function mineNearest() {
-  const C = landing.craft, reach = Math.max(0, SHIP.lockRange - DEPOSIT_RANGE);
-  const d = surfaceRun.deposits.filter((x) => !fight.ships.has(x.key)).sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
+  const C = landing.craft, reach = mineReach();
+  const d = surfaceRun.deposits.filter((x) => x !== mine.target).sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
   if (d && Math.hypot(d.x - C.x, d.y - C.y) - d.radius <= reach) mineDeposit(d);
-  else if (!d || !extracting()) notify(d ? 'No node in range · fly closer' : 'No nodes left here', 2, { tone: 'warn' });
+  else if (!d || !mine.target) notify(d ? 'No node in range · fly closer' : 'No nodes left here', 2, { tone: 'warn' });
 }
 
 // ---------- Taking off, jettisoning, a tow ----------
@@ -474,57 +487,29 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
   const scr = (x, y, z = 0) => { const p = at(x, y, z); return p && [p[0] * zoom, p[1] * zoom]; };
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  drawFireField(scr);
-  ctx.lineCap = 'round';
-  for (const f of fight.fx) {
-    if (f.delay > 0 || f.t === undefined || f.type !== 'beam') continue;
-    const from = fxPos(f.from), to = fxPos(f.to);
-    const a = from && scr(from.x, from.y, ArtSurface.FLY), b = to && scr(to.x, to.y, 2);
-    if (!a || !b) continue;
-    const k = f.t / f.max;
-    ctx.strokeStyle = f.color;
-    ctx.globalAlpha = k * (f.hits > 0 ? 0.3 : 0.12);
-    ctx.lineWidth = 6;
-    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-    ctx.globalAlpha = k * (f.hits > 0 ? 0.95 : 0.35);
-    ctx.lineWidth = 1.6;
-    ctx.stroke();
-  }
-  // The lock: brackets closing in on the target as it comes on, its integrity under it.
-  const s = fight.s, target = s && s.enemies.find((c) => c.id === s.focus && c.hull > 0), dep = target && surfaceRun.deposits.find((d) => d.key === target.id);
-  const p = dep && scr(dep.x, dep.y);
+  // The deposit being worked: a ring round it filling as the work goes, and the beam from the ship.
+  const dep = mine.target && mine.target.surface ? mine.target : null, p = dep && scr(dep.x, dep.y);
   if (p) {
-    const lock = s.locked ? 1 : Math.min(1, s.lockT / RealtimeCombat.lockTime(s)), R = (dep.radius * zoom + 10) * (1 + (1 - lock) * 0.9), arm = Math.min(R * 0.45, 14);
-    ctx.strokeStyle = COLORS.hostile;
-    ctx.globalAlpha = 0.5 + 0.35 * lock;
-    ctx.lineWidth = 2;
-    if (lock < 1) ctx.setLineDash([5, 4]);
-    ctx.beginPath();
-    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-      ctx.moveTo(p[0] + sx * R, p[1] + sy * (R - arm));
-      ctx.lineTo(p[0] + sx * R, p[1] + sy * R);
-      ctx.lineTo(p[0] + sx * (R - arm), p[1] + sy * R);
+    const C = landing.craft, q = scr(C.x, C.y, ArtSurface.FLY);
+    if (q && Math.hypot(dep.x - C.x, dep.y - C.y) - dep.radius <= mineReach() + 120) {
+      ctx.strokeStyle = COLORS.busy;
+      ctx.globalAlpha = 0.35 + 0.25 * Math.sin(performance.now() / 70);
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
     }
-    ctx.stroke();
-    ctx.setLineDash([]);
-    const w = 40, top = p[1] - R - 10;
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = 'rgba(38, 48, 74, 0.9)';
-    ctx.fillRect(p[0] - w / 2, top, w, 3);
-    ctx.fillStyle = COLORS.hostile;
-    ctx.fillRect(p[0] - w / 2, top, w * (target.hull / target.stats.hull), 3);
+    drawRing(p[0], p[1], dep.radius * zoom + 10, Math.min(1, mine.t / mine.total), 3);
   }
-  ctx.font = Theme.font(12);
-  ctx.textAlign = 'center';
-  for (const f of fight.fx) {
-    if (f.type !== 'number' || f.delay > 0) continue;
-    const pos = fxPos(f.at), q = pos && scr(pos.x, pos.y, pos.player ? ArtSurface.FLY : 0);
-    if (!q) continue;
-    const k = f.t / f.max;
-    ctx.globalAlpha = Math.min(1, k * 1.6);
-    ctx.fillStyle = f.color;
-    ctx.fillText(f.text, q[0] + 14 + (f.jx || 0), q[1] - 26 - (1 - k) * 26);
-  }
+  ctx.restore();
+}
+
+// A fight down here is drawn as one in space is (game/combat.js): gauges, intents, the target,
+// beams and numbers; over the ships (game/landing.js draws it after them).
+export function drawSurfaceFight(v, zoom, dpr) {
+  const V = { at: (x, y) => { const p = SurfaceGlobe.toScreen(v, x, y, ArtSurface.FLY); return p && [p[0] * zoom, p[1] * zoom]; }, k: () => zoom };
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawFight(V);
+  drawFightOverlay(V);
   ctx.restore();
 }
 
@@ -663,32 +648,6 @@ function drawDeposit(d, [x, y], ct, time) {
   ctx.globalAlpha = 0.3 + 0.5 * glint;
   ctx.fillStyle = COLORS.flash;
   ctx.fillRect(x - 1.5, y - r * 0.8 - 1.5, 3, 3);
-  ctx.globalAlpha = 1;
-}
-
-// The tool that works the target's material: its field of fire ahead of the ship, at flight height,
-// brighter while the locked deposit is inside it.
-function drawFireField(scr) {
-  const s = fight.s;
-  if (!s || !fight.extract) return;
-  const t = s.enemies.find((c) => c.id === s.focus && c.hull > 0);
-  const w = SHIP.weapons.find((x) => !x.vs || (x.vs[t?.material || 'rock'] ?? 1) > 0);
-  if (!w) return;
-  const C = landing.craft, half = w.arc >= 360 ? Math.PI : (w.arc * Math.PI) / 360, R = w.range + SHIP.radius, pts = [scr(C.x, C.y, ArtSurface.FLY)];
-  for (let k = 0; k <= 24; k++) { const a = C.angle - half + (2 * half * k) / 24; pts.push(scr(C.x + Math.cos(a) * R, C.y + Math.sin(a) * R, ArtSurface.FLY)); }
-  if (pts.some((q) => !q)) return;
-  const dx = t ? t.x - C.x : 0, dy = t ? t.y - C.y : 0, d = Math.hypot(dx, dy);
-  const live = t && s.locked && d - t.radius <= w.range && (w.arc >= 360 || Math.abs(Math.atan2(Math.sin(Math.atan2(dy, dx) - C.angle), Math.cos(Math.atan2(dy, dx) - C.angle))) <= half + Math.atan2(t.radius, Math.max(d, 1)));
-  ctx.beginPath();
-  pts.forEach((q, k) => (k ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
-  ctx.closePath();
-  if (live) { ctx.fillStyle = COLORS.cyan; ctx.globalAlpha = 0.05; ctx.fill(); }
-  ctx.strokeStyle = COLORS.cyan;
-  ctx.globalAlpha = live ? 0.32 : 0.16;
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([8, 10]);
-  ctx.stroke();
-  ctx.setLineDash([]);
   ctx.globalAlpha = 1;
 }
 

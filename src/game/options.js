@@ -58,11 +58,9 @@ export function applyUiStyle() {
 export const MOVE_MODES = ['cruise', 'direct'];
 export const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
-// Combat: turns on a timeline (combat/combat.js, the default: 'rounds', its saved name), or real time
-// (combat/combat-realtime.js); ships fly throughout in both. Mining is always real time
-// (game/combat.js extract). Fights with ships
-// are switched off with the pirates, so the setting is out of the menu; it stays for the opening
-// missions' fights (?missions) and the ?combat= parameter. Each fight keeps the mode it started in.
+// Combat: turn-based on a timeline (combat/combat.js, the default: 'rounds', its saved name), or
+// active, in real time (combat/combat-realtime.js); ships fly throughout in both, in space and on a
+// surface alike. Settings and the B key switch it; each fight keeps the mode it started in.
 export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
 export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
@@ -191,6 +189,14 @@ export function init() {
     get: () => moveMode.value, set: (v) => moveMode.set(v),
   });
   Settings.add({
+    id: 'combat', label: 'Combat', shortcut: 'B',
+    choices: [
+      { value: 'rounds', label: 'Turn-based', hint: 'Ships act when their gauge fills.' },
+      { value: 'realtime', label: 'Active', hint: 'Guns fire as soon as they bear.' },
+    ],
+    get: () => combatMode.value, set: (v) => combatMode.set(v),
+  });
+  Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',
     note: () => CONTROLS[moveMode.value].join(' '),
     action: { label: 'Show hints in flight', run: showHints },
@@ -262,6 +268,7 @@ export function init() {
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();
     if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
+    if (e.key === 'b' || e.key === 'B') { combatMode.cycle(); notify(`Combat: ${combatMode.value === 'rounds' ? 'Turn-based' : 'Active'}${inShipFight() ? ' · from the next fight' : ''}`); }
     if (e.key === 'Escape') select(null);
     // Several actions can share a key (E mines an asteroid or collects gas): the first that has a
     // target acts.

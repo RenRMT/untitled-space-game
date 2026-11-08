@@ -169,7 +169,7 @@ export function jump(gate) {
   const there = world.scene.gates[gate.gate.link];
   select(null);
   startWarp(gate, there, () => {
-    notify(`Through to the ${there.gate.name}`, 3);
+    notify(`Through to ${world.galaxy.systems[there.gate.system]?.name || 'the far side'}`, 3);
     SystemMap.setPlayer(ship.x, ship.y);
   });
 }

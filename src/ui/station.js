@@ -137,9 +137,10 @@ const StationMenu = (() => {
   const lead = (text) => { leadText = text || ''; };
   // A ship's name line (the Ship tab): its name, then a count or note.
   const titleRow = (title, aside) => h('div', { class: 'st-title' }, h('h2', { class: 'ui-title' }, title), aside ? h('span', { class: 'aside num' }, aside) : null);
-  // Explanations ("Production orders make goods...") show on the first EXPLAIN_VISITS docks a tab is
-  // seen at; after that they fold behind the tab's ⓘ, which shows them all again.
-  const EXPLAIN_VISITS = 3;
+  // Explanations ("Production orders make goods...") fold behind the tab's ⓘ, which shows them all
+  // (EXPLAIN_VISITS: how many docks they'd show on unasked first; none, so the screens stay terse).
+  // info(text): the same for a note that only explains, without the count.
+  const EXPLAIN_VISITS = 0;
   const explained = Store.getJSON('explained', {}) || {};
   const seenThisDock = new Set();
   let infoOpen = false, folded = false;
@@ -153,6 +154,11 @@ const StationMenu = (() => {
     folded = true;
     return null;
   }
+  function info(text) {
+    if (infoOpen) return h('p', { class: 'ui-note' }, text);
+    folded = true;
+    return null;
+  }
   // A section folded away under a heading that says what's in it ("Spare gear · 3"); open ones stay
   // open while docked here and at the next station.
   const unfolded = new Set();
@@ -162,11 +168,11 @@ const StationMenu = (() => {
   }
   function leadLine() {
     if (!leadText && !folded && !infoOpen) return null;
-    const info = folded || infoOpen ? h('button', {
+    const infoBtn = folded || infoOpen ? h('button', {
       class: 'ui-iconbtn st-info', type: 'button', 'aria-expanded': String(infoOpen), 'aria-label': infoOpen ? 'Hide the explanations' : 'Explain this screen',
       title: infoOpen ? 'Hide the explanations' : 'Explain this screen', onclick: () => { infoOpen = !infoOpen; refresh(); },
     }, 'ⓘ') : null;
-    return h('div', { class: 'st-lead' }, h('span', { class: 'num' }, leadText), info);
+    return h('div', { class: 'st-lead' }, h('span', { class: 'num' }, leadText), infoBtn);
   }
   const section = (label, ...children) => h('section', { class: 'st-sec', 'aria-label': label }, children);
   // A button that does something, then shows the result.
@@ -410,9 +416,9 @@ const StationMenu = (() => {
     }));
     return [
       h('span', { class: 'ui-label' }, `Mods · ${list.length}/${room}`),
-      room ? null : h('p', { class: 'ui-note' }, 'Mk I gear has no room for mods: Mk II and III have one, Mk IV and V two.'),
+      room ? null : info('Mk I gear has no room for mods: Mk II and III have one, Mk IV and V two.'),
       fitted, spare,
-      room && !fitted.length && !spare.length ? h('p', { class: 'ui-note' }, 'No spare mods for this gear: assemble them at an assembler once researched.') : null,
+      room && !fitted.length && !spare.length ? info('No spare mods for this gear: assemble them at an assembler once researched.') : null,
     ];
   }
 
@@ -479,7 +485,7 @@ const StationMenu = (() => {
         }) : h('p', { class: 'ui-empty' }, s.type === 'weapon' ? 'Open mount' : 'Nothing fitted'),
         modSection(s),
         h('span', { class: 'ui-label' }, 'Options'),
-        options.length ? options : h('p', { class: 'ui-note' }, 'Better gear for this slot is assembled at an assembler, by blueprint.'),
+        options.length ? options : info('Better gear for this slot is assembled at an assembler, by blueprint.'),
       ],
     };
   }
@@ -756,14 +762,14 @@ const StationMenu = (() => {
   // ---------- Research ----------
 
   const research = ResearchView.create({
-    ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, lead, explain, fold,
+    ctx: () => ctx, refresh: () => refresh(), show: (id) => showNode(id), act, costChips, componentsGrid, section, lead, explain, info, fold,
     openId: () => openNode,
   });
 
   // ---------- Production ----------
 
   const industryView = IndustryView.create({
-    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, fold, itemIcon, switcher, showTab: (name) => pick(name),
+    ctx: () => ctx, refresh: () => refresh(), act, section, lead, explain, info, fold, itemIcon, switcher, showTab: (name) => pick(name),
     showOrder: (o) => showOrder(o), setOrder: (o) => { Object.assign(openOrder, o); refresh(); }, closeSheet: () => { closeSheet(); refresh(); },
   });
 
