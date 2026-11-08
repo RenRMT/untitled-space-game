@@ -182,6 +182,23 @@ test('a lost story system can be tried again from its arrival', () => {
   assert.deepStrictEqual(s.stations, {});
 });
 
+test('a request comes from a culture here, and pays when done', () => {
+  const { s, m } = run('endless', 21);
+  rich(s);
+  let o = null;
+  for (let i = 0; i < 300 && !o; i++) { const ev = R.tick(s, m, 1); SimEvents.tick(s, m, ev); o = s.offers.find((x) => x.kind === 'request' && x.ask === 'place'); }
+  assert.ok(o, 'a place request within 300 cycles');
+  assert.ok(R.has(s, o.culture));
+  assert.ok(SimEvents.answer(s, m, o.id, 'accept'));
+  assert.strictEqual(s.requests.length, 1);
+  const before = s.res.cr, ap = s.approval[o.culture];
+  assert.ok(R.build(s, m, o.key, o.type));
+  for (let i = 0; i < 20; i++) { const ev = R.tick(s, m, 1); SimEvents.tick(s, m, ev); }
+  assert.strictEqual(s.requests.length, 0, 'done');
+  assert.ok(s.res.cr > before - C.STATIONS[o.type].cost.cr, 'paid');
+  if (ap != null) assert.ok(s.approval[o.culture] > ap, 'approval up');
+});
+
 test('events run on the rules without error over a long game', () => {
   const { s, m } = run('endless', 11);
   rich(s);

@@ -3,7 +3,7 @@
 // blueprint, planet, moon, star or deep-space site drawn small for a card. Each is drawn once per
 // art style and size and kept as a data URL.
 //
-//   SimFaces.person(culture, seed) -> { culture, seed, name, title }   one of a culture's people, named
+//   SimFaces.person(culture, seed)   one of a culture's people (people.js)
 //   SimFaces.face(person, style, size = 96) -> data URL                their portrait
 //   SimFaces.img(person, style, size, cls?) -> <img>
 //   SimFaces.thumb(id, draw, style, size = 96) -> data URL   draw(ctx, size) draws centred on 0, 0 in px
@@ -15,37 +15,11 @@ import { ArtCrew } from '../art/crew.js';
 import { ArtPortraits } from '../art/portraits.js';
 import { Art } from '../art/render.js';
 import { ArtSites } from '../art/sites.js';
-import { hashInt, mulberry32 } from '../core/rng.js';
 import { SimConfig } from './config.js';
 import { SimMap } from './map.js';
+import { SimPeople } from './people.js';
 
 const SimFaces = (() => {
-  // Names by culture: given names and family names in each culture's sound.
-  const NAMES = {
-    android: [['Unit', 'Index', 'Vector', 'Relay', 'Caliper', 'Lumen'], ['Seven', 'Nine', 'Twelve', 'Prime', 'Null', 'Four']],
-    wedge: [['Ilsa', 'Corin', 'Marek', 'Tova', 'Dace', 'Renn'], ['Vasq', 'Halloran', 'Strand', 'Okoro', 'Kade', 'Brandt']],
-    block: [['Hollis', 'Mabry', 'Ott', 'Senna', 'Grue', 'Pella'], ['Quarry', 'Lindqvist', 'Mott', 'Ferro', 'Dunmore', 'Oakes']],
-    shard: [['Ysolde', 'Ithiel', 'Saar', 'Venn', 'Aurel', 'Myrrh'], ['of the Ninth Facet', 'Glasswright', 'Lumine', 'Seren', 'the Clear', 'Prism']],
-    drifters: [['Jinx', 'Rook', 'Sable', 'Tamsin', 'Bolt', 'Wren'], ['Nobody', 'Halfmoon', 'Rustwater', 'Kett', 'Freeman', 'Scrap']],
-    alien: [['∴', 'The Many', 'Seventeen Lights', 'Hollow Choir', 'Bloom', 'Tide'], ['', '', '', '', '', '']],
-  };
-  const TITLES = {
-    android: ['Advisor', 'Ark steward', 'Gate engineer', 'Rig foreman'],
-    wedge: ['Commander', 'Marshal', 'Captain', 'Sentinel'],
-    block: ['Trade factor', 'Foreman', 'Broker', 'Guild master'],
-    shard: ['Seer', 'Archivist', 'Lens-keeper', 'Facet'],
-    drifters: ['Free captain', 'Smuggler', 'Agitator', 'Salvager'],
-    alien: ['Envoy', 'Voice', 'Witness', 'Emissary'],
-  };
-
-  function person(culture, seed) {
-    const r = mulberry32(hashInt(seed >>> 0, culture.length, 0xface));
-    const [first, last] = NAMES[culture] || NAMES.android;
-    const name = `${first[Math.floor(r() * first.length)]} ${last[Math.floor(r() * last.length)]}`.trim();
-    const title = (TITLES[culture] || TITLES.android)[Math.floor(r() * 4)];
-    return { culture, seed: seed >>> 0, name, title };
-  }
-
   const urls = new Map();
   function canvasURL(key, size, draw) {
     if (urls.has(key)) return urls.get(key);
@@ -101,6 +75,8 @@ const SimFaces = (() => {
   }, style, size);
 
   const cultureColor = (c) => SimConfig.CULTURES[c]?.color || '#7df9ff';
+
+  const { person } = SimPeople;
 
   return { person, face, img, thumb, bp, planet, moon, star, site, cultureColor };
 })();

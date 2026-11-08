@@ -275,7 +275,7 @@ const SimMap = (() => {
       for (const [key, m] of Object.entries(marks)) {
         if (!pos.has(key)) continue;
         const it = byKey.get(key), p = toScreen(pos.get(key)), rr = Math.max(9, it.r * k) + 6;
-        const col = TONE[m.tone] || ink();
+        const col = TONE[m.tone] || m.color || ink();
         ctx.strokeStyle = col; ctx.lineWidth = 1.4;
         ctx.setLineDash([2, 3]);
         ctx.beginPath(); ctx.arc(p.x, p.y, rr + Math.sin(perf / 300) * 1.5, 0, TAU); ctx.stroke();

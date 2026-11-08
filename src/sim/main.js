@@ -234,6 +234,8 @@ function act(name, a = {}) {
     case 'style': style = meta.style = a.style; saveMeta(); applyStyle(); resIcons(); if (onTitle) screens.title(state, meta, style); break;
     case 'title': save.now(); title(); return;
     case 'buildmode': buildType = a.type; break;
+    case 'open': pick(a.key); return;
+    case 'offer': openOffer(a.id); return;
     case 'build':
       if (R.build(state, meta, a.key, a.type)) { Feedback.emit('done'); map.pulse(a.key); buildType = null; selected = a.key; map.focus(a.key); sheets.show({ kind: 'body', key: a.key }, ctx()); }
       break;
@@ -328,7 +330,11 @@ function view() {
     // Only the best few say what they'd make, so the labels don't pile up.
     const top = Object.values(marks).sort((a, b) => b.n - a.n).slice(0, 4);
     for (const m of Object.values(marks)) if (!top.includes(m)) m.text = '';
-  } else if (!buildType) marks = {};
+  } else if (!buildType) {
+    // Out of build mode: the bodies requests ask for, ringed in the asker's colour.
+    marks = {};
+    for (const q of state.requests) if (q.ask === 'place' && state.stations[q.key]?.type !== q.type) marks[q.key] = { text: C.STATIONS[q.type].name, color: C.CULTURES[q.culture].color };
+  }
   const g = state.gate;
   return { time: state.time, pull: state.pull, stations, gate: { stage: g.stage, building: g.left > 0 ? { stage: g.stage, f: 1 - g.left / g.total } : null, charge: g.charge }, selected, marks, hazard: state.terms.hazard };
 }

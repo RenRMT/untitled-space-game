@@ -206,6 +206,22 @@ const SimSheets = (() => {
     function cultures(ctx) {
       const { state, style } = ctx;
       const out = [];
+      // What the player took on, first: each request's asker, how far along, and the time left.
+      if (state.requests.length) {
+        out.push(Kit.head('Requests', h('span', { class: 'aside' }, `${state.requests.length}`)));
+        for (const q of state.requests) {
+          const p = SimEvents.progress(state, q);
+          out.push(h('div', { class: 'sim-culture', style: { '--tone': C.CULTURES[q.culture].color } }, SimFaces.img(q.who, style, 40),
+            h('div', { class: 'grow' },
+              h('div', { class: 'sim-row' }, h('b', { class: 'req' }, q.title), q.deadline ? h('span', { class: 'aside num' }, `${Math.max(0, Math.ceil(q.deadline - state.cycle))}c`) : null),
+              Kit.meter(p.f, { thin: true, color: C.CULTURES[q.culture].color }),
+              h('span', { class: 'sim-note' }, `${p.text} · ${SimEvents.rewardText(q.reward)}`))));
+        }
+      }
+      for (const o of state.offers) {
+        out.push(h('button', { class: 'sim-culture sim-ask', type: 'button', style: { '--tone': C.CULTURES[o.who.culture].color }, onclick: go('offer', { id: o.id }) }, SimFaces.img(o.who, style, 40),
+          h('div', { class: 'grow' }, h('b', { class: 'req' }, o.title), h('span', { class: 'sim-note' }, `${o.who.name} is waiting on an answer.`))));
+      }
       const built = R.builtCount(state);
       for (const c of C.SETTLED) {
         if (!R.has(state, c)) continue;
@@ -259,9 +275,12 @@ const SimSheets = (() => {
       const K = C.CULTURES[o.who.culture];
       const out = [Kit.quote({ from: o.who.name, kind: o.who.title, face: SimFaces.img(o.who, style, 72), lines: o.lines, color: K.color })];
       if (o.deadline) out.push(h('p', { class: 'sim-note' }, `${Math.max(0, Math.ceil(o.deadline - state.cycle))} cycles to answer.`));
-      if (o.reward) out.push(h('div', { class: 'sim-yield' }, h('span', { class: 'ui-label' }, 'Reward'), o.reward));
-      out.push(h('div', { class: 'sim-acts' }, SimEvents.answers(state, meta, o.id).map((a) => Kit.button(a.label, go('answer', { id: o.id, answer: a.id }), { kind: a.primary ? 'primary' : a.warn ? 'warn' : '', disabled: !a.ok, title: a.why }))));
-      return { title: o.title, kicker: K.name, kickerColor: K.color, body: out };
+      if (o.reward) out.push(h('div', { class: 'sim-yield' }, h('span', { class: 'ui-label' }, 'Reward'), h('span', { class: 'num' }, SimEvents.rewardText(o.reward))));
+      if (o.kind === 'request' && o.key && o.key !== ctx.w.gate) out.push(h('div', { class: 'sim-acts' }, Kit.button('Show me', go('open', { key: o.key }), { kind: 'ghost' })));
+      const foot = h('div', { class: 'sim-acts' }, SimEvents.answers(state, meta, o.id).map((a) => [
+        Kit.button(a.label, go('answer', { id: o.id, answer: a.id }), { kind: a.primary ? 'primary' : a.warn ? 'warn' : '', disabled: !a.ok, title: a.why, lg: !!a.primary }),
+        a.cost ? costLine(state, a.cost, style) : null]));
+      return { title: o.title, kicker: K.name, kickerColor: K.color, body: out, foot };
     }
 
     // ---------- The menu ----------
