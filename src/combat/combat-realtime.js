@@ -62,6 +62,8 @@ const RealtimeCombat = (() => {
   // a target that only takes damage (a rock), and what it's made of.
   function ship(id, name, stats, body = {}, hull = stats.hull, o = {}) {
     const c = combatant(id, name, stats, hull);
+    if (o.cls) c.cls = o.cls; // a class (rules/classes.js): a Tank draws fire
+    if (o.fixed) c.fixed = true; // holds its place (a dungeon's guardian): turns to fire, never moves
     if (o.shield !== undefined && o.shield !== null) c.shield = Math.min(stats.shield, Math.max(0, o.shield));
     return {
       ...c, ...(o.passive ? { passive: true } : {}), ...(o.material ? { material: o.material } : {}),
@@ -160,7 +162,7 @@ const RealtimeCombat = (() => {
       if (t.hull <= 0 || a.hull <= 0 || !canFire(a, w, t)) { a.cool[i] = 0; return; }
       while (a.cool[i] <= 0 && t.hull > 0) {
         const hit = s.rng() < hitChance(a, w, t);
-        const dmg = hit ? Math.round(w.damage * factor(w, t) * (t.passive ? a.stats.miningRate || 1 : 1) * 10) / 10 : 0;
+        const dmg = hit ? Math.round(w.damage * factor(w, t) * (t.passive ? a.stats.miningRate || 1 : a.stats.classDamage ?? 1) * 10) / 10 : 0;
         const d = damage(t, dmg);
         events.push({ type: 'shot', from: a.id, to: t.id, weapon: i, shots: 1, hits: hit ? 1 : 0, damage: dmg, ...d, destroyed: t.hull <= 0 });
         a.cool[i] += 1 / w.fireRate;
@@ -276,6 +278,13 @@ const RealtimeCombat = (() => {
   // An attack run or a stand-off, by the ship's guns.
   const engageWith = (s, e, t, dt) => (e.stats.weapons.some((w) => w.arc >= 360) ? standOff(s, e, t, dist(e, t), reach(e)) : attackRun(s, e, t, dist(e, t), reach(e), dt));
 
+  // A guardian that holds its place: it only turns toward its target.
+  function hold(s, e, dt) {
+    const t = aimAt(s, e), home = (e.home ||= { x: e.x, y: e.y });
+    F.step(e, e.stats, { targetAngle: Math.atan2(t.y - e.y, t.x - e.x), targetSpeed: 0, mode: 'cruise' }, dt);
+    Object.assign(e, { x: home.x, y: home.y, vx: 0, vy: 0 });
+  }
+
   function steer(s, e, dt) {
     const p = s.player;
     let c;
@@ -315,7 +324,8 @@ const RealtimeCombat = (() => {
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
     s.t += dt;
     for (const c of [p, ...allies(s), ...alive(s)]) Abilities.tick(c, s.t);
-    for (const e of alive(s)) if (!e.passive) steer(s, e, dt);
+    events.push(...Abilities.resolve(s, s.t)); // skills whose activation is done (rules/abilities.js)
+    for (const e of alive(s)) if (!e.passive) (e.fixed ? hold : steer)(s, e, dt);
     for (const a of allies(s)) steerAlly(s, a, dt);
     updateFocus(s, events);
     updateLocks(s, dt, events);

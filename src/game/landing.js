@@ -58,7 +58,7 @@ import { warp } from './warp.js';
 import { world } from './world.js';
 import { drawSurfaceRun, drawSurfaceWeather, enterSurface, leaveSurface, payTakeoff, surfaceLines, surfaceMarks, surfaceRun, surfaceWind, takeoffNeed, tickSurface } from './surface-run.js';
 import { updateCombatPanel } from './combat.js';
-import { dungeonOpts, drawDungeonMinimap, isDungeon } from './dungeon.js';
+import { drawGuardians, dungeonOpts, drawDungeonMinimap, isDungeon } from './dungeon.js';
 
 // The planet and moon types with a surface to land on: all of them. Planets on their SURFACE_OF
 // surface (art/surface.js), moons on their type's (moonSurface: 'moon-' and the type).
@@ -96,7 +96,7 @@ function entry(e) {
   if (!s) {
     // The test dungeon's planet: a labyrinth of caverns instead of a landing site (game/dungeon.js).
     const type = isDungeon(e) ? 'cavern' : e.kind === 'moon' ? ArtSurface.moonSurface(e.body.type) : ArtSurface.SURFACE_OF[e.body.type];
-    const o = isDungeon(e) ? dungeonOpts(SIZE) : { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] };
+    const o = isDungeon(e) ? dungeonOpts(SIZE, e) : { w: SIZE, h: SIZE, site: [FRINGE, FRINGE, FRINGE + SITE, FRINGE + SITE] };
     s = { gen: ArtSurface.generateSteps(type, e.body.seed, o), steps: 0, W: null, far: {}, tiles: {} };
     surfaces.set(e.key, s);
   }
@@ -432,7 +432,7 @@ export function drawLanding(time) {
   }
   ctx.restore();
   // Deposits, what lies about, the tools' beams and the lock (game/surface-run.js), under the ship.
-  if (L.phase === 'surface') drawSurfaceRun(v, zoom, view.dpr, time);
+  if (L.phase === 'surface') { drawSurfaceRun(v, zoom, view.dpr, time); drawGuardians(v, zoom, view.dpr, time); }
   ctx.save();
   ctx.setTransform(view.dpr * zoom, 0, 0, view.dpr * zoom, 0, 0);
   ctx.globalAlpha = smoothstep(0.4, 0.6, g);

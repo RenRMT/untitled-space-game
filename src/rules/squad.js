@@ -5,7 +5,7 @@
 // - A member is plain data, saved with the cargo (game/cargo.js): { id, name, seed, hull (a ship class,
 //   rules/loadout.js), loadout ({ hull, fitted, mods, armour }: its gear, fitted from the spare gear
 //   at a dock like the player's; it joins with the gear the player starts with, Squad.starter),
-//   program: [line], hullPoints, disabled }.
+//   program: [line], hullPoints, disabled, cls (its class: Tank, DPS or Healer, rules/classes.js) }.
 // - A member whose hull is shot down is disabled: it drops out of the fight and rejoins, repaired,
 //   the next time the player docks.
 //
@@ -16,7 +16,8 @@
 //                                           Squad.starter(hull)
 //   Squad.starter(hull) -> loadout          a hull with the player's starting gear (the Courier's
 //                                           Mk I kit) in the slots it has
-//   Squad.stats(m) -> Loadout.stats()       what it flies with (its loadout; no research upgrades)
+//   Squad.stats(m) -> Loadout.stats()       what it flies with (its loadout, no research upgrades, and
+//                                           its class: m.cls, rules/classes.js)
 //   Squad.validLoadout(l, hull) -> loadout | null   a saved loadout for a member's hull, checked
 //   Squad.formation(leader, i) -> { x, y }  its place behind the leader ({ x, y, angle })
 //   Squad.setLine(m, i, line)               line i replaced (i = program.length: added at the end)
@@ -26,6 +27,7 @@
 
 import { clamp } from '../core/math.js';
 import { mulberry32 } from '../core/rng.js';
+import { Classes } from './classes.js';
 import { Loadout } from './loadout.js';
 import { Logic } from './logic.js';
 import { Mods } from './mods.js';
@@ -46,16 +48,16 @@ const Squad = (() => {
     return `${CALLSIGNS[Math.floor(r() * CALLSIGNS.length)]}-${String(1 + Math.floor(r() * 98)).padStart(2, '0')}`;
   }
 
-  function member(seed, { program = [], hull = 'fighter', loadout = null, id = `sq${seed >>> 0}` } = {}) {
+  function member(seed, { program = [], hull = 'fighter', loadout = null, id = `sq${seed >>> 0}`, cls = Classes.DEFAULT } = {}) {
     const m = {
-      id, name: designation(seed), seed: seed >>> 0, hull, loadout: validLoadout(loadout, hull) || starter(hull),
+      id, name: designation(seed), seed: seed >>> 0, hull, cls: Classes.valid(cls), loadout: validLoadout(loadout, hull) || starter(hull),
       program: program.slice(0, MAX_LINES), hullPoints: 0, disabled: false,
     };
     m.hullPoints = stats(m).hull;
     return m;
   }
 
-  const stats = (m) => Load.stats(m.loadout);
+  const stats = (m) => Classes.apply(Load.stats(m.loadout), m.cls);
 
   // A hull fitted with what the player starts with: the Courier's starting gear, slot for slot.
   function starter(hull) {
@@ -114,7 +116,7 @@ const Squad = (() => {
     if (!Array.isArray(saved)) return null;
     return saved.filter((d) => d && Number.isFinite(d.seed) && Load.HULLS[d.hull]?.npc).map((d) => {
       const program = (Array.isArray(d.program) ? d.program : []).map((x) => L.read(x, known));
-      const m = member(d.seed, { program, hull: d.hull, loadout: d.loadout, id: String(d.id) });
+      const m = member(d.seed, { program, hull: d.hull, loadout: d.loadout, id: String(d.id), cls: d.cls });
       if (Number.isFinite(d.hullPoints)) m.hullPoints = clamp(d.hullPoints, 0, stats(m).hull);
       m.disabled = !!d.disabled;
       return m;

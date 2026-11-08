@@ -14,6 +14,7 @@
 //   Security.pirates(level) -> { chance, packs: [min, max], size: [[n, weight]], tier: [[tier, weight]] }
 //   Security.PACK             how packs are laid out (world/solar-system.js)
 //   Security.pick(rng, [[value, weight]]) -> a value, by weight
+//   Security.levelTier(rng, systemLevel, securityLevel) -> a pack's gear tier in a system of that level
 //   Security.lootTier(level) -> 1, 2 or 4, the loot tier of wrecks at that level
 //   Security.componentCount(rng, lootTier) -> how many components (1–5) a lot holds at that loot tier
 // ES module (`Security`); also runs in Node (the tests).
@@ -53,6 +54,9 @@ const Security = (() => {
     [[3, 30], [4, 50], [5, 20]],
   ];
 
+  // A pack's gear tier (1..5) in a system of this level (world/galaxy.js: 1 Wedge .. 5 the aliens'):
+  // the level itself, a step up now and then in lawless space.
+  const levelTier = (rng, sysLevel, secLevel) => clamp(Math.round(sysLevel) + (secLevel === 0 && rng() < 0.4 ? 1 : 0), 1, 5);
   const pirates = (level) => PIRATES[level] || PIRATES[0];
   function pick(rng, table) {
     let x = rng() * table.reduce((n, [, w]) => n + w, 0);
@@ -61,9 +65,9 @@ const Security = (() => {
   }
   const LOOT = [4, 2, 1]; // by level: lawless space has the best wrecks
   const lootTier = (level) => LOOT[clamp(level, 0, 2)];
-  const componentCount = (rng, tier) => pick(rng, COMPONENT_COUNTS[clamp(tier, 1, 4)]);
+  const componentCount = (rng, tier) => pick(rng, COMPONENT_COUNTS[clamp(tier, 1, 4)]) + (tier >= 5 ? 1 : 0);
 
-  return { LEVELS, PIRATES, PACK, COMPONENT_COUNTS, pirates, pick, lootTier, componentCount };
+  return { LEVELS, PIRATES, PACK, COMPONENT_COUNTS, pirates, levelTier, pick, lootTier, componentCount };
 })();
 
 export { Security };

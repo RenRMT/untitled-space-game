@@ -22,6 +22,7 @@ import { Reputation } from '../rules/reputation.js';
 import { Restoration } from '../rules/restoration.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
+import { Classes } from '../rules/classes.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
@@ -59,6 +60,7 @@ export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
+  cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online by the third opening mission (until then the first system is all there is).
@@ -116,7 +118,8 @@ export function validLoadout(l) {
 // more armour raises the maximum, the hull points rise with it (not when a save is loaded).
 export function applyShip({ loading = false } = {}) {
   const before = SHIP.hull, hullBefore = SHIP.name;
-  Object.assign(SHIP, Loadout.stats(cargo.loadout, Research.upgrades(cargo.lab.done)));
+  // Its class (rules/classes.js) on top of its gear.
+  Object.assign(SHIP, Classes.apply(Loadout.stats(cargo.loadout, Research.upgrades(cargo.lab.done)), cargo.cls));
   ship.art = (HULL_ART[cargo.loadout.hull] || HULL_ART.courier)();
   if (!loading && SHIP.name === hullBefore && SHIP.hull > before) cargo.hull += SHIP.hull - before;
   cargo.hull = clamp(cargo.hull, 0, SHIP.hull);
@@ -133,6 +136,7 @@ export function loadCargo(galaxy) {
   cargo.drops = [];
   cargo.home = null;
   cargo.loadout = Loadout.starter('courier');
+  cargo.cls = Classes.DEFAULT;
   cargo.gear = {};
   cargo.mods = {};
   cargo.kit = {};
@@ -358,7 +362,10 @@ export const CARGO_MIGRATIONS = [
 export const HOME_STOCK = '*home';
 
 // The logic packages known (rules/research.js) and how many lines of a program run.
-export const logicKnown = () => Research.known(cargo.lab.done);
+// Every game knows the logic for skills, use() and hull %, so a squad member's class program
+// (rules/classes.js) runs from the start; researching them adds nothing more.
+export const FREE_LOGIC = ['tactics.use', 'maint.sense'];
+export const logicKnown = () => Research.known([...new Set([...cargo.lab.done, ...FREE_LOGIC])]);
 export const logicLines = () => Squad.lineLimit(Research.lineBonus(cargo.lab.done));
 
 // A saved lab, checked: known packages only; one building with a time that makes no sense is dropped.
@@ -438,6 +445,7 @@ export function readCargo(d, galaxy = null) {
   if (d.repFromJobs && cargo.board) for (const J of cargo.board.list) if (cargo.missions.status(J.id) === 'done') Reputation.earn(cargo.rep, J);
   if (typeof d.track === 'string' && cargo.board && cargo.board.byId[d.track]) cargo.track = d.track;
   cargo.loadout = validLoadout(d.loadout) || cargo.loadout;
+  cargo.cls = Classes.valid(d.cls);
   if (d.gear && typeof d.gear === 'object') for (const [id, n] of Object.entries(d.gear)) if (Loadout.EQUIPMENT[id] && n > 0) addTo(cargo.gear, id, Math.floor(n)); // android gear too, for the squad
   if (d.kit && typeof d.kit === 'object') for (const [id, n] of Object.entries(d.kit)) if (Abilities.ABILITIES[id] && n > 0) addTo(cargo.kit, id, Math.floor(n));
   if (d.mods && typeof d.mods === 'object') for (const [id, n] of Object.entries(d.mods)) if (Mods.MODS[id] && n > 0) addTo(cargo.mods, id, Math.floor(n));
@@ -474,7 +482,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
-  loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
+  cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
 }), 1000);
 export const saveCargo = () => cargoSave.change();

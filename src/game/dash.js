@@ -16,7 +16,7 @@ import { Hazards } from '../rules/hazards.js';
 import { SystemMap } from '../ui/map.js';
 import { cargo } from './cargo.js';
 import { docked } from './docking.js';
-import { outOfFuel } from './hazards.js';
+import { hazardsOn, outOfFuel } from './hazards.js';
 import { SURFACE_SPEED, landing } from './landing.js';
 import { surfaceRun } from './surface-run.js';
 import { SHIP, TAU, autopilot, ctx, fight, intro, notify, ship } from './state.js';
@@ -41,7 +41,7 @@ export function canDash() {
   return true;
 }
 // What a dash costs here: the cold of the ice planet doubles it.
-export const dashFuel = () => Hazards.config.fuel.dash * (surfaceDash() && surfaceRun.site ? surfaceRun.site.fuelBurn : 1);
+export const dashFuel = () => (hazardsOn ? 1 : 0) * Hazards.config.fuel.dash * (surfaceDash() && surfaceRun.site ? surfaceRun.site.fuelBurn : 1);
 
 // Dash toward angle (radians, screen and world alike): whether it went.
 export function tryDash(angle) {

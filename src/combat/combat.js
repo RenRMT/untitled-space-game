@@ -63,7 +63,7 @@ const Combat = (() => {
     const p = hitChance(attacker, target);
     let hits = 0;
     for (let i = 0; i < shots; i++) if (rng() < p) hits++;
-    const damage = hits * weapon.damage;
+    const damage = Math.round(hits * weapon.damage * (attacker.stats.classDamage ?? 1) * 10) / 10; // its class (rules/classes.js)
     const { shieldDamage, hullDamage } = applyDamage(target, damage);
     return {
       type: 'shot', from: attacker.id, to: target.id, weapon: weapon.name, shots, hits, damage, shieldDamage, hullDamage,

@@ -7,7 +7,7 @@ import { Hazards } from '../rules/hazards.js';
 import { SystemMap } from '../ui/map.js';
 import { SolarSystem } from '../world/solar-system.js';
 import { cargo } from './cargo.js';
-import { outOfFuel } from './hazards.js';
+import { hazardsOn, outOfFuel } from './hazards.js';
 import { landing } from './landing.js';
 import { shards } from './mining.js';
 import { missionThings } from './missions.js';
@@ -61,7 +61,7 @@ export function tickTravel(dt) {
   const ev = world.travel.step(dt);
   const p = world.travel.pos;
   // The trip burns fuel by the distance (rules/hazards.js); an empty tank drops out of cruise there.
-  if (from && p) cargo.fuel = Math.max(0, cargo.fuel - Hazards.travelFuel(Math.hypot(p.x - from.x, p.y - from.y)));
+  if (from && p && hazardsOn) cargo.fuel = Math.max(0, cargo.fuel - Hazards.travelFuel(Math.hypot(p.x - from.x, p.y - from.y)));
   if (!ev && outOfFuel()) { finishTrip(world.travel.stop()); notify('Out of fuel · dropped out of cruise', 3, { tone: 'hostile' }); return; }
   if (p) SystemMap.setPlayer(p.x, p.y);
   if (ev && ev.type !== 'prompt') finishTrip(ev);

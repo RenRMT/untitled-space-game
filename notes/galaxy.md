@@ -72,20 +72,34 @@ in the hot crowded centre or out at the thin rim, they are **frontier**: no capi
 or none, more derelicts. Each system says which (`settled`) and its region says where (the arm's name,
 or the zone's: "Cinder Arm · settled", "Outer rim · frontier").
 
-Pirates stay off everywhere, as in the showcase (`?pirates` brings them back in every system).
+Hostile packs are placed by territory and level (below).
 
-## Gates
+## Territories and gates
 
-Most travel is cruising. The gates are sparse shortcuts:
+Who holds each system (`Galaxy.generate`, "Territories"):
 
-1. **A trunk along each major arm:** the systems nearest four points along it (6%, 38%, 68% and 94%
-   of its length), each linked to the next.
-2. **One link across the bar**, between the two trunks' roots.
-3. **The start's gate** (Wedge-built) into its own arm's trunk.
-4. **A wormhole** from the system nearest the core (one not already on a trunk) out to the far arm's
-   tip.
+- **Wedge, Block and Shard** split the settled band (0.45–0.86 R, off the core and the bar) into three
+  contiguous territories by angle round the centre: the third of those systems nearest the start's
+  angle are Wedge's, the rest split either side, Block one way and Shard the other. Their stations are
+  built in their culture (salvage yards the Drifters', the waystation the Androids').
+- **The aliens** hold the systems furthest in (at least three, up to six while they're in the core or
+  the bar): no stations, lawless, more wrecks. The end game.
+- **The Drifters and the Androids** hold the rest of the frontier (about three Drifter systems to two
+  Android ones): a few kitbashed stations and a yard, or one android station. Their security is never
+  more than low (`params.security.cap`).
 
-That is eight to ten links. Every gated system is in one network with the start.
+Each system has a `level` (1..5): Wedge 1, Block and Shard 2, outside 3 (4 beyond the median
+distance from the start), the aliens 5. Hostile packs (`Galaxy.params.hostiles`) lie in each system's
+low and lawless space, never in high, their gear tier the level (a step up now and then in lawless
+space: `Security.levelTier`); in the aliens' systems they are alien ships.
+
+Gates join the territories only:
+
+1. **Inside each territory** its systems are joined by the shortest links that join them all (a
+   minimum spanning tree), so every system of a territory is reachable by gate.
+2. **Between territories** one link joins each pair, at their nearest systems: three in all.
+
+The outside and alien systems have none: they're reached by cruising. There is no wormhole.
 
 ## Deep space
 

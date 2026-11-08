@@ -369,3 +369,16 @@ setting back in `game/options.js`. To remove it instead (phase 7 of `notes/hazar
 mode, enemy steering and fleeing in `combat-realtime.js`, engage/aggro/threat/foe markers in
 `game/combat.js`, pirate packs in `world/solar-system.js` and `world/security.js`, schematics in
 `combat-core.js`, and the pirate passage in `rules/reputation.js`.
+
+## Hazards and landing sites (November 2026)
+
+**What changed.** The game went back to its roots as a space RPG (factions, fighting, loot, classes
+and skills, the squad, dungeons). The hazards are switched off: no heat, radiation, solar flares,
+ion storms or surface hazards, and nothing burns fuel (`hazardsOn` in `src/game/hazards.js`, read by
+travel, dashes, take-off and the HUD). Landing on any planet or moon is a dungeon now
+(`src/game/dungeon.js`) instead of a landing site with deposits under hazards
+(`src/game/surface-run.js`, still there).
+
+**To bring it back.** `?hazards` turns the hazards on, `?sites` the landing sites (Zantal VI stays
+the empty test labyrinth); `tests/smoke.js` plays with both. Making either the default is setting
+`hazardsOn` or `landingSites` to true.

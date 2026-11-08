@@ -11,7 +11,8 @@
 //   CombatPanel.show({ title, tone, rows: [{ id, name, you, ally, hull, maxHull, shield, maxShield, focus, run?, aim? }],
 //                      log: [string], button: { id: 'flee' | 'close', label, enabled } | null,
 //                      abilities?: [{ id, code, label, count, enabled }], progress, bar?: 'lock' | 'escape' })
-// abilities: a button each (rules/abilities.js): its icon (by its code) and charges left; onButton gets its id.
+// abilities: a button each (rules/abilities.js): its icon (by its code) and charges left, or for a class
+// skill ({ skill: true, badge, cooling }) its key or the seconds of cooldown left, shaded as it cools; onButton gets its id.
 //   CombatPanel.hide()
 //   CombatPanel.onFocus = (id) => ...; CombatPanel.onButton = (id) => ...
 // run: for a squad member, the program line it is running ('L2', or 'else' for none).
@@ -84,8 +85,10 @@ const CombatPanel = (() => {
     if (view.changed([d.title, d.tone, d.log, d.button, d.bar || '', d.rows.map((r) => [r.id, r.name, r.hull <= 0, r.focus, r.run || '', r.aim]), abil])) {
       abilEl.hidden = !abil.length;
       abilEl.replaceChildren(...abil.map((a) => h('button', {
-        class: 'cb-ab', type: 'button', 'data-id': a.id, disabled: !a.enabled, title: `${a.label} · ${a.count} left`, 'aria-label': `${a.label}, ${a.count} left`,
-      }, Kit.icon(a.code, 22, { code: a.code }), h('span', { class: 'n' }, `×${a.count}`))));
+        class: `cb-ab${a.skill ? ' skill' : ''}`, type: 'button', 'data-id': a.id, disabled: !a.enabled,
+        title: a.skill ? a.label : `${a.label} · ${a.count} left`, 'aria-label': a.skill ? `${a.label}, ${a.badge}` : `${a.label}, ${a.count} left`,
+        style: a.cooling ? { background: `linear-gradient(to top, rgba(0,0,0,0.45) ${(a.cooling * 100).toFixed(0)}%, transparent 0)` } : null,
+      }, Kit.icon(a.code, 22, { code: a.code }), h('span', { class: 'n' }, a.skill ? a.badge : `×${a.count}`))));
       root.hidden = false;
       root.className = d.tone ? `${baseClass} ${d.tone}` : baseClass;
       titleEl.textContent = d.title;

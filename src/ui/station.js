@@ -58,6 +58,7 @@ import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
+import { Classes } from '../rules/classes.js';
 import { Kit } from './kit.js';
 import { Messages } from './messages.js';
 import { IndustryView } from './industry-view.js';
@@ -680,6 +681,7 @@ const StationMenu = (() => {
             h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
+      classPicker(m.cls, (id) => ctx.squad.setClass(m.id, id), `${m.name}'s class`),
       canOutfit ? schematic(slots) : null,
       canOutfit ? performance(perfStats(st, slots, m.hull)) : null,
       section('Program',
@@ -687,6 +689,26 @@ const StationMenu = (() => {
         programBlock(m), testBench(m), fightLog(m)),
       canOutfit ? renderGear() : null,
     ];
+  }
+
+  // A ship's class (rules/classes.js): Tank, DPS or Healer, its skills listed under it.
+  function classPicker(cur, choose, label) {
+    const c = Classes.CLASSES[cur];
+    return section(label, titleRow(label, `${c.name} · ${c.note}`),
+      Kit.choices(Classes.LIST.map((x) => ({ id: x.id, label: x.name, on: x.id === cur })), (id) => { choose(id); refresh(); }, { label }),
+      h('p', { class: 'ui-note' }, Classes.skills(cur).map((id, i) => {
+        const a = Abilities.ABILITIES[id];
+        return `${i + 1} · ${a.name}: ${a.note} (${a.cast} s to activate, ${a.cooldown} s cooldown)`;
+      }).join('  ·  ')));
+  }
+  // Hiring a wingman: an android ship of the class picked, while there's room in the squad.
+  function recruitRow() {
+    const sq = ctx.squad, n = sq.members.length;
+    if (n >= sq.maxSize) return section('Squad', titleRow('Squad', `${n}/${sq.maxSize} wingmen · full`));
+    return section('Squad', titleRow('Hire a wingman', `${n}/${sq.maxSize} · an android ship that fights beside you`),
+      h('div', { class: 'ui-choices' }, Classes.LIST.map((c) => Kit.button(`Hire ${c.name}`, act(() => sq.recruit(c.id)), {
+        kind: 'ghost', price: sq.hirePrice, disabled: sq.credits < sq.hirePrice, aria: `Hire a ${c.name} wingman for ${sq.hirePrice} credits`,
+      }))));
   }
 
   function renderShip() {
@@ -699,6 +721,8 @@ const StationMenu = (() => {
     return [
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null, ctx.fuelling ? fuelRow() : null),
+      ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class') : null,
+      ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
       performance(stats),
       renderKit(),
@@ -955,14 +979,20 @@ const StationMenu = (() => {
     return null;
   }
   // The abilities a line can use on its subject: on enemies, or on friends (self, the leader, an ally).
-  const abilitiesFor = (subject) => Abilities.LIST.filter((a) => a.on !== 'self' && (a.on === 'enemy') === (subject === 'enemy'));
+  // m's class skills come first (rules/classes.js): on itself ('self' skills only with the subject
+  // Self), on a friend, or on an enemy.
+  const fitsSubject = (a, subject) => (a.on === 'self' ? a.skill && subject === 'self' : (a.on === 'enemy') === (subject === 'enemy'));
+  const abilitiesFor = (subject, m) => [
+    ...Abilities.SKILLS.filter((a) => m && a.cls === m.cls && fitsSubject(a, subject)),
+    ...Abilities.LIST.filter((a) => a.on !== 'self' && fitsSubject(a, subject)),
+  ];
   // After the subject changes: a pick and an action it can take (and, for use, an ability that fits).
-  function fitDraft(d, known) {
+  function fitDraft(d, known, m) {
     if (!Logic.SUBJECTS[d.subject].many) d.pick = 'any';
     const cur = Logic.ACTIONS[d.act];
     if (cur.on && !cur.on.includes(d.subject)) d.act = Object.values(Logic.ACTIONS).find((a) => (!a.on || a.on.includes(d.subject)) && a.id !== 'use' && Logic.knows(known, a.pkg)).id;
     if (d.act !== 'use') d.skill = null;
-    else if (!abilitiesFor(d.subject).some((a) => a.id === d.skill)) d.skill = abilitiesFor(d.subject)[0].id;
+    else if (!abilitiesFor(d.subject, m).some((a) => a.id === d.skill)) d.skill = abilitiesFor(d.subject, m)[0]?.id ?? null;
   }
 
   function lineSheet() {
@@ -972,7 +1002,7 @@ const StationMenu = (() => {
     const known = sq.known, isNew = i >= m.program.length;
     const has = (b) => Logic.knows(known, b.pkg);
     const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs research: ${b.pkg}` });
-    const edit = (fn) => (v) => { fn(v); fitDraft(d, known); refresh(); };
+    const edit = (fn) => (v) => { fn(v); fitDraft(d, known, m); refresh(); };
     const check = Logic.check(d, known);
     const field = (label, ...parts) => h('div', { class: 'st-field' }, h('span', { class: 'ui-label' }, label), parts);
 
@@ -1019,8 +1049,10 @@ const StationMenu = (() => {
           : d.when.length && !has(Logic.KEYWORDS.and) ? h('p', { class: 'ui-note' }, 'More conditions need AND (research core.bool).') : null,
         field('Then', Kit.choices(actions.map((a) => item(a, a.say, d.act === a.id)), edit((v) => { d.act = v; }), { label: 'Then' }),
           h('p', { class: 'ui-note' }, Logic.ACTIONS[d.act].note)),
-        d.act === 'use' ? field('Kit', Kit.choices(abilitiesFor(d.subject).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Kit' }),
-          h('p', { class: 'ui-note' }, `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
+        d.act === 'use' ? field('Skill or kit', Kit.choices(abilitiesFor(d.subject, m).map((a) => ({ id: a.id, label: a.name, on: d.skill === a.id })), edit((v) => { d.skill = v; }), { label: 'Skill or kit' }),
+          h('p', { class: 'ui-note' }, Abilities.ABILITIES[d.skill]?.skill
+            ? `${Abilities.ABILITIES[d.skill].note}. A ${Classes.CLASSES[m.cls].name} skill: ${Abilities.ABILITIES[d.skill].cast} s to activate, then ${Abilities.ABILITIES[d.skill].cooldown} s to cool down; skipped while it's cooling down or wouldn't help.`
+            : `${Abilities.ABILITIES[d.skill]?.note || ''}. A charge from the kit each time; skipped when none are left, it's cooling down, or it wouldn't help.`)) : null,
       ],
       foot: [
         Kit.button(isNew ? 'Add instruction' : 'Save instruction', act(() => sq.set(id, i, { ...d, on: isNew ? true : d.on }), () => closeSheet()), {

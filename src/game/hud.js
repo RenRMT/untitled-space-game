@@ -14,7 +14,7 @@ import { cargo } from './cargo.js';
 import { shieldNow } from './combat.js';
 import { visible } from './draw-world.js';
 import { dashFuel } from './dash.js';
-import { hazard, hazardLine, warnSteps } from './hazards.js';
+import { hazard, hazardLine, hazardsOn, warnSteps } from './hazards.js';
 import { DEADZONE, drag, interacted, maxDrag } from './input.js';
 import { mission } from './missions.js';
 import { CONTROLS, moveMode, reducedMotion } from './options.js';
@@ -473,7 +473,7 @@ export function drawStatus(speed, set, fontSize = 14, o = {}) {
     const f = v / H, lv = level(f, warnSteps(meter)), rate = hazard.rate[meter], eta = Status.eta(v, H, rate);
     items.push({ icon, f, color: LEVEL_COLOR[lv], critical: lv === 2, ...(Status.timerShown(eta) ? { tail: `${Math.ceil(eta)}s` } : { trend: Status.trend(rate, H) }) });
   }
-  if (SHIP.fuel && (o.takeoff !== undefined || cargo.fuel < SHIP.fuel - 0.5)) {
+  if (hazardsOn && SHIP.fuel && (o.takeoff !== undefined || cargo.fuel < SHIP.fuel - 0.5)) {
     const f = cargo.fuel / SHIP.fuel, short = o.takeoff !== undefined && cargo.fuel + 1e-6 < o.takeoff;
     const low = f <= warnSteps('fuel')[0] || short, it = { icon: 'FUEL', color: low ? COLORS.hostile : COLORS.hud, critical: short || f <= warnSteps('fuel').at(-1) };
     const dashes = Status.dashesLeft(cargo.fuel, dashFuel());

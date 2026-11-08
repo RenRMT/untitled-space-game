@@ -50,6 +50,7 @@
 
 import { MathUtil } from '../core/math.js';
 import { nextSeed, seeded, weightedPick } from '../core/rng.js';
+import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Security } from '../world/security.js';
@@ -71,8 +72,10 @@ const CombatCore = (() => {
   const combatant = (id, name, stats, hull = stats.hull) => ({ id, name, stats, hull: clamp(hull, 0, stats.hull), shield: stats.shield });
 
   // Damage hits the shields first, then the hull. An invulnerable ship (god mode) takes none.
+  // stats.taken: the share of it that gets through (fortify, a mark: rules/abilities.js).
   function applyDamage(t, amount) {
     if (t.invulnerable) return { shieldDamage: 0, hullDamage: 0 };
+    if (t.stats && t.stats.taken !== undefined && t.stats.taken !== 1) amount = Math.round(amount * t.stats.taken * 10) / 10;
     const shieldDamage = Math.min(t.shield, amount);
     t.shield -= shieldDamage;
     const hullDamage = Math.min(t.hull, amount - shieldDamage);
@@ -86,12 +89,22 @@ const CombatCore = (() => {
 
   // An enemy picks whom it shoots at when the fight starts or it joins: one of the allies with a
   // chance that grows with their number (one ally: a third), else the player.
+  // A Tank on your side (rules/classes.js: cls 'tank') draws fire: half the enemies go for it.
   function aim(rng, s) {
     const list = allies(s);
+    const tanks = [s.player, ...list].filter((c) => c.cls === 'tank');
+    if (tanks.length && rng() < 0.5) return tanks[Math.floor(rng() * tanks.length)].id;
     if (!list.length || rng() >= list.length / (list.length + 2)) return 'player';
     return list[Math.floor(rng() * list.length)].id;
   }
-  const aimAt = (s, e) => (e.aim !== 'player' && allies(s).find((a) => a.id === e.aim)) || s.player;
+  // Whom it shoots at: a ship taunting it (rules/abilities.js taunt) first, else the one it picked.
+  function aimAt(s, e) {
+    if (!e.passive) {
+      const taunting = [s.player, ...allies(s)].find((c) => c.hull > 0 && Abilities.has(c, 'taunt', s.t));
+      if (taunting) return taunting;
+    }
+    return (e.aim !== 'player' && allies(s).find((a) => a.id === e.aim)) || s.player;
+  }
   // What each enemy is about to do: whom it aims at and how far its lock has come (1 where a mode
   // has no locking: rounds), for the flight view to telegraph.
   const intents = (s) => alive(s).filter((e) => !e.passive).map((e) => ({

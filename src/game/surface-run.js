@@ -32,11 +32,11 @@ import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
-import { endExtraction, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
-import { hazard, meterWarnings, trackMeters } from './hazards.js';
+import { endExtraction, endSurfaceFight, extract, extracting, focusOn, fxPos, hurtShip, tickFight, tickShield } from './combat.js';
+import { hazard, hazardsOn, meterWarnings, trackMeters } from './hazards.js';
 import { SURFACE_SPEED, landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
-import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon } from './dungeon.js';
+import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
 import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
@@ -66,7 +66,8 @@ export const nextField = { value: null };
 export function bodySite(e) {
   const G = world.galaxy, moon = e.kind === 'moon' && G.moons.find((m) => m.name === e.key);
   const site = Hazards.surface(e.kind, e.body.type, e.body.seed, moon ? G.planets[moon.parent]?.type : undefined);
-  return isDungeon(e) ? dungeonSite(site) : site; // the test dungeon: no hazards (game/dungeon.js)
+  // A dungeon: no hazards (game/dungeon.js); and with the hazards off (game/hazards.js), none either.
+  return isDungeon(e) ? dungeonSite(site) : hazardsOn ? site : calmSite(site);
 }
 const goodName = (kind) => Goods.type(kind)?.name || kind;
 // A good's colour (rules/goods.js), or as light as `light` at least (to stand out on dark ground).
@@ -87,7 +88,9 @@ export function siteScan(e) {
 }
 
 const holdFill = () => (SHIP.cargo ? cargo.items.length / SHIP.cargo : 0);
-export const takeoffNeed = (site = surfaceRun.site) => Hazards.takeoffFuel(site.gravity, holdFill());
+export const takeoffNeed = (site = surfaceRun.site) => (hazardsOn ? Hazards.takeoffFuel(site.gravity, holdFill()) : 0);
+// A landing site with its hazards taken off (the hazards switched off: game/hazards.js).
+const calmSite = (site) => ({ ...site, heat: 0, day: 0, rad: 0, fuelBurn: 1, dust: false, vents: false, pockets: false });
 
 // How close (x, y) is to the site's hazards, the vents or storm pockets: 1 by one, 0 away from them.
 function hazardNear(W, site, x, y) {
@@ -123,7 +126,7 @@ export function enterSurface(e, W) {
       good: d.kind, name: `${d.rich ? 'Rich ' : ''}${goodName(d.kind)} ${d.material === 'gas' ? 'pocket' : 'node'}`, color: goodColor(d.kind), edge: goodColor(d.kind, 0.78),
     })),
   });
-  if (W.dungeon) enterDungeon(W); else dungeonRun.W = null;
+  if (W.dungeon) enterDungeon(W, e, field); else dungeonRun.W = null;
   const rich = surfaceRun.deposits.filter((d) => d.rich).length;
   notify(`${site.label} · ${site.hazard} · ${surfaceRun.deposits.length} nodes${rich ? `, ${rich} rich` : ''} · yield ×${site.rich}`, 3.5, { tone: site.tag === 'Mild' ? 'info' : 'warn' });
 }
@@ -131,11 +134,13 @@ export function enterSurface(e, W) {
 // Off the surface (taking off): mining stops, and the buttons go.
 export function leaveSurface() {
   endExtraction();
+  endSurfaceFight(); // taking off from a dungeon's fight leaves its guardians behind
   setMode('short-fuel', false);
   setMode('stranded', false);
   surfaceRun.e = null;
   surfaceRun.exp = null;
   dungeonRun.W = null;
+  dungeonRun.guards = [];
 }
 
 // ---------- Each step on the surface ----------
@@ -213,6 +218,7 @@ export function tickSurface(dt) {
   const exp = surfaceRun.exp = Hazards.surfaceExposure(site, simTime, { thrust: C.thrust, vent, at: sitePos() });
   hazard.heat = clamp(hazard.heat + (exp.heat - Hazards.shed(SHIP)) * dt, 0, H.max);
   cargo.rad = Math.min(H.max, cargo.rad + Hazards.radTaken(exp.rad, SHIP) * dt);
+  if (!hazardsOn) { hazard.heat = 0; cargo.rad = 0; }
   if (inPocket(C) && !dashSafe()) { // dashing through one does no harm (game/dash.js)
     surfaceRun.burn += H.surface.pocket * dt;
     once('pocket', 'Storm pocket · it burns the hull: keep clear', 'hostile');
@@ -238,10 +244,11 @@ export function tickSurface(dt) {
   meterWarnings();
   pickUp(C, dt);
   tickDungeon(C); // charting a labyrinth, and its chambers found
+  tickGuardians(C); // its guardians waking as the ship comes near (game/dungeon.js)
   autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
   tickFight(dt); // mining a deposit (and the effects of it)
   // Take off: short of fuel for it, Jettison or Call a tow (their buttons).
-  const short = cargo.fuel + 1e-6 < takeoffNeed(), stranded = cargo.fuel + 1e-6 < Hazards.takeoffFuel(site.gravity, 0);
+  const short = cargo.fuel + 1e-6 < takeoffNeed(), stranded = hazardsOn && cargo.fuel + 1e-6 < Hazards.takeoffFuel(site.gravity, 0);
   setMode('short-fuel', short && !stranded && cargo.items.length > 0);
   setMode('stranded', stranded);
   if (hazard.heat >= H.max) lostOnSurface('Overheated');
@@ -321,7 +328,7 @@ function pickUp(C, dt = 0) {
 }
 
 // Leave things lying on this surface, scattered round (x, y): [kind], keyed by tag.
-function leave(kinds, x, y, tag, spread = 30) {
+export function leave(kinds, x, y, tag, spread = 30) {
   const list = (cargo.surfaceDrops[surfaceRun.e.key] ||= []);
   kinds.forEach((kind, n) => {
     const a = (n / Math.max(1, kinds.length)) * TAU + Math.random() * 0.5, r = kinds.length > 1 ? spread * (0.5 + Math.random() * 0.5) : 0;
