@@ -42,6 +42,7 @@ const Orbits = (() => {
       const c = s.planet !== undefined ? galaxy.planets[s.planet] : galaxy.sites[s.site];
       put(s, c.x, c.y, t);
     }
+    galaxy.orbitT = t; // when it was last placed: what's built from it later starts there too (flight/scene.js)
   }
 
   return { PERIOD, period, angleAt, place };

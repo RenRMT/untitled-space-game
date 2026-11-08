@@ -16,6 +16,7 @@
 //     card(e, system) -> { title, sub, color, tag?, tone? }   the context menu (selectable kinds)
 //   }
 //   Entities.item({ key, kind, seed, angle, tumble, x?, y? }) -> a floating item of a rules/goods.js type
+//   Entities.lootDrop({ key, spec, x, y, angle, tumble }) -> floating loot (rules/loot.js spec)
 //   Entities.asteroid(a) -> an asteroid from a generated one ({ key, type, r, seed, spin0, tumble, x, y })
 //   Entities.fighter({ key, art, x, y, orbit, speed, a0, tier }) -> a hostile fighter circling (x, y)
 //   Entities.isHostile(e)                  pirate ships (android ships, e.android, are friendly,
@@ -25,12 +26,15 @@
 // colours need art/render.js, art/bodies.js and core/theme.js, so only the factories work in Node.
 
 import { ArtBodies } from '../art/bodies.js';
+import { ArtEquipment } from '../art/equipment.js';
 import { ArtItems } from '../art/items.js';
 import { Art } from '../art/render.js';
 import { ArtSites } from '../art/sites.js';
 import { hashInt, mulberry32 } from '../core/rng.js';
 import { Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
+import { Loot } from '../rules/loot.js';
+import { Structures } from '../rules/structures.js';
 import { DeepSpace } from '../world/deep-space.js';
 import { Factions } from '../world/factions.js';
 
@@ -46,6 +50,17 @@ const Entities = (() => {
     return {
       kind: 'item', art, key, label: GoodsRef.type(kind).name, category: art.category, itemKind: kind,
       angle, tumble, radius: art.radius, x, y,
+    };
+  }
+
+  // A piece of loot floating where it dropped (rules/loot.js): its gear's art, its name in its
+  // rarity's colour, a glow round it (the rarer, the brighter). spec: the item's saved spec.
+  function lootDrop({ key, spec, x = 0, y = 0, angle = 0, tumble = 0.2 }) {
+    const gear = Loot.make(spec);
+    const art = ArtEquipment.create(spec.base, (spec.seed % 97) + 1);
+    return {
+      kind: 'loot', art, key, spec, name: gear.name, label: gear.name, rarity: spec.rarity, color: Loot.rarityOf(spec.rarity).color,
+      angle, tumble, radius: art.radius * 1.4, x, y,
     };
   }
 
@@ -105,6 +120,24 @@ const Entities = (() => {
     ctx.restore();
   }
   const spinning = (e, t) => e.spin + t * e.art.spinRate;
+  // A turret, drawn larger than its blueprint (rules/structures.js TURRET_SCALE), its head aimed
+  // (e.aim: the game turns it in a fight), and a structure's hull bar while it's damaged.
+  function turretAsset(ctx, e, style, x, y, o) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(Structures.TURRET_SCALE, Structures.TURRET_SCALE);
+    asset(ctx, e, style, 0, 0, { ...o, angle: e.aim || 0 });
+    ctx.restore();
+  }
+  // A destroyed structure (game/structures.js razed): its art dim and still, until it's rebuilt.
+  function razedAsset(ctx, e, style, x, y, o) {
+    ctx.save();
+    ctx.globalAlpha *= 0.35;
+    asset(ctx, e, style, x, y, o);
+    ctx.restore();
+  }
+  // Whose a structure is, for its card.
+  const ownerName = (e) => (Factions.get(e.owner) ? Factions.get(e.owner).name : 'Independent');
   // A deep-space site's drawing (art/sites.js), at its flight art radius, doing what it does now:
   // beams and jets turn, a Cepheid swells, a nova bursts on the real clock, as on the galaxy map.
   function siteArt(ctx, e, style, x, y) {
@@ -194,10 +227,31 @@ const Entities = (() => {
     },
     station: {
       order: 2, selectable: true, hit: 0.75, // docking arms reach far: only the core counts
+      draw: (ctx, e, style, x, y, { t }) => (e.razed ? razedAsset(ctx, e, style, x, y, { spin: e.spin, t: 0 }) : asset(ctx, e, style, x, y, { spin: spinning(e, t), t })),
+      label: (e) => [e.razed ? color().dim : e.color, e.radius * 1.05],
+      mark: (e) => ({ color: e.razed ? color().dim : e.hostile ? color().hostile : e.color, r: 2.5 }),
+      card: (e) => (e.razed ? { title: e.name, sub: `Destroyed · ${e.razed}`, color: color().dim, tag: 'Wrecked' }
+        : { title: e.name, sub: stationSubtitle(e), color: e.hostile ? color().hostile : e.color, ...(e.hostile ? { tag: 'Hostile', tone: 'hostile' } : {}) }),
+    },
+    // A station's turret (flight/scene.js, rules/structures.js), going round it; hostile when its
+    // owner counts you Hostile (game/structures.js sets e.hostile).
+    turret: {
+      order: 2.5, selectable: true, hit: 1.4,
+      draw: (ctx, e, style, x, y, { t }) => turretAsset(ctx, e, style, x, y, { t }),
+      label: () => null,
+      mark: (e) => ({ color: e.hostile ? color().hostile : e.color, r: 1.4 }),
+      card: (e) => ({
+        title: e.name, sub: `${e.host ? `Defends ${e.host.name}` : 'Defence turret'} · ${ownerName(e)}`, color: e.hostile ? color().hostile : e.color,
+        ...(e.hostile ? { tag: 'Hostile', tone: 'hostile' } : { tag: 'Turret' }),
+      }),
+    },
+    // A mission's hostile outpost (game/jobs.js): a pirate station, its turrets round it; it docks no one.
+    outpost: {
+      order: 2, selectable: true, hit: 0.75,
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { spin: spinning(e, t), t }),
-      label: (e) => [e.color, e.radius * 1.05],
-      mark: (e) => ({ color: e.color, r: 2.5 }),
-      card: (e) => ({ title: e.name, sub: stationSubtitle(e), color: e.color }),
+      label: (e) => [color().hostile, e.radius * 1.05],
+      mark: () => ({ color: color().hostile, r: 2.5 }),
+      card: (e) => ({ title: e.name, sub: `${e.crew || 'Pirate'} outpost`, color: color().hostile, tag: 'Hostile', tone: 'hostile' }),
     },
     gate: {
       order: 2, selectable: true, hit: 0.75, // the rings are wide: only the core counts
@@ -217,6 +271,23 @@ const Entities = (() => {
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t }),
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
+    },
+    // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow.
+    loot: {
+      order: 3.6,
+      draw(ctx, e, style, x, y, { t }) {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 3 + (e.x % 7));
+        ctx.save();
+        ctx.globalAlpha *= 0.18 + 0.12 * pulse + 0.06 * Loot.RANK[e.rarity];
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.arc(x, y, e.radius * (1.3 + 0.2 * pulse), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        asset(ctx, e, style, x, y, { angle: e.a, t });
+      },
+      label: (e) => [e.color, e.radius + 18],
+      mark: (e) => ({ color: e.color, r: 1.6 }),
     },
     // A squad member flying with you (rules/squad.js, game/squad.js), named in its android culture's colour.
     wingman: {
@@ -252,7 +323,7 @@ const Entities = (() => {
     },
   };
 
-  return { KINDS, ROLE_LABEL, SHIP_SCALE, item, asteroid, fighter, fighterClass, isHostile, stationSubtitle };
+  return { KINDS, ROLE_LABEL, SHIP_SCALE, item, lootDrop, asteroid, fighter, fighterClass, isHostile, stationSubtitle };
 })();
 
 export { Entities };

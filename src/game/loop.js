@@ -30,6 +30,7 @@ import { simTime, update } from './update.js';
 import { drawLanding, drawLandingOverlay, landing, onSurface, surfacePerf, tickLanding } from './landing.js';
 import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
 import { world } from './world.js';
+import { tickStructures } from './structures.js';
 
 // ---------- Main loop ----------
 
@@ -38,6 +39,7 @@ import { world } from './world.js';
 // shown on the map. Not while paused, so nothing is picked up behind the settings menu.
 export function react(list, dt = 0) {
   if (!fight.wrecked) collectItems(list, dt); // a lost ship waiting for its tow picks nothing up
+  tickStructures(list); // stations and turrets: razed, hostile (game/structures.js)
   updateSelection(list);
   tickHold(dt);
   checkAggro(list);

@@ -16,6 +16,7 @@
 // Part of the flight view (game/landing.js, game/surface-run.js use it).
 
 import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtTurrets } from '../art/turrets.js';
 import { Art } from '../art/render.js';
 import { ArtSurface } from '../art/surface.js';
 import { SurfaceGlobe } from '../art/surface-globe.js';
@@ -25,7 +26,9 @@ import { hashInt, mulberry32 } from '../core/rng.js';
 import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
-import { addTo, cargo, saveCargo } from './cargo.js';
+import { Loot } from '../rules/loot.js';
+import { Structures } from '../rules/structures.js';
+import { cargo, lootNotice, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
@@ -67,63 +70,111 @@ export const dungeonOpts = (size, e) => {
 };
 
 // ---------- Guardians ----------
-// Sentinels hold the chambers, a Warden the deepest: turrets that never move, waking when the ship
-// comes within SENSE of one (and every guardian within ROUSE of it with it), fought in real time
-// (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the aliens' are their
-// own. Each landing finds them afresh. Destroyed, they leave loot lying (rules/goods.js goods and
-// components, CombatCore.loot) and now and then a piece of gear; the Warden always some gear, of a
-// tier above the level, and a bounty.
-export const GUARD = { sense: 430, rouse: 700, range: 520, gear: 0.15, bounty: 450 };
+// The chambers are held by turrets (art/turrets.js, rules/structures.js: a gun or missile turret in
+// the hostiles' culture) that never move, and raiders: fighters that circle their chamber and chase
+// the ship once roused, kept out of the walls (combat/combat-realtime.js s.blocked); the deepest
+// chamber by the Warden, a heavy ship that chases too, with two turrets. They wake when the ship
+// comes within SENSE of one (and every guardian within ROUSE of it with it), and are fought in real
+// time with the squad (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the
+// aliens' are their own. Each landing finds them afresh. Destroyed, they leave loot lying
+// (rules/goods.js goods and components, CombatCore.loot) and now and then gear (rules/loot.js:
+// sentinel, raider and warden drop tables, into the spare gear); the Warden always some, Rare or
+// better, and a bounty.
+export const GUARD = { sense: 430, rouse: 700, range: 520, bounty: 450, patrol: 0.45, turn: 0.35 };
 const BOSS = { hull: 7, shield: 3, damage: 1.5, size: 2 };
-const SENTINEL = { hull: 1.6, shield: 1.2, damage: 0.9, size: 1 };
-export function guardianStats(tier, boss, alien) {
-  const st = Loadout.stats(Loadout.npc('fighter', tier)), k = boss ? BOSS : SENTINEL, a = alien ? 1.25 : 1;
-  const weapons = st.weapons.map((w) => ({ ...w, arc: 360, damage: Math.round(w.damage * k.damage * a * 10) / 10, range: Math.min(w.range, GUARD.range) }));
-  const all = boss ? [...weapons, { ...weapons[0], fireRate: weapons[0].fireRate * 0.5, damage: weapons[0].damage * 2 }] : weapons;
+const RAIDER = { hull: 1.3, shield: 1.1, damage: 0.9, size: 1 };
+const TURRET = { damage: 0.85, size: 2 };
+const SURFACE_SPEED = 0.5, SURFACE_ACCEL = 0.6; // as the player's ship flies there (game/landing.js)
+// A ship that flies on the surface: slower, as the player's is, its guns within the caverns' reach.
+function surfaceShip(st, k, alien, name) {
+  const a = alien ? 1.25 : 1;
+  const weapons = st.weapons.map((w) => ({ ...w, damage: Math.round(w.damage * k.damage * a * 10) / 10, range: Math.min(w.range, GUARD.range) }));
   return {
-    ...st, name: boss ? 'Warden' : 'Sentinel', hull: Math.round(st.hull * k.hull * a), shield: Math.round(st.shield * k.shield * a),
-    weapons: all, firepower: all.reduce((n, w) => n + w.damage * w.fireRate, 0), evasion: 0,
+    ...st, name, hull: Math.round(st.hull * k.hull * a), shield: Math.round(st.shield * k.shield * a), weapons,
+    firepower: weapons.reduce((n, w) => n + w.damage * w.fireRate, 0), maxSpeed: st.maxSpeed * SURFACE_SPEED, accel: st.accel * SURFACE_ACCEL,
   };
 }
+export function guardianStats(tier, boss, alien) {
+  const st = Loadout.stats(Loadout.npc('fighter', tier));
+  if (!boss) return surfaceShip(st, RAIDER, alien, 'Raider');
+  const out = surfaceShip(st, BOSS, alien, 'Warden');
+  out.weapons = [...out.weapons, { ...out.weapons[0], fireRate: out.weapons[0].fireRate * 0.5, damage: out.weapons[0].damage * 2 }];
+  out.firepower = out.weapons.reduce((n, w) => n + w.damage * w.fireRate, 0);
+  return out;
+}
+// A turret underground: its guns reach as far as the caverns let them (a missile turret's further).
+export function turretGuardStats(kind, tier, alien) {
+  const st = Structures.turretStats(kind, tier), a = alien ? 1.25 : 1;
+  const weapons = st.weapons.map((w) => ({ ...w, damage: Math.round(w.damage * TURRET.damage * a * 10) / 10, range: Math.min(w.range, GUARD.range * (kind === 'missile' ? 1.3 : 1)) }));
+  return { ...st, hull: Math.round(st.hull * a), shield: Math.round(st.shield * a), weapons, firepower: weapons.reduce((n, w) => n + w.damage * w.fireRate, 0) };
+}
 // The guardians for this landing: in each chamber a hop or more from the landing spot, most of
-// them, one or two; in the deepest the Warden and two sentinels.
+// them, one to three (turrets and raiders, more the higher the level); in the deepest the Warden
+// and two turrets.
 function placeGuardians(W, e, field) {
   const level = bodyLevel(e), G = world.galaxy, b = G.planets.find((q) => q.name === e.key) || G.moons.find((m) => m.name === e.key);
   const alien = (b && G.systems[b.system]?.faction) === 'alien';
   const culture = alien ? world.cultures.alien || world.cultures.pirates : world.cultures.pirates;
   const r = mulberry32(hashInt(field >>> 0, level, 0x6a4d));
   const out = [];
-  const add = (room, boss, i) => {
-    const tier = clamp(level + (boss ? 1 : 0), 1, 5), seed = (r() * 4294967296) >>> 0;
+  const add = (room, role, i) => {
+    const boss = role === 'warden', tier = clamp(level + (boss ? 1 : 0), 1, 5), seed = (r() * 4294967296) >>> 0;
+    const a = r() * Math.PI * 2, d = boss ? 0 : room.r * (role === 'turret' ? 0.35 + r() * 0.3 : GUARD.patrol);
+    const key = `${e.key}:guard:${field}:${out.length}`, x = room.x + Math.cos(a) * d, y = room.y + Math.sin(a) * d;
+    if (role === 'turret') {
+      const kind = Structures.turretKind(r), art = ArtTurrets.create(kind, culture, seed);
+      out.push({
+        key, role, turretKind: kind, name: `${alien ? 'Alien ' : ''}${kind === 'missile' ? 'missile turret' : 'gun turret'}`.replace(/^./, (c) => c.toUpperCase()),
+        tier, art, radius: art.radius * TURRET.size, size: TURRET.size, x, y, angle: r() * Math.PI * 2, stats: turretGuardStats(kind, tier, alien), alive: true, room,
+      });
+      return;
+    }
     const art = ArtBlueprints.create(boss ? 'fighter-heavy' : Entities.fighterClass(tier, seed), culture, seed);
-    const a = r() * Math.PI * 2, d = boss && !i ? 0 : room.r * (0.35 + r() * 0.3);
-    const size = (boss && !i ? BOSS : SENTINEL).size;
+    const size = (boss ? BOSS : RAIDER).size;
     out.push({
-      key: `${e.key}:guard:${field}:${out.length}`, name: boss && !i ? `${alien ? 'Alien ' : ''}Warden` : `${alien ? 'Alien sentinel' : 'Sentinel'}`,
-      boss: boss && !i, tier, art, radius: art.radius * size, size, x: room.x + Math.cos(a) * d, y: room.y + Math.sin(a) * d,
-      angle: r() * Math.PI * 2, stats: guardianStats(tier, boss && !i, alien), alive: true, room: room,
+      key, role, boss, name: boss ? `${alien ? 'Alien ' : ''}Warden` : `${alien ? 'Alien raider' : 'Raider'}`,
+      tier, art, radius: art.radius * size, size, x, y, angle: a + Math.PI / 2, stats: guardianStats(tier, boss, alien), alive: true, room,
+      patrol: boss ? null : { cx: room.x, cy: room.y, r: d, a, w: (r() < 0.5 ? -1 : 1) * GUARD.turn },
     });
   };
   for (const room of W.dungeon.rooms) {
     if (room.role === 'start') continue;
-    if (room.role === 'deep') { for (let i = 0; i < 3; i++) add(room, true, i); continue; }
+    if (room.role === 'deep') { add(room, 'warden', 0); add(room, 'turret', 1); add(room, 'turret', 2); continue; }
     if ((room.hops || 0) < 1 || r() < 0.3) continue;
-    const n = 1 + (r() < 0.25 + 0.1 * level ? 1 : 0);
-    for (let i = 0; i < n; i++) add(room, false, i);
+    const n = 1 + (r() < 0.25 + 0.1 * level ? 1 : 0) + (level >= 3 && r() < 0.3 ? 1 : 0);
+    for (let i = 0; i < n; i++) add(room, r() < 0.55 ? 'turret' : 'raider', i);
   }
   return out;
 }
 const living = () => dungeonRun.guards.filter((g) => g.alive);
-// Each step on the surface: guardians the ship comes near wake, and those near them with them.
-export function tickGuardians(C) {
+// Each step on the surface: raiders not in a fight circle their chambers; guardians the ship comes
+// near wake, and those near them with them.
+export function tickGuardians(C, dt = 0) {
   if (!dungeonRun.W || !dungeonRun.guards.length) return;
+  for (const g of living()) {
+    if (!g.patrol || fight.ships.has(g.key)) continue;
+    const P = g.patrol;
+    P.a += P.w * dt;
+    const tx = P.cx + Math.cos(P.a) * P.r, ty = P.cy + Math.sin(P.a) * P.r, d = Math.hypot(tx - g.x, ty - g.y);
+    if (d > 30) { // back from a fight: it flies home to its round first
+      const step = Math.min(d, g.stats.maxSpeed * 0.7 * dt);
+      g.angle = Math.atan2(ty - g.y, tx - g.x);
+      g.x += Math.cos(g.angle) * step;
+      g.y += Math.sin(g.angle) * step;
+    } else {
+      g.x = tx;
+      g.y = ty;
+      g.angle = P.a + Math.sign(P.w) * Math.PI / 2;
+    }
+  }
   const near = living().filter((g) => Math.hypot(C.x - g.x, C.y - g.y) - g.radius <= GUARD.sense && !fight.ships.has(g.key));
   if (!near.length) return;
   const group = living().filter((g) => !fight.ships.has(g.key) && near.some((n) => Math.hypot(n.x - g.x, n.y - g.y) <= GUARD.rouse));
   engageOnSurface(group);
 }
-// One destroyed (game/combat.js shipDestroyed): its loot on the ground, gear into the spare gear,
-// the Warden's bounty.
+// One destroyed (game/combat.js shipDestroyed): its loot on the ground, gear (its drop table) into
+// the spare gear, the Warden's bounty.
+const SOURCE = { turret: 'sentinel', raider: 'raider', warden: 'warden' };
 export function guardianDown(g) {
   if (!g.alive) return;
   g.alive = false;
@@ -131,12 +182,8 @@ export function guardianDown(g) {
   const drops = CombatCore.loot(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4)).map((d) => d.kind);
   if (g.boss) drops.push(...CombatCore.loot(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4).map((d) => d.kind));
   if (drops.length) leave(drops, g.x, g.y, `loot:${g.key}`, 30 * g.size);
-  const r = mulberry32(hashInt(R.field >>> 0, R.guards.indexOf(g), 0x9ea2));
-  if (g.boss || r() < GUARD.gear) {
-    const tier = clamp(level + (g.boss ? 1 : 0), 1, 5);
-    const ids = Object.keys(Loadout.EQUIPMENT).filter((id) => !Loadout.EQUIPMENT[id].npc && Loadout.EQUIPMENT[id].tier === tier);
-    const id = ids[Math.floor(r() * ids.length)];
-    if (id) { addTo(cargo.gear, id); notify(`Loot: ${Loadout.EQUIPMENT[id].name} · in your spare gear`, 4, { tone: 'good' }); }
+  for (const spec of Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: cargo.cls, pity: cargo.lootPity })) {
+    lootNotice(takeLoot(spec));
   }
   if (g.boss) {
     const bounty = GUARD.bounty * level;
@@ -156,7 +203,7 @@ export function drawGuardians(v, zoom, dpr, time) {
     if (!g.alive || !charted(g.x, g.y)) continue;
     const pose = fight.ships.get(g.key), p = SurfaceGlobe.toScreen(v, pose ? pose.x : g.x, pose ? pose.y : g.y, ArtSurface.FLY);
     if (!p) continue;
-    const k = (g.radius * Entities.SHIP_SCALE) / g.art.radius;
+    const k = (g.radius * (g.role === 'turret' ? 1 : Entities.SHIP_SCALE)) / g.art.radius;
     ctx.save();
     ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, 0, 0);
     ctx.translate(p[0], p[1]);
@@ -171,6 +218,7 @@ export function drawGuardians(v, zoom, dpr, time) {
       ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
       ctx.fillRect(-w / 2, y, w, 4);
       ctx.fillStyle = g.boss ? COLORS.hostile : COLORS.flame;
+      if (c.stats.shield) { ctx.fillStyle = 'rgba(0, 0, 0, 0.6)'; ctx.fillRect(-w / 2, y - 5, w, 3); ctx.fillStyle = COLORS.cyan; ctx.fillRect(-w / 2, y - 5, w * clamp(c.shield / c.stats.shield, 0, 1), 3); ctx.fillStyle = g.boss ? COLORS.hostile : COLORS.flame; }
       ctx.fillRect(-w / 2, y, w * clamp(c.hull / c.stats.hull, 0, 1), 4);
     }
     ctx.restore();
@@ -230,7 +278,7 @@ export function dungeonLines() {
   const lines = [[`CHAMBERS ${R.visited.size}/${rooms.length} · ${R.visited.has(deep) ? 'the deepest found' : 'the deepest still ahead'} · Take off (T) to leave`, COLORS.hud]];
   if (R.guards.length) {
     const left = R.guards.filter((g) => g.alive && !g.boss).length;
-    lines.push([`LEVEL ${bodyLevel(R.e)} · ${left} sentinel${left === 1 ? '' : 's'} left · ${R.bossDown ? 'Warden destroyed' : 'the Warden in the deepest chamber'}`, R.bossDown ? COLORS.good : COLORS.amber]);
+    lines.push([`LEVEL ${bodyLevel(R.e)} · ${left} guardian${left === 1 ? '' : 's'} left · ${R.bossDown ? 'Warden destroyed' : 'the Warden in the deepest chamber'}`, R.bossDown ? COLORS.good : COLORS.amber]);
   }
   return lines;
 }

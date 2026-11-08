@@ -406,3 +406,6 @@ export function abandonJob(id) {
   notify(`${jobOf(id).title} abandoned`, 2.5);
   saveCargo();
 }
+
+// The jobs' outposts and their turrets in space, near the camera (placeholder until assault steps exist).
+export function jobStructures() { return []; }

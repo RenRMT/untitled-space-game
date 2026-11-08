@@ -27,6 +27,7 @@
 
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtStationRoles } from '../art/station-roles.js';
+import { ArtTurrets } from '../art/turrets.js';
 import { ArtUtil } from '../art/util.js';
 import { hashInt, mulberry32, nextSeed, seedToInt } from '../core/rng.js';
 import { DeepSpace } from '../world/deep-space.js';
@@ -34,6 +35,7 @@ import { Orbits } from '../world/orbits.js';
 import { DeepSites } from './deep-sites.js';
 import { Entities } from './entities.js';
 import { Goods } from '../rules/goods.js';
+import { Structures } from '../rules/structures.js';
 
 const Scene = (() => {
   const { TAU } = ArtUtil;
@@ -101,12 +103,38 @@ const Scene = (() => {
       const role = ArtStationRoles.ROLE_OF[s.market?.type];
       const art = role ? ArtStationRoles.create(role, cultures.of(s.culture), s.seed, s.size)
         : ArtBlueprints.create(s.size === 'major' ? 'station-major' : 'station-minor', cultures.of(s.culture), s.seed);
+      const sys = galaxy.systems && galaxy.systems[s.system || 0];
       const e = {
         kind: 'station', art, name: s.name, culture: s.culture, color: galaxy.cultureColor(s.culture),
         spin: mulberry32(s.seed)() * TAU, radius: art.radius, key: s.key, market: s.market, station: s, x: s.x, y: s.y,
+        owner: s.owner, tier: (sys && sys.level) || 1, size: s.market?.type === 'capital' ? 'capital' : s.size, turrets: [],
       };
       return s.period ? addOrbiter(e, s) : add(e);
     });
+
+    // ---------- Station turrets ----------
+    // Each station's 0–3 turrets (rules/structures.js), in its culture, going round it. Keyed by the
+    // station's key, so a destroyed one stays gone (game/structures.js).
+    const turrets = [];
+    for (const st of stations) {
+      const s = st.station, sys = galaxy.systems && galaxy.systems[s.system || 0];
+      const r = mulberry32(hashInt(base, seedToInt(s.key), 0x7a22e7));
+      const security = sys && sys.securityAt ? sys.securityAt(s.x, s.y) : 2;
+      const n = Structures.turretCount(r, { security, level: st.tier, size: st.size === 'capital' || s.size === 'major' ? 'major' : 'minor' });
+      for (let i = 0; i < n; i++) {
+        const kind = Structures.turretKind(r), seed = nextSeed(r);
+        const art = ArtTurrets.create(kind, cultures.of(s.culture), seed);
+        const o = Structures.orbit(i, n, st.radius), a = o.angle + (TAU * (galaxy.orbitT || 0)) / o.period;
+        const t = {
+          kind: 'turret', key: `${s.key}.t${i}`, art, turretKind: kind, name: kind === 'missile' ? 'Missile turret' : 'Gun turret', host: st,
+          owner: s.owner, culture: s.culture, color: st.color, tier: st.tier, radius: art.radius * Structures.TURRET_SCALE,
+          x: s.x + Math.cos(a) * o.orbit, y: s.y + Math.sin(a) * o.orbit, aim: o.angle,
+        };
+        addOrbiter(t, { around: s, orbit: o.orbit, angle: o.angle, period: o.period, system: s.system || 0, site: s.site });
+        st.turrets.push(t);
+        turrets.push(t);
+      }
+    }
 
     // ---------- Jump gates and wormholes ----------
     // gate: the generated gate or wormhole (world/galaxy.js), with the id of the one it links to.
@@ -257,7 +285,7 @@ const Scene = (() => {
       }
     }
 
-    return { entities, stations, gates, stars, near, move, byKey, get, ensure, ensureAll, ensureSite, built: (i) => built.has(i) };
+    return { entities, stations, turrets, gates, stars, near, move, byKey, get, ensure, ensureAll, ensureSite, built: (i) => built.has(i) };
   }
 
   // Position, heading and thrust of an entity at time t. A deep-space mover runs on the real clock

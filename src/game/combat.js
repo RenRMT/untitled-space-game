@@ -29,7 +29,10 @@ import { actions, docked } from './docking.js';
 import { rescued } from './hazards.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing } from './landing.js';
+import { surfaceWalls } from './surface-squad.js';
 import { guardianDown } from './dungeon.js';
+import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
+import { Loot } from '../rules/loot.js';
 import { rx, ry, visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
@@ -80,12 +83,18 @@ export const pilot = () => (landing.phase === 'surface' ? landing.craft : ship);
 // Where a combatant is: the player ship, a wingman, or an enemy's pose.
 export function fighterPos(id) {
   if (id === 'player') { const P = pilot(); return { x: P.x, y: P.y, radius: SHIP.radius, player: true }; }
-  return fight.ships.get(id) || wings.get(id) || fight.lastShips.get(id) || null;
+  return fight.ships.get(id) || wings.get(id) || defenderPos(id) || fight.lastShips.get(id) || null;
 }
+// A station turret fighting on your side (game/structures.js), where it is.
+function defenderPos(id) {
+  const a = fight.s && (fight.s.allies || []).find((c) => c.id === id && c.defender);
+  return a ? { x: a.x, y: a.y, radius: a.radius, structure: true } : null;
+}
+const isDefender = (id) => !!fight.s && (fight.s.allies || []).some((c) => c.id === id && c.defender);
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
 // drawn larger than their size (flight/entities.js SHIP_SCALE), the player's a quarter larger again
 // (game/draw-world.js drawShip); rocks at their size.
-const shownRadius = (p) => (p.rock ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
+const shownRadius = (p) => (p.rock || p.structure ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 export const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
 
@@ -275,8 +284,8 @@ export function engage(target, ambushed = false) {
   fight.mode = combatMode.value;
   fight.extract = false;
   const m = fightMode();
-  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: allySpecs() });
-  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
+  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: [...allySpecs(), ...(m.flying ? defenderSpecs(target) : [])] });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) if (!c.defender) c.invulnerable = true;
   if (!m.flying) ship.targetSpeed = 0;
   fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
   for (const e of group) fight.returning.delete(e.key);
@@ -293,9 +302,51 @@ export function engage(target, ambushed = false) {
   if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
 }
 
-// A dungeon's guardians waking (game/dungeon.js): a real-time fight on the surface, without the
-// squad (it waits in orbit). Mining stops for it; guardians woken while one is on join it.
-const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: true, body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
+// A station, a turret or an outpost attacked (or opening fire: ambushed): it and the rest of its
+// station's defence, and the hostile ships near it, in real time (structures don't fly, but the
+// ships round them do). A fight under way: they join it.
+export function engageStructures(target, ambushed = false) {
+  if (docked || landing.on || fight.dying.has(target.key)) return;
+  const group = [...structureGroup(target)];
+  if (!group.length) return;
+  if (fight.s && !fight.extract && fightMode().join) {
+    for (const e of group) {
+      if (fight.ships.has(e.key)) continue;
+      fightMode().join(fight.s, structureSpec(e));
+      fight.ships.set(e.key, structurePose(e));
+      fightLog(`${structurePose(e).name} opens fire`);
+    }
+    if (!ambushed) focusOn(target.key);
+    return;
+  }
+  if (inFight()) return;
+  const ships = frameList.filter((e) => isHostile(e) && !cargo.removed.has(e.key) && !fight.dying.has(e.key) && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange);
+  const names = ships.map((e, i) => shipName(e, i, ships.length));
+  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  fight.mode = 'realtime';
+  fight.extract = false;
+  const specs = [...group.map(structureSpec), ...ships.map((e, i) => enemySpec(e, names[i]))];
+  fight.s = fightMode().start(rng, playerSpec(), specs, { target: ambushed ? null : target.key, ambushed, allies: allySpecs() });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
+  fight.ships = new Map([...group.map((e) => [e.key, structurePose(e)]), ...ships.map((e, i) => [e.key, heldPose(e, names[i])])]);
+  for (const e of ships) fight.returning.delete(e.key);
+  const host = target.kind === 'turret' ? target.host || target : target;
+  const what = ambushed ? `${host.name}'s defences open fire!` : `You attack ${host.name}`;
+  fight.log = [what];
+  fight.lowHull = false;
+  fight.lockers = new Set();
+  fight.result = null;
+  autopilot.key = null;
+  select(null);
+  setMode('in-combat', true);
+  if (ambushed) notify(what, 2, { priority: 2, tone: 'hostile' });
+}
+
+// A dungeon's guardians waking (game/dungeon.js): a real-time fight on the surface, with the squad
+// (it lands with you: game/surface-squad.js). Turrets hold their place; raiders and the Warden fly,
+// and the caverns' walls stop every ship in it. Mining stops for it; guardians woken while one is
+// on join it.
+const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: g.role === 'turret', body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
 const guardianPose = (g) => ({ x: g.x, y: g.y, a: g.angle, thrust: 0, role: 'fighter', tier: g.tier, radius: g.radius, name: g.name, guardian: g });
 export function engageOnSurface(foes) {
   if (!foes.length || landing.phase !== 'surface' || landing.wrecked || fight.wreckT > 0) return;
@@ -312,8 +363,8 @@ export function engageOnSurface(foes) {
   fight.mode = 'realtime';
   fight.extract = false;
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  fight.s = fightMode().start(rng, playerSpec(), foes.map(guardianSpec), { target: null, ambushed: true, allies: [] });
-  if (godMode) fight.s.player.invulnerable = true;
+  fight.s = fightMode().start(rng, playerSpec(), foes.map(guardianSpec), { target: null, ambushed: true, allies: allySpecs(), blocked: surfaceWalls() });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
   fight.ships = new Map(foes.map((g) => [g.key, guardianPose(g)]));
   const boss = foes.find((g) => g.boss), what = boss ? `The ${boss.name} wakes!` : `${foes.length > 1 ? `${foes.length} sentinels wake` : 'A sentinel wakes'}!`;
   fight.log = [what];
@@ -359,12 +410,14 @@ export function checkAggro(list) {
     && (e.pack === undefined || world.galaxy.securityAt(e.x, e.y) < 2);
   if (fight.s && fightMode().join) {
     for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);
+    if (!fight.extract) structureAggro(list, (e) => engageStructures(e, true));
     return;
   }
   if (inFight() || fight.grace > 0) return;
   for (const e of list) {
     if (near(e)) { engage(e, true); return; }
   }
+  structureAggro(list, null);
 }
 
 // Show a fight's events as its mode's `look` says (combat/combat-core.js): a beam per shot (a miss streaks
@@ -382,7 +435,7 @@ export function playEvents(s, events) {
     // Mining: chips (or puffs of gas) off the rock with each hit.
     const rock = fight.ships.get(ev.to)?.rock;
     if (rock && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => chips(rock, 2, 90) });
-    const color = ev.from === 'player' ? SHOT_COLOR.player : wings.has(ev.from) ? SHOT_COLOR.ally : SHOT_COLOR.enemy;
+    const color = ev.from === 'player' ? SHOT_COLOR.player : wings.has(ev.from) || isDefender(ev.from) ? SHOT_COLOR.ally : SHOT_COLOR.enemy;
     fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: hit, t: look.shield, max: look.shield, at: ev.to });
     if (ev.hullDamage > 0 && !rock) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
@@ -391,10 +444,12 @@ export function playEvents(s, events) {
     else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${Math.round(ev.damage)}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan });
     else fight.fx.push({ type: 'number', delay: hit, t: 0.8, max: 0.8, at: ev.to, jx: jitter(), text: 'miss', color: COLORS.dim });
     if (ev.destroyed) {
-      const blowUp = ev.to === 'player' ? (landing.on ? () => lostOnSurface('Shot down in the caverns') : playerDestroyed) : wings.has(ev.to) ? () => wingDisabled(ev.to) : () => shipDestroyed(ev.to);
+      const defender = isDefender(ev.to) && world.scene.get(ev.to);
+      const blowUp = ev.to === 'player' ? (landing.on ? () => lostOnSurface('Shot down in the caverns') : playerDestroyed) : wings.has(ev.to) ? () => wingDisabled(ev.to)
+        : defender ? () => { explode(defender.x, defender.y, defender.radius); structureDestroyed(defender, { friendly: true }); } : () => shipDestroyed(ev.to);
       // An enemy is done for at once, though it blows up a moment later: until then it must not
       // start or join another fight.
-      if (ev.to !== 'player' && !wings.has(ev.to)) fight.dying.add(ev.to);
+      if (ev.to !== 'player' && !wings.has(ev.to) && !defender) fight.dying.add(ev.to);
       if (d + look.finish > 0) fight.fx.push({ type: 'call', delay: d + look.finish, run: blowUp });
       else blowUp();
     }
@@ -434,6 +489,7 @@ export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
   if (p?.rock) { fight.dying.delete(key); rockBroken(p.rock); return; }
   if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); return; } // a dungeon's (game/dungeon.js)
+  if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); return; } // a station, turret or outpost (game/structures.js)
   const was = world.scene.get(key);
   if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
@@ -443,6 +499,10 @@ export function shipDestroyed(key) {
   CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
+  });
+  // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
+  Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
+    cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
   // A schematic in its computer: the blueprint for that gear, so an assembler can make it.
   const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
@@ -570,12 +630,15 @@ export function tickFight(dt) {
   const target = fight.ships.get(s.focus), P = pilot();
   if (target && ship.targetSpeed === 0) P.angle = turnToward(P.angle, Math.atan2(target.y - P.y, target.x - P.x), SHIP.turnRate * dt);
   orderSquad(s);
+  orderDefenders(s); // station turrets on your side (game/structures.js)
+  syncStructures(s);
   const events = m.step(s, dt, P); // the player's ship has already flown this frame (update; on a surface, game/landing.js fly)
   syncAllies(s);
   if (m.flying) {
     for (const e of s.enemies) {
       const p = fight.ships.get(e.id);
       if (p && e.hull > 0) Object.assign(p, { x: e.x, y: e.y, a: e.angle, thrust: e.thrust });
+      if (p?.guardian && e.hull > 0) Object.assign(p.guardian, { x: e.x, y: e.y, angle: e.angle }); // a raider stays where the fight left it
     }
   }
   playEvents(s, events);
@@ -903,6 +966,9 @@ export function foeMarkerAt(sx, sy) { return markerAt(foeHits, sx, sy); }
 export function init() {
   // Hostile ships can be attacked; any ship can be approached (and followed).
   actions.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => isHostile(e), range: () => CombatCore.config.engageRange, run: (e) => engage(e) });
+  // Every man-made thing can be attacked (game/structures.js): a station, its turrets, an outpost.
+  actions.add({ id: 'attack-structure', kind: ['station', 'turret', 'outpost'], verb: 'Attack', when: (e) => isStructure(e) && !e.razed, range: () => CombatCore.config.engageRange, run: (e) => attackStructure(e) });
+  setEngage(engageStructures);
   CombatPanel.onFocus = focusOn;
   CombatPanel.onButton = (id) => {
     if (fight.s && id.startsWith('ability:')) { const a = id.slice(8); useAbility(fight.s, fight.s.player, a, playerTarget(fight.s, a)); return; }

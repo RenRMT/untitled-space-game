@@ -14,6 +14,8 @@ import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
 import { NEAR, cam, fight, intro, notify, ship, wings } from './state.js';
 import { world } from './world.js';
+import { isRazed } from './structures.js';
+import { jobStructures } from './jobs.js';
 
 // Where a destination is in the flight view: the station or planet itself, or else its point.
 export function arriveAt(dest) {
@@ -79,7 +81,7 @@ export function poseAt(e, t) {
 export function nearbyEntities(t) {
   const out = [];
   for (const e of world.scene.near(cam.x, cam.y, NEAR)) {
-    if (cargo.removed.has(e.key)) continue;
+    if (cargo.removed.has(e.key) || (e.kind === 'turret' && isRazed(e.key))) continue; // a destroyed turret is gone until it's rebuilt (game/structures.js)
     poseAt(e, t);
     out.push(e);
   }
@@ -87,6 +89,11 @@ export function nearbyEntities(t) {
   for (const e of missionThings()) {
     if (cargo.removed.has(e.key)) continue;
     poseAt(e, t);
+    out.push(e);
+  }
+  // The jobs' outposts and their turrets (game/jobs.js), outside the generated scene.
+  for (const e of jobStructures()) {
+    if (cargo.removed.has(e.key)) continue;
     out.push(e);
   }
   // The squad's ships fly with yours.

@@ -21,6 +21,8 @@
 //   damage (a tool that does nothing to it doesn't fire at it), and so does the firer's computer
 //   (miningRate), and the player locks onto one in a share of its lock time (rockLock). Leaving them
 //   is flying out past lock range.
+// - Fixed combatants (`fixed` in their spec: a dungeon's turrets, a station and its turrets) hold
+//   their place and only turn to aim, on either side.
 // - Abilities (rules/abilities.js) wear off on fight time (s.t); a ship an EMP has silenced holds fire.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode offers): it
 // flies the player's ship, passes its pose in every step, and draws the shots; this module moves
@@ -63,7 +65,8 @@ const RealtimeCombat = (() => {
   function ship(id, name, stats, body = {}, hull = stats.hull, o = {}) {
     const c = combatant(id, name, stats, hull);
     if (o.cls) c.cls = o.cls; // a class (rules/classes.js): a Tank draws fire
-    if (o.fixed) c.fixed = true; // holds its place (a dungeon's guardian): turns to fire, never moves
+    if (o.fixed) c.fixed = true; // holds its place (a dungeon's guardian, a turret, a station): turns to fire, never moves
+    if (o.defender) c.defender = true; // a station's turret on the player's side (game/structures.js)
     if (o.shield !== undefined && o.shield !== null) c.shield = Math.min(stats.shield, Math.max(0, o.shield));
     return {
       ...c, ...(o.passive ? { passive: true } : {}), ...(o.material ? { material: o.material } : {}),
@@ -90,7 +93,7 @@ const RealtimeCombat = (() => {
     };
     for (const e of enemies) e.ai.side = rng() < 0.5 ? -1 : 1;
     const s = {
-      rng, t: 0, player, enemies, anchor,
+      rng, t: 0, player, enemies, anchor, blocked: o.blocked || null,
       focus: o.focus ?? null, manual: o.focus !== undefined && o.focus !== null, // player's target, and whether it was picked
       lockT: 0, locked: false, // the player's lock on its target
       lastAttacker: null, away: 0, over: null, allies: o.allies || [],
@@ -272,8 +275,16 @@ const RealtimeCombat = (() => {
     }
     const want = Math.atan2(vy, vx);
     const speed = Math.min(e.stats.maxSpeed, Math.hypot(vx, vy)) * clamp(Math.cos(angleDiff(want, e.angle)), 0.15, 1);
+    const x0 = e.x, y0 = e.y;
     F.step(e, e.stats, { targetAngle: speed > 0 ? want : e.angle, targetSpeed: speed, mode: 'cruise' }, dt);
+    // Walls (a surface's cliffs and caverns: s.blocked(x, y, r), set by whoever started the fight):
+    // a ship slides along them, stopped on the axis that hits.
+    if (blockedBy) {
+      if (blockedBy(e.x, y0, e.radius * 0.6)) { e.x = x0; e.vx = 0; }
+      if (blockedBy(e.x, e.y, e.radius * 0.6)) { e.y = y0; e.vy = 0; }
+    }
   }
+  let blockedBy = null; // the fight being stepped's s.blocked, while it steps
 
   // An attack run or a stand-off, by the ship's guns.
   const engageWith = (s, e, t, dt) => (e.stats.weapons.some((w) => w.arc >= 360) ? standOff(s, e, t, dist(e, t), reach(e)) : attackRun(s, e, t, dist(e, t), reach(e), dt));
@@ -283,6 +294,13 @@ const RealtimeCombat = (() => {
     const t = aimAt(s, e), home = (e.home ||= { x: e.x, y: e.y });
     F.step(e, e.stats, { targetAngle: Math.atan2(t.y - e.y, t.x - e.x), targetSpeed: 0, mode: 'cruise' }, dt);
     Object.assign(e, { x: home.x, y: home.y, vx: 0, vy: 0 });
+  }
+
+  // An ally that holds its place (a station's turret on your side): it turns to its target, never moves.
+  function holdAlly(s, a, dt) {
+    const t = byId(s, a.order.target), home = (a.home ||= { x: a.x, y: a.y });
+    F.step(a, a.stats, { targetAngle: t ? Math.atan2(t.y - a.y, t.x - a.x) : a.angle, targetSpeed: 0, mode: 'cruise' }, dt);
+    Object.assign(a, { x: home.x, y: home.y, vx: 0, vy: 0 });
   }
 
   function steer(s, e, dt) {
@@ -319,6 +337,7 @@ const RealtimeCombat = (() => {
   // 'lost-lock', id }. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
   function step(s, dt, pilot) {
     if (s.over) return [];
+    blockedBy = s.blocked || null;
     const events = [];
     const p = s.player;
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
@@ -326,7 +345,7 @@ const RealtimeCombat = (() => {
     for (const c of [p, ...allies(s), ...alive(s)]) Abilities.tick(c, s.t);
     events.push(...Abilities.resolve(s, s.t)); // skills whose activation is done (rules/abilities.js)
     for (const e of alive(s)) if (!e.passive) (e.fixed ? hold : steer)(s, e, dt);
-    for (const a of allies(s)) steerAlly(s, a, dt);
+    for (const a of allies(s)) (a.fixed ? holdAlly : steerAlly)(s, a, dt);
     updateFocus(s, events);
     updateLocks(s, dt, events);
     const target = byId(s, s.focus);
@@ -403,7 +422,7 @@ const RealtimeCombat = (() => {
     id: 'realtime',
     flying: true,
     look: { beam: 0.14, shield: 0.3, after: 0, finish: 0, sparks: () => 2, sum: true, arcs: true },
-    start: (rng, player, enemies, { target, ambushed, allies: list = [] }) => create(rng, fromSpec(player), enemies.map(fromSpec), { focus: ambushed ? null : target, allies: list.map(fromSpec) }),
+    start: (rng, player, enemies, { target, ambushed, allies: list = [], blocked = null, anchor = null }) => create(rng, fromSpec(player), enemies.map(fromSpec), { focus: ambushed ? null : target, allies: list.map(fromSpec), blocked, ...(anchor ? { anchor } : {}) }),
     step,
     setFocus: (s, id) => setFocus(s, id),
     setOrders,
