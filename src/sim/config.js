@@ -11,9 +11,9 @@ const SimConfig = (() => {
     cr: { name: 'Credits', short: 'Cr', icon: null, color: '#7df9ff' },
     sci: { name: 'Science', short: 'Sci', icon: 'computer-components', color: '#c77dff' },
   };
-  const START = { m: 40, v: 30, cr: 120, sci: 0 };
+  const START = { m: 40, v: 30, cr: 150, sci: 0 };
   // The Ark (the player's command ship) makes a little of its own, so nothing ever stalls for good.
-  const ARK = { cr: 0.8, m: 0.15, v: 0.1 };
+  const ARK = { cr: 1.2, m: 0.15, v: 0.1 };
 
   // Stations. culture: who runs it (and draws it); art: an ArtStationRoles role or a blueprint
   // type; out: per cycle at level 1 (`per`: × the body's pips of that resource); in: what it uses;
@@ -21,19 +21,19 @@ const SimConfig = (() => {
   const STATIONS = {
     mine: {
       name: 'Mining rig', code: 'ORE', culture: 'android', art: 'refinery', size: 'minor',
-      cost: { cr: 45 }, build: 6, out: { m: 0.55 }, per: 'm', note: 'Mines the body\'s minerals.',
+      cost: { cr: 45 }, build: 6, out: { m: 0.35 }, per: 'm', note: 'Mines the body\'s minerals.',
       ship: { name: 'Ore hauler', hull: 'freighter', cost: { cr: 35, m: 10 }, bonus: 0.5 },
       upgrade: { name: 'Drill heads', gear: 'engine' },
     },
     siphon: {
       name: 'Gas siphon', code: 'VOL', culture: 'android', art: 'station-minor', size: 'minor',
-      cost: { cr: 45 }, build: 6, out: { v: 0.55 }, per: 'v', note: 'Draws the body\'s volatiles.',
+      cost: { cr: 45 }, build: 6, out: { v: 0.35 }, per: 'v', note: 'Draws the body\'s volatiles.',
       ship: { name: 'Tanker', hull: 'freighter', cost: { cr: 35, m: 10 }, bonus: 0.5 },
       upgrade: { name: 'Scoop booms', gear: 'shield' },
     },
     hub: {
       name: 'Trade hub', code: 'TRD', culture: 'block', art: 'factory', size: 'major',
-      cost: { cr: 70, m: 25 }, build: 8, in: { m: 0.2, v: 0.2 }, out: { cr: 1.4 }, note: 'Trades minerals and volatiles for credits.',
+      cost: { cr: 70, m: 25 }, build: 8, in: { m: 0.3, v: 0.3 }, out: { cr: 1.8 }, note: 'Trades minerals and volatiles for credits.',
       ship: { name: 'Trader', hull: 'freighter', cost: { cr: 40, m: 15 }, bonus: 0.5 },
       upgrade: { name: 'Market computers', gear: 'computer' },
     },
@@ -103,9 +103,11 @@ const SimConfig = (() => {
   const SETTLED = ['wedge', 'block', 'shard'];
   // Approval: starts at `start`; per cycle +up while what they value meets their want, -down while
   // not; at or above `high` their stations make ×highMul, at or below `low` ×lowMul, at 0 nothing.
-  const APPROVAL = { start: 50, up: 0.12, down: 0.08, high: 70, highMul: 1.25, low: 25, lowMul: 0.5, boon: 75 };
+  const APPROVAL = { start: 55, up: 0.12, down: 0.07, high: 70, highMul: 1.25, low: 25, lowMul: 0.5, boon: 75 };
   // What each wants per cycle: base + per station built (all kinds).
-  const WANT = { sec: [2, 1], cr: [0.8, 0.25], sci: [0.4, 0.15] };
+  const WANT = { sec: [1, 0.8], cr: [1.2, 0.3], sci: [0.3, 0.15] };
+  // Stations built before the cultures start to count them (the first few are free of their wants).
+  const WANT_FREE = 3;
   // Security demand (Drifters' unrest when short): base + per station.
   const DEMAND = [2, 1];
 
@@ -119,11 +121,11 @@ const SimConfig = (() => {
   // The gate: three stages at the gate site, each paid then built over cycles. × GATE_DEPTH per system
   // reached (endless) on the costs.
   const GATE = [
-    { id: 'frame', name: 'Frame', cost: { m: 110, cr: 40 }, build: 12 },
-    { id: 'ring', name: 'Ring', cost: { m: 90, v: 70 }, build: 14 },
-    { id: 'core', name: 'Core', cost: { v: 100, cr: 90 }, build: 16 },
+    { id: 'frame', name: 'Frame', cost: { m: 120, cr: 40 }, build: 12 },
+    { id: 'ring', name: 'Ring', cost: { m: 100, v: 80 }, build: 14 },
+    { id: 'core', name: 'Core', cost: { v: 120, cr: 100 }, build: 16 },
   ];
-  const GATE_DEPTH = 0.08;
+  const GATE_DEPTH = 0.22;
   // Overcharge once the gate is done: per cycle base + k × horizon², to 1.
   const OVERCHARGE = { base: 0.002, k: 0.006 };
 
@@ -131,7 +133,7 @@ const SimConfig = (() => {
   // system reached makes it (endless), never below `min`. pull0: where the meter starts.
   const HORIZON = {
     life: { near: 560, mid: 700, far: 860 }, pull0: { near: 18, mid: 8, far: 0 },
-    perDepth: 18, min: 380, dilateFrom: 50, dilatePow: 1.6, overchargeLife: 0.3,
+    perDepth: 28, min: 380, dilateFrom: 50, dilatePow: 1.6, overchargeLife: 0.2,
   };
   // How much production and building slow at a horizon of p (0..100): 1 to dilateFrom, 0 at 100.
   const dilation = (p) => (p <= HORIZON.dilateFrom ? 1 : Math.max(0, 1 - ((p - HORIZON.dilateFrom) / (100 - HORIZON.dilateFrom)) ** HORIZON.dilatePow));
@@ -164,7 +166,7 @@ const SimConfig = (() => {
 
   return {
     RES, START, ARK, STATIONS, STATION_ORDER, LEVEL_MUL, UPGRADE_COST, SLOT_COST, MAX_SLOTS, REFUND, YIELD, TRAITS, HAZARDS,
-    CULTURES, SETTLED, APPROVAL, WANT, DEMAND, BOONS, GATE, GATE_DEPTH, OVERCHARGE, HORIZON, dilation, DRIFTERS, ALIENS, REQUESTS,
+    CULTURES, SETTLED, APPROVAL, WANT, WANT_FREE, DEMAND, BOONS, GATE, GATE_DEPTH, OVERCHARGE, HORIZON, dilation, DRIFTERS, ALIENS, REQUESTS,
     ARCHIVE, INSIGHT, CYCLE_MS, SPEEDS,
   };
 })();

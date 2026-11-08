@@ -36,7 +36,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 
 /* The horizon meter: the hole's pull, with marks where time slows (50%), badly (75%), nearly stops (90%). */
 .sim-horizon { display: flex; flex-direction: column; gap: 3px; }
-.sim-horizon .lbl { display: flex; align-items: baseline; gap: 8px; font: 700 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.sim-horizon .lbl { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; font: 700 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
 .sim-horizon .lbl .num { font: 500 12px/1 var(--mono); letter-spacing: 0; color: var(--bright); }
 .sim-horizon #h-note { font: 400 10px/1 var(--mono); letter-spacing: 0; text-transform: none; }
 .sim-horizon .gate { margin-left: auto; font: 400 10px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--cyan); }
@@ -83,7 +83,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
   flex: none; width: 112px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px;
   border: 1px solid var(--line-strong); background: var(--s1); color: var(--hud); cursor: pointer; font: inherit; text-align: center;
 }
-.sim-card img { width: 64px; height: 64px; }
+.sim-card > img { width: 64px; height: 64px; }
+.sim-card .sim-cost { justify-content: center; }
 .sim-card .n { font: 700 12px/1.15 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); }
 .sim-card .c { font: 400 10px/1.3 var(--mono); color: var(--dim); }
 .sim-card[aria-pressed="true"] { border-color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
@@ -139,3 +140,43 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 .sim-toast .k { font: 400 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone, var(--cyan)); }
 .sim-toast .t { font-size: 14px; color: var(--bright); }
 @keyframes sim-in { from { opacity: 0; transform: translate(-50%, -8px); } }
+
+/* Costs and rates: a resource's icon and its amount. */
+.sim-ri { display: inline-block; vertical-align: middle; flex: none; }
+.sim-cost .sim-ri, .sim-rate .sim-ri, .sim-dest .sim-ri, .sim-yield .sim-ri { width: 14px; height: 14px; }
+.sim-ri.cr { position: relative; }
+.sim-ri.cr i { position: absolute; inset: 25%; background: var(--cyan); transform: rotate(45deg); }
+.sim-res .chip .sim-ri.cr { width: 18px; height: 18px; }
+.sim-cost, .sim-rate { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font: 500 12px/1.3 var(--mono); color: var(--hud); }
+.sim-cost > span, .sim-rate > span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sim-cost .short { color: var(--hostile); }
+.sim-rate .up { color: var(--good); }
+.sim-rate .down { color: var(--warn); }
+.sim-rate .dim { color: var(--dim); }
+.sim-notes { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; font: 400 11px/1.3 var(--mono); color: var(--dim); }
+.sim-notes .up { color: var(--good); }
+.sim-notes .down { color: var(--hostile); }
+
+/* Ship slots: a ship's art, or a button to commission one. */
+.sim-slots { display: flex; gap: 6px; flex-wrap: wrap; }
+.sim-slot {
+  width: 96px; min-height: 92px; box-sizing: border-box; padding: 6px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px dashed var(--line-strong); background: transparent; color: var(--hud); font: 400 11px/1.2 var(--sans); text-align: center; cursor: pointer;
+}
+.sim-slot.full { border-style: solid; border-color: var(--line); background: var(--s1); cursor: default; }
+.sim-slot b { font: 700 18px/1 var(--mono); color: var(--cyan); }
+.sim-slot:disabled { opacity: 0.5; cursor: default; }
+.sim-slot .sim-cost { font-size: 10px; gap: 1px 4px; justify-content: center; }
+
+/* A culture's row: its leader, approval and wants. */
+.sim-culture { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--tone); }
+.sim-culture b { font: 700 15px/1.2 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); }
+.sim-culture .aside { margin-left: auto; font-size: 13px; color: var(--bright); }
+.sim-culture .grow { display: flex; flex-direction: column; gap: 4px; }
+.sim-stage { flex: 1; text-align: center; font: 700 11px/1.3 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.sim-stage.done { color: var(--good); }
+.sim-summary { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line-strong); background: var(--s1); }
+.sim-summary .row { display: flex; justify-content: space-between; font: 400 13px var(--mono); }
+.sim-summary .row b { color: var(--bright); font-weight: 500; }
+.sim-big { margin: 0; text-align: center; font: 700 26px/1.15 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bright); }
+.sim-sub { margin: 0; text-align: center; color: var(--dim); font-size: 14px; }

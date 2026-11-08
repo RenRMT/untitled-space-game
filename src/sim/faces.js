@@ -77,7 +77,7 @@ const SimFaces = (() => {
 
   const thumb = (id, draw, style, size = 96) => canvasURL(`th:${id}:${style}:${size}`, size, (g, s) => { g.translate(s / 2, s / 2); draw(g, s); });
   const bp = (b, style, size = 96, id = b.id) => thumb(`bp:${id}`, (g, s) => {
-    const k = (s * 0.42) / (b.radius || 100);
+    const k = (s * 0.48) / (b.radius || 100);
     g.scale(k, k);
     Art.drawAsset(g, b, style, { angle: -Math.PI / 2, t: 0 });
   }, style, size);

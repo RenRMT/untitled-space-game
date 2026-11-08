@@ -61,6 +61,25 @@ const SimMap = (() => {
     return c;
   }
 
+  // A station's blueprint: its type's role station (or blueprint) in its culture's design language,
+  // larger from level 3; a rogue station is the Drifters' kitbash, an alien one a hive.
+  const stationArtKey = (st) => `${st.type}:${st.alien ? 'alien' : st.rogue ? 'drifters' : st.culture}:${st.level >= 3 ? 'major' : 'minor'}:${st.seed}`;
+  function stationArt0(sysSeed, st) {
+    const S = SimConfig.STATIONS[st.type];
+    const cid = st.alien ? 'alien' : st.rogue ? 'drifters' : (st.culture || S?.culture || 'android');
+    const culture = cultureArt(cid, sysSeed);
+    const art = st.rogue ? 'station-minor' : st.alien ? 'station-major' : S.art;
+    const size = st.level >= 3 ? 'major' : S?.size || 'minor';
+    if (ArtStationRoles.ROLES.includes(art)) return ArtStationRoles.create(art, culture, st.seed || 1, size);
+    return ArtBlueprints.create(art, culture, st.seed || 1);
+  }
+  // Its ships: the hull its type flies (heavier from level 3, for patrols), in its culture.
+  function shipArt0(sysSeed, st, i) {
+    const S = SimConfig.STATIONS[st.type];
+    const hull = st.level >= 3 && S.ship.heavy ? S.ship.heavy : S.ship.hull;
+    return ArtBlueprints.create(hull, cultureArt(st.culture || S.culture, sysSeed), (st.seed || 1) + i * 31);
+  }
+
   function create(canvas, { style = 'line', onPick }) {
     const ctx = canvas.getContext('2d', { alpha: false });
     let STYLE = style;
@@ -116,28 +135,13 @@ const SimMap = (() => {
     const rock = (r) => ({ type: Art.ASTEROID_TYPES[Math.floor(r() * Art.ASTEROID_TYPES.length)], r: 20, seed: Math.floor(r() * 9973), spin0: r() * TAU, tumble: (r() - 0.5) * 0.6 });
 
     // Art, made once per thing.
-    const stationArt = new Map();
+    const stationArt = new Map(); // key -> blueprint
     function artFor(key, make) {
       if (!stationArt.has(key)) stationArt.set(key, make());
       return stationArt.get(key);
     }
-    function stationBp(bodyKey, st) {
-      const S = SimConfig.STATIONS[st.type];
-      const cid = st.alien ? 'alien' : st.rogue ? 'drifters' : (st.culture || S?.culture || 'android');
-      const culture = cultureArt(cid, sys.seed);
-      return artFor(`st:${bodyKey}:${st.type}:${cid}:${st.level}`, () => {
-        const art = st.rogue ? 'station-minor' : st.alien ? 'station-major' : S.art;
-        const size = st.level >= 3 ? 'major' : S?.size || 'minor';
-        if (ArtStationRoles.ROLES.includes(art)) return ArtStationRoles.create(art, culture, st.seed || 1, size);
-        return ArtBlueprints.create(art, culture, st.seed || 1);
-      });
-    }
-    const shipBp = (bodyKey, st, i) => {
-      const S = SimConfig.STATIONS[st.type];
-      const cid = st.culture || S?.culture || 'android';
-      const hull = st.level >= 3 && S.ship.heavy ? S.ship.heavy : S.ship.hull;
-      return artFor(`sh:${bodyKey}:${hull}:${cid}:${i}`, () => ArtBlueprints.create(hull, cultureArt(cid, sys.seed), (st.seed || 1) + i * 31));
-    };
+    const stationBp = (bodyKey, st) => artFor(`st:${bodyKey}:${stationArtKey(st)}`, () => stationArt0(sys.seed, st));
+    const shipBp = (bodyKey, st, i) => artFor(`sh:${bodyKey}:${st.type}:${st.level >= 3}:${i}`, () => shipArt0(sys.seed, st, i));
     const turretBp = (bodyKey, st, i) => artFor(`tu:${bodyKey}:${i}`, () => ArtTurrets.create(i % 2 ? 'gun' : 'missile', cultureArt(st.culture || 'wedge', sys.seed), (st.seed || 1) + i));
     const gateBp = () => artFor('gate', () => ArtBlueprints.create('gate', cultureArt('android', sys.seed), sys.seed % 991 + 1));
     const arkBp = () => artFor('ark', () => ArtBlueprints.playerShip(cultureArt('android', sys.seed)));
@@ -581,7 +585,7 @@ const SimMap = (() => {
     };
   }
 
-  return { create, cultureArt };
+  return { create, cultureArt, stationArt: stationArt0, stationArtKey, shipArt: shipArt0 };
 })();
 
 export { SimMap };
