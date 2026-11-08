@@ -45,7 +45,8 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // rules/research.js, bought at an outfitter or found: game/vendor.js); shop: what's been bought from
 // today's gear stock at each station ({ day, bought: { [station key]: [i] } }); pilot: the player's
 // experience and talents ({ xp, talents: [id] }, rules/progress.js: the level comes from the xp);
-// world: the elites' and raids' timers (game/traffic.js: { elites: { [system]: { n, at } }, raids: { n, next } }); squad: the squad members (rules/squad.js), with their loadouts and programs
+// world: the elites' and raids' timers (game/traffic.js: { elites: { [system]: { n, at } }, raids: { n, next } }) and the
+// contracts done today (game/jobs.js: daily: { [job id]: day }); squad: the squad members (rules/squad.js), with their loadouts and programs
 // and hull. missions: the mission log
 // (story/missions.js): what's been accepted, done and handed in, the galaxy's jobs among it;
 // board: those jobs (story/jobs.js, grown from the galaxy, not saved); track: the job the HUD and
@@ -59,7 +60,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
-  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 } },
+  loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
   loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
@@ -134,7 +135,7 @@ export function loadCargo(galaxy) {
   cargo.gambits = [];
   cargo.shop = null;
   cargo.pilot = { xp: 0, talents: [] };
-  cargo.world = { elites: {}, raids: { n: 0, next: 0 } };
+  cargo.world = { elites: {}, raids: { n: 0, next: 0 }, daily: {} };
   cargo.market = Economy.empty();
   cargo.rep = Reputation.empty();
   cargo.squad = []; // hired at a dock (game/squad.js)
@@ -362,6 +363,7 @@ export function readCargo(d, galaxy = null) {
   cargo.pilot = { xp: Math.max(0, Math.floor(d.pilot?.xp) || 0), talents: [] }; // talents once the class is read
   if (d.world && typeof d.world === 'object') {
     for (const [si, e] of Object.entries(d.world.elites || {})) if (e && Number.isFinite(e.n) && Number.isFinite(e.at)) cargo.world.elites[si] = { n: e.n, at: e.at };
+    for (const [id, day] of Object.entries(d.world.daily || {})) if (Number.isFinite(day)) cargo.world.daily[id] = day;
     if (Number.isFinite(d.world.raids?.n) && Number.isFinite(d.world.raids?.next)) cargo.world.raids = { n: d.world.raids.n, next: d.world.raids.next };
   }
   if (d.shop && Number.isFinite(d.shop.day) && d.shop.bought && typeof d.shop.bought === 'object') {

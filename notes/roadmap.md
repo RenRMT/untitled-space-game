@@ -44,7 +44,7 @@ The core combat loop (fight → loot → gear up → push into harder space) is 
    - named NPC pilots, freighters and faction patrols that join fights;
    - roaming rare elites (MMO "rares") with their own loot tables;
    - world events: a siege on a station that anyone nearby can join, or a raid on a convoy.
-4. **A story spine.** Freelancer is driven by its story. The opening missions were removed, but `notes/factions.md` has rich lore (the Registry, the Remainder, the Thren, the purge) that nothing in the game uses yet. Add a short main quest per tier of the galaxy that drives you out from Wedge to the core and ends against the aliens. It can reuse the steps that jobs already support (go, fight, take, bring).
+4. **A story spine.** Freelancer is driven by its story. The opening missions were removed. Add a short main quest per tier of the galaxy that drives you out from Wedge to the core and ends against the aliens. It can reuse the steps that jobs already support (go, fight, take, bring). (`notes/factions.md` is outdated: the story follows the factions' basic ideas instead. Wedge: security and order, but restrictive. Block: industry and progress, with little regard for human safety. Shard: scientific progress and research, held as a religious belief. Drifters: freedom and independence at any price. Aliens: inscrutable, running on a logic clearly unlike humans'. Androids: true neutral, at risk of apathy.)
 5. **Contracts need variety and repetition.** They are combat-only and the board is fixed for each galaxy. Add:
    - repeatable bounties on named elites;
    - escort and convoy jobs (they need NPC traffic);

@@ -10,7 +10,9 @@
 // taken again starts over.
 // Part of the flight view; src/main.js starts it.
 
+import { Clock } from '../core/clock.js';
 import { Progress } from '../rules/progress.js';
+import { Vendor } from '../rules/vendor.js';
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtTurrets } from '../art/turrets.js';
 import { ArtCrew } from '../art/crew.js';
@@ -77,7 +79,7 @@ const stationByKey = (key) => world.scene.stations.find((s) => s.key === key) ||
 // A job's hostile ship, circling (cx, cy).
 function hostile(J, i, k, p, cx, cy, w = J.steps[i].wave) {
   const crew = Jobs.CREWS[w.crew] || Jobs.CREWS.pirates;
-  const culture = crew.culture === 'pirates' ? world.cultures.pirates : world.cultures.of(crew.culture);
+  const culture = crewCulture(crew);
   return {
     ...Entities.fighter({ key: keyOf(J.id, i, k), art: ArtBlueprints.create(Entities.fighterClass(w.tier, p.seed), culture, p.seed), x: cx, y: cy, orbit: p.orbit, speed: p.speed, a0: p.a0, tier: w.tier }),
     crew: crew.label,
@@ -116,7 +118,7 @@ function stepThings(J, i) {
 // group; an outpost's with it (game/structures.js).
 function assaultThings(J, i) {
   const s = J.steps[i], B = s.base, crew = Jobs.CREWS[B.crew] || Jobs.CREWS.pirates;
-  const culture = crew.culture === 'pirates' ? world.cultures.pirates : world.cultures.of(crew.culture);
+  const culture = crewCulture(crew);
   const out = [], group = [];
   let host = null;
   if (B.outpost) {
@@ -376,8 +378,28 @@ export function trackedJob() {
 
 // Whether a job can be taken: not withdrawn (a situation's jobs from a faction are, once a job in
 // that situation has been done against it).
+// A crew's culture (art/culture.js): the pirates', the aliens', or a settled one by id.
+const crewCulture = (crew) => (crew.culture === 'pirates' ? world.cultures.pirates : crew.culture === 'alien' ? world.cultures.alien : world.cultures.of(crew.culture));
+
+// Whether a job is open to take: a situation's not withdrawn; a story chapter once the one before is
+// done and the pilot has reached its level.
 export function available(J) {
+  if (J.requires && log().status(J.requires) !== 'done') return false;
+  if (J.level && pilotLevel() < J.level) return false;
   return !withdrawn(J);
+}
+// The next story chapter, while the pilot is short of its level (shown, but not yet offered).
+export const waitingChapter = () => cargo.board?.list.find((J) => J.tier === 'story' && log().status(J.id) === 'offered'
+  && (!J.requires || log().status(J.requires) === 'done') && J.level && pilotLevel() < J.level) || null;
+// Contracts (station jobs) are offered again the day after they're handed in (cargo.world.daily:
+// { [id]: the day it was done }).
+export function reopenDaily() {
+  const today = Vendor.day(Clock.now());
+  for (const [id, day] of Object.entries(cargo.world.daily)) {
+    if (day >= today) continue;
+    log().reopen(id);
+    delete cargo.world.daily[id];
+  }
 }
 export function withdrawn(J) {
   if (!J.situation || log().status(J.id) !== 'offered') return false;
@@ -418,7 +440,17 @@ function giverFace(J) {
 export function jobViews(station) {
   if (!cargo.board) return [];
   if (countGoods()) saveCargo();
+  reopenDaily();
   const L = log(), st = station.station, out = [];
+  // The next chapter of the story, while it waits for the pilot's level.
+  const next = waitingChapter();
+  if (next) {
+    out.push({
+      id: next.id, title: next.title, from: next.from, face: giverFace(next), status: 'offered', here: false, tier: `${Jobs.TIERS.story.label} · level ${next.level}`,
+      lines: [`Opens at level ${next.level}. You're level ${pilotLevel()}: contracts, raids, elites and dungeons will get you there.`], objectives: [],
+      reward: next.rewardText, pays: { credits: next.reward.credits, items: [], also: [] }, note: `Opens at level ${next.level}.`,
+    });
+  }
   for (const J of cargo.board.list) {
     const status = L.status(J.id), offered = Jobs.offeredAt(J, st), handIn = handInKey(J);
     if (status === 'offered' && !(offered && available(J))) continue;
@@ -464,6 +496,7 @@ export function completeJob(id) {
     }
   }
   log().complete(id);
+  if (J.tier === 'station') cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
   for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);

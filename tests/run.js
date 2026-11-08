@@ -3120,6 +3120,7 @@ test('jobs: every station posts combat contracts: raiders, a battery, an outpost
 function withTestJobs(fn) {
   const { go, fight, bring } = JobTexts;
   const saved = { ...JobTexts.STATION }; // the combat contracts, out of the way meanwhile
+  const story = JobTexts.STORY.splice(0); // and the main story
   for (const k of Object.keys(JobTexts.STATION)) JobTexts.STATION[k] = [];
   JobTexts.STATION.capital = [['test-delivery', (c) => ({
     name: 'Test delivery', briefing: [`${c.st.name} needs iron.`, 'Bring some in.'],
@@ -3142,6 +3143,7 @@ function withTestJobs(fn) {
     delete JobTexts.STATION['mining camp'];
     Object.assign(JobTexts.STATION, saved);
     delete JobTexts.FACTION.wedge;
+    JobTexts.STORY.push(...story);
   }
 }
 
@@ -5044,6 +5046,30 @@ test('progress: levels from experience, less for easy kills, talents by level an
   assert.ok(Progress.gearLevel({ loot: { ilvl: 41 } }) > Progress.gearLevel({ loot: { ilvl: 21 } }));
   assert.ok(Progress.HULL_LEVEL.gunship > Progress.HULL_LEVEL.corvette);
   assert.deepStrictEqual([1, 9, 10, 19, 20].map(Progress.lineBonus), [0, 0, 1, 1, 2]);
+});
+
+test('the main story: seven chapters, each after the last and at a higher level, further out, ending at the core; contracts repeat', () => {
+  for (const seed of [1, 7, 42]) {
+    const g = Galaxy.generate(seed), B = Jobs.board(g), story = B.list.filter((j) => j.tier === 'story');
+    assert.strictEqual(story.length, JobTexts.STORY.length, `seed ${seed}: every chapter placed`);
+    story.forEach((j, i) => {
+      assert.strictEqual(j.chapter, i + 1);
+      assert.strictEqual(j.requires, i ? story[i - 1].id : null, 'each after the one before');
+      if (i) assert.ok(j.level > story[i - 1].level, 'at a higher level');
+      assert.ok(Number.isFinite(j.reward.credits) && j.reward.credits > 0, `${j.id} pays (${j.reward.credits})`);
+      assert.ok(Jobs.offeredAt(j, g.stations[0]), 'offered at any station');
+    });
+    const last = story.at(-1);
+    assert.ok(last.systems.every((k) => g.systems[k].level === 5), 'the last at the core');
+    assert.ok(story.at(-1).reward.credits > story[0].reward.credits * 5, 'pays far more by the end');
+    assert.ok(B.list.some((j) => j.id.endsWith('/convoy') && j.escort && j.handIn), `seed ${seed}: convoys, handed in where they deliver`);
+  }
+  // A done contract can be reopened (the next day: game/jobs.js); its next attempt starts afresh.
+  const g = Galaxy.generate(1), B = Jobs.board(g), J = B.list.find((j) => j.tier === 'station'), log = Missions.create(null, B.byId);
+  assert.ok(log.accept(J.id, J.scope) && log.finish(J.id));
+  assert.ok(log.reopen(J.id) && log.status(J.id) === 'offered');
+  assert.ok(!log.reopen(J.id), 'only a done one');
+  assert.ok(log.accept(J.id, J.scope) && log.attempt(J.id) === 2, 'a second attempt');
 });
 
 if (failed) {

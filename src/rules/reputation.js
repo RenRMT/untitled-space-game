@@ -42,7 +42,7 @@ const Reputation = (() => {
   const MAX = 100;
   const RIPPLE = 10; // a standing of +5 passes on half the change, -5 half of it reversed
   const ALLY = 2; // a standing at or above this toward another faction makes it an ally
-  const JOB = { station: 4, system: 6, faction: 10 };
+  const JOB = { station: 4, system: 6, faction: 10, story: 8 };
   const KILL = 1;
   const PRICE = { devoted: -0.04, friendly: -0.02, neutral: 0, unfriendly: 0.06, hostile: 0.12 };
   const OPEN_DOORS = [Factions.WAYSTATION]; // never refuse docking

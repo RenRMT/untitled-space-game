@@ -56,11 +56,13 @@ const Jobs = (() => {
     station: { label: 'Station', base: 250, k: 1, cap: 2 },
     system: { label: 'System', base: 600, k: 1.2, cap: 3 },
     faction: { label: 'Faction', base: 1500, k: 1.35, cap: 4 },
+    story: { label: 'Main story', base: 2000, k: 1.5, cap: 5 },
   };
   // Who a wave of hostile ships is: its name in notices and on their cards, and what it's built
   // in ('pirates': kitbashed, or a settled culture by id, world/solar-system.js CULTURES).
   const CREWS = {
     pirates: { label: 'Pirates', culture: 'pirates' },
+    aliens: { label: 'Aliens', culture: 'alien' },
   };
   // Difficulty: tier steps up on the hostiles, pay, and the reward's rarity floor and luck.
   const DIFFICULTY = {
@@ -279,7 +281,9 @@ const Jobs = (() => {
     let v = TIERS[job.tier].base, at = start;
     const fly = (p) => {
       if (!p) return;
-      v += p.system === at.system ? dist(at, p) * VALUE.perUnit : hops(galaxy, at.system, p.system) * VALUE.perJump + dist(galaxy.systems[p.system].origin, p) * VALUE.perUnit;
+      // Between systems: by gate jumps, or where no gate leads (the core, cruised to), by the distance.
+      const jumps = p.system === at.system ? 0 : hops(galaxy, at.system, p.system), far = Number.isFinite(jumps) ? jumps * VALUE.perJump : dist(at, p) * VALUE.perUnit * 0.2;
+      v += p.system === at.system ? dist(at, p) * VALUE.perUnit : far + dist(galaxy.systems[p.system].origin, p) * VALUE.perUnit;
       at = p;
     };
     for (const s of job.steps) {
@@ -365,7 +369,7 @@ const Jobs = (() => {
     const level = Math.max(1, ...job.systems.map((i) => galaxy.systems?.[i]?.level || 1));
     const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: ${{ common: 'any', uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
     job.reward = { credits, components, loyalty: loyal, regard, gear };
-    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text), ...regard].join(' · ');
+    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...regard].join(' · ');
     return job;
   }
   // What the giver says once the job is done, before it's handed in, unless the job says otherwise.
@@ -373,6 +377,7 @@ const Jobs = (() => {
     station: ['That\'s all of it. Confirm the hand-in, and the station will settle up.'],
     system: ['Word travels fast in this system. Confirm the hand-in and we\'ll settle up.'],
     faction: ['Our people will want the details. Confirm the hand-in, and the payment clears.'],
+    story: ['That\'s what we needed. Confirm the hand-in, and we\'ll talk about what comes next.'],
   };
 
   function board(galaxy) {
@@ -441,12 +446,34 @@ const Jobs = (() => {
         }));
       });
     }
+    // The main story: its chapters in order, each in the nearest system of its level to the one
+    // before (the start system for the first), started from a station there (or the nearest one).
+    let prev = null, near = galaxy.systems[0];
+    JobTexts.STORY.forEach((t, i) => {
+      const r = mulberry32(hashInt(base, i, 0x5709));
+      const order = galaxy.systems.filter((s) => (s.level || 1) === t.sysLevel).sort((a, b) => dist(a.origin, near.origin) - dist(b.origin, near.origin));
+      for (const sys of order) {
+        const home = sys.stations.find((st) => st.market.type === 'capital') || sys.stations[0]
+          || [...galaxy.stations].sort((a, b) => dist(a, sys.origin) - dist(b, sys.origin))[0];
+        const c = places(galaxy, sys, r, takenIn(sys.index), takenIn);
+        const job = make(galaxy, r, takenIn(sys.index), {
+          id: `story/${i + 1}/${t.id}`, tier: 'story', scope: 'story', scopeName: `Chapter ${i + 1}`, from: t.from, faction: t.giver,
+          system: null, anchor: { x: home.x, y: home.y, system: home.system }, write: t.write({ ...c, home, owner: Factions.get(t.giver) }),
+        });
+        if (!job) continue;
+        Object.assign(job, { chapter: i + 1, level: t.level, requires: prev });
+        add(job);
+        prev = job.id;
+        near = sys;
+        break;
+      }
+    });
     return { list, byId: Object.fromEntries(list.map((j) => [j.id, j])) };
   }
 
-  // Whether a job is offered at a station: its own station, any station in its system, or any
-  // station of its faction.
-  const offeredAt = (job, st) => (job.tier === 'station' ? job.scope === st.key : job.tier === 'system' ? job.scope === st.system : job.scope === st.owner);
+  // Whether a job is offered at a station: its own station, any station in its system, any station
+  // of its faction, or (the main story) any station at all.
+  const offeredAt = (job, st) => (job.tier === 'story' ? true : job.tier === 'station' ? job.scope === st.key : job.tier === 'system' ? job.scope === st.system : job.scope === st.owner);
 
   return { TIERS, CREWS, DIFFICULTY, REACH, ROCK_LABEL, VALUE, board, offeredAt, hops, value, assaultNeed };
 })();

@@ -82,6 +82,18 @@ const JobTexts = (() => {
         debrief: ['The outpost is a cloud of scrap. That will set them back months.'],
       };
     }],
+    ['convoy', (c) => {
+      // A freighter to see to another station of the system; raiders come for it on the way.
+      const to = c.pick(c.stations((s) => s.key !== c.st.key) || []);
+      const mid = to && c.space({ x: (c.st.x + to.x) / 2, y: (c.st.y + to.y) / 2 }, 1500, 5000);
+      return mid && {
+        name: `Convoy to ${to.name}`, difficulty: 'normal', deliver: true,
+        escort: { name: `${c.owner?.name || 'Station'} freighter`, culture: c.st.culture },
+        briefing: [`A freighter leaves **${c.st.name}** for **${to.name}** and raiders have been watching the lane.`, 'Fly with it, keep it in one piece, and the cargo masters pay at the other end.'],
+        steps: [go([mid], 'Escort the freighter along the lane'), fight(mid, c.n(2, 3), 'Fight off the ambush', { rush: true, twist: true, say: ['Contacts on the lane! They\'re going for the freighter.'] }), go([to], `See the freighter to ${to.name}`)],
+        debrief: ['Cargo delivered, crew alive. The lane owes you one.'],
+      };
+    }],
     ['strike', (c) => {
       const P = c.nearby();
       const at = P && P.space(P.sys.origin, 8000, 20000);
@@ -111,7 +123,103 @@ const JobTexts = (() => {
   const FACTION = {};
   const forFaction = (id) => FACTION[id] || [];
 
-  return { STATION, SITUATION, FACTION, CONTRACTS, forStation, forHook, forFaction, go, fight, take, bring, mine, gas, assault, defend };
+  // ---------- The main story ----------
+  // Chapters in order, each opening once the one before is done and the pilot has reached its
+  // `level` (game/jobs.js), offered at every station. Each happens in a system of `sysLevel` (the
+  // first such system that has what it needs), further out as it goes, and ends at the galactic core.
+  // giver: the faction that asks (world/factions.js), from: who says it. The factions as they are:
+  // Wedge, security and order, and the rules that come with it; Block, industry and progress, with
+  // little care for who gets hurt; Shard, research held as a faith; the Drifters, freedom at any
+  // price; the Androids, neutral to the point of not caring; the aliens, past understanding.
+  //   STORY: [{ id, level, sysLevel, giver, from, write(c) }]
+  const STORY = [
+    {
+      id: 'papers', level: 1, sysLevel: 1, giver: 'wedge', from: 'Wedge Security Directorate',
+      write: (c) => {
+        const at = c.space(c.home, 5000, 11000);
+        return at && {
+          name: 'Papers in order', difficulty: 'normal',
+          briefing: ['Every ship in Wedge space flies a registered route. Three contacts out there do not.', `They're ${where(at)}. Find out what they are, and if they won't answer, make sure they never fly unregistered again.`, 'Order is not a favour, pilot. It is the only thing between us and the dark.'],
+          steps: [go([at], 'Inspect the unregistered contacts'), fight(at, 3, 'Destroy the raiders', { say: ['They\'re armed, and they\'re not stopping. Weapons free.'], twist: true })],
+          debrief: ['Raiders, carrying cargo stolen from the inner lanes. Filed, closed.', 'They came from further out than they should have been able to. Something is pushing them in. Block\'s yards have noticed it too.'],
+        };
+      },
+    },
+    {
+      id: 'overtime', level: 4, sysLevel: 1, giver: 'block', from: 'Block yard supervisor',
+      write: (c) => {
+        const st = c.stations()[0];
+        return st && {
+          name: 'Overtime', difficulty: 'normal',
+          briefing: [`The raiders Wedge keeps chasing have found **${st.name}**. The crews want to evacuate.`, 'They will not. Quotas do not stop for weather, and they do not stop for pirates. Hold the station until the shift ends.', 'Losses are budgeted for. The output is not.'],
+          steps: [defend({ ...st, key: st.key }, `Hold off the attack on ${st.name}`, { waves: 3, size: 2 })],
+          debrief: ['Output held. Three crew injured, within tolerance.', 'Our survey drones logged where the raiders ran from: ships out past the frontier, flying in formations no pirate uses. Shard has been asking about them.'],
+        };
+      },
+    },
+    {
+      id: 'readings', level: 8, sysLevel: 2, giver: 'shard', from: 'Shard observatory',
+      write: (c) => {
+        const a = c.space(c.home, 6000, 12000), b = a && c.space(a, 4000, 9000);
+        return b && {
+          name: 'Readings', difficulty: 'normal',
+          briefing: ['Two sources in this system are emitting on a band nothing human uses. The pattern repeats every eleven minutes, and it has never once repeated exactly.', 'Take readings at both. Knowledge is the only true devotion, and this is a chance to be devout.'],
+          steps: [go([a, b], 'Take readings at both sources'), fight(b, 3, 'Drive off the scavengers', { rush: true, say: ['Drifters, here for the same thing. They\'ll sell it to whoever pays.'], twist: true })],
+          debrief: ['The readings are extraordinary. Whatever made them does not think in numbers the way we do.', 'The signal points out past the frontier. A Drifter captain there claims to know more. Freedom costs, she says.'],
+        };
+      },
+    },
+    {
+      id: 'no-masters', level: 12, sysLevel: 3, giver: 'drifter', from: 'A Drifter captain',
+      write: (c) => {
+        const at = c.space(c.home, 7000, 15000);
+        return at && {
+          name: 'No masters', difficulty: 'hard',
+          briefing: ['You want to know where the strange ships come from. I know. I\'ll tell you, too, once you\'ve done something for me.', `There's an outpost ${where(at)}. A crew that sells other crews to the Block yards. Burn it. Nobody owns anybody out here.`],
+          steps: [assault(at, 'Destroy the slavers\' outpost', { outpost: true, turrets: 3, guards: 3 })],
+          debrief: ['Good. Those crews are free now, and free to starve if they like. That\'s the deal out here.', 'Your ships: they come from the deep systems, past the androids\' stations. The androids have watched them pass for years. Ask them why they never said.'],
+        };
+      },
+    },
+    {
+      id: 'logged', level: 16, sysLevel: 4, giver: 'android', from: 'Android station custodian',
+      write: (c) => {
+        const at = c.space(c.home, 6000, 14000);
+        return at && {
+          name: 'Logged, not reported', difficulty: 'hard',
+          briefing: ['Correct. The vessels have passed this system four hundred and twelve times. Each passage is logged.', 'No one asked for the logs. Reporting is not our function. Neither is preventing.', `You may take the logs from the relay ${where(at)}. Whether you are able to is not our concern.`],
+          steps: [go([at], 'Recover the logs from the relay'), fight(at, 3, 'Survive the scouts', { crew: 'aliens', say: ['The relay is being watched. Contacts closing, and they don\'t answer on any band.'], twist: true })],
+          debrief: ['The logs are yours. The vessels\' passages have grown more frequent. We note this. We do not assess it.', 'The logs all point the same way: inward, toward the galactic core.'],
+        };
+      },
+    },
+    {
+      id: 'contact', level: 20, sysLevel: 4, giver: 'shard', from: 'Shard observatory',
+      write: (c) => {
+        const at = c.space(c.home, 8000, 16000);
+        return at && {
+          name: 'Contact', difficulty: 'elite',
+          briefing: ['The logs confirm it. They are not raiders. They are not anything we have a word for.', `One of their ships holds still ${where(at)}, as if waiting. Go to it. Record everything. If it speaks, listen. If it fires, survive.`, 'We would give anything to understand them. Do not make us give you.'],
+          steps: [go([at], 'Approach the waiting ship'), fight(at, 4, 'Survive the encounter', { crew: 'aliens', up: 1, say: ['It answered. Not with words. Every gun it has.'], twist: true })],
+          debrief: ['We have the recording. It is not a language. It may be a measurement. Of you.', 'Wedge wants to end this at the source, at the core. For once, Block agrees, and Shard will not be left out.'],
+        };
+      },
+    },
+    {
+      id: 'the-core', level: 24, sysLevel: 5, giver: 'wedge', from: 'Wedge Security Directorate',
+      write: (c) => {
+        const at = c.space(c.sys.origin, 8000, 20000);
+        return at && {
+          name: 'The core', difficulty: 'elite',
+          briefing: ['Every faction has signed off on this, which has never happened before. Do not mistake that for agreement.', `The aliens' station ${where(at)}, at the heart of the galaxy, is where every one of their ships comes from. Break its guard, then break it.`, 'Bring a squad. Bring everything.'],
+          steps: [fight(at, 4, 'Break the outer guard', { crew: 'aliens', up: 1 }), assault(at, 'Destroy the alien station', { outpost: true, turrets: 3, guards: 3, crew: 'aliens', up: 1 })],
+          debrief: ['It is done, or it is paused. With them, we may never know which.', 'Wedge calls it security. Block calls it opportunity. Shard calls it a lesson. The Drifters call it none of their business, and the androids have logged it.', 'You flew all of it. Whatever comes next, the galaxy knows your name.'],
+        };
+      },
+    },
+  ];
+
+  return { STATION, SITUATION, FACTION, CONTRACTS, STORY, forStation, forHook, forFaction, go, fight, take, bring, mine, gas, assault, defend };
 })();
 
 export { JobTexts };

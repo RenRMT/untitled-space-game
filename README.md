@@ -57,11 +57,18 @@ what you destroy, and push out from the safe core of your faction's space into h
   has its turrets open fire on sight. Destroyed, a faction's turret or station is a wreck until it's
   rebuilt (20 min, 90 min real time; no docking meanwhile). Friendly turrets fight on your side
   against hostiles near their station.
-- **Missions.** Every station posts combat contracts (`src/story/job-texts.js`, run by
-  `src/game/jobs.js`): a raider patrol (Easy), a turret battery (Normal), holding the station against
-  waves with its turrets beside you (Normal or Hard), a pirate outpost with its turrets in this
-  system or a nearby one (Hard), and a strike on a fortified outpost a jump away (Elite). The
-  difficulty sets the hostiles' tier, the pay and the gear rewarded.
+- **The main story.** Seven chapters (`STORY` in `src/story/job-texts.js`, placed by
+  `src/story/jobs.js` as the `story` tier), offered at every station, each once the one before is
+  done and the pilot has reached its level (1 to 24); while it waits, the Missions tab says what
+  level it opens at. It takes you from Wedge space out past the frontier to the aliens at the
+  galactic core, asked by each faction in turn as it is: Wedge's security and order, Block's
+  industry at any human cost, Shard's research as faith, the Drifters' freedom at any price, the
+  Androids' neutrality close to apathy, and the aliens, beyond understanding.
+- **Contracts.** Every station posts combat contracts (`src/story/job-texts.js`, run by
+  `src/game/jobs.js`): a raider patrol (Easy), a turret battery and a convoy escort with an ambush
+  on the way (Normal), holding the station against waves with its turrets beside you (Normal or
+  Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
+  tier, the pay and the gear rewarded. A contract handed in is posted again the next day.
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and

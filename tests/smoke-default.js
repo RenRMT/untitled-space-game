@@ -218,6 +218,31 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
   game('fight.grace = 0; placeBeside(startStation())');
 });
 
+test('the main story: chapter 1 at any station from the start; the next waits for its level; a contract is posted again the next day', () => {
+  if (game('!!docked')) game('launch()');
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; dock(startStation()); StationMenu.showTab('missions')`);
+  const ch = game(`cargo.board.list.filter((j) => j.tier === 'story').map((j) => j.id)`);
+  assert.strictEqual(ch.length, 7, 'seven chapters');
+  assert.match(onStation(), /Chapter 1: Papers in order/, 'chapter 1, offered here');
+  assert.doesNotMatch(onStation(), /Chapter 2/, 'not chapter 2 yet');
+  // Chapter 1 done: chapter 2 shows, waiting for level 4.
+  game(`globalThis.__xp = cargo.pilot.xp; cargo.pilot.xp = 0; applyShip(); cargo.missions.accept('${ch[0]}', startStation().key); cargo.missions.finish('${ch[0]}'); StationMenu.refresh()`);
+  assert.match(onStation(), /Chapter 2: Overtime/);
+  assert.ok(!game(`jobViews(startStation()).find((m) => m.id === '${ch[1]}').accept`), 'not offered yet');
+  assert.match(game(`jobViews(startStation()).find((m) => m.id === '${ch[1]}').note`), /Opens at level 4/);
+  game(`cargo.pilot.xp = 1e4; applyShip(); StationMenu.refresh()`);
+  assert.ok(game(`!!jobViews(startStation()).find((m) => m.id === '${ch[1]}' && m.accept)`), 'offered once the pilot is level 4');
+  // A contract handed in today is posted again tomorrow.
+  game(`globalThis.__c = cargo.board.list.find((j) => j.tier === 'station' && j.scope === startStation().key && cargo.missions.status(j.id) === 'offered');
+    cargo.missions.accept(__c.id, startStation().key); cargo.missions.finish(__c.id); cargo.world.daily[__c.id] = Vendor.day(__T)`);
+  game('jobViews(startStation())');
+  assert.strictEqual(game('cargo.missions.status(__c.id)'), 'done', 'not again today');
+  game('__T += 24 * 3600 * 1000; jobViews(startStation())');
+  assert.strictEqual(game('cargo.missions.status(__c.id)'), 'offered', 'posted again the next day');
+  game(`cargo.pilot.xp = __xp; applyShip(); Clock.now = () => Date.now(); launch()`);
+  browser.frames(2);
+});
+
 test('the gate jumps the ship to the next system, with no story step first', () => {
   game(`globalThis.__gate = world.scene.gates.find((g) => !g.gate.wormhole && g.gate.system === 0); globalThis.__there = world.scene.gates[__gate.gate.link];
     select(null); placeShip(__gate.x, __gate.y + __gate.radius + 120)`);
