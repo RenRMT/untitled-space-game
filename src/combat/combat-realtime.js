@@ -329,6 +329,15 @@ const RealtimeCombat = (() => {
     fly(a, c, s.allies, dt);
   }
 
+  // Everyone but the player flies one step: enemies after their targets (or back to the anchor, given
+  // up), allies by their orders, fixed ones only turning. Walls (s.blocked) stop them. The
+  // turn-based mode (combat/combat.js) moves its ships with this too.
+  function move(s, dt) {
+    blockedBy = s.blocked || null;
+    for (const e of alive(s)) if (!e.passive) (e.fixed ? hold : steer)(s, e, dt);
+    for (const a of allies(s)) (a.fixed ? holdAlly : steerAlly)(s, a, dt);
+  }
+
   // ---------- One step ----------
 
   // Advance the fight by dt seconds. pilot: the player ship's pose this step { x, y, vx, vy, angle }.
@@ -337,15 +346,13 @@ const RealtimeCombat = (() => {
   // 'lost-lock', id }. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
   function step(s, dt, pilot) {
     if (s.over) return [];
-    blockedBy = s.blocked || null;
     const events = [];
     const p = s.player;
     if (pilot) Object.assign(p, { x: pilot.x, y: pilot.y, vx: pilot.vx, vy: pilot.vy, angle: pilot.angle });
     s.t += dt;
     for (const c of [p, ...allies(s), ...alive(s)]) Abilities.tick(c, s.t);
     events.push(...Abilities.resolve(s, s.t)); // skills whose activation is done (rules/abilities.js)
-    for (const e of alive(s)) if (!e.passive) (e.fixed ? hold : steer)(s, e, dt);
-    for (const a of allies(s)) (a.fixed ? holdAlly : steerAlly)(s, a, dt);
+    move(s, dt);
     updateFocus(s, events);
     updateLocks(s, dt, events);
     const target = byId(s, s.focus);
@@ -395,7 +402,7 @@ const RealtimeCombat = (() => {
   const fromSpec = (c) => ship(c.id, c.name, c.stats, c.body, c.hull, c);
   const lockOf = (s) => (s.locked ? 1 : Math.min(1, s.lockT / lockTime(s)));
 
-  // The panel's last two lines: what the guns are locking onto, shields going down, kills, and an
+  // The log's last two lines: what the guns are locking onto, shields going down, kills, and an
   // ally shot down.
   function log(s, events, lines) {
     const name = (id) => ([...s.enemies, ...s.allies].find((c) => c.id === id) || {}).name || 'the enemy';
@@ -416,8 +423,7 @@ const RealtimeCombat = (() => {
   }
 
   // Everyone keeps flying; shots are quick beams, and hits on a ship add up into one number. The
-  // panel's title says what the guns are doing; its bar fills as the lock comes on, or as you get
-  // clear when breaking away.
+  // brackets on the target close in as the lock comes on (game/combat.js).
   const mode = {
     id: 'realtime',
     flying: true,
@@ -428,18 +434,10 @@ const RealtimeCombat = (() => {
     setOrders,
     join: (s, e) => join(s, fromSpec(e)),
     lock: lockOf,
-    panel(s) {
-      const t = byId(s, s.focus), away = s.away > 0;
-      return {
-        title: away ? 'Breaking away' : !t ? 'Combat' : s.locked ? `Locked on ${t.name}` : `Locking on ${t.name}`,
-        button: null, bar: away ? 'escape' : 'lock',
-        progress: away ? s.away / config.escapeTime : t ? lockOf(s) : 0,
-      };
-    },
     log,
   };
 
-  return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, lockTime, step, simulate, alive, reach, mode };
+  return { config, ship, create, join, setFocus, setOrders, canFire, hitChance, evasion, factor, lockTime, move, step, simulate, alive, reach, mode };
 })();
 
 export { RealtimeCombat };

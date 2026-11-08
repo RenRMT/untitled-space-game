@@ -58,13 +58,14 @@ export function applyUiStyle() {
 export const MOVE_MODES = ['cruise', 'direct'];
 export const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
-// Combat: automatic rounds with the ships stopped (combat/combat.js), or real-time, flying throughout
-// (combat/combat-realtime.js). Mining is always real time (game/combat.js extract). Fights with ships
+// Combat: turns on a timeline (combat/combat.js, the default: 'rounds', its saved name), or real time
+// (combat/combat-realtime.js); ships fly throughout in both. Mining is always real time
+// (game/combat.js extract). Fights with ships
 // are switched off with the pirates, so the setting is out of the menu; it stays for the opening
 // missions' fights (?missions) and the ?combat= parameter. Each fight keeps the mode it started in.
 export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
-export const combatMode = setting('combat', COMBAT_MODES, 'realtime');
+export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
 
 // A conversation's question answered (story/intro.js, story/missions.js: { ask: key, options }):
 // the setting it asks about, by its saved key, takes the chosen value.

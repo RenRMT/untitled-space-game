@@ -236,10 +236,12 @@ test('loot: a station destroyed drops gear that floats, is picked up into the sp
     structureDestroyed(__st2)`);
   assert.ok(game('isRazed(__st2.key)'), 'razed');
   assert.ok(game(`!canDock(__st2).ok && /Destroyed/.test(canDock(__st2).reason)`), 'docking refused while it is a wreck');
-  const drops = game(`cargo.drops.filter((d) => d.kind === 'loot').length`);
+  // (Earlier fights may have left loot of their own floating: only the station's counts here.)
+  game('globalThis.__mine = (d) => d.kind === "loot" && d.key.startsWith(`loot:${__st2.key}:`)');
+  const drops = game(`cargo.drops.filter(__mine).length`);
   assert.ok(drops >= 2, 'a station drops two pieces, at least');
-  assert.ok(game(`cargo.drops.filter((d) => d.kind === 'loot').every((d) => Loot.RANK[d.rarity] >= Loot.RANK.uncommon)`), 'Uncommon or better');
-  game(`const d = cargo.drops.find((x) => x.kind === 'loot'); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime), 0.1)`);
+  assert.ok(game(`cargo.drops.filter(__mine).every((d) => Loot.RANK[d.rarity] >= Loot.RANK.uncommon)`), 'Uncommon or better');
+  game(`const d = cargo.drops.find(__mine); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime), 0.1)`);
   assert.ok(game('cargo.gear[__lootId] === 1 && !!Loadout.EQUIPMENT[__lootId].loot'), 'in the spare gear, as equipment');
   assert.ok(game(`/loot/.test(toast.text)`), 'announced');
   // Fitted, then saved and read back: the same item.
@@ -287,7 +289,7 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
     game('fight.result = null; fight.grace = 0');
     browser.frames(2);
   }
-  assert.strictEqual(game('cargo.missions.status(__siege.id)'), 'ready');
+  assert.ok(until('cargo.missions.status(__siege.id) === "ready"', 60), 'every wave counted (the last blows up a moment after its fatal hit)');
   const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
   game('completeJob(__siege.id)');
   assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear as the reward');

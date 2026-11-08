@@ -173,26 +173,11 @@
   }
   body.docked #factions-btn, body.docked #map-btn, body.docked #settings-btn, body.docked #context { display: none; }
 
-  /* Combat panel: replaces the context menu during a fight. One row per ship with shield (top)
-     and hull (bottom) bars; enemy rows are buttons that focus fire. */
-  #combat {
-    --shd: var(--cyan); --hul: var(--good);
-    width: min(380px, calc(100vw - 24px)); border-left-color: var(--hostile);
-  }
-  #combat.won { border-left-color: var(--hul); }
-  #combat.fled { border-left-color: var(--cyan); }
-  .cb-head { display: flex; align-items: center; gap: 8px; }
-  .cb-title { flex: 1; min-width: 0; color: var(--bright); font: 700 15px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
-  #combat.lost .cb-title { color: var(--hostile); }
-  .cb-btn { min-height: var(--hit); padding: 0 16px; border-color: var(--cyan); color: var(--cyan); background: transparent; }
-  .cb-btn:disabled { border-color: var(--line); color: var(--dim); opacity: 1; }
-  .cb-track { height: 2px; margin: 8px 0 4px; background: var(--line-soft); border-radius: 1px; overflow: hidden; }
-  .cb-timer { display: block; height: 100%; width: 0; background: var(--hostile); }
-  .cb-timer.escape { background: var(--cyan); }
-  #combat .cb-btn[hidden] { display: none; }
-  /* Abilities: a small button per consumable in the kit, its code over the charges left. */
-  .cb-abil { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
-  #combat .cb-abil[hidden] { display: none; }
+  /* Combat bar: replaces the context menu during a fight. Only the skills and the kit's
+     consumables; the fight itself is drawn round the ships (game/combat.js). */
+  #combat { width: auto; max-width: calc(100vw - 24px); padding: 6px 8px; border-left-color: var(--hostile); }
+  /* A button per skill and consumable: its icon over its key, cooldown or charges left. */
+  .cb-abil { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
   .cb-ab {
     min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
     border: 1px solid var(--good); border-radius: 6px; background: transparent; color: var(--good); cursor: pointer; touch-action: manipulation;
@@ -200,37 +185,6 @@
   .cb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
   .cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
   .cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-  #combat:not(.won):not(.lost):not(.fled) .cb-timer { opacity: 0.8; }
-  #combat.won .cb-track, #combat.lost .cb-track, #combat.fled .cb-track { visibility: hidden; }
-  .cb-rows { display: flex; flex-direction: column; }
-  .cb-row {
-    display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; align-items: center; column-gap: 8px;
-    width: 100%; min-height: 36px; box-sizing: border-box; padding: 6px 4px 6px 14px; margin: 0; border: 0; border-top: 1px solid var(--line-soft);
-    background: none; color: var(--hud); font: inherit; text-align: left; position: relative;
-  }
-  .cb-row:first-child { border-top: 0; }
-  button.cb-row { cursor: pointer; touch-action: manipulation; min-height: var(--hit); }
-  button.cb-row:hover .cb-name, button.cb-row:focus-visible .cb-name { color: var(--bright); }
-  button.cb-row:focus-visible { outline: 1px solid var(--cyan); outline-offset: -1px; border-radius: var(--r-sm); }
-  .cb-row.focus::before { content: '▸'; position: absolute; left: 2px; color: var(--hostile); }
-  .cb-row.focus .cb-name { color: var(--bright); }
-  .cb-row.you .cb-name { color: var(--cyan); }
-  .cb-run { font: 500 11px var(--mono); color: var(--good); }
-  .cb-aim { font: 500 12px var(--sans); color: var(--dim); }
-  .cb-aim.you { color: var(--hostile); }
-  .cb-aim.locking { opacity: 0.55; }
-  .cb-row.down { opacity: 0.45; }
-  .cb-name { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--hud); }
-  .cb-bars { display: flex; flex-direction: column; gap: 2px; }
-  .cb-bar { display: block; height: 4px; background: var(--line-soft); border-radius: 2px; overflow: hidden; }
-  .cb-bar > span { display: block; height: 100%; transition: width 0.25s ease-out; }
-  .cb-bar.shd > span { background: var(--shd); }
-  .cb-bar.hul > span { background: var(--hul); }
-  .cb-row:not(.you) .cb-bar.hul > span { background: var(--hostile); }
-  .cb-nums { font: 500 12px var(--mono); color: var(--dim); text-align: right; white-space: nowrap; }
-  .cb-log { font-size: 13px; color: var(--dim); margin-top: 6px; min-height: 1.3em; line-height: 1.3; }
-  .cb-log div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  @media (prefers-reduced-motion: reduce) { .cb-bar > span { transition: none; } }
   body.in-combat #context, body.in-combat #factions-btn, body.in-combat #map-btn, body.in-combat #settings-btn { display: none; }
   /* Consumables in the field (ui/field-bar.js): a column of buttons up the right-hand side, above the
      corner buttons, each its icon over the charges left. */
@@ -737,7 +691,7 @@
     bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   .panel { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((60px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
-  #combat { width: min(380px, calc((100vw - 24px) / var(--ui-scale))); }
+  #combat { max-width: calc((100vw - 24px) / var(--ui-scale)); }
   .icon-btn { zoom: var(--ui-scale); bottom: calc((12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #factions-btn { right: calc((12px + 2 * (var(--hit) * var(--ui-scale) + 8px) + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
   #map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
@@ -827,15 +781,8 @@
   </div>
   <div class="cx-actions" role="group" aria-label="Actions"></div>
 </div>
-<div id="combat" class="panel" role="region" aria-label="Combat" aria-live="polite" hidden>
-  <div class="cb-head">
-    <span class="cb-title"></span>
-    <button class="btn cb-btn" type="button"></button>
-  </div>
-  <div class="cb-track" aria-hidden="true"><span class="cb-timer"></span></div>
-  <div class="cb-abil" role="group" aria-label="Kit" hidden></div>
-  <div class="cb-rows"></div>
-  <div class="cb-log"></div>
+<div id="combat" class="panel" role="toolbar" aria-label="Combat skills" hidden>
+  <div class="cb-abil" role="group" aria-label="Skills and kit"></div>
 </div>
 
 <div id="field" role="toolbar" aria-label="Consumables" hidden></div>

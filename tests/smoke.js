@@ -1556,20 +1556,17 @@ fightTest('fights in real time, then gets away', () => {
   assert.strictEqual(game('fight.mode'), 'realtime');
   // Fly at the target for a while (the guns fire on their own), then break away.
   const chase = `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.5; } }`;
-  // Meanwhile the panel's first row (the player's) shows the hull and shield every frame, as they
-  // change between the log's lines (the shield recharging, from half).
-  const shown = () => textOf(browser.document.getElementById('combat').querySelector('.cb-rows').children[0].children[2]);
-  const actual = '`${Math.ceil(fight.s.player.hull)} · ${Math.floor(fight.s.player.shield)}`';
-  const readings = new Set();
-  game('fight.s.player.shield = Math.floor(fight.s.player.stats.shield / 2)'); // so it recharges, hit or not
+  // The combat bar is only the skills: the fight is drawn round the ships.
+  browser.frames(1);
+  const bar = browser.document.getElementById('combat');
+  assert.ok(!bar.hidden && bar.querySelector('.cb-abil').children.length >= 3, 'a skill bar');
+  let fired = false;
   for (let i = 0; i < 30 * 60 && game('!!fight.s'); i++) {
     game(chase);
     browser.frames(1);
-    if (!game('!!fight.s')) break;
-    assert.strictEqual(shown(), game(actual), 'the panel shows the player\'s hull and shield');
-    readings.add(shown());
+    fired ||= game(`fight.fx.some((f) => f.type === 'beam' && f.from === 'player')`);
   }
-  assert.ok(readings.size > 1, 'the readings changed during the fight');
+  assert.ok(fired, 'the guns fired');
   const away = `{ const a = fight.s ? Math.atan2(ship.y - fight.s.anchor.y, ship.x - fight.s.anchor.x) : 0; ship.targetAngle = a; ship.targetSpeed = SHIP.maxSpeed; }`;
   assert.ok(until('!inFight()', 120 * 60, away), 'the fight ends');
   game('ship.targetSpeed = 0');
@@ -1605,7 +1602,7 @@ off('?missions', 'the wingman flies in formation, assists the leader in both com
     const chase = mode === 'realtime' ? `{ const t = fight.s && fight.ships.get(fight.s.focus); if (t) { ship.targetAngle = Math.atan2(t.y - ship.y, t.x - ship.x); ship.targetSpeed = SHIP.maxSpeed * 0.4; } }` : '';
     assert.ok(until(`!fight.s || fight.fx.some((f) => f.type === 'beam' && f.from === '${id}')`, 60 * 40, chase), `${mode}: it opens fire`);
     if (game('!!fight.s')) assert.strictEqual(game(`fight.s.allies[0].order.target`), game('fight.s.focus'), `${mode}: on the leader's target`);
-    if (game('!!fight.s')) assert.match(textOf(browser.document.getElementById('combat').querySelector('.cb-rows')), /L1/, `${mode}: the panel shows the line it runs`);
+    if (game('!!fight.s')) assert.strictEqual(game('fight.s.allies[0].line'), 0, `${mode}: it runs line 1`);
     assert.ok(game(`lineRuns.get('${id}')[0] >= 1`), `${mode}: line 1 ran`);
     game('fight.s && (fight.s.over = "fled")');
     browser.frames(2);

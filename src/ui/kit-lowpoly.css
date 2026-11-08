@@ -397,22 +397,10 @@
 
 /* Combat: its lip hostile in a fight, good when won; shield and hull as segment meters. */
 :root[data-ui="lowpoly"] #combat { --lipc: #a3283a; --shd: var(--glass); }
-:root[data-ui="lowpoly"] #combat.won { --lipc: color-mix(in srgb, var(--good) 50%, var(--sky)); }
-:root[data-ui="lowpoly"] #combat.fled { --lipc: var(--marking); }
-:root[data-ui="lowpoly"] .cb-title { font: 700 15px var(--sans); color: var(--trim); }
-:root[data-ui="lowpoly"] .cb-track { height: 3px; border-radius: 0; background: var(--deep); }
 :root[data-ui="lowpoly"] .cb-ab { --lipc: var(--bay-lo); border: 0; border-radius: 0; background: var(--plate-bay); color: var(--light); clip-path: var(--cut-s-l4); box-shadow: 0 4px 0 var(--lipc); }
 :root[data-ui="lowpoly"] .cb-ab:active:not(:disabled) { translate: 0 4px; box-shadow: none; }
 :root[data-ui="lowpoly"] .cb-ab:disabled { background: var(--wreck); color: var(--wreck-ink); box-shadow: none; translate: 0 4px; }
 :root[data-ui="lowpoly"] .cb-ab .n { color: var(--trim); }
-:root[data-ui="lowpoly"] .cb-row { border-top: 2px solid var(--bay-lo); }
-:root[data-ui="lowpoly"] .cb-row.you .cb-name { color: var(--glass); }
-:root[data-ui="lowpoly"] .cb-bars { gap: 3px; }
-:root[data-ui="lowpoly"] .cb-bar {
-  height: 5px; border-radius: 0; background: var(--deep); transform: skewX(-24deg);
-  -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%); mask: repeating-linear-gradient(90deg, #000 0 calc(10% - 2px), transparent 0 10%);
-}
-:root[data-ui="lowpoly"] .cb-nums { font-size: 10px; color: var(--mute); }
 
 /* The station: its header a raised bay; the credits in a glass readout. */
 :root[data-ui="lowpoly"] #station { background: var(--sky); }

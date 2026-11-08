@@ -366,26 +366,10 @@
 
 /* Combat: the panel in its status ink (hostile in a fight, good when won); gauges hatched. */
 :root[data-ui="line"] #combat { --ink: var(--hostile); border-left-width: 1px; }
-:root[data-ui="line"] #combat.won { --ink: var(--good); }
-:root[data-ui="line"] #combat.fled { --ink: #7df9ff; }
 :root[data-ui="line"] #combat::after { background: repeating-linear-gradient(135deg, var(--ink) 0 1px, transparent 1px 5px), repeating-linear-gradient(45deg, var(--ink) 0 1px, transparent 1px 5px); opacity: 0.4; }
-:root[data-ui="line"] .cb-title { font: 700 14px var(--sans); letter-spacing: 0.12em; }
-:root[data-ui="line"] .cb-btn { border-color: var(--ink); color: var(--ink); }
-:root[data-ui="line"] .cb-btn:disabled { border: 1px dashed var(--wreck); color: var(--wreck); }
-:root[data-ui="line"] .cb-track { height: 1px; border-radius: 0; background: var(--line-soft); }
-:root[data-ui="line"] .cb-timer.escape { background: #7df9ff; }
 :root[data-ui="line"] .cb-ab { border-radius: 2px; }
 :root[data-ui="line"] .cb-ab:disabled { border: 1px dashed var(--wreck); color: var(--wreck); }
-:root[data-ui="line"] .cb-rows .cb-row { border-top-color: var(--line-soft); }
-:root[data-ui="line"] .cb-row.you .cb-name { color: #7df9ff; }
-:root[data-ui="line"] .cb-bars { gap: 3px; }
-:root[data-ui="line"] .cb-bar { height: 4px; border-radius: 0; background: linear-gradient(var(--line), var(--line)) 0 100% / 100% 1px no-repeat; }
-:root[data-ui="line"] .cb-bar > span { box-sizing: border-box; border: 1px solid currentColor; border-bottom: 0; }
-:root[data-ui="line"] .cb-bar.shd > span { color: var(--shd); background: repeating-linear-gradient(135deg, var(--shd) 0 1px, transparent 1px 3px); }
-:root[data-ui="line"] .cb-bar.hul > span { color: var(--hul); background: repeating-linear-gradient(135deg, var(--hul) 0 1px, transparent 1px 3px); }
-:root[data-ui="line"] .cb-row:not(.you) .cb-bar.hul > span { color: var(--hostile); background: repeating-linear-gradient(135deg, var(--hostile) 0 1px, transparent 1px 3px); }
 :root[data-ui="line"] #combat { --shd: #7df9ff; }
-:root[data-ui="line"] .cb-nums { font-weight: 400; }
 
 /* The station: a drawing sheet on squared paper, in the station culture's ink. */
 :root[data-ui="line"] #station {
