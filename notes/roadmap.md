@@ -4,7 +4,7 @@ Nov 8, 2026
 
 
 ## Context
-You asked what the main game (`index.html` / `src/main.js`) still needs to become an **offline, MMO-like space RPG** in the spirit of **Freelancer** (open space, factions, bases, a job board, a story, buying ships and gear by level), **FF12's gambits** (a party fighting on rules you write) and **Hostile Space** (a top-down space MMO with races, classes, stats, skills, psionic abilities, small-team play, gear to engineer). This plan holds that review. If you approve, the only step is to commit it to the repo as `notes/roadmap.md` on `claude/lucid-edison-jiaod9`. No code changes.
+You asked what the main game (`index.html` / `src/main.js`) still needs to become an **offline, MMO-like space RPG** in the spirit of **Freelancer** (open space, factions, bases, a job board, a story, buying ships and gear by level), **FF12's gambits** (a party fighting on rules you write) and **Hostile Space** (a top-down space MMO with races, classes, stats, skills, psionic abilities, small-team play, gear to engineer). This note is that review.
 
 The repo holds about 31k lines for the main game.
 
