@@ -122,7 +122,14 @@ const SimSheets = (() => {
       const { w, state, meta, style } = ctx, S = C.STATIONS[st.type], key = b.key;
       const out = [];
       if (st.wreck) return [h('p', { class: 'sim-note' }, 'A wreck. Clear it to build here again.'), h('div', { class: 'sim-acts' }, Kit.button('Clear wreck', go('demolish', { key }), { kind: 'ghost' }))];
-      if (st.rogue || st.alien) return [Kit.head(st.rogue ? 'Rogue station' : 'Alien hive'), h('div', { class: 'sim-row' }, stationThumb(w, st, style, 72), h('p', { class: 'sim-note grow' }, st.rogue ? 'Drifters built this without asking. It skims the system\'s minerals and volatiles.' : 'Something grown, not built. It answers to no one.'))];
+      if (st.rogue || st.alien || st.outpost) {
+        const what = st.rogue ? ['Rogue station', `Drifters built this without asking. It skims ${Math.round(C.DRIFTERS.skim * 100)}% of the system's minerals and volatiles.`]
+          : st.outpost ? ['Drifter outpost', `It pays ${C.DRIFTERS.outpost.cr} credits a cycle. The Wedge hate it.`] : ['Alien hive', 'Something grown, not built. It gives science and volatiles, and answers to no one.'];
+        const off = state.offers.find((o) => o.key === key);
+        return [Kit.head(what[0]), h('div', { class: 'sim-row' }, stationThumb(w, st, style, 72), h('p', { class: 'sim-note grow' }, what[1])),
+          off ? h('div', { class: 'sim-acts' }, Kit.button('Deal with it', go('offer', { id: off.id }), { kind: 'primary' })) : null,
+          st.outpost ? h('div', { class: 'sim-acts' }, Kit.button('Tear it down', go('demolish', { key }), { kind: 'ghost' })) : null];
+      }
       const r = state.rates?.by?.[key] || R.stationRates(state, meta, w, key, st);
       const chief = SimFaces.person(st.culture, st.seed);
       out.push(Kit.head(`${S.name} · ${MK[st.level]}`, h('span', { class: 'aside' }, C.CULTURES[st.culture].name)));
@@ -277,9 +284,13 @@ const SimSheets = (() => {
       if (o.deadline) out.push(h('p', { class: 'sim-note' }, `${Math.max(0, Math.ceil(o.deadline - state.cycle))} cycles to answer.`));
       if (o.reward) out.push(h('div', { class: 'sim-yield' }, h('span', { class: 'ui-label' }, 'Reward'), h('span', { class: 'num' }, SimEvents.rewardText(o.reward))));
       if (o.kind === 'request' && o.key && o.key !== ctx.w.gate) out.push(h('div', { class: 'sim-acts' }, Kit.button('Show me', go('open', { key: o.key }), { kind: 'ghost' })));
-      const foot = h('div', { class: 'sim-acts' }, SimEvents.answers(state, meta, o.id).map((a) => [
-        Kit.button(a.label, go('answer', { id: o.id, answer: a.id }), { kind: a.primary ? 'primary' : a.warn ? 'warn' : '', disabled: !a.ok, title: a.why, lg: !!a.primary }),
-        a.cost ? costLine(state, a.cost, style) : null]));
+      const answers = SimEvents.answers(state, meta, o.id);
+      const foot = [
+        h('div', { class: 'sim-answers' }, answers.map((a) => h('div', { class: 'sim-answer' },
+          Kit.button(a.label, go('answer', { id: o.id, answer: a.id }), { kind: a.primary && a.ok ? 'primary' : a.warn ? 'warn' : '', disabled: !a.ok, title: a.why, wide: true }),
+          a.cost ? costLine(state, a.cost, style) : null))),
+        answers.filter((a) => !a.ok && a.why).map((a) => h('p', { class: 'sim-note' }, `${a.label}: ${a.why}.`)),
+      ];
       return { title: o.title, kicker: K.name, kickerColor: K.color, body: out, foot };
     }
 

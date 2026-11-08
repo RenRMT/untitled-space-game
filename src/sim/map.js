@@ -63,12 +63,12 @@ const SimMap = (() => {
 
   // A station's blueprint: its type's role station (or blueprint) in its culture's design language,
   // larger from level 3; a rogue station is the Drifters' kitbash, an alien one a hive.
-  const stationArtKey = (st) => `${st.type}:${st.alien ? 'alien' : st.rogue ? 'drifters' : st.culture}:${st.level >= 3 ? 'major' : 'minor'}:${st.seed}`;
+  const stationArtKey = (st) => `${st.type}:${st.alien ? 'alien' : st.rogue || st.outpost ? 'drifters' : st.culture}:${st.level >= 3 ? 'major' : 'minor'}:${st.seed}`;
   function stationArt0(sysSeed, st) {
     const S = SimConfig.STATIONS[st.type];
-    const cid = st.alien ? 'alien' : st.rogue ? 'drifters' : (st.culture || S?.culture || 'android');
+    const cid = st.alien ? 'alien' : st.rogue || st.outpost ? 'drifters' : (st.culture || S?.culture || 'android');
     const culture = cultureArt(cid, sysSeed);
-    const art = st.rogue ? 'station-minor' : st.alien ? 'station-major' : S.art;
+    const art = st.rogue || st.outpost ? 'station-minor' : st.alien ? 'station-major' : S.art;
     const size = st.level >= 3 ? 'major' : S?.size || 'minor';
     if (ArtStationRoles.ROLES.includes(art)) return ArtStationRoles.create(art, culture, st.seed || 1, size);
     return ArtBlueprints.create(art, culture, st.seed || 1);
@@ -209,6 +209,7 @@ const SimMap = (() => {
       ctx.fillStyle = Theme.color.bg;
       ctx.fillRect(0, 0, W, H);
       drawSky(pull, perf, view.frozen);
+      drawHazard(view.hazard, perf);
       drawHole(pull, view.frozen, perf);
 
       const c0 = toScreen({ x: 0, y: 0 });
@@ -268,6 +269,13 @@ const SimMap = (() => {
         if (st.blocked) drawBlockade(p, rpx, perf);
       }
 
+      // Wormholes where the aliens came through, beside the body they're about.
+      for (const key of view.wormholes || []) {
+        if (!pos.has(key)) continue;
+        const it = byKey.get(key), p = toScreen(pos.get(key)), d = Math.max(14, it.r * k + 14);
+        drawAsset(wormholeBp(), { x: p.x - d, y: p.y - d * 0.6 }, Math.max(8, 9 * k), perf / 1200, tl);
+      }
+
       // Build marks (what a station would make here), the selection ring.
       ctx.font = Theme.font(10);
       ctx.textAlign = 'center';
@@ -317,6 +325,11 @@ const SimMap = (() => {
         ctx.restore();
       }
 
+      if (view.storm) {
+        // An ion storm: the screen washed in flickering teal.
+        ctx.fillStyle = `rgba(90, 255, 208, ${0.05 + 0.04 * Math.sin(perf / 90) ** 2})`;
+        ctx.fillRect(0, 0, W, H);
+      }
       drawVeil(pull, view.frozen);
       ctx.textAlign = 'left';
       lastPos = pos;
@@ -483,6 +496,20 @@ const SimMap = (() => {
         ctx.fillStyle = pull > 60 || frozen ? `rgba(255, ${Math.round(220 - pull)}, ${Math.round(200 - pull * 1.4)}, ${a})` : `rgba(233, 238, 242, ${a})`;
         ctx.fillRect(s.x * W, y * H, s.s, s.s + stretch * 9 * s.v);
       }
+    }
+
+    // The hazard, if the system has one: its deep-space art (art/sites.js) low in a corner of the sky.
+    let hazardSite = null;
+    function drawHazard(id, perf) {
+      const hz = id && SimConfig.HAZARDS[id];
+      if (!hz) return;
+      if (!hazardSite || hazardSite.kind !== hz.site) hazardSite = ArtSites.sample(hz.site, sys.seed % 50 + 1);
+      const R = Math.min(W, H) * 0.32, s = R / hazardSite.r;
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (W - R * 0.55), dpr * (H - bottom - R * 0.45));
+      ArtSites.draw(ctx, hazardSite, STYLE, { phase: { beam: perf / 2000, jet: -Math.PI / 2, brightness: 0.5 + 0.5 * Math.sin(perf / 1500) } });
+      ctx.restore();
     }
 
     // The hole: Core A* (art/sites.js) at the top of the screen, larger as the meter fills.

@@ -125,11 +125,12 @@ const SimRules = (() => {
   function stationRates(state, meta, w, key, st) {
     const S = C.STATIONS[st.type], b = bodyOf(w, key);
     const r = { out: {}, in: {}, sec: 0, mul: 1, notes: [] };
+    if (st.alien && !st.left) { r.out = { sci: 0.5, v: 0.5 }; r.notes.push(['Alien hive', 1]); return r; }
     if (!S || st.left > 0 || st.wreck) return r;
     if (st.blocked > 0) { r.notes.push(['Blockaded', 0]); return r; }
     if (st.off > 0) { r.notes.push(['Knocked out', 0]); return r; }
-    if (st.rogue || st.alien) return r;
     let mul = C.LEVEL_MUL[st.level - 1];
+    if (state.effects.boost > 0) { mul *= 1.5; r.notes.push(['Alien gift', 1.5]); }
     const trait = b.trait ? C.TRAITS[b.trait] : null;
     if (trait?.mul?.[st.type]) { mul *= trait.mul[st.type]; r.notes.push([trait.name, trait.mul[st.type]]); }
     const hz = hazardOf(state);
@@ -182,7 +183,7 @@ const SimRules = (() => {
     tot.demand = C.DEMAND[0] + C.DEMAND[1] * built;
     return tot;
   }
-  const builtCount = (state) => Object.values(state.stations).filter((s) => !s.left && !s.rogue && !s.wreck && !s.alien).length;
+  const builtCount = (state) => Object.values(state.stations).filter((s) => !s.left && C.STATIONS[s.type]).length;
 
   // Production for dt cycles of system time: consumers take what's there, in proportion when short.
   function produce(state, meta, dt) {
@@ -264,7 +265,7 @@ const SimRules = (() => {
   function demolish(state, meta, key) {
     const st = state.stations[key];
     if (!st || st.rogue || st.alien) return false;
-    if (!st.wreck) for (const [r, n] of Object.entries(C.STATIONS[st.type].cost)) state.res[r] += Math.floor(n * C.REFUND);
+    if (C.STATIONS[st.type]) for (const [r, n] of Object.entries(C.STATIONS[st.type].cost)) state.res[r] += Math.floor(n * C.REFUND);
     delete state.stations[key];
     state.rates = rates(state, meta);
     return true;

@@ -28,7 +28,7 @@ function decide(s, meta) {
   for (const o of s.offers) { const a = SimEvents.answers(s, meta, o.id).find((x) => x.ok && x.pick); if (a && SimEvents.answer(s, meta, o.id, a.id)) return `answer ${o.kind}`; }
   if (!count('mine')) return tryBuild('mine');
   if (!count('siphon')) return tryBuild('siphon');
-  if (R.has(s, 'block') && !count('hub')) { const x = tryBuild('hub'); if (x) return x; }
+  if (R.has(s, 'block') && !count('hub')) return tryBuild('hub'); // saves up for it
   const g = R.gateStatus(s, meta);
   if (g.ok && Object.keys(s.stations).length >= 3) { R.buildGate(s, meta); return `gate ${g.next.name}`; }
   const urgent = (lim) => {

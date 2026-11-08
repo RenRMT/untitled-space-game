@@ -186,7 +186,13 @@ function bubbles() {
   }
   for (const [id, el] of bubbleEls) if (!seen.has(id)) { el.remove(); bubbleEls.delete(id); }
 }
-function openOffer(id) { selected = null; sheets.show({ kind: 'offer', id }, ctx()); tabs(); }
+function openOffer(id) {
+  const o = state.offers.find((x) => x.id === id);
+  selected = o?.key || null;
+  if (o?.key) map.focus(o.key);
+  sheets.show({ kind: 'offer', id }, ctx());
+  tabs();
+}
 
 let toastTimer = 0;
 function toast(kicker, text, { who = null, tone = null, ms = 3200 } = {}) {
@@ -336,7 +342,10 @@ function view() {
     for (const q of state.requests) if (q.ask === 'place' && state.stations[q.key]?.type !== q.type) marks[q.key] = { text: C.STATIONS[q.type].name, color: C.CULTURES[q.culture].color };
   }
   const g = state.gate;
-  return { time: state.time, pull: state.pull, stations, gate: { stage: g.stage, building: g.left > 0 ? { stage: g.stage, f: 1 - g.left / g.total } : null, charge: g.charge }, selected, marks, hazard: state.terms.hazard };
+  return {
+    time: state.time, pull: state.pull, stations, gate: { stage: g.stage, building: g.left > 0 ? { stage: g.stage, f: 1 - g.left / g.total } : null, charge: g.charge },
+    selected, marks, hazard: state.terms.hazard, storm: state.effects.storm > 0, wormholes: state.offers.filter((o) => o.kind === 'alien').map((o) => o.key),
+  };
 }
 
 window.addEventListener('resize', () => map.resize());

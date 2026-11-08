@@ -9,6 +9,17 @@
 //   or to hold on until the horizon reaches a mark with one of their stations running (the reason to
 //   stay one more cycle). Done, they pay: approval, resources, sometimes Insight. Missed, approval
 //   falls; turned down, a little.
+// - Drifters (where they are): unrest grows while security is short of demand (twice as fast in
+//   Drifter space, slower while their haunts are built on). When it boils over they blockade a
+//   station no defense platform covers (it stops until they're bribed, a patrol breaks it, or they
+//   tire of it), or put up a rogue station on an empty body that skims the system's minerals and
+//   volatiles until it's evicted (a wreck is left) or parleyed with (it becomes an outpost that
+//   pays its way, and the Wedge hate it).
+// - Aliens (where they are): every so often a visitor, with an offer. Accepted, it may help (the
+//   hole pushed back, Insight, a free upgrade, a burst of output) or harm (the hole pulled closer,
+//   ships lost, a station taken for a hive). A lab can study them instead, safely.
+// - Hazards: ion storms (ships dark for a while) and pulsar pulses (an undefended station knocked
+//   out) come round on their own clock.
 //
 //   SimEvents.tick(state, meta, events) -> events   after the rules' tick: what else happened
 //   SimEvents.answers(state, meta, id) -> [{ id, label, ok, why, primary, pick }]   what can be said to an offer
@@ -21,6 +32,7 @@ import { hashInt, mulberry32 } from '../core/rng.js';
 import { SimConfig } from './config.js';
 import { SimPeople } from './people.js';
 import { SimRules } from './rules.js';
+import { SimWorld } from './world.js';
 
 const SimEvents = (() => {
   const C = SimConfig, R = SimRules;
@@ -161,6 +173,130 @@ const SimEvents = (() => {
   }
   const doneOf = (state, q) => (q.ask === 'hold' ? state.pull >= q.pull && running(state, q.type) : progress(state, q).f >= 1);
 
+
+  // ---------- Drifters ----------
+  // Whether a station is covered by a defense platform: one in its group, or one on high ground.
+  function covered(state, key) {
+    const w = R.world(state);
+    const grp = SimWorld.group(w, key);
+    return Object.entries(state.stations).some(([k, s]) => s.type === 'defense' && !s.left && !s.blocked
+      && (grp.includes(k) || R.bodyOf(w, k)?.trait === 'strategic'));
+  }
+  function drifters(state, meta) {
+    if (!R.has(state, 'drifters')) return [];
+    const r = state.rates, D = C.DRIFTERS, hz = C.HAZARDS[state.terms.hazard];
+    const w = R.world(state);
+    const haunts = w.bodies.filter((b) => b.trait === 'haunt');
+    const held = haunts.length && haunts.every((b) => state.stations[b.key] && !state.stations[b.key].rogue);
+    const short = Math.max(0, r.demand - r.sec);
+    if (short > 0) state.unrest += (D.base + D.perShort * short) * (hz?.unrestMul || 1) * (held ? D.haunted : 1);
+    else state.unrest = Math.max(0, state.unrest - 0.05);
+    if (state.unrest < D.at) return [];
+    state.unrest = 0;
+    const rr = rnd(state, 0xd41f);
+    const who = someone(state, 'drifters', rr);
+    const empty = w.bodies.filter((b) => b.kind !== 'gate' && !state.stations[b.key]);
+    const hauntFree = empty.filter((b) => b.trait === 'haunt');
+    const targets = Object.entries(state.stations).filter(([k, s]) => C.STATIONS[s.type] && !s.left && !s.blocked && !covered(state, k));
+    if ((hauntFree.length || (empty.length && rr() < 0.4)) || !targets.length) {
+      if (!empty.length) return [{ kind: 'toast', kicker: 'Drifters', text: 'Drifters circled the system, found nowhere to settle, and left. This time.', who, tone: C.CULTURES.drifters.color }];
+      const b = hauntFree.length ? pickOf(rr, hauntFree) : pickOf(rr, empty);
+      state.stations[b.key] = { type: 'rogue', rogue: true, level: 1, ships: 0, slots: 0, left: 8, total: 8, culture: 'drifters', seed: (state.seq++ * 4099) % 99991 };
+      state.offers.push({ id: `o${state.seq++}`, kind: 'rogue', who, key: b.key, title: `A rogue station at ${b.name}`, mark: '⚠',
+        lines: [`We're setting up at **${b.name}**. You weren't using it, and your people weren't keeping anyone safe.`, 'We take a cut of what passes. Or you can try to make us leave.'] });
+      return [{ kind: 'toast', kicker: 'Drifters', text: `A rogue station is going up at ${b.name}.`, who, tone: TONE.bad, key: b.key, bad: true }];
+    }
+    const [key, st] = pickOf(rr, targets);
+    st.blocked = D.blockade;
+    state.offers.push({ id: `o${state.seq++}`, kind: 'blockade', who, key, title: `Blockade at ${nameOf(state, key)}`, mark: '⚠',
+      lines: [`Nothing in or out of your ${C.STATIONS[st.type].name.toLowerCase()} at **${nameOf(state, key)}** until we say so.`, 'Credits would help us say so sooner.'] });
+    return [{ kind: 'toast', kicker: 'Blockade', text: `Drifters have blockaded the ${C.STATIONS[st.type].name.toLowerCase()} at ${nameOf(state, key)}.`, who, tone: TONE.bad, key, bad: true }];
+  }
+  const patrols = (state) => Object.values(state.stations).filter((s) => s.type === 'defense' && !s.left && !s.blocked && s.ships > 0 && !(state.effects.storm > 0));
+
+  // ---------- Aliens ----------
+  const ALIEN_LINES = {
+    gift: ['We have watched you run. We could make it easier. Give us something of yours, and see.'],
+    fold: ['Space bends. The hole knows. We could bend it away from you. Or toward. We do not always choose.'],
+    hive: ['Let us grow here. We will be quiet. We will give back what we are given, and more, perhaps.'],
+  };
+  function aliens(state, meta) {
+    if (!R.has(state, 'alien')) return [];
+    const n = Math.floor(state.cycle), A = C.ALIENS, hz = C.HAZARDS[state.terms.hazard];
+    if (n < state.next.alien) return [];
+    const rr = rnd(state, 0xa11e);
+    state.next.alien = n + Math.round((A.every + (rr() - 0.5) * 2 * A.jitter) / (hz?.alienMul || 1));
+    if (state.offers.some((o) => o.kind === 'alien')) return [];
+    const w = R.world(state);
+    const empty = w.bodies.filter((b) => b.kind !== 'gate' && !state.stations[b.key]);
+    const kind = empty.length && rr() < 0.3 ? 'hive' : rr() < 0.5 ? 'fold' : 'gift';
+    const key = kind === 'hive' ? pickOf(rr, empty).key : pickOf(rr, w.bodies).key;
+    const who = someone(state, 'alien', rr);
+    const cost = kind === 'gift' ? { m: 40 + 10 * state.depth, v: 30 + 10 * state.depth } : kind === 'fold' ? { v: 40 + 10 * state.depth } : null;
+    state.offers.push({ id: `o${state.seq++}`, kind: 'alien', alien: kind, who, key, cost, title: kind === 'hive' ? `A hive at ${nameOf(state, key)}?` : 'A visitor', mark: '?',
+      lines: ALIEN_LINES[kind], expires: n + 90 });
+    return [{ kind: 'toast', kicker: 'Aliens', text: 'Something has come through a wormhole. It wants to talk.', who, tone: C.CULTURES.alien.color, key }];
+  }
+  // What accepting does: good or bad, from the visitor's whim.
+  const GOOD = [['fold', 3], ['insight', 2], ['upgrade', 2], ['cache', 2], ['boost', 2]];
+  const BAD = [['pull', 3], ['ships', 2], ['drain', 2], ['hive', 1]];
+  function outcome(state, meta, o) {
+    const rr = rnd(state, 0x0dd);
+    if (o.alien === 'hive') {
+      state.stations[o.key] = { type: 'hive', alien: true, level: 1, ships: 0, slots: 0, left: 0, total: 1, culture: 'alien', seed: (state.seq++ * 6007) % 99991 };
+      return { kicker: 'Aliens', text: `A hive grows at ${nameOf(state, o.key)}. It gives science and volatiles, for now.`, tone: C.CULTURES.alien.color };
+    }
+    const good = rr() < (o.alien === 'fold' ? 0.62 : 0.6);
+    const table = good ? GOOD.filter(([k]) => o.alien !== 'fold' || k === 'fold' || k === 'insight') : BAD.filter(([k]) => o.alien !== 'fold' || k === 'pull');
+    const tot = table.reduce((t, [, x]) => t + x, 0);
+    let x = rr() * tot, what = table[0][0];
+    for (const [k, wt] of table) { x -= wt; if (x < 0) { what = k; break; } }
+    const built = Object.entries(state.stations).filter(([, s]) => C.STATIONS[s.type] && !s.left);
+    switch (what) {
+      case 'fold': state.pull = Math.max(0, state.pull - 8); return { kicker: 'Space folded', text: 'The horizon falls back 8%.', tone: TONE.good };
+      case 'insight': state.insightSys += 3; return { kicker: 'A gift', text: 'They leave a thought in every mind: +3 Insight at the jump.', tone: TONE.good };
+      case 'upgrade': {
+        const cand = built.filter(([, s]) => s.level < 3);
+        if (!cand.length) { state.insightSys += 2; return { kicker: 'A gift', text: '+2 Insight at the jump.', tone: TONE.good }; }
+        const [k, s] = pickOf(rr, cand);
+        s.level++;
+        return { kicker: 'A gift', text: `The ${C.STATIONS[s.type].name.toLowerCase()} at ${nameOf(state, k)} is changed overnight: Mk ${['', 'I', 'II', 'III'][s.level]}.`, tone: TONE.good, key: k };
+      }
+      case 'cache': state.res.m += 100; state.res.v += 100; return { kicker: 'A gift', text: '+100 minerals and volatiles, from nowhere.', tone: TONE.good };
+      case 'boost': state.effects.boost = 60; return { kicker: 'A gift', text: 'Every station works half again as hard, for 60 cycles.', tone: TONE.good };
+      case 'pull': state.pull = Math.min(99, state.pull + 6); return { kicker: 'Space folded', text: 'Wrong way. The horizon jumps 6% closer.', tone: TONE.bad, bad: true };
+      case 'ships': { for (const [, s] of built) s.ships = Math.max(0, s.ships - 1); return { kicker: 'Taken', text: 'A ship is gone from every station. No one saw them leave.', tone: TONE.bad, bad: true }; }
+      case 'drain': for (const r0 of ['m', 'v', 'cr']) state.res[r0] = Math.floor(state.res[r0] * 0.7); return { kicker: 'Taken', text: 'A third of our stores, gone.', tone: TONE.bad, bad: true };
+      case 'hive': {
+        if (!built.length) { state.pull = Math.min(99, state.pull + 4); return { kicker: 'Space folded', text: 'The horizon jumps 4% closer.', tone: TONE.bad, bad: true }; }
+        const [k] = pickOf(rr, built);
+        state.stations[k] = { type: 'hive', alien: true, level: 1, ships: 0, slots: 0, left: 0, total: 1, culture: 'alien', seed: (state.seq++ * 6007) % 99991 };
+        return { kicker: 'Taken', text: `Our station at ${nameOf(state, k)} is a hive now.`, tone: TONE.bad, key: k, bad: true };
+      }
+      default: return null;
+    }
+  }
+
+  // ---------- Hazards ----------
+  function hazards(state) {
+    const hz = C.HAZARDS[state.terms.hazard], n = Math.floor(state.cycle);
+    if (!hz?.every || n < state.next.hazard) return [];
+    state.next.hazard = n + hz.every;
+    if (state.terms.hazard === 'ion') {
+      state.effects.storm = hz.lasts;
+      return [{ kind: 'toast', kicker: 'Ion storm', text: `Ships are dark for ${hz.lasts} cycles.`, tone: TONE.warn, bad: true }];
+    }
+    if (state.terms.hazard === 'pulsar') {
+      const rr = rnd(state, 0x9175);
+      const open = Object.entries(state.stations).filter(([k, s]) => C.STATIONS[s.type] && !s.left && !covered(state, k));
+      if (!open.length) return [{ kind: 'toast', kicker: 'Pulsar', text: 'The pulse washes over the defenses. Nothing hit.', tone: TONE.good }];
+      const [k, s] = pickOf(rr, open);
+      s.off = hz.lasts;
+      return [{ kind: 'toast', kicker: 'Pulsar', text: `The pulse knocks out the ${C.STATIONS[s.type].name.toLowerCase()} at ${nameOf(state, k)}.`, tone: TONE.bad, key: k, bad: true }];
+    }
+    return [];
+  }
+
   // ---------- Each cycle ----------
   function cycle(state, meta) {
     const out = [];
@@ -178,8 +314,14 @@ const SimEvents = (() => {
         }
       }
     }
-    // Offers left unanswered go away.
-    for (const o of [...state.offers]) if (o.expires && n >= o.expires) { state.offers.splice(state.offers.indexOf(o), 1); if (o.kind === 'request') shift(state, o.culture, -2); }
+    out.push(...drifters(state, meta), ...aliens(state, meta), ...hazards(state));
+    // Offers left unanswered go away; a blockade's when it's over, a rogue station's when it's gone.
+    for (const o of [...state.offers]) {
+      const gone = (o.expires && n >= o.expires) || (o.kind === 'blockade' && !(state.stations[o.key]?.blocked > 0)) || (o.kind === 'rogue' && !state.stations[o.key]?.rogue);
+      if (!gone) continue;
+      state.offers.splice(state.offers.indexOf(o), 1);
+      if (o.kind === 'request') shift(state, o.culture, -2);
+    }
     // Requests taken on: done, or missed.
     for (const q of [...state.requests]) {
       if (doneOf(state, q)) {
@@ -211,6 +353,31 @@ const SimEvents = (() => {
     const o = state.offers.find((x) => x.id === id);
     if (!o) return [];
     if (o.kind === 'request') return [{ id: 'accept', label: 'Accept', ok: true, primary: true, pick: true }, { id: 'decline', label: 'Decline', ok: true }];
+    const D = C.DRIFTERS;
+    if (o.kind === 'blockade') {
+      const p = patrols(state).length;
+      return [
+        { id: 'patrol', label: 'Send a patrol', ok: p > 0, why: p ? '' : 'No patrol free: a defense platform with a ship', primary: p > 0, pick: true },
+        { id: 'bribe', label: 'Pay them off', ok: R.afford(state, D.bribe), cost: D.bribe, why: 'Not enough credits', pick: true },
+        { id: 'wait', label: 'Wait it out', ok: true },
+      ];
+    }
+    if (o.kind === 'rogue') {
+      const r = state.rates, need = r.demand + D.evictSec;
+      const can = r.sec >= need && R.afford(state, D.evict);
+      return [
+        { id: 'evict', label: 'Evict them', ok: can, cost: D.evict, why: `Needs ${need.toFixed(1)} security (have ${r.sec.toFixed(1)}) and minerals`, primary: can, pick: true },
+        { id: 'parley', label: 'Let them stay', ok: true, warn: true },
+      ];
+    }
+    if (o.kind === 'alien') {
+      const lab = Object.values(state.stations).some((s) => s.type === 'lab' && !s.left);
+      return [
+        { id: 'accept', label: o.alien === 'hive' ? 'Let it grow' : 'Accept', ok: !o.cost || R.afford(state, o.cost), cost: o.cost, primary: true, why: 'Not enough to give' },
+        o.alien === 'hive' ? null : { id: 'study', label: 'Study them', ok: lab, why: 'Needs a research lab', pick: true },
+        { id: 'refuse', label: 'Refuse', ok: true, pick: o.alien === 'hive' },
+      ].filter(Boolean);
+    }
     return [];
   }
   function answer(state, meta, id, a) {
@@ -227,10 +394,37 @@ const SimEvents = (() => {
       shift(state, o.culture, -3);
       return { kicker: 'Declined', text: `${o.who.name} won't forget it.`, who: o.who, tone: TONE.warn };
     }
+    const D = C.DRIFTERS, st = state.stations[o.key];
+    if (o.kind === 'blockade') {
+      if (a === 'wait') { state.offers.push(o); return null; }
+      if (a === 'bribe') { for (const [r0, n] of Object.entries(D.bribe)) state.res[r0] -= n; shift(state, 'wedge', -4); }
+      if (st) st.blocked = 0;
+      return { kicker: 'Blockade lifted', text: a === 'patrol' ? 'The patrol scatters them.' : 'They take the credits and go. The Wedge are not impressed.', who: o.who, tone: TONE.good, key: o.key };
+    }
+    if (o.kind === 'rogue') {
+      if (!st) return null;
+      if (a === 'evict') {
+        for (const [r0, n] of Object.entries(D.evict)) state.res[r0] -= n;
+        state.stations[o.key] = { type: 'wreck', wreck: true, level: 1, ships: 0, slots: 0, left: 0, total: 1, culture: 'drifters', seed: st.seed };
+        shift(state, 'wedge', 6);
+        return { kicker: 'Evicted', text: `The Drifters are gone from ${nameOf(state, o.key)}. Their station is a wreck.`, who: o.who, tone: TONE.good, key: o.key };
+      }
+      Object.assign(st, { type: 'outpost', rogue: false, outpost: true, left: 0 });
+      shift(state, 'wedge', D.outpostApproval);
+      return { kicker: 'Outpost', text: `The Drifters at ${nameOf(state, o.key)} pay their way now. The Wedge are furious.`, who: o.who, tone: TONE.warn, key: o.key };
+    }
+    if (o.kind === 'alien') {
+      if (a === 'refuse') return { kicker: 'Refused', text: 'It leaves the way it came.', who: o.who, tone: C.CULTURES.alien.color };
+      if (a === 'study') { state.res.sci += 20 + 5 * state.depth; return { kicker: 'Studied', text: `The lab learns what it can: +${20 + 5 * state.depth} science.`, who: o.who, tone: C.CULTURES.shard.color }; }
+      if (o.cost) for (const [r0, n] of Object.entries(o.cost)) state.res[r0] -= n;
+      const res = outcome(state, meta, o);
+      state.rates = R.rates(state, meta);
+      return res && { ...res, who: o.who };
+    }
     return null;
   }
 
-  return { tick, answers, answer, progress, rewardText, leader };
+  return { tick, answers, answer, progress, rewardText, leader, covered };
 })();
 
 export { SimEvents };

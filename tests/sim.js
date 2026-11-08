@@ -199,6 +199,42 @@ test('a request comes from a culture here, and pays when done', () => {
   if (ap != null) assert.ok(s.approval[o.culture] > ap, 'approval up');
 });
 
+test('Drifters rise when security falls short: a rogue station skims until evicted', () => {
+  const { s, m } = run('endless', 13);
+  rich(s);
+  const b = free(s)[0];
+  R.build(s, m, b.key, 'mine');
+  for (let i = 0; i < 10; i++) R.tick(s, m, 1);
+  s.unrest = C.DRIFTERS.at - 0.001;
+  let o = null;
+  for (let i = 0; i < 5 && !o; i++) { const ev = R.tick(s, m, 1); SimEvents.tick(s, m, ev); o = s.offers.find((x) => x.kind === 'rogue' || x.kind === 'blockade'); }
+  assert.ok(o, 'the Drifters act');
+  if (o.kind === 'blockade') {
+    assert.ok(s.stations[o.key].blocked > 0);
+    assert.deepStrictEqual(R.stationRates(s, m, R.world(s), o.key, s.stations[o.key]).out, {});
+    assert.ok(SimEvents.answer(s, m, o.id, 'bribe'));
+    assert.ok(!s.stations[o.key].blocked);
+  } else {
+    R.tick(s, m, 10);
+    assert.ok(R.rates(s, m).skim > 0, 'skims');
+    assert.ok(!SimEvents.answers(s, m, o.id).find((a) => a.id === 'evict').ok, 'no security to evict');
+    assert.ok(SimEvents.answer(s, m, o.id, 'parley'));
+    assert.ok(s.stations[o.key].outpost);
+  }
+});
+
+test('an alien visitor\'s offer changes something, for good or ill', () => {
+  const { s, m } = run('endless', 17);
+  rich(s);
+  s.next.alien = 1;
+  let o = null;
+  for (let i = 0; i < 5 && !o; i++) { const ev = R.tick(s, m, 1); SimEvents.tick(s, m, ev); o = s.offers.find((x) => x.kind === 'alien'); }
+  assert.ok(o);
+  const before = JSON.stringify([s.pull, s.res, s.stations, s.insightSys, s.effects]);
+  assert.ok(SimEvents.answer(s, m, o.id, 'accept'));
+  assert.notStrictEqual(JSON.stringify([s.pull, s.res, s.stations, s.insightSys, s.effects]), before);
+});
+
 test('events run on the rules without error over a long game', () => {
   const { s, m } = run('endless', 11);
   rich(s);
