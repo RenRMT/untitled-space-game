@@ -262,6 +262,14 @@ test('buys gear at the outfitter, fits it, fits a mod and sells gear, and buys a
   browser.frames(1);
   game('dock(__cap)');
   assert.ok(game('!!docked && StationMenu.isOpen'), 'docked at a capital');
+  // Gear and hulls ask for a level (rules/progress.js): at level 1, no Mk II and no Corvette.
+  game(`globalThis.__xpFor = (n) => { let xp = 0; for (let k = 1; k < n; k++) xp += Progress.toNext(k); return xp; }; globalThis.__xp = cargo.pilot.xp; cargo.pilot.xp = 0; applyShip()`);
+  game(`cargo.gear['pulse-laser-2'] = 1`);
+  assert.strictEqual(game(`outfitting.blocked('weapon-1', 'pulse-laser-2')`), 'Needs level 5');
+  assert.ok(!game(`outfitting.fit('weapon-1', 'pulse-laser-2')`), 'not at level 1');
+  game('cargo.credits = 20000');
+  assert.strictEqual(game(`outfitting.hullBlocked('corvette')`), 'Needs level 8');
+  game(`delete cargo.gear['pulse-laser-2']; cargo.pilot.xp = __xpFor(16); applyShip()`);
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['outfitter', 'missions', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
@@ -323,7 +331,7 @@ test('buys gear at the outfitter, fits it, fits a mod and sells gear, and buys a
   game('saveCargoNow(); loadCargo(world.galaxy)');
   assert.strictEqual(game('JSON.stringify([cargo.loadout, cargo.gear, cargo.mods, cargo.gambits, cargo.components, SHIP.hull, SHIP.cargo, SHIP.weapons])'), before);
   // Back to a Courier for the rest of the run.
-  game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); Clock.now = () => Date.now(); launch()`);
+  game(`cargo.credits = 20000; outfitting.buyHull('courier'); cargo.items = cargo.items.slice(0, 10); cargo.pilot.xp = __xp; applyShip(); Clock.now = () => Date.now(); launch()`);
   assert.ok(game('!docked && SHIP.name === "Courier"'));
   browser.frames(3);
 });
@@ -908,7 +916,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.doesNotMatch(ship(), /Shipyard|Hold/, 'not your ship\'s hold or the shipyard');
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
   // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.
-  game(`cargo.gear['pulse-laser-2'] = 1; StationMenu.refresh(); StationMenu.toggleSlot('weapon-1')`);
+  game(`cargo.gear['pulse-laser-2'] = 1; cargo.squad[0].xp = 5000; refreshWing(cargo.squad[0]); StationMenu.refresh(); StationMenu.toggleSlot('weapon-1')`);
   assert.match(onStation(), new RegExp(`Tool 1${name} · Tool mount`), 'the sheet is for the wingman');
   assert.match(onStation(), /Fitted.*Mining laserMk I.*Remove.*Spare gear.*Mining laserMk IISpare ×1/, 'what it has (your starting gear), then the spare gear');
   const dps = game('Squad.stats(cargo.squad[0]).firepower');
@@ -1108,6 +1116,39 @@ off('no job texts', 'jobs: an escort with a twist on the comms, handed in where 
   assert.deepStrictEqual(game('cargo.items.map((it) => it.kind)'), ['iron'], 'the goods handed over, nothing else');
   game('launch(); fight.grace = 0');
   removeTestJobs();
+});
+
+test('progress: a kill gives experience, a level up makes the ship stronger, a talent is taken; a lost ship is towed for a bill', () => {
+  if (game('!!docked')) game('launch()');
+  game(`globalThis.__was = { xp: cargo.pilot.xp, talents: [...cargo.pilot.talents], cls: cargo.cls, credits: cargo.credits };
+    cargo.pilot.xp = 0; cargo.pilot.talents = []; applyShip(); cargo.hull = SHIP.hull`);
+  const hull = game('SHIP.hull');
+  game(`gainXP(Progress.toNext(1) + Progress.toNext(2) + Progress.toNext(3) - 1)`);
+  assert.strictEqual(game('pilotLevel()'), 3);
+  assert.ok(game('SHIP.hull') > hull, 'sturdier at level 3');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Level 3 · a talent point to spend/);
+  assert.ok(game(`cargo.squad.every((m) => m.disabled || m.xp > 0)`), 'the squad learns too');
+  // A destroyed enemy: experience by its tier.
+  const xp = game('cargo.pilot.xp');
+  game(`gainXP(Progress.killXP(1, pilotLevel()))`);
+  assert.ok(game('cargo.pilot.xp') > xp);
+  // A talent: a point at level 3, spent on the Ship tab's sheet.
+  game('{ const st = __startStation(); placeShip(st.x, st.y + st.radius + 150); dock(st); } StationMenu.showTab("ship")');
+  assert.match(onStation(), /Pilot · level [34].*1 talent point to spend/);
+  assert.ok(game(`pilotView.take('reinforced-frame')`), 'taken');
+  assert.ok(!game(`pilotView.take('cargo-racks')`), 'no point left');
+  const withTalent = game('SHIP.hull');
+  game('cargo.credits = 10000');
+  assert.ok(game('pilotView.respec()') && game('SHIP.hull') < withTalent, 'forgotten for credits');
+  assert.strictEqual(game('cargo.credits'), 10000 - game('Progress.RESPEC(pilotLevel())'));
+  game('launch()');
+  // Lost: towed home, billed by the hull's price and how far out it was.
+  game('cargo.credits = 10000; wreck()');
+  const bill = game('towBill()');
+  assert.ok(bill > 0, `a bill (${bill})`);
+  assert.ok(until('!fight.wrecked && !(fight.wreckT > 0)', 60 * 10), 'towed home');
+  assert.strictEqual(game('cargo.credits'), 10000 - bill);
+  game(`cargo.pilot.xp = __was.xp; cargo.pilot.talents = __was.talents; cargo.credits = __was.credits; applyShip(); cargo.hull = SHIP.hull`);
 });
 
 test('text with **bold** runs becomes text and <strong> elements', () => {

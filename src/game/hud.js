@@ -2,6 +2,7 @@
 // minimap and the HUD.
 // Part of the flight view; src/main.js starts it.
 
+import { Progress } from '../rules/progress.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
 import { SystemMap } from '../ui/map.js';
@@ -410,9 +411,10 @@ export function drawHud() {
 }
 
 // Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),
-// and above it the hold and the meters that need watching, each an icon with a small gauge, in rows
-// going up as they fill one: a damaged hull, and the shields while down or recharging. Each is calm,
-// then amber, then red and pulsing when it's nearly gone. Also on a planet's surface (game/landing.js).
+// and above it the meters that need watching, each an icon with a small gauge, in rows going up as
+// they fill one: the pilot's level and experience, the hold, a damaged hull, and the shields while
+// down or recharging. Each is calm, then amber, then red and pulsing when it's nearly gone. Also on
+// a planet's surface (game/landing.js).
 const glyphImages = new Map();
 function glyph(name, color) {
   const key = `${name}|${color}`;
@@ -444,6 +446,7 @@ export function drawStatus(speed, set, fontSize = 14) {
   const is = Math.round(15 * k), gw = Math.round(40 * k), gh = Math.round(5 * k), lh = Math.round(Math.max(fontSize * 1.45, 19) * k);
   // Each: { icon, color, f (the gauge, 0..1), tail (text after it), critical }.
   const items = [];
+  { const p = Progress.of(cargo.pilot.xp); items.push({ icon: 'XP', f: p.max ? 1 : p.into / Math.max(1, p.need), tail: `L${p.level}`, color: COLORS.cyan }); } // the pilot's level and experience (game/progress.js)
   if (cargo.items.length) items.push({ icon: 'HLD', tail: `${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
   if (!inShipFight()) { // in a fight with ships the panel shows these
     if (cargo.hull < SHIP.hull) { // until it's repaired at a station

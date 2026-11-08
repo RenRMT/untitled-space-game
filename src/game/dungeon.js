@@ -25,15 +25,17 @@ import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
+import { Progress } from '../rules/progress.js';
 import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
 import { Vendor } from '../rules/vendor.js';
-import { cargo, lootNotice, saveCargo, takeLoot } from './cargo.js';
+import { cargo, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
 import { leave } from './surface-run.js';
+import { gainXP } from './progress.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
 
@@ -175,6 +177,7 @@ export function guardianDown(g) {
   if (!g.alive) return;
   g.alive = false;
   const R = dungeonRun, level = bodyLevel(R.e);
+  gainXP(Progress.killXP(clamp(g.tier, 1, 5), pilotLevel()) + (g.boss ? Progress.wardenXP(level) : 0), g.boss ? `the ${g.name}` : '');
   const drops = CombatCore.loot(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4)).map((d) => d.kind);
   if (g.boss) drops.push(...CombatCore.loot(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4).map((d) => d.kind));
   if (drops.length) leave(drops, g.x, g.y, `loot:${g.key}`, 30 * g.size);

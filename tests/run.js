@@ -43,6 +43,7 @@ import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Loot } from '../src/rules/loot.js';
 import { Vendor } from '../src/rules/vendor.js';
+import { Progress } from '../src/rules/progress.js';
 import { Structures } from '../src/rules/structures.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { Classes } from '../src/rules/classes.js';
@@ -5009,6 +5010,40 @@ test('vendor: gambits by level, needing what they build on; gear rolled per stat
   assert.ok(drop && !owned.has(drop) && Vendor.GAMBIT_TIER[drop] <= 2, drop);
   assert.strictEqual(Vendor.gambitDrop(1, 'warden', 5, new Set([...owned, ...Vendor.gambits(5)])), null);
   assert.ok(Vendor.sellsMods('capital') && !Vendor.sellsMods('minor'));
+});
+
+test('progress: levels from experience, less for easy kills, talents by level and class, gear and hulls by level', () => {
+  assert.deepStrictEqual(Progress.of(0), { level: 1, into: 0, need: Progress.toNext(1), max: false });
+  assert.strictEqual(Progress.of(Progress.toNext(1)).level, 2);
+  let all = 0;
+  for (let l = 1; l < Progress.MAX_LEVEL; l++) { assert.ok(Progress.toNext(l + 1) > Progress.toNext(l), 'each level takes longer'); all += Progress.toNext(l); }
+  assert.ok(Progress.of(all * 2).max && Progress.of(all * 2).level === Progress.MAX_LEVEL, 'a top level');
+  assert.ok(Progress.killXP(2, 1) > Progress.killXP(1, 1), 'tougher pays more');
+  assert.ok(Progress.killXP(1, 20) < Progress.killXP(1, 1) * 0.2, 'far below you pays little');
+  assert.strictEqual(Progress.killXP(1, 30), 0);
+  assert.ok(Progress.contractXP('elite', 5, 2) > Progress.contractXP('easy', 5, 2));
+  // Levels make a ship stronger; talents add on top, some only for a class.
+  const base = { hull: 100, shield: 50, firepower: 10, classDamage: 1, accuracy: 0.6, evasion: 0.1, shieldRecharge: 5 };
+  const l10 = Progress.apply(base, 10);
+  assert.ok(l10.hull > 100 && l10.firepower > 10 && l10.classDamage > 1);
+  assert.strictEqual(Progress.apply(base, 1).hull, 100);
+  assert.strictEqual(Progress.apply(base, 1, ['bulkheads']).hull, 112);
+  assert.strictEqual(Progress.apply(base, 1, ['quick-hands']).cooldown, 0.9);
+  assert.deepStrictEqual(Progress.upgrades(['cargo-racks', 'hardpoint-retrofit']), { cargo: 0.25, hull: 0, weapons: 1 });
+  const o = (level, cls, talents = []) => ({ level, cls, talents });
+  assert.deepStrictEqual(Progress.canTake('bulkheads', o(3, 'tank')), { ok: true, why: '' });
+  assert.strictEqual(Progress.canTake('bulkheads', o(3, 'dps')).why, 'Not for this class');
+  assert.strictEqual(Progress.canTake('armour-plating', o(9, 'dps')).why, 'Opens at level 12');
+  assert.strictEqual(Progress.canTake('reinforced-frame', o(3, 'dps', ['hot-loads'])).why, 'No talent points left');
+  assert.ok(Progress.talentsFor('healer').every((t) => !t.cls || t.cls === 'healer'));
+  assert.deepStrictEqual(Progress.read(['bulkheads', 'hot-loads', 'nope', 'hot-loads'], 'dps'), ['hot-loads']);
+  assert.ok(Progress.points(30) >= Progress.talentsFor('dps').length - 1, 'nearly every talent by the top level');
+  // Gear and hulls.
+  assert.strictEqual(Progress.gearLevel({ tier: 1 }), 1);
+  assert.strictEqual(Progress.gearLevel({ loot: { ilvl: 9 } }), 1);
+  assert.ok(Progress.gearLevel({ loot: { ilvl: 41 } }) > Progress.gearLevel({ loot: { ilvl: 21 } }));
+  assert.ok(Progress.HULL_LEVEL.gunship > Progress.HULL_LEVEL.corvette);
+  assert.deepStrictEqual([1, 9, 10, 19, 20].map(Progress.lineBonus), [0, 0, 1, 1, 2]);
 });
 
 if (failed) {

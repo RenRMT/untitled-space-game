@@ -17,13 +17,14 @@ import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
+import { Progress } from '../rules/progress.js';
 import { Vendor } from '../rules/vendor.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
+import { addTo, cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
@@ -34,6 +35,7 @@ import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
+import { gainXP } from './progress.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
@@ -443,6 +445,7 @@ export function shipDestroyed(key) {
   fight.dying.delete(key);
   if (!p) { saveCargo(); return; }
   explode(p.x, p.y, p.radius);
+  gainXP(Progress.killXP(p.tier || 1, pilotLevel())); // experience (game/progress.js), the squad's too
   CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
@@ -478,7 +481,16 @@ export function playerDestroyed() {
   saveCargo();
 }
 
+// The tow and the patching up are billed (as far as the credits go): a share of the hull's price,
+// more the further out it was lost (its system's level: world/galaxy.js).
+export const TOW_SHARE = 0.05;
+export function towBill() {
+  const sys = world.galaxy.systemAt?.(ship.x, ship.y), level = Math.max(1, sys?.level || 1);
+  return Math.min(cargo.credits, Math.round((Loadout.HULLS[cargo.loadout.hull]?.price || 0) * TOW_SHARE * level));
+}
 export function towHome() {
+  const bill = towBill();
+  cargo.credits -= bill;
   cargo.hull = SHIP.hull; // patched up enough to fly
   guard.shield = SHIP.shield;
   fight.wrecked = false;
@@ -489,7 +501,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
-  notify(`Ship lost · towed to ${home ? home.name : startStation().name} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
+  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
 

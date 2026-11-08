@@ -21,6 +21,13 @@ what you destroy, and push out from the safe core of your faction's space into h
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
   each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
+- **Levels and talents.** The pilot earns experience from what's destroyed (less for easy kills,
+  none far below you), contracts by their difficulty and every Warden; the squad learns alongside.
+  Levels go to 30, each a little sturdier and harder hitting; every third gives a talent point,
+  spent on the Ship tab (more hold, armour or a weapon mount on every hull, or sharper class
+  skills: `src/rules/progress.js`, `src/game/progress.js`). Gear asks for a level (loot by its item
+  level, Mk by Mk), hulls too, and levels 10 and 20 add program memory. A lost ship is towed home for
+  a bill, more the further out it was lost.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
   class starts with a program that does. A program is built from **gambits**, FF12 style: the

@@ -24,6 +24,7 @@ const Glyphs = (() => {
     SQD: '<path d="M12 3l3.5 7-3.5-1.8L8.5 10zM6 12.5l3.5 7L6 17.7l-3.5 1.8zM18 12.5l3.5 7-3.5-1.8-3.5 1.8z"/>',
     MSN: '<path d="M5.5 21V3.5"/><path d="M5.5 4h12l-2.5 4 2.5 4h-12"/>',
     OUT: '<path d="M5 8h14l-1.2 12.5H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>', // the outfitter: a bag
+    XP: '<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>', // the pilot: a star
     LOG: '<path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/><path d="M13.5 4.5l-3 15"/>', // a gambit: code
     // Ship slots and what they do.
     WPN: CROSSHAIR,

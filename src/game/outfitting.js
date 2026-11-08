@@ -4,9 +4,10 @@
 
 import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
+import { Progress } from '../rules/progress.js';
 import { DeepSpace } from '../world/deep-space.js';
 import { SolarSystem } from '../world/solar-system.js';
-import { addTo, applyShip, cargo, saveCargo, shipUpgrades } from './cargo.js';
+import { addTo, applyShip, cargo, pilotLevel, saveCargo, shipUpgrades } from './cargo.js';
 import { stopMining } from './mining.js';
 import { memberOf, refreshWing, snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
@@ -15,12 +16,17 @@ import { world } from './world.js';
 // Fitting gear and mods to a loadout, from the spare gear and mods: what was in the slot goes to the
 // spare gear; mods go in as far as the gear in their slot has room. on: the ship fitted, { get(), set(loadout),
 // upgrades(), takes(id) (whether this ship can take that gear), changed() (after every change),
-// refuses?(loadout) (why the ship can't be left like that, or null) }.
+// refuses?(loadout) (why the ship can't be left like that, or null), level() (the pilot's or the member's:
+// gear asks for one, rules/progress.js) }.
 // blocked(slot, id | null): why fitting that gear there (null: emptying the slot) can't be done, or null.
 function fitter(on) {
   const slotOf = (slot) => Loadout.slotsOf(on.get().hull, on.upgrades()).find((x) => x.id === slot);
   const put = (patch) => { on.set({ ...on.get(), ...patch }); return on.changed(); };
-  const blocked = (slot, id) => on.refuses?.({ ...on.get(), fitted: { ...on.get().fitted, [slot]: id } }) || null;
+  const blocked = (slot, id) => {
+    const need = id ? Progress.gearLevel(Loadout.EQUIPMENT[id]) : 1;
+    if (need > on.level()) return `Needs level ${need}`;
+    return on.refuses?.({ ...on.get(), fitted: { ...on.get().fitted, [slot]: id } }) || null;
+  };
   return {
     blocked,
     fit(slot, id) {
@@ -70,7 +76,7 @@ function trimmed(loadout) {
 // member(id): the same for a squad member's ship (fit, unfit, fitMod, removeMod; null if no such member).
 export const SELL_BACK = 0.5;
 const playerFit = fitter({
-  get: () => cargo.loadout, set: (l) => { cargo.loadout = l; }, upgrades: () => outfitting.upgrades,
+  get: () => cargo.loadout, set: (l) => { cargo.loadout = l; }, upgrades: () => outfitting.upgrades, level: () => pilotLevel(),
   takes: (id) => !Loadout.EQUIPMENT[id].npc, changed: () => changedShip(),
   // A cargo pod can't come out while the hold needs its room.
   refuses: (l) => { const room = Loadout.stats(l, outfitting.upgrades).cargo; return room < SHIP.cargo && cargo.items.length > room ? `Hold too full · ${room} units` : null; },
@@ -95,6 +101,7 @@ export const outfitting = {
   // Why a hull can't be bought right now, or null: the price, or a hold too full for it.
   hullBlocked(id) {
     if (id === cargo.loadout.hull) return 'Flying it';
+    if ((Progress.HULL_LEVEL[id] || 1) > pilotLevel()) return `Needs level ${Progress.HULL_LEVEL[id]}`;
     if (cargo.credits < outfitting.hullPrice(id)) return 'Not enough credits';
     const room = Loadout.stats({ hull: id, fitted: {} }, outfitting.upgrades).cargo;
     return cargo.items.length > room ? `Hold too full · ${room} units` : null;
@@ -122,7 +129,7 @@ export const outfitting = {
       get mods() { return cargo.mods; },
       android: true,
       ...fitter({
-        get: () => m.loadout, set: (l) => { m.loadout = l; }, upgrades: () => ({}), takes: () => true,
+        get: () => m.loadout, set: (l) => { m.loadout = l; }, upgrades: () => ({}), takes: () => true, level: () => Progress.of(m.xp).level,
         changed: () => { m.loadout = trimmed(m.loadout); refreshWing(m); saveCargo(); return true; },
       }),
     };

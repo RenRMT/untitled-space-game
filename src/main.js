@@ -36,6 +36,7 @@ import { Reputation } from './rules/reputation.js';
 import { Research } from './rules/research.js';
 import { Restoration } from './rules/restoration.js';
 import { Clock } from './core/clock.js';
+import { Progress } from './rules/progress.js';
 import { Squad } from './rules/squad.js';
 import { Vendor } from './rules/vendor.js';
 import { Jobs } from './story/jobs.js';
@@ -58,6 +59,7 @@ import * as world from './game/world.js';
 import * as cargo from './game/cargo.js';
 import * as outfitting from './game/outfitting.js';
 import * as vendor from './game/vendor.js';
+import * as progress from './game/progress.js';
 import * as missions from './game/missions.js';
 import * as jobs from './game/jobs.js';
 import * as docking from './game/docking.js';
@@ -81,7 +83,7 @@ import * as dungeon from './game/dungeon.js';
 import * as structures from './game/structures.js';
 import * as surfaceSquad from './game/surface-squad.js';
 
-const parts = [state, options, world, cargo, outfitting, vendor, missions, jobs, docking, squad, mining, travel,
+const parts = [state, options, world, cargo, outfitting, vendor, progress, missions, jobs, docking, squad, mining, travel,
   selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
@@ -91,7 +93,7 @@ requestAnimationFrame(loop.frame);
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
   Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout, Loot, Structures,
-  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor,
+  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor, Progress,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

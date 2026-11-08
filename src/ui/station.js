@@ -20,6 +20,7 @@
 //               the ship's equipment and mods, spare gear and mods, a
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
 // vendor: game/vendor.js: what the station's outfitter sells, and buying it.
+// pilot: game/progress.js pilot: the level, experience and talents, and taking them.
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
@@ -70,6 +71,7 @@ const StationMenu = (() => {
   let openMission = null; // the mission whose sheet is open, if any
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let openYard = false; // the shipyard's sheet is open
+  let openTalents = false; // the pilot's talents sheet is open
   let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
@@ -643,6 +645,7 @@ const StationMenu = (() => {
     return [
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
+      pilotRow(),
       ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class') : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
@@ -651,6 +654,44 @@ const StationMenu = (() => {
       renderGear(),
       shipyardRow(),
     ];
+  }
+
+  // ---------- The pilot ----------
+
+  // The pilot's level and experience (game/progress.js), a row that opens the talents sheet.
+  function pilotRow() {
+    const p = ctx.pilot;
+    if (!p) return null;
+    return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showTalents() },
+      Kit.icon('XP', 28, { code: 'XP' }),
+      h('span', { class: 'main' },
+        h('span', { class: 'title' }, `Pilot · level ${p.level}`),
+        Kit.meter(p.max ? 1 : p.into / Math.max(1, p.need), { thin: true, color: 'var(--cyan)' }),
+        h('span', { class: 'foot' }, [p.max ? 'Top level' : `${p.into.toLocaleString('en-US')} / ${p.need.toLocaleString('en-US')} XP`,
+          p.left > 0 ? `${p.left} talent point${p.left === 1 ? '' : 's'} to spend` : `${p.talents.length} talent${p.talents.length === 1 ? '' : 's'}`].join(' · '))),
+      p.left > 0 ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, `+${p.left}`) : null,
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  // Talents: what your class can take, each opening at a level, a point each; then forgetting them
+  // all for credits.
+  function talentSheet() {
+    const p = ctx.pilot;
+    const rows = p.list().map((t) => Kit.optionRow({
+      code: 'XP', name: t.name, sub: t.note, current: t.taken,
+      tag: t.taken ? 'Taken' : `Level ${t.level}${t.cls ? ` · ${Classes.CLASSES[t.cls].name}` : ''}`, tagTone: t.taken ? 'good' : null, locked: !t.taken && p.level < t.level,
+      action: t.taken ? null : Kit.button('Take', act(() => p.take(t.id)), { kind: 'primary', disabled: !t.ok, title: t.why || undefined, aria: `Take ${t.name}` }),
+    }));
+    return {
+      title: 'Talents', code: 'XP', sub: `Level ${p.level} · ${p.left} of ${p.points} point${p.points === 1 ? '' : 's'} to spend · a point every third level`,
+      body: [
+        info('Talents make every hull you fly better (more hold, armour, a weapon mount) or sharpen your class\'s skills. Some are for one class: changing class gives their points back.'),
+        h('div', { class: 'ui-list' }, rows),
+      ],
+      foot: Kit.button('Forget all talents', act(() => p.respec()), {
+        wide: true, kind: 'ghost', price: p.respecPrice, disabled: !p.talents.length || ctx.hold.credits < p.respecPrice,
+        title: !p.talents.length ? 'No talents taken' : undefined, aria: `Forget all talents for ${p.respecPrice} credits`,
+      }),
+    };
   }
 
   // ---------- Outfitter ----------
@@ -671,7 +712,8 @@ const StationMenu = (() => {
       const item = { id: g.spec.id, ...g.item }, cur = slots.find((x) => x.type === item.slot)?.item || null;
       return Kit.optionRow({
         code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[item.slot]).filter((x) => !SPARSE.has(item.slot) || x.diff),
-        tag: g.sold ? 'Sold' : lootTag(item), tagTone: g.sold ? null : Loot.rarityOf(item.loot.rarity).color, note: lootNote(item) || null, locked: g.sold,
+        tag: g.sold ? 'Sold' : `${lootTag(item)}${g.need > 1 ? ` · lvl ${g.need}` : ''}`, tagTone: g.sold ? null : g.need > (ctx.pilot?.level ?? 99) ? 'var(--warn)' : Loot.rarityOf(item.loot.rarity).color,
+        note: [lootNote(item), g.need > (ctx.pilot?.level ?? 99) ? `Needs level ${g.need} to fit.` : ''].filter(Boolean).join(' ') || null, locked: g.sold,
         open: openOption === `shop:${g.i}`, onToggle: g.sold ? null : () => { openOption = openOption === `shop:${g.i}` ? null : `shop:${g.i}`; refresh(); },
         action: g.sold ? null : Kit.button('Buy', act(() => v.buyGear(g.i)), { price: g.price, disabled: ctx.hold.credits < g.price, title: ctx.hold.credits < g.price ? 'Not enough credits' : undefined, aria: `Buy ${item.name}` }),
       });
@@ -998,16 +1040,16 @@ const StationMenu = (() => {
 
   function sheetOptions() {
     return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet()
-      : openYard && ctx.shipyard ? yardSheet() : openNews ? newsSheet() : null;
+      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = false; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = false; refresh(); } });
   }
   function closeSheet() {
     openSlot = openMission = openLine = openNews = null;
-    openYard = false;
+    openYard = openTalents = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
@@ -1025,6 +1067,7 @@ const StationMenu = (() => {
     };
   }
   function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
+  function showTalents() { closeSheet(); openTalents = true; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;

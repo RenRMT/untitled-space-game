@@ -18,6 +18,7 @@ import { drag } from './input.js';
 import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
 import { vendor } from './vendor.js';
+import { pilotView } from './progress.js';
 import { outfitting, placeShip } from './outfitting.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
@@ -109,6 +110,7 @@ export function dock(station) {
     ship: SHIP,
     outfitting,
     vendor,
+    pilot: pilotView,
     get kit() { return cargo.kit; },
     shipyard: station.market.type === 'capital', // hulls: at a capital's shipyard
     repairs,

@@ -8,7 +8,7 @@
 //   vendor.at(station)        the station docked at (game/docking.js), or null once launched
 //   vendor.level              its system's level (world/galaxy.js), 1..5
 //   vendor.gambits() -> [{ id, title, note, tier, price, owned, ok, why }]
-//   vendor.gear() -> [{ i, spec, item, price, sold }]          vendor.kit() -> [{ id, ability, price, count }]
+//   vendor.gear() -> [{ i, spec, item, need (the level it asks for), price, sold }]          vendor.kit() -> [{ id, ability, price, count }]
 //   vendor.mods() -> [{ id, mod, price, count }] (none where mods aren't sold)
 //   vendor.buyGambit(id), vendor.buyGear(i), vendor.buyKit(id), vendor.buyMod(id) -> true if bought
 //   ownedGambits() -> Set of package ids (the free ones among them)
@@ -20,6 +20,7 @@ import { Abilities } from '../rules/abilities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
+import { Progress } from '../rules/progress.js';
 import { Research } from '../rules/research.js';
 import { Vendor } from '../rules/vendor.js';
 import { addTo, cargo, saveCargo, takeLoot } from './cargo.js';
@@ -72,7 +73,7 @@ export const vendor = {
     if (!here) return [];
     const sold = boughtHere();
     return Vendor.gear(here.key, here.level, today(), { capital: here.capital, cls: cargo.cls, seed: world.galaxy?.seed ?? 0 })
-      .map((spec, i) => ({ i, spec, item: Loot.make(spec), price: Vendor.gearPrice(spec), sold: sold.includes(i) }));
+      .map((spec, i) => { const item = Loot.make(spec); return { i, spec, item, need: Progress.gearLevel(item), price: Vendor.gearPrice(spec), sold: sold.includes(i) }; });
   },
   buyGear(i) {
     const g = vendor.gear()[i];

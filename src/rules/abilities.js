@@ -162,7 +162,7 @@ const Abilities = (() => {
     const a = ABILITIES[id], ev = (to, extra = {}) => ({ type: 'ability', from: user.id, to: to.id, ability: id, ...extra });
     const timed = (c, extra) => {
       c.status = (c.status || []).filter((x) => x.until > now && x.id !== extra.id);
-      c.status.push({ until: now + a.time, ...extra });
+      c.status.push({ until: now + a.time * (user.stats?.skillTime ?? 1), ...extra }); // talents (rules/progress.js) lengthen them
       tick(c, now);
     };
     switch (id) {
@@ -171,10 +171,10 @@ const Abilities = (() => {
       case 'overload': timed(user, { id: 'overload', damage: a.damage }); return [ev(user)];
       case 'mark': timed(target, { id: 'mark', taken: a.taken }); return [ev(target)];
       case 'bulwark': case 'restore': { const amount = target.stats.shield - target.shield; target.shield = target.stats.shield; return [ev(target, { amount })]; }
-      case 'repair-beam': return [ev(target, { amount: heal(target, a.hull) })];
+      case 'repair-beam': return [ev(target, { amount: heal(target, a.hull * (user.stats?.heal ?? 1)) })];
       case 'nanite-field': {
         const side = s.enemies.includes(user) ? s.enemies : [s.player, ...(s.allies || [])];
-        return side.filter((c) => c.hull > 0).map((c) => ev(c, { amount: heal(c, a.hull) }));
+        return side.filter((c) => c.hull > 0).map((c) => ev(c, { amount: heal(c, a.hull * (user.stats?.heal ?? 1)) }));
       }
       case 'salvo': {
         const base = user.base || user.stats, mult = (user.stats.firepower || 0) / Math.max(1e-6, base.firepower || 1);
@@ -208,7 +208,7 @@ const Abilities = (() => {
   function use(user, id, target, now) {
     if (!ready(user, id, target, now)) return null;
     const a = ABILITIES[id];
-    (user.cooldowns ||= {})[id] = now + a.cooldown;
+    (user.cooldowns ||= {})[id] = now + a.cooldown * (a.skill ? user.stats?.cooldown ?? 1 : 1); // talents shorten a skill's (rules/progress.js)
     if (a.skill) { // activation: the effect lands when it's done (resolve)
       user.casting = { id, to: target.id, at: now + (a.cast || 0), cast: a.cast || 0 };
       return { type: 'cast', from: user.id, to: target.id, ability: id, cast: a.cast || 0 };

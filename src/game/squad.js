@@ -9,6 +9,7 @@ import { Abilities } from '../rules/abilities.js';
 import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
+import { Progress } from '../rules/progress.js';
 import { Squad } from '../rules/squad.js';
 import { applyShip, cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode, useAbility } from './combat.js';
@@ -311,6 +312,7 @@ export const programs = {
   setPlayerClass(cls) {
     if (!Classes.CLASSES[cls] || cargo.cls === cls) return false;
     cargo.cls = cls;
+    cargo.pilot.talents = Progress.read(cargo.pilot.talents, cls); // the old class's own talents go: their points back
     applyShip();
     cargo.hull = SHIP.hull;
     saveCargo();

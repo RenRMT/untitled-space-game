@@ -18,13 +18,15 @@
 //   isStructure(e), structureGroup(e), structureSpec(e), structurePose(e), defenderSpecs(at, foes)
 //   attackStructure(e), structureDestroyed(e, o), syncStructures(s), orderDefenders(s), structureAggro(list)
 
+import { Progress } from '../rules/progress.js';
 import { CombatCore } from '../combat/combat-core.js';
 import { Clock } from '../core/clock.js';
 import { Loot } from '../rules/loot.js';
 import { Reputation } from '../rules/reputation.js';
 import { Structures } from '../rules/structures.js';
 import { Factions } from '../world/factions.js';
-import { cargo, dropEntity, saveCargo } from './cargo.js';
+import { cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
+import { gainXP } from './progress.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
 import { NEAR, TAU, fight, notify, ship } from './state.js';
@@ -205,6 +207,7 @@ export function structureDestroyed(e, { friendly = false } = {}) {
   if (faction && Factions.get(owner)) Reputation.change(cargo.rep, owner, -Structures.REGARD[e.kind === 'turret' ? 'turret' : 'station']);
   const source = e.kind === 'turret' ? 'turret' : e.kind === 'outpost' ? 'outpost' : 'station';
   const level = e.tier || 1;
+  gainXP(Progress.killXP(level + (e.kind === 'station' ? 1 : 0), pilotLevel()) * (e.kind === 'station' ? 3 : 1.5)); // tougher than a ship: more for it
   const specs = Loot.drops(source, `${e.key}:${cargo.razed[e.key] || 0}`, { level, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity });
   specs.forEach((spec, i) => {
     const a = (i / Math.max(1, specs.length)) * TAU + Math.random(), r = fightRadius(e) + 40 + Math.random() * 60;

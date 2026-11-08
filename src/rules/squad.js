@@ -5,7 +5,7 @@
 // - A member is plain data, saved with the cargo (game/cargo.js): { id, name, seed, hull (a ship class,
 //   rules/loadout.js), loadout ({ hull, fitted, mods, armour }: its gear, fitted from the spare gear
 //   at a dock like the player's; it joins with the gear the player starts with, Squad.starter),
-//   program: [line], hullPoints, disabled, cls (its class: Tank, DPS or Healer, rules/classes.js) }.
+//   program: [line], hullPoints, disabled, cls (its class: Tank, DPS or Healer, rules/classes.js), xp (rules/progress.js) }.
 // - A member whose hull is shot down is disabled: it drops out of the fight and rejoins, repaired,
 //   the next time the player docks.
 //
@@ -25,6 +25,7 @@
 //   Squad.read(saved, known) -> [members]   a save, checked (lines that don't check are kept, off)
 // ES module (`Squad`); also runs in Node (the tests).
 
+import { Progress } from './progress.js';
 import { clamp } from '../core/math.js';
 import { mulberry32 } from '../core/rng.js';
 import { Classes } from './classes.js';
@@ -51,13 +52,14 @@ const Squad = (() => {
   function member(seed, { program = [], hull = 'fighter', loadout = null, id = `sq${seed >>> 0}`, cls = Classes.DEFAULT } = {}) {
     const m = {
       id, name: designation(seed), seed: seed >>> 0, hull, cls: Classes.valid(cls), loadout: validLoadout(loadout, hull) || starter(hull),
-      program: program.slice(0, MAX_LINES), hullPoints: 0, disabled: false,
+      program: program.slice(0, MAX_LINES), hullPoints: 0, disabled: false, xp: 0,
     };
     m.hullPoints = stats(m).hull;
     return m;
   }
 
-  const stats = (m) => Classes.apply(Load.stats(m.loadout), m.cls);
+  // Its gear, its class, then its level (rules/progress.js: a little sturdier and harder hitting a level).
+  const stats = (m) => Progress.apply(Classes.apply(Load.stats(m.loadout), m.cls), Progress.of(m.xp).level);
 
   // A hull fitted with what the player starts with: the Courier's starting gear, slot for slot.
   function starter(hull) {
@@ -117,6 +119,7 @@ const Squad = (() => {
     return saved.filter((d) => d && Number.isFinite(d.seed) && Load.HULLS[d.hull]?.npc).map((d) => {
       const program = (Array.isArray(d.program) ? d.program : []).map((x) => L.read(x, known));
       const m = member(d.seed, { program, hull: d.hull, loadout: d.loadout, id: String(d.id), cls: d.cls });
+      if (Number.isFinite(d.xp)) m.xp = Math.max(0, Math.floor(d.xp));
       if (Number.isFinite(d.hullPoints)) m.hullPoints = clamp(d.hullPoints, 0, stats(m).hull);
       m.disabled = !!d.disabled;
       return m;

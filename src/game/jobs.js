@@ -10,6 +10,7 @@
 // taken again starts over.
 // Part of the flight view; src/main.js starts it.
 
+import { Progress } from '../rules/progress.js';
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtTurrets } from '../art/turrets.js';
 import { ArtCrew } from '../art/crew.js';
@@ -26,7 +27,8 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, hold, lootNotice, saveCargo, takeLoot } from './cargo.js';
+import { addTo, cargo, hold, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { gainXP } from './progress.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -462,6 +464,7 @@ export function completeJob(id) {
     }
   }
   log().complete(id);
+  gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
   for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);
   Reputation.earn(cargo.rep, J);
