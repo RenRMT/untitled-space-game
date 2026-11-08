@@ -500,7 +500,7 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     const st = surfaceStackOf(it);
     if (st[0] !== it) continue; // under the top of its stack
     const p = at(it.x, it.y);
-    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), time, it.key, surfaceSel.it === it, { count: st.length, name: goodName(it.kind) });
+    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), surfaceSel.it === it, { count: st.length, name: goodName(it.kind) });
   }
   for (const b of debris) {
     const p = at(b.x, b.y, 4);
@@ -526,12 +526,12 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     }
     drawRing(p[0], p[1], dep.radius * zoom + 10, Math.min(1, mine.t / mine.total), 3);
   }
-  // The selection: a node ringed (a drop's own ring brightens), its context menu round it.
+  // The selection: a node or a drop ringed, its context menu round it.
   const sel = surfaceSel.it;
   if (sel && selGone(sel)) selectOnSurface(null);
   else if (sel) {
     const q = scr(sel.x, sel.y), r = isDeposit(sel) ? sel.radius * zoom + 16 : DROP_PX / 2 + 6;
-    if (q && isDeposit(sel)) {
+    if (q) { // (a drop too: it has no ring of its own)
       ctx.strokeStyle = COLORS.cyan;
       ctx.globalAlpha = 0.7 + 0.25 * Math.sin(time * 4);
       ctx.lineWidth = 2;
