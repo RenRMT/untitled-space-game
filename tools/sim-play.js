@@ -79,7 +79,7 @@ function play({ mode, seed, systems, wait }) {
         break;
       }
     }
-    if (s.status !== 'play') { row.built = R.builtCount(s); row.left = 'LOST'; out.push(row); break; }
+    if (s.status !== 'play') { row.built = R.builtCount(s); row.left = s.status === 'won' ? 'WON' : 'LOST'; out.push(row); break; }
     out.push(row);
   }
   return { rows: out, meta };

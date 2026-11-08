@@ -107,6 +107,8 @@ const SimSheets = (() => {
         const t = C.TRAITS[b.trait], tone = t.culture ? C.CULTURES[t.culture].color : 'var(--new)';
         out.push(h('div', { class: 'sim-trait', style: { '--tone': tone } }, Kit.icon(t.code, 28, { code: t.code }), h('div', {}, h('b', {}, t.name), h('span', { class: 'sim-note' }, t.note))));
       }
+      // Its ground, as the survey drones saw it (art/surface.js).
+      if (b.kind === 'planet' || b.kind === 'moon') out.push(h('figure', { class: 'sim-survey' }, h('img', { src: SimFaces.surface(b.kind, b.art, style), alt: `The surface of ${b.name}` }), h('figcaption', {}, 'Surface survey')));
       const st = state.stations[b.key];
       if (st) out.push(...station(ctx, b, st));
       else out.push(...buildHere(ctx, b));

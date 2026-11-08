@@ -232,6 +232,7 @@ function resume() {
   selected = null; buildType = null;
   bar(); tabs(); advise();
   if (state.status === 'lost') screens.lost(state, meta, style);
+  else if (state.mode === 'story' && state.intro !== state.depth) { state.speed = 0; screens.intro(state, meta, style); }
 }
 
 // ---------- Actions ----------
@@ -260,11 +261,14 @@ function act(name, a = {}) {
       if (!r) return;
       saveMeta(); save.now();
       Feedback.emit('built');
+      if (r.won) { screens.ending(state, meta, style, r); return; }
       map.setSystem(R.world(state));
       screens.arrived(state, meta, style, r);
       return;
     }
     case 'arrive': state.speed = 1; resume(); return;
+    case 'begin': state.intro = state.depth; state.speed = 1; save.change(); screens.hide(); return;
+    case 'finish': state = null; SimSave.writeRun(null); title(); return;
     case 'retry': R.retry(state, meta); save.now(); resume(); return;
     case 'endrun': { const r = R.endRun(state, meta); saveMeta(); state = null; SimSave.writeRun(null); screens.over(r, meta, style); return; }
     case 'answer': {

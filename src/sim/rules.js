@@ -23,6 +23,8 @@
 //   SimRules.gateStatus(state, meta) -> { stage, of, building, f, cost, ok, why, done, charge }
 //   SimRules.buildGate(state, meta) -> bool
 //   SimRules.choices(state, meta) -> [destination]   where the gate leads (the jump's choices), with their preview
+//                                                  (story: the next chapter's cultures and hazards; none from the last)
+//   SimRules.isFinal(state) -> bool                  the story's last system: the jump wins
 //   SimRules.jump(state, meta, i) -> summary | null  { from, insight, parts: [[label, n]], boons }
 //   SimRules.retry(state, meta)                      a lost system again, from its arrival (story)
 //   SimRules.endRun(state, meta) -> { escaped, insight }   a lost endless run: what it keeps
@@ -31,6 +33,7 @@
 // ES module (`SimRules`); also runs in Node (the tests).
 
 import { SimConfig } from './config.js';
+import { SimStory } from './story.js';
 import { SimWorld } from './world.js';
 
 const SimRules = (() => {
@@ -54,7 +57,7 @@ const SimRules = (() => {
   const archive = (meta, id) => (meta && meta.archive && meta.archive[id]) || 0;
   // Whether the Archive is open: once the story has reached the Shard (who bring it), or after an
   // endless run's first jump.
-  const archiveOpen = (meta) => (meta?.story || 0) >= 3 || (meta?.insight || 0) > 0 || Object.keys(meta?.archive || {}).length > 0;
+  const archiveOpen = (meta) => (meta?.story || 0) >= 3 || !!meta?.endless;
   function buyArchive(meta, id) {
     const A = C.ARCHIVE[id], lv = archive(meta, id);
     if (!A || lv >= A.lv || meta.insight < A.cost[lv]) return false;
@@ -71,7 +74,8 @@ const SimRules = (() => {
       unrest: 0, log: [], past: [], boon: null, insightSys: 0, choices: null, arrival: null, rates: null,
       requests: [], offers: [], effects: {}, next: {}, seq: 1,
     };
-    enter(state, meta, terms || { seed, depth: 0, distance: 'mid', rich: null, hazard: null, cultures: mode === 'endless' ? ALL : ['android'] });
+    if (mode === 'endless' && meta) meta.endless = true;
+    enter(state, meta, terms || (mode === 'story' ? SimStory.terms(0, seed) : { seed, depth: 0, distance: 'mid', rich: null, hazard: null, cultures: ALL }));
     return state;
   }
 
@@ -95,6 +99,7 @@ const SimRules = (() => {
     state.next = { request: C.REQUESTS.first, alien: C.ALIENS.first, hazard: C.HAZARDS[terms.hazard]?.every || 0 };
     state.log = [];
     state.arrival = { terms: state.terms, boon };
+    if (state.mode === 'story' && meta) meta.story = Math.max(meta.story || 0, state.depth);
     state.rates = rates(state, meta);
   }
 
@@ -113,7 +118,7 @@ const SimRules = (() => {
       case 'gate': {
         const stage = C.GATE[state.gate.stage];
         if (!stage) return null;
-        return scale(stage.cost, mul * (1 + C.GATE_DEPTH * state.depth) * C.ARCHIVE.gate.gateMul ** archive(meta, 'gate'));
+        return scale(stage.cost, mul * (1 + C.GATE_DEPTH * state.depth * (state.terms.ease ?? 1)) * C.ARCHIVE.gate.gateMul ** archive(meta, 'gate'));
       }
       default: return null;
     }
@@ -364,17 +369,22 @@ const SimRules = (() => {
   }
 
   // ---------- The jump ----------
+  // Whether this is the story's last system: its gate leads out of the hole's reach.
+  const isFinal = (state) => state.mode === 'story' && state.depth >= SimStory.LAST;
   function choices(state, meta) {
+    if (isFinal(state)) return [];
     if (!state.choices) {
       const count = 3 + archive(meta, 'scanner');
-      state.choices = SimWorld.choices(state.terms.seed, state.depth, { count, cultures: state.terms.cultures });
+      const ch = state.mode === 'story' ? SimStory.chapter(state.depth + 1) : null;
+      state.choices = SimWorld.choices(state.terms.seed, state.depth, ch ? { count, cultures: ch.cultures, hazards: ch.hazards } : { count, cultures: state.terms.cultures })
+        .map((t) => (ch ? { ...t, traits: ch.traits, ease: SimStory.EASE } : t));
     }
     const charge = state.gate.charge;
     return state.choices.map((t) => {
       const lifeMul = 1 + charge * C.HORIZON.overchargeLife;
       const w = SimWorld.generate(t.seed, { ...t, lifeMul: lifeMul * (1 + archive(meta, 'damper') * C.ARCHIVE.damper.life) });
       const pullCut = Math.round(charge * 10);
-      return { terms: { ...t, lifeMul, pullCut }, name: w.name, star: w.star, life: w.life, pull0: Math.max(0, w.pull0 - pullCut), bodies: w.bodies.length - 1,
+      return { terms: { ...t, lifeMul, pullCut }, name: w.name, star: w.star, sky: w.sky, life: w.life, pull0: Math.max(0, w.pull0 - pullCut), bodies: w.bodies.length - 1,
         minerals: w.bodies.reduce((s, b) => s + b.m, 0), volatiles: w.bodies.reduce((s, b) => s + b.v, 0), traits: w.bodies.filter((b) => b.trait).map((b) => b.trait) };
     });
   }
@@ -395,7 +405,7 @@ const SimRules = (() => {
   function jump(state, meta, i) {
     if (state.status !== 'play' || state.gate.stage < C.GATE.length) return null;
     const list = choices(state, meta), dest = list[i];
-    if (!dest) return null;
+    if (!dest && !isFinal(state)) return null;
     const w = world(state);
     const parts = [['Science', Math.floor(state.made.sci / C.INSIGHT.sci)], ['Overcharge', Math.round(state.gate.charge * C.INSIGHT.charge)], ['Finds and requests', state.insightSys]];
     const boons = boonsNow(state);
@@ -412,6 +422,12 @@ const SimRules = (() => {
     state.depth++; state.escaped++;
     if (state.mode === 'endless') meta.best = Math.max(meta.best || 0, state.escaped);
     const from = w.name;
+    if (!dest) {
+      // The story's last jump: out of the hole's reach.
+      state.status = 'won'; state.speed = 0;
+      meta.story = SimStory.LAST + 1;
+      return { from, to: null, won: true, insight, parts: parts.filter(([, n]) => n > 0), boons: [] };
+    }
     enter(state, meta, { ...dest.terms, depth: state.depth }, boon);
     return { from, to: world(state).name, insight, parts: parts.filter(([, n]) => n > 0), boons: boons.map((c) => C.BOONS[c]) };
   }
@@ -427,7 +443,7 @@ const SimRules = (() => {
 
   return {
     VERSION, RES, ALL, newRun, enter, world, tick, dilation, rates, cost, afford, short, canBuild, previewAt, build, upgrade, addShip, addSlot, demolish,
-    gateStatus, buildGate, choices, jump, retry, endRun, insightNow, boonsNow, archive, archiveOpen, buyArchive, has, builtCount, stationRates, snapshot, bodyOf,
+    gateStatus, buildGate, choices, isFinal, jump, retry, endRun, insightNow, boonsNow, archive, archiveOpen, buyArchive, has, builtCount, stationRates, snapshot, bodyOf,
   };
 })();
 

@@ -210,3 +210,12 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 .sim-past b { display: block; font: 700 17px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #ffb0a0; }
 .sim-past span { font: 400 12px var(--mono); color: #c08080; }
 body.past #bar, body.past #nav, body.past #bubbles { display: none; }
+
+/* A story chapter's opening. */
+.sim-kicker { margin: 0; text-align: center; font: 400 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+.sim-sysname { display: block; font: 700 15px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
+
+/* A body's surface survey: a strip of its ground. */
+.sim-survey { position: relative; margin: 0; border: 1px solid var(--line); overflow: hidden; }
+.sim-survey img { display: block; width: 100%; aspect-ratio: 8 / 3; object-fit: cover; }
+.sim-survey figcaption { position: absolute; left: 6px; bottom: 4px; font: 400 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bright); text-shadow: 0 1px 2px #000; }

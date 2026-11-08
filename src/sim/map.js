@@ -128,6 +128,7 @@ const SimMap = (() => {
       }
       specks = Array.from({ length: 160 }, () => ({ x: rr(), y: rr(), a: 0.15 + rr() * 0.4, s: rr() < 0.1 ? 1.4 : 0.9, v: 0.3 + rr() }));
       hole = ArtSites.sample('stellar-black-hole', sys.seed % 97 + 3, 'heavy');
+      hazardSite = null;
       stationArt.clear();
       fit();
       want.x = want.y = 0; want.k = fitK; cam.x = cam.y = 0; cam.k = fitK; follow = null;
@@ -144,6 +145,7 @@ const SimMap = (() => {
     const shipBp = (bodyKey, st, i) => artFor(`sh:${bodyKey}:${st.type}:${st.level >= 3}:${i}`, () => shipArt0(sys.seed, st, i));
     const turretBp = (bodyKey, st, i) => artFor(`tu:${bodyKey}:${i}`, () => ArtTurrets.create(i % 2 ? 'gun' : 'missile', cultureArt(st.culture || 'wedge', sys.seed), (st.seed || 1) + i));
     const gateBp = () => artFor('gate', () => ArtBlueprints.create('gate', cultureArt('android', sys.seed), sys.seed % 991 + 1));
+    const yardBp = () => artFor('yard', () => ArtStationRoles.create('shipyard', cultureArt('android', sys.seed), sys.seed % 313 + 1, 'minor'));
     const arkBp = () => artFor('ark', () => ArtBlueprints.playerShip(cultureArt('android', sys.seed)));
     const wreckBp = (key) => artFor(`wr:${key}`, () => ArtBlueprints.create('wreck-station', cultureArt('drifters', sys.seed), sys.seed + key.length * 13));
     const wormholeBp = () => artFor('wormhole', () => ArtBlueprints.create('wormhole', null, sys.seed % 77 + 1));
@@ -483,6 +485,8 @@ const SimMap = (() => {
           ctx.restore();
         }
       }
+      // While the gate goes up, the androids' yard (a shipyard station) works beside it.
+      if (b || (done > 0 && done < SimConfig.GATE.length)) drawAsset(yardBp(), { x: p.x - rpx * 1.6, y: p.y + rpx * 0.7 }, Math.max(6, 8 * k), t * 0.05, t);
       drawAsset(arkBp(), { x: p.x + rpx * 1.7, y: p.y + rpx * 0.9 }, Math.max(4, 6 * k), -Math.PI / 2 + Math.sin(t * 0.2) * 0.1, t, 0.3);
     }
 
@@ -500,13 +504,14 @@ const SimMap = (() => {
 
     // The hazard, if the system has one: its deep-space art (art/sites.js) low in a corner of the sky.
     let hazardSite = null;
+    // Without one, whatever's in its sky (world.js sky), fainter.
     function drawHazard(id, perf) {
-      const hz = id && SimConfig.HAZARDS[id];
-      if (!hz) return;
-      if (!hazardSite || hazardSite.kind !== hz.site) hazardSite = ArtSites.sample(hz.site, sys.seed % 50 + 1);
-      const R = Math.min(W, H) * 0.32, s = R / hazardSite.r;
+      const hz = id && SimConfig.HAZARDS[id], kind = hz ? hz.site : sys.sky;
+      if (!kind) return;
+      if (!hazardSite || hazardSite.kind !== kind) hazardSite = ArtSites.sample(kind, sys.seed % 50 + 1);
+      const R = Math.min(W, H) * (hz ? 0.32 : 0.26), s = R / hazardSite.r;
       ctx.save();
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = hz ? 0.45 : 0.3;
       ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * (W - R * 0.55), dpr * (H - bottom - R * 0.45));
       ArtSites.draw(ctx, hazardSite, STYLE, { phase: { beam: perf / 2000, jet: -Math.PI / 2, brightness: 0.5 + 0.5 * Math.sin(perf / 1500) } });
       ctx.restore();

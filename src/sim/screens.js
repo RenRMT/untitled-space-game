@@ -1,11 +1,13 @@
 // Redshift's full screens, over everything (the #screen layer): the title (story, endless, or the run
 // under way), the jump's choice of destinations, the arrival (what the last system earned), a system
-// lost to the horizon, a run's end, and the Archive (permanent upgrades, bought with Insight). Built from the UI kit; buttons name what they do through
+// lost to the horizon, a run's end, the Archive (permanent upgrades, bought with Insight), and the
+// story's chapter openings and its ending. Built from the UI kit; buttons name what they do through
 // act(name, args), which the page (main.js) carries out.
 //
 //   SimScreens.create(layer, { act }) -> screens
 //     screens.title(state, meta, style), jump(state, meta, style), arrived(state, meta, style, summary),
 //     lost(state, meta, style), over(result, meta, style), archive(state, meta, style, back: 'title' | 'arrive'),
+//     intro(state, meta, style) (a story chapter's opening), ending(state, meta, style, summary) (the story won),
 //     hide(), refresh()   (the title, the jump or the Archive again, after something changed)
 //     screens.open: whether one is showing
 // ES module (`SimScreens`); needs a browser.
@@ -17,6 +19,7 @@ import { SimConfig } from './config.js';
 import { SimFaces } from './faces.js';
 import { SimRules } from './rules.js';
 import { SimSheets } from './sheets.js';
+import { SimStory } from './story.js';
 
 const SimScreens = (() => {
   const { h } = UI;
@@ -70,6 +73,7 @@ const SimScreens = (() => {
             h('div', { class: 'facts' }, h('span', {}, DIST[d.terms.distance]), h('span', {}, RICH[d.terms.rich])),
             h('div', { class: 'facts' }, h('span', {}, 'Horizon from ', h('b', {}, `${d.pull0}%`)), h('span', {}, h('b', {}, `${d.life}`), ' cycles')),
             h('div', { class: 'facts' }, h('span', {}, `${d.bodies} bodies`), h('span', {}, SimSheets.resIcon('m', style, 14), ` ${d.minerals}`), h('span', {}, SimSheets.resIcon('v', style, 14), ` ${d.volatiles}`), d.traits.length ? h('span', {}, `${d.traits.length} traits`) : null))),
+        h('div', { class: 'facts' }, h('span', {}, 'In its sky: ', h('b', {}, ArtSites.KINDS[d.sky] || d.sky))),
         hz ? h('div', { class: 'hz' }, h('img', { src: SimFaces.site({ ...ArtSites.sample(hz.site, d.terms.seed % 50 + 1), r: 40 }, style, 80), alt: '' }), h('span', {}, h('b', {}, hz.name), ' · ', hz.note)) : h('div', { class: 'hz', style: { color: 'var(--good)' } }, 'No hazards'),
         Kit.button('Jump here', go('jump', { i }), { kind: 'primary', wide: true }));
     }
@@ -77,6 +81,15 @@ const SimScreens = (() => {
     function jump(state, meta, style) {
       shown = ['jump', state, meta, style];
       const list = R.choices(state, meta), ins = R.insightNow(state);
+      if (R.isFinal(state)) {
+        put(
+          h('p', { class: 'sim-big' }, 'The last jump'),
+          h('img', { class: 'sim-hero', src: SimFaces.site({ ...ArtSites.sample('open-cluster', 5), r: 40 }, style, 220), alt: '' }),
+          h('p', { class: 'sim-sub' }, 'Past the hole\'s reach: a cluster of young stars, a long way from anything that eats light.'),
+          Kit.button('Make the jump', go('jump', { i: 0 }), { kind: 'primary', lg: true, wide: true }),
+          Kit.button('Not yet', go('jumpback'), { kind: 'ghost', wide: true }));
+        return;
+      }
       put(
         h('p', { class: 'sim-big' }, 'Where to?'),
         h('p', { class: 'sim-sub' }, `Overcharge ${Math.round(state.gate.charge * 100)}% · jumping now earns ${ins} Insight. Nothing built comes with us.`),
@@ -142,6 +155,39 @@ const SimScreens = (() => {
         Kit.button(back === 'arrive' ? 'Arrive' : 'Back', go(back === 'arrive' ? 'arrive' : 'title'), { kind: back === 'arrive' ? 'primary' : 'ghost', lg: back === 'arrive', wide: true }));
     }
 
+    // A story chapter's opening: its title, then who speaks, with their faces.
+    function speech(state, list, style) {
+      return list.map((x, i) => {
+        const p = SimFaces.person(x.who, x.who === 'android' ? state.seed : state.terms.seed + x.who.length * 101); // the advisor, or the culture's leader
+        return Kit.quote({ from: p.name, kind: p.title, face: SimFaces.img(p, style, i ? 64 : 80), lines: x.lines, color: C.CULTURES[x.who].color });
+      });
+    }
+    function intro(state, meta, style) {
+      shown = null;
+      const ch = SimStory.chapter(state.depth), w = R.world(state);
+      put(
+        h('p', { class: 'sim-kicker' }, `Chapter ${state.depth + 1} of ${SimStory.LAST + 1} · ${ch.sub}`),
+        h('p', { class: 'sim-big' }, ch.title),
+        h('div', { class: 'sim-row', style: { justifyContent: 'center' } },
+          h('img', { src: SimFaces.star(w.star, style, 96), width: 72, height: 72, alt: '' }),
+          h('div', {}, h('b', { class: 'sim-sysname' }, `${w.name} System`), h('span', { class: 'sim-note' }, `${w.bodies.length - 1} bodies${w.hazard ? ` · ${C.HAZARDS[w.hazard].name}` : ''}`))),
+        speech(state, ch.intro, style),
+        Kit.button('Begin', go('begin'), { kind: 'primary', lg: true, wide: true }));
+    }
+    function ending(state, meta, style, r) {
+      shown = null;
+      put(
+        h('img', { class: 'sim-hero', src: SimFaces.site({ ...ArtSites.sample('open-cluster', 5), r: 40 }, style, 220), alt: '' }),
+        h('p', { class: 'sim-big' }, 'Out of reach'),
+        h('p', { class: 'sim-sub' }, `Escaped ${r.from}, and the hole, after ${state.escaped} jumps.`),
+        speech(state, SimStory.ENDING, style),
+        h('div', { class: 'sim-summary' },
+          r.parts.map(([label, n]) => h('div', { class: 'row' }, h('span', {}, label), h('b', {}, `+${n} Insight`))),
+          h('div', { class: 'row' }, h('span', {}, 'Insight banked'), h('b', {}, `${meta.insight}`))),
+        h('p', { class: 'sim-sub' }, 'Endless mode is open: every culture at once, for as long as you last.'),
+        Kit.button('Title screen', go('finish'), { kind: 'primary', lg: true, wide: true }));
+    }
+
     function hide() { layer.hidden = true; layer.replaceChildren(); shown = null; }
     function refresh() {
       if (!shown) return;
@@ -149,7 +195,7 @@ const SimScreens = (() => {
       ({ title, jump, archive })[kind]?.(...args);
     }
 
-    return { title, jump, arrived, lost, over, archive, hide, refresh, get open() { return !layer.hidden; } };
+    return { title, jump, arrived, lost, over, archive, intro, ending, hide, refresh, get open() { return !layer.hidden; } };
   }
 
   return { create };

@@ -7,8 +7,8 @@
 //   SimWorld.generate(seed, terms) -> system
 //     terms: { depth (systems reached, 0 first), distance: 'near' | 'mid' | 'far', rich: 'm' | 'v' | 'poor' | null,
 //              hazard: SimConfig.HAZARDS id | null, cultures: [culture id present], traits: [trait id] (forced, story),
-//              lifeMul (Archive dampers, overcharge), name? }
-//     system: { seed, name, depth, distance, rich, hazard, cultures, star: { name, cls, r, seed },
+//              lifeMul (Archive dampers, overcharge), ease (how much depth shortens it: 1, or less in the story), name? }
+//     system: { seed, name, depth, distance, rich, hazard, cultures, star: { name, cls, r, seed }, sky (a deep-space kind in its sky),
 //               life (cycles from 0 to 100%), pull0, rings (orbits, the gate's included), gate (its body key),
 //               bodies: [body] }
 //     body: { key, id, kind: 'planet' | 'moon' | 'belt' | 'nebula' | 'gate', name, ring (orbit, 0 innermost;
@@ -42,6 +42,9 @@ const SimWorld = (() => {
   const NEBULA_TYPES = ['emission', 'reflection', 'ion', 'ember', 'dust'];
   const STARS = [['M', 3], ['K', 3], ['G', 3], ['F', 2], ['A', 1], ['B', 1]];
   const STAR_R = { M: [180, 230], K: [210, 260], G: [230, 280], F: [250, 300], A: [270, 320], B: [290, 340] };
+  // What a system's sky may hold, far off (art/sites.js kinds the hazards don't use).
+  const SKY = ['open-cluster', 'globular-cluster', 'protoplanetary-disc', 'brown-dwarf', 'rogue-planet', 'interstellar-object', 'hii-region',
+    'bok-globule', 'molecular-cloud', 'wolf-rayet', 'neutron-star', 'recurrent-nova', 'kilonova-remnant', 'hypervelocity-star'];
   const pickW = (list, x) => { const tot = list.reduce((s, [, w]) => s + w, 0); let a = x * tot; for (const [v, w] of list) { a -= w; if (a < 0) return v; } return list[list.length - 1][0]; };
   const clamp = (x, lo, hi) => Math.max(lo, Math.min(hi, x));
 
@@ -130,10 +133,12 @@ const SimWorld = (() => {
     if (!slots.some((b) => b.m >= 2)) slots.find((b) => b.kind === 'belt' || b.kind === 'planet').m = 2;
     if (!slots.some((b) => b.v >= 2)) slots.filter((b) => b.kind === 'planet').pop().v = 2;
 
+    // Something in this system's sky (deep-space art, drawn far off): a cluster, a disc, a remnant.
+    const sky = SKY[Math.floor(rnd() * SKY.length)];
     const distance = terms.distance || 'mid', depth = terms.depth || 0, H = C.HORIZON;
-    const life = Math.round(Math.max(H.min, H.life[distance] - H.perDepth * depth) * (terms.lifeMul || 1));
+    const life = Math.round(Math.max(H.min, H.life[distance] - H.perDepth * depth * (terms.ease ?? 1)) * (terms.lifeMul || 1));
     return {
-      seed: s, name, depth, distance, rich, hazard: terms.hazard || null, cultures, star, life, pull0: H.pull0[distance],
+      seed: s, name, depth, distance, rich, hazard: terms.hazard || null, cultures, star, sky, life, pull0: H.pull0[distance],
       rings: ring, gate: gate.key, bodies,
     };
   }
@@ -161,7 +166,7 @@ const SimWorld = (() => {
     return system.bodies.filter((x) => x.key === root || x.parent === root).map((x) => x.key);
   }
 
-  return { generate, choices, group, NAMES: SYLL };
+  return { generate, choices, group, NAMES: SYLL, SKY };
 })();
 
 export { SimWorld };

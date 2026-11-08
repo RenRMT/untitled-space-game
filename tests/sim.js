@@ -6,6 +6,7 @@ import assert from 'node:assert';
 import { SimConfig as C } from '../src/sim/config.js';
 import { SimEvents } from '../src/sim/events.js';
 import { SimRules as R } from '../src/sim/rules.js';
+import { SimStory } from '../src/sim/story.js';
 import { SimWorld } from '../src/sim/world.js';
 
 let failed = 0;
@@ -233,6 +234,26 @@ test('an alien visitor\'s offer changes something, for good or ill', () => {
   const before = JSON.stringify([s.pull, s.res, s.stations, s.insightSys, s.effects]);
   assert.ok(SimEvents.answer(s, m, o.id, 'accept'));
   assert.notStrictEqual(JSON.stringify([s.pull, s.res, s.stations, s.insightSys, s.effects]), before);
+});
+
+test('the story brings in a culture a system, and its last jump wins', () => {
+  const m = meta();
+  const s = R.newRun('story', m, 31);
+  assert.deepStrictEqual(s.terms.cultures, ['android']);
+  for (let ch = 0; ch < SimStory.LAST; ch++) {
+    assert.deepStrictEqual(s.terms.cultures, SimStory.CHAPTERS[ch].cultures, `chapter ${ch}`);
+    rich(s);
+    for (let i = 0; i < C.GATE.length; i++) { R.buildGate(s, m); R.tick(s, m, 40); }
+    const ch2 = SimStory.CHAPTERS[ch + 1];
+    for (const d of R.choices(s, m)) assert.ok(!d.terms.hazard || ch2.hazards.includes(d.terms.hazard));
+    assert.ok(R.jump(s, m, 0));
+  }
+  assert.ok(R.isFinal(s));
+  assert.ok(m.story >= 3 && R.archiveOpen(m), 'the Archive opens with the Shard');
+  rich(s);
+  for (let i = 0; i < C.GATE.length; i++) { R.buildGate(s, m); R.tick(s, m, 40); }
+  const r = R.jump(s, m, 0);
+  assert.ok(r.won && s.status === 'won');
 });
 
 test('events run on the rules without error over a long game', () => {

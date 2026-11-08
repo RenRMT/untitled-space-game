@@ -8,12 +8,14 @@
 //   SimFaces.img(person, style, size, cls?) -> <img>
 //   SimFaces.thumb(id, draw, style, size = 96) -> data URL   draw(ctx, size) draws centred on 0, 0 in px
 //   SimFaces.bp(bp, style, size) / planet(art, style, size) / moon(art, …) / star(star, …) / site(site, …) -> data URL
+//   SimFaces.surface(kind ('planet' | 'moon'), art, style, w, h) -> data URL   a strip of its ground (art/surface.js)
 // ES module (`SimFaces`); needs a browser.
 
 import { ArtBodies } from '../art/bodies.js';
 import { ArtCrew } from '../art/crew.js';
 import { ArtPortraits } from '../art/portraits.js';
 import { Art } from '../art/render.js';
+import { ArtSurface } from '../art/surface.js';
 import { ArtSites } from '../art/sites.js';
 import { SimConfig } from './config.js';
 import { SimMap } from './map.js';
@@ -21,13 +23,13 @@ import { SimPeople } from './people.js';
 
 const SimFaces = (() => {
   const urls = new Map();
-  function canvasURL(key, size, draw) {
+  function canvasURL(key, size, draw, height = size) {
     if (urls.has(key)) return urls.get(key);
-    const px = Math.round(size * Math.min(2, window.devicePixelRatio || 1));
+    const k = Math.min(2, window.devicePixelRatio || 1);
     const c = document.createElement('canvas');
-    c.width = c.height = px;
+    c.width = Math.round(size * k); c.height = Math.round(height * k);
     const g = c.getContext('2d');
-    g.scale(px / size, px / size);
+    g.scale(k, k);
     draw(g, size);
     const url = c.toDataURL();
     urls.set(key, url);
@@ -74,11 +76,24 @@ const SimFaces = (() => {
     ArtSites.draw(g, si, style, { force: true });
   }, style, size);
 
+  // A body's surface (art/surface.js), as its survey shows it: a few tiles of its ground, the
+  // middle of them filling a wide strip.
+  function surface(kind, art, style, w = 320, hgt = 120) {
+    return canvasURL(`su:${kind}:${art.type}:${art.seed}:${style}:${w}`, w, (g) => {
+      const type = kind === 'moon' ? ArtSurface.moonSurface(art.type) : art.type;
+      const W = ArtSurface.generate(type, art.seed, { w: 8, h: 5, cover: 0.35 });
+      const im = ArtSurface.render(W, style, { dpr: 1 });
+      const k = Math.max(w / im.w, hgt / im.h);
+      g.fillStyle = '#05060a'; g.fillRect(0, 0, w, hgt);
+      g.drawImage(im.canvas, (w - im.w * k) / 2, (hgt - im.h * k) / 2, im.w * k, im.h * k);
+    }, hgt);
+  }
+
   const cultureColor = (c) => SimConfig.CULTURES[c]?.color || '#7df9ff';
 
   const { person } = SimPeople;
 
-  return { person, face, img, thumb, bp, planet, moon, star, site, cultureColor };
+  return { person, face, img, thumb, bp, planet, moon, star, site, surface, cultureColor };
 })();
 
 export { SimFaces };
