@@ -1,8 +1,8 @@
 // Consumables in the field (rules/abilities.js FIELD): a button on the HUD for each one in the kit
 // (ui/field-bar.js), used on the ship itself whenever it would help, in open flight, mining or not,
-// and on a planet's surface: repair nanites and shield cells as in a fight, a coolant flush (heat),
-// a radiation purge, a fuel canister and a seismic charge (on the rock the tools are locked on). Each
-// has its cooldown, in flight time. Keys 1–6 use them in the bar's order.
+// and on a planet's surface: repair nanites and shield cells, as in a fight. (The ones for the
+// hazards, coolant, radiation purges and fuel, and seismic charges, aren't used in this game: FIELD
+// here leaves them out.) Each has its cooldown, in flight time. Keys 1–6 use them in the bar's order.
 // Not while docked, in a gate jump, the descent or climb of a landing, a fight with
 // ships (its panel has the fight's abilities) or the wait for a tow.
 // Part of the flight view; src/main.js starts it.
@@ -13,14 +13,15 @@ import { FieldBar } from '../ui/field-bar.js';
 import { SystemMap } from '../ui/map.js';
 import { addTo, cargo, saveCargo } from './cargo.js';
 import { guard, shieldNow } from './combat.js';
-import { blastRock, minedRock } from './mining.js';
 import { docked } from './docking.js';
-import { hazard } from './hazards.js';
 import { landing } from './landing.js';
 import { talk } from './missions.js';
 import { SHIP, fight, inShipFight } from './state.js';
 import { simTime } from './update.js';
 import { warp } from './warp.js';
+
+// The field consumables this game uses: those that mend the ship.
+export const FIELD = Abilities.FIELD.filter((a) => a.id === 'repair-nanites' || a.id === 'shield-cell');
 
 // cool: when each consumable can be used again ({ [id]: flight time }).
 export const field = { cool: {} };
@@ -29,20 +30,16 @@ export const field = { cool: {} };
 export const fieldShown = () => !docked && !warp.on && !talk.lines && !SystemMap.isOpen && !inShipFight()
   && !fight.wrecked && !(fight.wreckT > 0) && !landing.wrecked && (!landing.on || landing.phase === 'surface');
 
-// The ship's meters, as rules/abilities.js reads them; rock: the one the tools are locked on, mining.
+// The ship's meters, as rules/abilities.js reads them.
 function meters() {
   const me = fight.s?.player;
-  return {
-    heat: hazard.heat, rad: cargo.rad, fuel: cargo.fuel, fuelMax: SHIP.fuel,
-    hull: me ? me.hull : cargo.hull, hullMax: SHIP.hull, shield: shieldNow(), shieldMax: SHIP.shield,
-    rock: minedRock(),
-  };
+  return { hull: me ? me.hull : cargo.hull, hullMax: SHIP.hull, shield: shieldNow(), shieldMax: SHIP.shield };
 }
 
 // The bar's buttons: the field consumables in the kit, in their order.
 export function fieldItems() {
   const m = meters();
-  return Abilities.FIELD.filter((a) => cargo.kit[a.id] > 0).map((a, i) => ({
+  return FIELD.filter((a) => cargo.kit[a.id] > 0).map((a, i) => ({
     id: a.id, code: a.code, label: a.name, count: cargo.kit[a.id], key: String(i + 1),
     enabled: (field.cool[a.id] ?? -Infinity) <= simTime && Abilities.fieldReady(a.id, m),
   }));
@@ -51,23 +48,16 @@ export function fieldItems() {
 // Use one: a charge from the kit, its effect on the meters (or the rock), and its cooldown.
 export function useField(id) {
   const a = Abilities.ABILITIES[id];
-  if (!a?.field || !fieldShown() || (cargo.kit[id] || 0) < 1 || (field.cool[id] ?? -Infinity) > simTime) return false;
+  if (!FIELD.includes(a) || !fieldShown() || (cargo.kit[id] || 0) < 1 || (field.cool[id] ?? -Infinity) > simTime) return false;
   const r = Abilities.fieldUse(id, meters());
   if (!r) return false;
-  if (r.rockDamage && !blastRock(r.rockDamage)) return false;
   const me = fight.s?.player;
   if ('hull' in r) { if (me) me.hull = r.hull; cargo.hull = r.hull; }
   if ('shield' in r) { if (me) me.shield = r.shield; guard.shield = r.shield; }
-  if ('heat' in r) hazard.heat = r.heat;
-  if ('rad' in r) cargo.rad = r.rad;
-  if ('fuel' in r) cargo.fuel = r.fuel;
   addTo(cargo.kit, id, -1);
   field.cool[id] = simTime + a.cooldown;
-  if (!r.rockDamage) { // a seismic charge shows as a hit on the rock (game/combat.js blastRock)
-    const what = { hull: 'hull', shield: 'shield', heat: 'heat', rad: 'rad', fuel: 'fuel' }[Object.keys(r).find((k) => k !== 'amount')];
-    const gain = what === 'heat' || what === 'rad' ? '−' : '+';
-    fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: 'player', jx: 0, text: `${gain}${Math.round(r.amount)} ${what}`, color: COLORS.good });
-  }
+  const what = 'hull' in r ? 'hull' : 'shield';
+  fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: 'player', jx: 0, text: `+${Math.round(r.amount)} ${what}`, color: COLORS.good });
   saveCargo();
   return true;
 }

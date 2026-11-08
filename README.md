@@ -15,7 +15,8 @@ what you destroy, and push out from the safe core of your faction's space into h
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
-  below; tap a ship to target it. Active (real time) is the alternative: Settings → Combat, or B.
+  below; tap a ship to target it. It's the one combat mode (real time can still be tried with
+  `?combat=realtime`, for comparison).
   Fights play the same in space and on a surface, and the ship flies there as fast as in space.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
@@ -49,9 +50,9 @@ what you destroy, and push out from the safe core of your faction's space into h
   guardians, the Warden, missions) with rarity floors, bad-luck protection (Rare at least after a
   long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
   dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
-- **Hazards are off** for now (heat, radiation, flares, ion storms, surface hazards and fuel use);
-  `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
-  with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
+- **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
+  out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
+  the race and for each surface's deposits). `notes/hazards.md` was their plan.
 
 Mining is an action you start: select a rock (or, on a surface, a deposit) and press Mine (or
 Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
@@ -98,11 +99,10 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
-| `?hazards` | the hazards back (heat, radiation, flares, ion storms, surface hazards, fuel use) |
-| `?sites` | landing sites (deposits and surface hazards) instead of dungeons, Zantal VI still the empty test labyrinth |
+| `?combat=realtime` | fights in real time instead of on the timeline, for comparison (not saved) |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
-| `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
+| `?style=lowpoly`, `?move=direct` | a setting for this visit |
 
 The race is a second page beside the game: `/race/` (`race/index.html`), a lap race on a generated
 surface in the game's own ship. It opens on a title (`src/race/menu.js`, in the Low-poly UI kit): a
@@ -154,7 +154,7 @@ station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/
 | Folder | What it holds |
 | --- | --- |
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
-| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, hazards (heat, radiation, flares, fuel), consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits, surface hazards, take-off fuel; `dungeon.js`: the test labyrinth on one planet), HUD, the frame loop |
+| `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits and what lies about; `dungeon.js`: the labyrinth, its guardians and Warden), HUD, the frame loop |
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
 | `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
@@ -221,9 +221,10 @@ The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in
 browser (`tests/browser-stub.js`) and checks it through `G`, the game's state and functions by name,
 which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
 
-Design notes live in `notes/`: `hazards.md` was the plan for gathering under hazards (switched off
-now, `?hazards`); `archived-systems.md` lists systems taken out of the game and how to
-bring each back (the latest: the hazards); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
+Design notes live in `notes/`: `roadmap.md` is where the main game is heading (an offline MMO-like
+space RPG) and what was cut on the way; `hazards.md` was the plan for gathering under hazards (taken
+out); `archived-systems.md` lists systems taken out of the game and how to bring each back (the
+latest: the hazards); `combat-alternatives.md` records the combat designs considered; `squad-logic.md`
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
 overview (the factions, their standings and the story beats); `galaxy.md` is how the galaxy is

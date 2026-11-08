@@ -3,10 +3,9 @@
 // every art style and both movement modes, docking and trading, mining, finding a derelict,
 // flying into a nebula and to the system's edge, map travel, a fight in each combat mode, the
 // settings, and landing: on every kind of planet and moon, and the surface run (deposits mined,
-// the day side, take-off fuel, jettisoning, losses and caches left on a surface).
-// It plays with ?pirates&hazards&sites, which turn on what the game has switched off for now (the
-// pirates of the showcase, the hazards and the landing sites), so those keep working; their tests
-// are marked [off: ...]. The game as it
+// losses and caches left on a surface, the dungeons).
+// It plays with ?pirates, which turns on what the game has switched off for now (the pirates of
+// the showcase), so those keep working; their tests are marked [off: ...]. The game as it
 // ships, with no flags, has its own run: tests/smoke-default.js. Each step checks its effect; at
 // the end nothing may have been drawn at a non-finite position. The steps share one game, in
 // order, as a player would play them; Math.random is seeded (tests/browser-stub.js), so a run
@@ -16,7 +15,7 @@ import assert from 'node:assert';
 import { install } from './browser-stub.js';
 
 // The stand-in browser first: the game's modules use the DOM as they load.
-const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&pirates&hazards&sites' }); // ?pirates: play them though they're off
+const browser = install({ width: 1280, height: 800, dpr: 2, search: '?seed=1&pirates' }); // ?pirates: play them though they're off
 const { G } = await import('../src/main.js');
 const { ItemIcons } = await import('../src/art/icons.js');
 const { SYSTEM_CONFIG } = await import('../src/world/system-config.js');
@@ -63,9 +62,6 @@ game(`
   globalThis.__startStation = startStation;
   // A fight under way broken off, as tickFight (game/combat.js) ends one: the ship got away.
   globalThis.__breakOff = () => { if (!fight.s) return; const s = fight.s; fight.s = null; fight.final = s; endFight('fled'); };
-  // A point on the surface landed on, from its landing spot (the day and the dust move over the ground).
-  globalThis.__rel = (x, y) => [x - surfaceRun.W.start[0], y - surfaceRun.W.start[1]];
-  globalThis.__night = (x, y, secs = 60) => { const d = Hazards.daylight(surfaceRun.site, simTime, __rel(x, y)); return !d.day && d.in > secs; };
 `);
 // A click on one of the context card's buttons, as the card's click handler sees it.
 function clickCard(id) {
@@ -771,156 +767,26 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
 });
 
 // Hazards (rules/hazards.js, game/hazards.js): a calm moment first, so no flare muddles a test.
-const calmSky = () => game(`{ const f = () => Hazards.flare(world.galaxy.seed, simTime); while (f().phase !== 'calm' || f().in < 60) skipTime(5); }`);
-
-test('hazards: staying by the hot inner planet overheats the ship; it is towed home, cooled, its hold left behind', () => {
-  calmSky();
-  game(`fight.grace = 1e9; cargo.hull = SHIP.hull; globalThis.__lava = world.galaxy.planets.find((p) => p.type === 'lava');
-    placeShip(__lava.x + __lava.body + 60, __lava.y, 0); hazard.heat = 0;
-    cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }];`);
-  browser.frames(60);
-  assert.ok(game('hazard.heat') > 2, `heating up: ${game('hazard.heat')}`);
-  game('hazard.heat = 95');
-  assert.ok(until('fight.wreckT > 0', 60 * 5), 'overheated');
-  assert.match(game('toast.text'), /^Overheated · calling a tow/);
-  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
-  assert.deepStrictEqual(game('[hazard.heat, cargo.rad]'), [0, 0], 'cooled and decontaminated');
-  assert.ok(game('cargo.drops.some((d) => d.key.startsWith("lost:") && d.itemKind === "iron")'), 'the iron waits where the ship was lost');
-  assert.ok(game('cargo.fuel >= SHIP.fuel * 0.25'), 'fuel enough to reach a pump');
-});
-
-test('hazards: a gas giant\'s moon irradiates the ship, and docking decontaminates it', () => {
-  calmSky();
-  game(`fight.grace = 1e9; cargo.rad = 0;
-    globalThis.__moon = world.galaxy.moons.find((m) => ['gas', 'blue'].includes(world.galaxy.planets[m.parent].type)
-      && !world.galaxy.stations.some((st) => Math.hypot(st.x - m.x, st.y - m.y) < Hazards.config.rad.shelter + 400));
-    placeShip(__moon.x, __moon.y + __moon.r + 60, 0);`);
-  browser.frames(120);
-  assert.ok(game('cargo.rad') > 3, `radiation taken in: ${game('cargo.rad')}`);
-  browser.frames(2);
-  game('globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150)');
-  const rad = game('cargo.rad');
-  browser.frames(30);
-  assert.ok(Math.abs(game('cargo.rad') - rad) < 0.01, 'it stays, but the station shelters its approach');
-  game('dock(__st)');
-  assert.ok(game('!!docked'), 'docked');
-  assert.strictEqual(game('cargo.rad'), 0);
-  assert.match(game('toast.text'), /^Decontaminated/);
-  game('launch()');
-});
-
-test('hazards: a solar flare is warned of; a planet\'s shadow shelters the ship, the open doesn\'t', () => {
-  calmSky();
-  game(`fight.grace = 1e9; cargo.rad = 0; hazard.heat = 0; globalThis.__terran = world.galaxy.planets.find((p) => p.type === 'terran');
-    { const S = world.galaxy.stars[__terran.system], dx = __terran.x - S.x, dy = __terran.y - S.y, d = Math.hypot(dx, dy);
-      placeShip(__terran.x + dx / d * (__terran.body + 400), __terran.y + dy / d * (__terran.body + 400), 0); }
-    while (Hazards.flare(world.galaxy.seed, simTime).phase !== 'warning') skipTime(1);`);
-  browser.frames(2);
-  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE IN \d+ s · in shadow/);
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Solar flare in \d+ s/);
-  game('skipTime(Hazards.flare(world.galaxy.seed, simTime).in + 0.5)');
-  browser.frames(30);
-  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · sheltered/);
-  const rad = game('cargo.rad');
-  // Out of the shadow: sideways to the sunlight (the planet goes round its star, so the shadow
-  // points wherever it is now).
-  game(`{ const S = world.galaxy.stars[__terran.system], dx = __terran.x - S.x, dy = __terran.y - S.y, d = Math.hypot(dx, dy);
-    placeShip(ship.x - dy / d * 3000, ship.y + dx / d * 3000, 0); }`);
-  browser.frames(30);
-  assert.match(game('hazardLine()[0]'), /^SOLAR FLARE · EXPOSED/);
-  assert.ok(game('cargo.rad') > rad, 'the wave irradiates the ship in the open');
-  game('cargo.rad = 0; hazard.heat = 0');
-});
-
-test('fuel: flying burns none; an empty tank flies on but can\'t dash or cruise; docking refuels, hydrazine first, then credits', () => {
-  calmSky();
-  game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 3000, __st.y, 0);
-    cargo.fuel = 50; ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed; dashState.t = -1; dashState.cool = 0`);
-  browser.frames(60);
-  assert.strictEqual(game('cargo.fuel'), 50, 'a second of full thrust burned nothing');
-  game('cargo.fuel = 0');
-  browser.frames(30);
-  assert.ok(game('Math.hypot(ship.vx, ship.vy)') > game('SHIP.maxSpeed * 0.9'), 'the engine still works');
-  assert.ok(!game('fight.wreckT > 0'), 'no tow');
-  assert.match(game('hazardLine()[0]'), /^NO FUEL · no dashes or cruise/);
-  assert.strictEqual(game('tryDash(0)'), false, 'no dash');
-  // At a station: hydrazine aboard goes in first, then credits buy the rest, on docking.
-  game(`ship.targetSpeed = 0; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x, __st.y + __st.radius + 150); cargo.fuel = 25;
-    cargo.items = [{ kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }, { kind: 'hydrazine', label: 'Hydrazine', category: 'trade' }]; cargo.credits = 10000;`);
-  browser.frames(1);
-  game('dock(__st)');
-  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel'), 'full');
-  assert.strictEqual(game('hold.count("hydrazine")'), 0, 'the hydrazine went in');
-  assert.strictEqual(game('cargo.credits'), 10000 - 25 * game('FUEL_PRICE'), 'credits for the rest');
-  assert.match(Messages.log.at(-1).text, /^Refuelled · 2 hydrazine, 150 cr/);
-  game(`StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Fuel100\/100.*Full/);
-  game('launch()');
-  // Short of credits: what they cover, a warning, and the rest on launch once some are earned.
-  game(`placeShip(__st.x, __st.y + __st.radius + 150); cargo.fuel = 10; cargo.credits = 60`);
-  browser.frames(1);
-  game('dock(__st)');
-  assert.strictEqual(game('cargo.fuel'), 20, 'what 60 cr buy');
-  assert.match(Messages.log.at(-1).text, /^Tank at 20\/100 · too few credits for fuel/);
-  game(`StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Tops up on launch/);
-  game('cargo.credits = 10000; launch()');
-  assert.strictEqual(game('cargo.fuel'), game('SHIP.fuel'), 'topped up on launch');
-});
-
-test('hazard gear: a radiator sheds more heat, shielding stops radiation, a tank and a pod lengthen a run', () => {
-  calmSky();
-  game(`fight.grace = 1e9; cargo.items = []; cargo.gear = { 'radiator-1': 1, 'rad-shielding-1': 1, 'aux-tank-1': 1, 'cargo-pod-1': 1 };`);
-  const [hold0, fuel0, shed0] = game('[SHIP.cargo, SHIP.fuel, Hazards.shed(SHIP)]');
-  assert.deepStrictEqual(game('Loadout.slots(cargo.loadout).filter((s) => s.type === "utility").map((s) => [s.id, s.item])'), [['utility-1', null], ['utility-2', null]], 'two empty utility slots');
-  assert.ok(game(`outfitting.fit('utility-1', 'cargo-pod-1') && outfitting.fit('utility-2', 'aux-tank-1')`));
-  assert.deepStrictEqual(game('[SHIP.cargo, SHIP.fuel]'), [hold0 + 6, fuel0 + 40], 'more hold, a bigger tank');
-  // The pod stays in while the hold needs its room.
-  game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }))`);
-  assert.match(game(`outfitting.blocked('utility-1', null)`), /^Hold too full/);
-  assert.ok(!game(`outfitting.unfit('utility-1')`) && game('SHIP.cargo') === hold0 + 6, 'refused');
-  game('cargo.items = []');
-  // A radiator sheds heat faster; shielding lets less radiation through.
-  assert.ok(game(`outfitting.fit('utility-1', 'radiator-1') && outfitting.fit('utility-2', 'rad-shielding-1')`));
-  assert.deepStrictEqual(game('[Hazards.shed(SHIP), Math.round(SHIP.radGuard * 100), SHIP.fuel]'), [shed0 + 3, 30, fuel0]);
-  game(`globalThis.__moon = world.galaxy.moons.find((m) => ['gas', 'blue'].includes(world.galaxy.planets[m.parent].type)
-    && !world.galaxy.stations.some((st) => Math.hypot(st.x - m.x, st.y - m.y) < Hazards.config.rad.shelter + 400));`);
-  const soak = () => { game('placeShip(__moon.x, __moon.y + __moon.r + 60, 0); cargo.rad = 0; hazard.heat = 0'); browser.frames(60); return game('cargo.rad'); };
-  const shielded = soak();
-  game(`outfitting.unfit('utility-2')`);
-  const bare = soak();
-  assert.ok(shielded > 0 && Math.abs(shielded / bare - 0.7) < 0.05, `radiation taken: ${shielded} shielded, ${bare} bare`);
-  game(`outfitting.unfit('utility-1'); cargo.gear = {}; cargo.rad = 0`);
-});
 
 test('consumables in the field: a button each on the HUD, used on the ship, mining or not', () => {
-  calmSky();
   game(`fight.grace = 1e9; cargo.items = []; field.cool = {};
-    cargo.kit = { 'coolant-flush': 2, 'rad-purge': 1, 'fuel-canister': 1, 'repair-nanites': 1, 'shield-cell': 1, 'seismic-charge': 2, 'emp-charge': 1 };
-    hazard.heat = 0; cargo.rad = 0; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; guard.shield = SHIP.shield;
+    cargo.kit = { 'coolant-flush': 2, 'repair-nanites': 1, 'shield-cell': 1, 'seismic-charge': 2, 'emp-charge': 1 };
+    cargo.hull = SHIP.hull; guard.shield = SHIP.shield;
     { const st = __find((e) => e.kind === 'station'); placeShip(st.x + 2500, st.y); }`);
   browser.frames(1);
   const bar = browser.document.getElementById('field');
   assert.ok(!bar.hidden, 'the bar is up');
-  assert.deepStrictEqual(game('fieldItems().map((a) => a.id)'), ['repair-nanites', 'shield-cell', 'coolant-flush', 'rad-purge', 'fuel-canister', 'seismic-charge'], 'the field ones, not the EMP');
+  assert.deepStrictEqual(game('fieldItems().map((a) => a.id)'), ['repair-nanites', 'shield-cell'], 'the ones that mend the ship, not the hazards\' or the EMP');
   assert.ok(game('fieldItems().every((a) => !a.enabled)'), 'nothing to use them on yet');
-  game('hazard.heat = 70; cargo.rad = 50; cargo.fuel = 10; cargo.hull = SHIP.hull / 2; guard.shield = 0; guard.quiet = 0');
+  game('cargo.hull = SHIP.hull / 2; guard.shield = 0; guard.quiet = 0');
   const press = (id) => bar.dispatch('click', { target: { closest: () => ({ disabled: false, dataset: { id } }) } });
-  press('coolant-flush');
-  assert.deepStrictEqual(game('[hazard.heat, cargo.kit["coolant-flush"]]'), [20, 1], 'heat shed, a charge spent');
-  assert.ok(!game('useField("coolant-flush")') && !game('fieldItems().find((a) => a.id === "coolant-flush").enabled'), 'cooling down');
-  assert.ok(game('useField("rad-purge") && useField("fuel-canister") && useField("repair-nanites") && useField("shield-cell")'));
-  assert.deepStrictEqual(game('[cargo.rad, cargo.fuel, cargo.hull, shieldNow()]'), game('[15, 40, Math.min(SHIP.hull, SHIP.hull / 2 + SHIP.hull * 0.3), SHIP.shield]'));
-  assert.ok(!game('"rad-purge" in cargo.kit'), 'the last purge used');
-  // A seismic charge needs a rock the tools are on, and hits it hard.
-  assert.ok(!game('useField("seismic-charge")'), 'no rock');
-  game(`globalThis.__rock = __find((e) => e.kind === 'asteroid' && e.radius >= 15 && !cargo.removed.has(e.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); extract(__rock)`);
-  browser.frames(1);
-  const before = game('minedRock().hull');
-  assert.ok(game('useField("seismic-charge")'), 'a blast');
-  assert.ok(game('minedRock()?.hull ?? 0') <= before - 39 || game('cargo.removed.has(__rock.key)'), 'the rock took it');
+  press('repair-nanites');
+  assert.deepStrictEqual(game('[cargo.hull, cargo.kit["repair-nanites"] || 0]'), game('[Math.min(SHIP.hull, SHIP.hull / 2 + SHIP.hull * 0.3), 0]'), 'hull mended, the last charge spent');
+  assert.ok(!game('useField("coolant-flush")'), 'a hazard consumable is not used here');
+  assert.ok(game('useField("shield-cell")') && game('shieldNow()') === game('SHIP.shield'), 'shields back');
+  assert.ok(!game('useField("shield-cell")'), 'cooling down, and none left');
   assert.ok(!game('CombatPanel.isOpen'), 'still no panel');
-  game('endExtraction(); cargo.kit = {}');
+  game('cargo.kit = {}');
   browser.frames(1);
   assert.ok(bar.hidden, 'an empty kit: no bar');
 });
@@ -1765,16 +1631,14 @@ test('landing on each kind of planet and a moon: down to the surface, flying rou
     assert.ok(game('modes.has("landing") && MAP_BLOCKERS.includes("landing")'), 'no map while landing');
     assert.ok(until('landing.phase === "surface"'), `${name}: down on the surface`);
     assert.ok(game('modes.has("landed")'), 'Take off shows');
-    // Flying: a drag's heading and speed (here set directly) move the ship over the ground (out of a
-    // dust storm's wind, game/surface-run.js).
-    game('while (Hazards.dustFront(surfaceRun.site, simTime) || Hazards.dustFront(surfaceRun.site, simTime + 3)) skipTime(1)');
+    // Flying: a drag's heading and speed (here set directly) move the ship over the ground.
     const x0 = game('landing.craft.x');
     game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
     browser.frames(30);
     game('ship.targetSpeed = 0');
     assert.ok(game('landing.craft.x') > x0 + 20, `${name}: the ship flies on the surface`);
-    // Off the planets with Take off; off the moon by flying out past the landing site's rim.
-    if (game('__body.kind') === 'planet') game('takeOff()'); else game('landing.craft.x += 2500');
+    // Off again from the dungeon's landing pad.
+    game('takeOff()');
     assert.ok(until('!landing.on'), `${name}: back in space`);
     assert.ok(!game('modes.has("landing") || modes.has("landed")'), 'the modes are cleared');
     assert.ok(game('Math.hypot(ship.x - __body.x, ship.y - __body.y) < __body.body.r * 2.1 + 400'), `${name}: the ship is beside it`);
@@ -1791,7 +1655,6 @@ function takeOffTo() {
   game('takeOff()');
   assert.ok(until('!landing.on', 1500), 'back in space');
 }
-const button = (id) => browser.document.getElementById(id);
 // The ship over each thing lying on the body's surface in turn, a frame at each: it picks them up.
 // What lies on this surface dragged onto the ship, one at a time (the craft set 150 units off
 // each first, so the drag is a real one); flying over it picks nothing up.
@@ -1811,26 +1674,23 @@ function dragAllOntoCraft(name) {
 }
 
 test('the surface run: the scan before landing; a node selected and mined by its Mine action, its goods dragged in, a fresh field each landing', () => {
-  game(`fight.grace = 1e9; cargo.items = []; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; hazard.heat = 0; cargo.rad = 0; artStyle.set('line')`);
-  // The scan: the lava planet's card names its hazard, and its detail what's down there and what it pays.
+  game(`fight.grace = 1e9; cargo.items = []; cargo.hull = SHIP.hull; artStyle.set('line')`);
+  // The scan: the lava planet's card names its dungeon's level, and its detail what's down there.
   game(`globalThis.__body = __find((e) => e.name === 'Zantal I'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
   const card = game('describe(__body)');
-  assert.strictEqual(card.tag, 'Heat');
-  assert.match(card.detail, /Heat, worst by day; vents that erupt · Deposits: Tungsten, Iron · Yield ×2 · (Sunrise in \d+:\d\d|Day side now) · Take-off [\d.]+ fuel/);
-  // Down at night, with time before the sun comes up.
-  game(`while (Hazards.daylight(bodySite(__body), simTime).in < 140) skipTime(5)`);
+  assert.match(card.tag, /^Dungeon L\d$/);
+  assert.match(card.detail, /^Guarded labyrinth, a Warden at its heart · Deposits: \w/);
   game('nextField.value = 1');
   clickCard('land');
   assert.ok(until('landing.phase === "surface"', 1500), 'down');
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Lava planet · Heat, worst by day; vents that erupt · \d+ nodes(, \d+ rich)? · yield ×2/);
+  game('dungeonRun.guards = []'); // no guardians to fight here: this is about the nodes
   const n = game('surfaceRun.deposits.length');
-  assert.ok(n >= 25, `many nodes round the landing site: ${n}`);
-  assert.ok(game('surfaceRun.deposits.some((d) => d.rich)'), 'some of them rich, by the vents');
+  assert.ok(n >= 10, `nodes through the labyrinth: ${n}`);
   const field = game('surfaceRun.deposits.map((d) => [d.x, d.y]).join(" ")');
   browser.frames(1);
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /SUNRISE IN \d+:\d\d.*\d+ nodes · hold 0\/\d+ · yield ×2 · take-off [\d.]+ fuel/);
+  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /\d+ nodes · hold 0\/\d+ · yield ×1.5/);
   // Beside a node, doing nothing: nothing happens. A tap selects it; its card's Mine sets the tools on it.
-  game(`globalThis.__dep = surfaceRun.deposits.filter((d) => !d.rich && __night(d.x, d.y))[0]; Object.assign(landing.craft, { x: __dep.x - 100, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
+  game(`globalThis.__dep = surfaceRun.deposits[0]; Object.assign(landing.craft, { x: __dep.x - __dep.radius - 40, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
   browser.frames(60);
   assert.ok(!game('mine.target'), 'no mining by itself');
   const at = game('surfaceToScreen(__dep.x, __dep.y)'), cv = browser.document.getElementById('game');
@@ -1855,9 +1715,9 @@ test('the surface run: the scan before landing; a node selected and mined by its
   browser.frames(90);
   assert.ok(!game('mine.target'), 'no chaining from node to node');
   // Too far: Mine waits for the ship to come closer.
-  // (The tools reach most of a landing site: shorter-ranged ones for this.)
+  // (The tools reach far: shorter-ranged ones for this.)
   game(`globalThis.__lock = SHIP.lockRange; SHIP.lockRange = 600;
-    { const [sx, sy] = surfaceRun.W.start, gap = (x) => Math.hypot(x.x - sx, x.y - sy) - x.radius, d = surfaceRun.deposits.slice().sort((a, b) => gap(b) - gap(a))[0];
+    { const o = surfaceRun.deposits[0], sx = o.x - o.radius - 40, sy = o.y, gap = (x) => Math.hypot(x.x - sx, x.y - sy) - x.radius, d = surfaceRun.deposits.slice().sort((a, b) => gap(b) - gap(a))[0];
       selectOnSurface(d); Object.assign(landing.craft, { x: sx, y: sy, vx: 0, vy: 0 }); }`);
   browser.frames(1);
   assert.ok(game('landing.phase === "surface" && !!surfaceSel.it'), 'still down, a far node selected');
@@ -1878,301 +1738,25 @@ test('the surface run: the scan before landing; a node selected and mined by its
   // Back again later: a fresh field.
   takeOffTo();
   landOn('Zantal I');
+  game('dungeonRun.guards = []');
   assert.notStrictEqual(game('surfaceRun.deposits.map((d) => [d.x, d.y]).join(" ")'), field, 'another field');
   takeOffTo();
   game('cargo.items = []; cargo.surfaceDrops = {}');
 });
 
-test('the surface run: the day side heats the ship; lost there, its hold stays on the surface, and the ship is towed', () => {
-  game(`cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }]; cargo.fuel = SHIP.fuel; hazard.heat = 0;
-    while (Hazards.daylight(bodySite(__find((e) => e.name === 'Zantal I')), simTime).in < 100) skipTime(5)`);
-  const inOrbit = () => game('cargo.drops.filter((d) => d.key.startsWith("lost:") && Math.hypot(d.x - __body.x, d.y - __body.y) < 3000).length');
-  landOn('Zantal I');
-  const before = inOrbit();
-  game('skipTime(Hazards.daylight(surfaceRun.site, simTime).in + 1)');
-  const h0 = game('hazard.heat');
-  browser.frames(60);
-  assert.ok(game('hazard.heat') > h0 + 8, `heat climbs fast by day: ${h0} → ${game('hazard.heat')}`);
-  assert.match(game('surfaceLines()[0][0]'), /^DAY SIDE · HEAT CLIMBING/);
-  game('hazard.heat = 99.5');
-  assert.ok(until('fight.wreckT > 0', 60 * 8), 'overheated: lost');
-  assert.match(game('toast.text'), /^Overheated · calling a tow/);
-  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
-  assert.strictEqual(game('cargo.items.length'), 0);
-  assert.ok(game('cargo.surfaceDrops["Zantal I"].some((d) => d.key.startsWith("lost:") && d.kind === "iron")'), 'the iron waits on the surface');
-  assert.strictEqual(inOrbit(), before, 'not in orbit');
-  assert.deepStrictEqual(game('[hazard.heat, landing.on]'), [0, false]);
-});
-
-test('the surface run: take-off costs fuel; short of it, Jettison leaves cargo as a cache, and with too little even for that, a tow', () => {
-  game(`cargo.hull = SHIP.hull; hazard.heat = 0; cargo.fuel = SHIP.fuel;
-    cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' }))`);
-  landOn('Zantal III');
-  const g = game('surfaceRun.site.gravity'), full = game(`Hazards.takeoffFuel(${g}, 1)`), empty = game(`Hazards.takeoffFuel(${g}, 0)`);
-  game(`cargo.fuel = ${empty} + 0.5`);
-  browser.frames(2);
-  assert.ok(game('modes.has("short-fuel") && !modes.has("stranded")'), 'Jettison shows');
-  assert.strictEqual(game('takeOff()'), false, 'refused');
-  assert.strictEqual(game('landing.phase'), 'surface');
-  assert.match(game('toast.text'), /^Not enough fuel to take off · [\d.]+ needed, [\d.]+ aboard · jettison cargo/);
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /NOT ENOUGH FUEL TO TAKE OFF/);
-  button('jettison-btn').dispatch('click', {});
-  const kept = game('cargo.items.length');
-  assert.ok(kept < game('SHIP.cargo') && kept > 0, `only what it must: ${kept} kept`);
-  assert.strictEqual(game('cargo.surfaceDrops["Zantal III"].length'), game('SHIP.cargo') - kept, 'left lying there');
-  browser.frames(20);
-  assert.strictEqual(game('cargo.items.length'), kept, 'not picked back up');
-  const fuel = game('cargo.fuel'), need = game(`Hazards.takeoffFuel(${g}, cargo.items.length / SHIP.cargo)`);
-  assert.ok(need < full);
-  takeOffTo();
-  assert.ok(Math.abs(game('cargo.fuel') - (fuel - need)) < 0.01, 'the take-off burned its fuel');
-  // Back for the cache: dragged onto the ship, piece by piece.
-  game('cargo.fuel = SHIP.fuel');
-  landOn('Zantal III');
-  dragAllOntoCraft('Zantal III');
-  assert.strictEqual(game('cargo.items.length'), game('SHIP.cargo'), 'all of it back');
-  // Not even enough for an empty hold: a tow, and the hold stays.
-  game('cargo.fuel = 0.5');
-  browser.frames(2);
-  assert.ok(game('modes.has("stranded")'), 'Call a tow shows');
-  button('tow-btn').dispatch('click', {});
-  assert.ok(until('fight.wreckT > 0', 60 * 8), 'given up');
-  assert.match(game('toast.text'), /^Stranded · calling a tow/);
-  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
-  assert.strictEqual(game('cargo.surfaceDrops["Zantal III"].length'), game('SHIP.cargo'), 'the hold left on the surface');
-  assert.ok(!game('modes.has("stranded") || modes.has("short-fuel")'), 'the buttons gone');
-  game('cargo.surfaceDrops = {}; cargo.fuel = SHIP.fuel');
-});
-
-test('the surface run: a giant\'s moon irradiates the ship; a dust storm on the desert pushes it', () => {
-  game('cargo.rad = 0; cargo.items = []; hazard.heat = 0');
-  const moon = game(`world.galaxy.moons.find((m) => Hazards.GIANTS.includes(world.galaxy.planets[m.parent].type)).name`);
-  landOn(moon);
-  assert.strictEqual(game('describe(__body).tag'), 'Radiation');
-  browser.frames(120);
-  assert.ok(game('cargo.rad') > 2.5, `radiation taken in: ${game('cargo.rad')}`);
-  takeOffTo();
-  game('cargo.rad = 0');
-  landOn('Zantal II');
-  game('while (!Hazards.dust(surfaceRun.site, simTime)) skipTime(1); Object.assign(landing.craft, { vx: 0, vy: 0 }); ship.targetSpeed = 0');
-  const [x0, y0] = game('[landing.craft.x, landing.craft.y]');
-  browser.frames(30);
-  assert.ok(game(`Math.hypot(landing.craft.x - ${x0}, landing.craft.y - ${y0})`) > 5, 'pushed by the wind');
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST STORM/);
-  takeOffTo();
-});
-
-test('the surface run: a gas giant\'s storm pocket burns the ship touching it, down to a loss', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = [{ kind: 'iron', label: 'Iron', category: 'trade' }]`);
-  landOn('Zantal V');
-  // Beside a storm pocket, held there.
-  game(`{ const W = surfaceRun.W, p = Object.values(W.props).filter((q) => q.type === 'tall').sort((a, b) => Math.hypot(a.x - landing.craft.x, a.y - landing.craft.y) - Math.hypot(b.x - landing.craft.x, b.y - landing.craft.y))[0];
-    globalThis.__pocket = p; Object.assign(landing.craft, { x: p.x + p.r + SHIP.radius * 0.85 + 4, y: p.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
-  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
-  browser.frames(60);
-  assert.ok(hp() < h0 - 5, `burned: ${h0} → ${hp()}`);
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Storm pocket · it burns the hull/);
-  game('guard.shield = 0; cargo.hull = 3; if (fight.s) Object.assign(fight.s.player, { shield: 0, hull: 3 })'); // mining or not
-  assert.ok(until('fight.wreckT > 0', 60 * 8), 'the hull gave out: lost');
-  assert.match(game('toast.text'), /^Hull breached · calling a tow/);
-  assert.ok(until('fight.wreckT === 0 && !fight.wrecked', 60 * 5), 'towed home');
-  assert.ok(game('cargo.surfaceDrops["Zantal V"].some((d) => d.kind === "iron")'), 'the hold left on the gas giant');
-  game('cargo.surfaceDrops = {}');
-});
-
-test('the surface run: a vent erupts on its rhythm, a warning first, heating the ship and blasting its hull; not mid-dash', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
-  landOn('Zantal I');
-  assert.ok(game('surfaceRun.vents.length') > 0, 'the lava planet has vents');
-  // Beside the nearest vent, at night (only the vent heats), as its warning starts.
-  const atVent = () => game(`{ const C = landing.craft, v = surfaceRun.vents.slice().sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
-    globalThis.__vent = v; while (!__night(v.x, v.y, 10) || Hazards.eruption(v, simTime).phase !== 'warning') skipTime(0.25);
-    Object.assign(C, { x: v.x + v.r + 15, y: v.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; hazard.heat = 0; }`);
-  atVent();
-  browser.frames(2);
-  assert.strictEqual(game('surfaceRun.warn'), 'vent', 'the warning');
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /VENT ABOUT TO ERUPT/);
-  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
-  assert.ok(until('Hazards.eruption(__vent, simTime).phase === "on"', 120), 'it erupts');
-  browser.frames(40);
-  assert.ok(hp() < h0 - 8, `blasted: ${h0} → ${hp()}`);
-  assert.ok(game('hazard.heat') > 15, `heated: ${game('hazard.heat')}`);
-  assert.match(Messages.log.map((l) => l.text).join('|'), /A vent erupted/);
-  // The next one, dashing through it: no harm.
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield`);
-  atVent();
-  const h1 = hp();
-  game('dashState.t = 5');
-  assert.ok(until('Hazards.eruption(__vent, simTime).phase === "on"', 120), 'it erupts again');
-  browser.frames(40);
-  assert.strictEqual(hp(), h1, 'no harm mid-dash');
-  game('dashState.t = -1; dashState.cool = 0; hazard.heat = 0');
-  takeOffTo();
-});
-
-test('the surface run: lightning marks its spot round a storm pocket, then strikes a ship inside the ring; not mid-dash', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
-  landOn('Zantal V');
-  assert.ok(game('surfaceRun.pockets.length') > 0, 'the gas giant has storm pockets');
-  // In the ring of the nearest pocket's next strike (one well clear of the pocket), as it's marked.
-  const inRing = () => game(`{ const C = landing.craft, p = surfaceRun.pockets.slice().sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
-    globalThis.__pk = p; const st = () => Hazards.strike(p, simTime);
-    while (st().phase !== 'warning' || Math.hypot(st().at[0] - p.x, st().at[1] - p.y) - p.r < 60) skipTime(0.1);
-    Object.assign(C, { x: st().at[0], y: st().at[1], vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
-  inRing();
-  browser.frames(2);
-  assert.strictEqual(game('surfaceRun.warn'), 'strike', 'the ring is on the ship');
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /LIGHTNING ABOUT TO STRIKE HERE/);
-  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
-  assert.ok(until('Hazards.strike(__pk, simTime).phase === "on"', 120), 'it strikes');
-  browser.frames(2);
-  assert.ok(hp() <= h0 - game('Hazards.config.surface.strike.hull') + 1, `struck: ${h0} → ${hp()}`);
-  assert.ok(game('surfaceRun.bolts.length') > 0, 'the bolt is drawn');
-  // The next, dashing: no harm.
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield`);
-  inRing();
-  const h1 = hp();
-  game('dashState.t = 5');
-  assert.ok(until('Hazards.strike(__pk, simTime).phase === "on"', 120), 'it strikes again');
-  browser.frames(2);
-  assert.strictEqual(hp(), h1, 'no harm mid-dash');
-  game('dashState.t = -1; dashState.cool = 0');
-  takeOffTo();
-});
-
-test('the surface run: the sunrise sweeps over the ground: just ahead of its line it\'s still night, and the HUD says which way the night is', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel`);
-  landOn('Zantal I');
-  // Just after sunrise at the landing spot, the ship on it: the day side.
-  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 }); ship.targetSpeed = 0;
-    while (Hazards.daylight(surfaceRun.site, simTime).day) skipTime(5); skipTime(Hazards.daylight(surfaceRun.site, simTime).in + 2)`);
-  browser.frames(2);
-  assert.ok(game('surfaceRun.exp.day.day'), 'day at the spot');
-  assert.match(game('surfaceLines()[0][0]'), /^DAY SIDE · HEAT CLIMBING · YIELD \+1 · night \d+ s to the (N|NE|E|SE|S|SW|W|NW)$/);
-  // 300 units on the way the light moves: ahead of the line, night, and the sunrise on its way.
-  game(`{ const s = Hazards.sun(surfaceRun.site, simTime); landing.craft.x += s.dir[0] * 300; landing.craft.y += s.dir[1] * 300; }`);
-  browser.frames(2);
-  assert.ok(!game('surfaceRun.exp.day.day'), 'night just ahead of the line');
-  const secs = game('surfaceRun.exp.day.in'), sweep = game('Hazards.config.surface.day.sweep');
-  assert.ok(Math.abs(secs - (300 - game('Hazards.sun(surfaceRun.site, simTime).rise')) / sweep) < 0.5, `the line gets here in ${secs} s`);
-  assert.match(game('surfaceLines()[0][0]'), /^SUNRISE IN 0:\d\d · from the (N|NE|E|SE|S|SW|W|NW)$/);
-  takeOffTo();
-});
-
-test('the surface run: a dust storm is a front crossing the desert: seen coming with a countdown, then pushing the ship until it passes', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.items = []; cargo.fuel = SHIP.fuel`);
-  landOn('Zantal II');
-  // A front on its way to the landing spot, the ship on it.
-  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 }); ship.targetSpeed = 0;
-    { const f = () => Hazards.dustFront(surfaceRun.site, simTime); while (!f() || f().lead > -f().speed * 12 || f().lead < -f().speed * 13) skipTime(0.25); }`);
-  browser.frames(2);
-  assert.ok(!game('surfaceRun.exp.dust'), 'not here yet');
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST FRONT IN 1\d s · from the (N|NE|E|SE|S|SW|W|NW)/);
-  assert.ok(until('surfaceRun.said.has(`front:${Hazards.dustFront(surfaceRun.site, simTime).n}`)', 60 * 5), 'a notice as it nears');
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Dust front from the \w+ in \d+ s/);
-  assert.ok(until('surfaceRun.exp.dust', 60 * 16), 'it arrives');
-  const x0 = game('landing.craft.x'), y0 = game('landing.craft.y');
-  browser.frames(60);
-  assert.ok(Math.hypot(game('landing.craft.x') - x0, game('landing.craft.y') - y0) > 20, 'pushed by the wind');
-  assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /DUST STORM · pushed off course · clear in \d+ s/);
-  game(`Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 })`);
-  assert.ok(until('!surfaceRun.exp.dust', 60 * 16, 'Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 })'), 'and passes');
-  takeOffTo();
-});
-
-// A drag on the flight view from screen px (600, 400), dx, dy long, let go ms after it touched down.
-function swipe(id, dx, dy, ms) {
-  const canvas = browser.document.getElementById('game'), at = { pointerId: id, pointerType: 'touch', button: 0 };
-  canvas.dispatch('pointerdown', { ...at, clientX: 600, clientY: 400, timeStamp: 1000 });
-  canvas.dispatch('pointermove', { ...at, clientX: 600 + dx, clientY: 400 + dy, timeStamp: 1000 + ms / 2 });
-  canvas.dispatch('pointerup', { ...at, clientX: 600 + dx, clientY: 400 + dy, timeStamp: 1000 + ms });
-}
-
-test('a flick dashes the way it went, for fuel, keeping the course; not again until it cools; a slow drag only steers', () => {
-  calmSky();
-  game(`fight.grace = 1e9; globalThis.__st = __find((e) => e.kind === "station"); placeShip(__st.x + 4000, __st.y, 0);
-    cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0; select(null)`);
-  browser.frames(2);
-  const fuel = game('cargo.fuel');
-  swipe(21, 0, 60, 100); // a flick down the screen
-  assert.ok(game('dashing()'), 'dashing');
-  assert.ok(game('ship.vy') > game('SHIP.maxSpeed * 2'), `thrown down the screen: ${game('ship.vy')}`);
-  assert.ok(Math.abs(game('cargo.fuel') - (fuel - game('Hazards.config.fuel.dash'))) < 0.05, 'it cost fuel');
-  assert.strictEqual(game('ship.targetSpeed'), 0, 'the course it had (stopped) kept');
-  swipe(22, 60, 0, 100);
-  assert.ok(game('ship.vx') < game('SHIP.maxSpeed') && game('ship.targetSpeed') === 0, 'no second dash while it cools, and the flick doesn\'t steer');
-  browser.frames(12);
-  assert.ok(!game('dashing()'), 'the burst is short');
-  assert.ok(game('Math.hypot(ship.vx, ship.vy)') < 1, 'then the speed it had (none), no long slide');
-  browser.frames(120);
-  assert.ok(game('dashState.cool') === 0, 'cooled');
-  swipe(23, 60, 0, 400); // held too long: a drag
-  assert.ok(game('dashState.cool') === 0, 'a slow drag does not dash');
-  assert.ok(game('ship.targetSpeed') > 0 && Math.abs(game('ship.targetAngle')) < 1e-9, 'it steers');
-  game('ship.targetSpeed = 0; cargo.fuel = 1; dashState.cool = 0');
-  swipe(24, 0, 60, 100);
-  assert.ok(!game('dashing()'), 'too little fuel: no dash');
-  // Into an asteroid: the hit ends the dash at once, the bounce no faster than half the top speed.
-  game(`cargo.fuel = SHIP.fuel; globalThis.__rock = __find((e) => e.kind === 'asteroid' && !e.shard); placeShip(__rock.x - __rock.radius - 60, __rock.y, 0)`);
-  swipe(28, 60, 0, 100);
-  assert.ok(game('dashing()'), 'dashing at the rock');
-  browser.frames(6);
-  assert.ok(!game('dashing()'), 'the hit ended the dash');
-  assert.ok(game('Math.hypot(ship.vx, ship.vy)') <= game('SHIP.maxSpeed * 0.5') + 1, 'bounced, not flung');
-  game('dashState.cool = 0; ship.targetSpeed = 0');
-});
-
-test('on a surface a flick dashes too, dearer in the cold; mid-dash a storm pocket does no harm', () => {
-  game(`cargo.hull = SHIP.hull; guard.shield = SHIP.shield; hazard.heat = 0; cargo.rad = 0; cargo.items = []; cargo.fuel = SHIP.fuel; dashState.t = -1; dashState.cool = 0`);
-  landOn('Zantal IV'); // the ice planet
-  game('Object.assign(landing.craft, { vx: 0, vy: 0 }); ship.targetSpeed = 0; while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1)');
-  const fuel = game('cargo.fuel');
-  swipe(25, 60, 0, 100);
-  assert.ok(game('dashing()'), 'dashing on the surface');
-  assert.ok(game('landing.craft.vx') > game('SHIP.maxSpeed * SURFACE_SPEED * 2'), 'thrown across the ground');
-  assert.ok(Math.abs(fuel - game('cargo.fuel') - 2 * game('Hazards.config.fuel.dash')) < 0.05, 'twice the fuel in the cold');
-  browser.frames(12);
-  assert.ok(!game('dashing()') && game('Math.hypot(landing.craft.vx, landing.craft.vy)') < 1, 'the dash ends on a surface too, back to the speed it had');
-  browser.frames(120);
-  assert.strictEqual(game('dashState.cool'), 0, 'and comes back');
-  // Into a cliff: the hit ends the dash at once, and a drag steers again.
-  game(`{ const C = landing.craft; let x = C.x; while (!ArtSurface.blocked(surfaceRun.W, x, C.y, 12) && x < C.x + 3000) x += 4;
-    Object.assign(C, { x: x - 60, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
-  swipe(26, 60, 0, 100);
-  assert.ok(game('dashing()'), 'dashing at the cliff');
-  browser.frames(6);
-  assert.ok(!game('dashing()'), 'the hit ended the dash');
-  assert.ok(game('Math.hypot(landing.craft.vx, landing.craft.vy)') <= game('SHIP.maxSpeed * SURFACE_SPEED * 0.5') + 1, 'bounced, not flung');
-  const canvas = browser.document.getElementById('game'), at = { pointerId: 27, pointerType: 'touch', button: 0 };
-  canvas.dispatch('pointerdown', { ...at, clientX: 600, clientY: 400, timeStamp: 9000 });
-  canvas.dispatch('pointermove', { ...at, clientX: 600, clientY: 250, timeStamp: 9300 });
-  browser.frames(30);
-  canvas.dispatch('pointerup', { ...at, clientX: 600, clientY: 250, timeStamp: 9600 });
-  assert.ok(game('landing.craft.vy') < -50, `it steers again: ${game('landing.craft.vy')}`);
-  game('ship.targetSpeed = 0; dashState.cool = 0');
-  takeOffTo();
-  landOn('Zantal V');
-  game(`{ const W = surfaceRun.W, p = Object.values(W.props).filter((q) => q.type === 'tall').sort((a, b) => Math.hypot(a.x - landing.craft.x, a.y - landing.craft.y) - Math.hypot(b.x - landing.craft.x, b.y - landing.craft.y))[0];
-    Object.assign(landing.craft, { x: p.x + p.r + SHIP.radius * 0.85 + 4, y: p.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; dashState.t = 5; }`);
-  const hp = () => game('shieldNow() + cargo.hull'), h0 = hp();
-  browser.frames(30);
-  assert.strictEqual(hp(), h0, 'no burn mid-dash');
-  game('dashState.t = -1; dashState.cool = 0');
-  takeOffTo();
-});
-
-test('the test dungeon: Zantal VI is a labyrinth of caverns with no hazards; the ship charts it chamber by chamber', () => {
-  game(`fight.grace = 1e9; cargo.items = []; cargo.fuel = SHIP.fuel; cargo.hull = SHIP.hull; hazard.heat = 0; cargo.rad = 0; artStyle.set('line')`);
+test('a dungeon: Zantal VI is a labyrinth cut into its own ground; the ship charts it chamber by chamber', () => {
+  game(`fight.grace = 1e9; cargo.items = []; cargo.hull = SHIP.hull; artStyle.set('line')`);
   game(`globalThis.__body = __find((e) => e.name === 'Zantal VI'); placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
-  assert.ok(game('isDungeon(__body)') && !game(`isDungeon(__find((e) => e.name === 'Zantal V'))`), 'one planet only');
-  assert.strictEqual(game('siteScan(__body).tone'), 'good', 'the scan calls it safe');
+  assert.ok(game('isDungeon(__body)') && game(`isDungeon(__find((e) => e.name === 'Zantal III a'))`), 'every planet and moon');
+  assert.strictEqual(game('siteScan(__body).tone'), 'warn', 'the scan says it is guarded');
   landOn('Zantal VI');
+  game('dungeonRun.guards = []'); // this is about the labyrinth: the guardians have their own tests
   const W = 'surfaceRun.W';
-  assert.strictEqual(game(`${W}.type`), 'cavern');
-  assert.ok(game(`!${W}.site && ${W}.dungeon.rooms.length`) >= 12, 'chambers, no landing site');
+  assert.strictEqual(game(`${W}.type`), game('ArtSurface.SURFACE_OF[__body.body.type]'), 'cut into the planet\'s own ground');
+  assert.ok(game(`${W}.dungeon.rooms.length`) >= 9, 'chambers');
   assert.strictEqual(game(`${W}.dungeon.rooms.filter((r) => r.role === 'deep').length`), 1, 'one deepest chamber');
-  assert.ok(game(`${W}.dungeon.rooms.find((r) => r.role === 'deep').hops`) >= 3, 'some passages away');
-  assert.ok(game('surfaceRun.deposits.length') >= 15, 'nodes about the caverns');
+  assert.ok(game(`${W}.dungeon.rooms.find((r) => r.role === 'deep').hops`) >= 2, 'some passages away');
+  assert.ok(game('surfaceRun.deposits.length') >= 10, 'nodes about the caverns');
   // Every chamber can be reached from the landing spot (a flood over open ground).
   assert.ok(game(`(() => {
     const W = surfaceRun.W, T = ArtSurface.T, step = T / 2, key = (x, y) => x + ',' + y, seen = new Set(), q = [[W.start[0], W.start[1]]];
@@ -2180,16 +1764,16 @@ test('the test dungeon: Zantal VI is a labyrinth of caverns with no hazards; the
     while (q.length) { const [x, y] = q.pop(); for (const [dx, dy] of [[step, 0], [-step, 0], [0, step], [0, -step]]) { const nx = x + dx, ny = y + dy, k = key(nx, ny); if (seen.has(k) || ArtSurface.blocked(W, nx, ny, 12)) continue; seen.add(k); q.push([nx, ny]); } }
     return W.dungeon.rooms.every((r) => [...seen].some((k) => { const [x, y] = k.split(',').map(Number); return Math.hypot(x - r.x, y - r.y) < r.r; }));
   })()`), 'every chamber reachable');
-  // No hazards: a stay costs nothing, heat and radiation stay down.
+  // No hazards: a stay costs nothing.
+  const hull = game('cargo.hull');
   browser.frames(300);
-  assert.ok(game('hazard.heat') < 1 && game('cargo.rad') === 0 && game('landing.phase') === 'surface', 'no heat, no radiation, still down');
+  assert.ok(game('cargo.hull') === hull && game('landing.phase') === 'surface', 'unharmed, still down');
   assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /CHAMBERS 1\/\d+ · the deepest still ahead/);
   // Flying into the deepest chamber: it's charted, and counted.
   game(`{ const r = surfaceRun.W.dungeon.rooms.find((r) => r.role === 'deep'); Object.assign(landing.craft, { x: r.x, y: r.y, vx: 0, vy: 0 }); ship.targetSpeed = 0; }`);
   browser.frames(2);
   assert.ok(game('charted(landing.craft.x, landing.craft.y)'), 'charted round the ship');
   assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /CHAMBERS 2\/\d+ · the deepest found/);
-  // No rim to fly past (no W.site): Take off is the way out.
   takeOffTo();
   game('cargo.items = []; cargo.surfaceDrops = {}');
 });

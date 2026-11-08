@@ -9,7 +9,6 @@ import { Entities } from '../flight/entities.js';
 import { Economy } from '../rules/economy.js';
 import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
-import { Hazards } from '../rules/hazards.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logistics } from '../rules/logistics.js';
@@ -37,8 +36,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // broken up by mining, ships destroyed in combat (keys are unique across kinds). drops: items
 // left floating by mining, destroyed ships or the player's own lost cargo, not yet collected
 // (item entities; each keeps its saved form in `drop`). hull: the player ship's hull points
-// (repaired at stations). fuel: what's in the tank (rules/hazards.js burns it; refuelled at
-// stations); rad: radiation taken in (it builds until a station decontaminates the ship).
+// (repaired at stations).
 // home: the last station docked at, where a lost ship is towed.
 // loadout: the ship's class and fitted equipment; gear: spare equipment assembled or taken out (android gear among it, from squad ships)
 // ({ [equipment id]: count }); mods: spare mods ({ [mod id]: count }; fitted ones are in the
@@ -60,7 +58,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }).
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
-  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
+  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [],
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
@@ -110,7 +108,6 @@ export function applyShip({ loading = false } = {}) {
   ship.art = (HULL_ART[cargo.loadout.hull] || HULL_ART.courier)();
   if (!loading && SHIP.name === hullBefore && SHIP.hull > before) cargo.hull += SHIP.hull - before;
   cargo.hull = clamp(cargo.hull, 0, SHIP.hull);
-  cargo.fuel = clamp(cargo.fuel, 0, SHIP.fuel);
 }
 
 export function loadCargo(galaxy) {
@@ -141,8 +138,6 @@ export function loadCargo(galaxy) {
   cargo.missions = Missions.create(null, cargo.board.byId);
   cargo.track = null;
   cargo.hull = Infinity; // full, once applyShip knows the maximum
-  cargo.fuel = Infinity; // the same
-  cargo.rad = 0;
   cargo.surfaceDrops = {}; // body key -> [{ key, kind, x, y }]: what's left lying on its surface
   if (Params.has('fresh')) Store.remove(cargo.key);
   const d = Store.getJSON(cargo.key);
@@ -443,8 +438,6 @@ export function readCargo(d, galaxy = null) {
         : { key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
   }
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
-  if (Number.isFinite(d.fuel)) cargo.fuel = Math.max(0, d.fuel);
-  if (Number.isFinite(d.rad)) cargo.rad = clamp(d.rad, 0, Hazards.config.max - 1);
   if (d.surfaceDrops && typeof d.surfaceDrops === 'object') {
     for (const [body, list] of Object.entries(d.surfaceDrops)) {
       const ok = (Array.isArray(list) ? list : []).filter((x) => x && typeof x.key === 'string' && Number.isFinite(x.x) && Number.isFinite(x.y) && Goods.resolve(x.kind))
@@ -460,7 +453,7 @@ export function readCargo(d, galaxy = null) {
 export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
-  drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, fuel: cargo.fuel, rad: cargo.rad, home: cargo.home,
+  drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
@@ -521,49 +514,6 @@ export const repairs = {
     cargo.credits -= points * REPAIR_PRICE;
     saveCargo();
     return true;
-  },
-};
-
-// Refuelling, on docking and again on launch (game/docking.js): hydrazine in the hold goes in first
-// (FUEL_PER_HYDRAZINE a unit, while at least half of one fits), then hydrazine in the stock of the
-// station docked at (fuelling.at, its key, set by docking), then fuel bought for credits, as much as
-// there is room for and the credits cover.
-//   fuelling.refuel() -> { hydrazine, credits } (what it took) | null (nothing went in)
-export const FUEL_PER_HYDRAZINE = 25;
-export const FUEL_PRICE = 6; // credits per unit (hydrazine's price over FUEL_PER_HYDRAZINE, and a little)
-export const fuelling = {
-  price: FUEL_PRICE,
-  at: null,
-  get stocked() { return fuelling.at ? Industry.stockAt(cargo.industry, fuelling.at).hydrazine || 0 : 0; },
-  get fuel() { return cargo.fuel; },
-  get max() { return SHIP.fuel; },
-  get room() { return Math.max(0, SHIP.fuel - cargo.fuel); },
-  get hydrazine() { return hold.count('hydrazine') + fuelling.stocked; },
-  // What filling up would cost in credits, after the hydrazine aboard and in storage.
-  get cost() { return Math.ceil(Math.max(0, fuelling.room - fuelling.hydrazine * FUEL_PER_HYDRAZINE)) * FUEL_PRICE; },
-  refuel() {
-    if (fuelling.room < 0.5) return null;
-    let used = 0;
-    // A unit of hydrazine while at least half of it fits; credits top up the rest.
-    const fits = () => fuelling.room >= FUEL_PER_HYDRAZINE / 2;
-    while (fits() && hold.count('hydrazine') > 0) {
-      cargo.items.splice(cargo.items.findIndex((it) => it.kind === 'hydrazine'), 1);
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
-      used++;
-    }
-    while (fits() && fuelling.stocked > 0) {
-      Industry.withdraw(cargo.industry, fuelling.at, 'hydrazine', 1);
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + FUEL_PER_HYDRAZINE);
-      used++;
-    }
-    const units = Math.max(0, Math.min(Math.ceil(fuelling.room), Math.floor(cargo.credits / FUEL_PRICE)));
-    if (units > 0) {
-      cargo.fuel = Math.min(SHIP.fuel, cargo.fuel + units);
-      cargo.credits -= units * FUEL_PRICE;
-    }
-    if (!used && units <= 0) return null;
-    saveCargo();
-    return { hydrazine: used, credits: units * FUEL_PRICE };
   },
 };
 

@@ -379,6 +379,16 @@ travel, dashes, take-off and the HUD). Landing on any planet or moon is a dungeo
 (`src/game/dungeon.js`) instead of a landing site with deposits under hazards
 (`src/game/surface-run.js`, still there).
 
-**To bring it back.** `?hazards` turns the hazards on, `?sites` the landing sites (Zantal VI stays
-the empty test labyrinth); `tests/smoke.js` plays with both. Making either the default is setting
-`hazardsOn` or `landingSites` to true.
+**Removed (November 2026, `notes/roadmap.md`).** The switched-off code went too: `src/game/hazards.js`
+(the meters, flares, belts and storms in flight), `src/game/dash.js` (the flick dash, which cost
+fuel), fuel and refuelling (`fuelling` in `src/game/cargo.js`, the station's fuel row), the landing
+sites' half of `src/game/surface-run.js` (the day side, dust fronts, vents, storm pockets, lightning,
+take-off fuel, Jettison and Call a tow), the HUD's heat, radiation and fuel gauges
+(`src/rules/status.js`), the heat glow, radiation grain and sputtering flame
+(`src/game/screen-fx.js`, `src/rules/screen-fx.js`), the field consumables for them (coolant,
+radiation purges, fuel canisters, seismic charges: `src/game/field.js` leaves them out) and their
+tests. `?hazards` and `?sites` are gone. `src/rules/hazards.js` stays: the race uses it, and each
+surface's deposits come from it. Every planet and moon is a dungeon.
+
+**To bring it back.** Start from the commit before the removal (`git log -- src/game/hazards.js`):
+`?hazards` and `?sites` worked there, and `tests/smoke.js` played with both.

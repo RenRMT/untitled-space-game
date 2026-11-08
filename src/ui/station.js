@@ -29,8 +29,6 @@
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
 // shipyard: whether this station sells hulls (capital and major stations).
 // repairs: { hull, max, price, cost, repair() }: hull damage from combat and fixing it for credits.
-// fuelling: { fuel, max, room, hydrazine, price, cost, refuel() }: the tank (filled on docking and launch), filled with hydrazine
-//   aboard or in this station's stock first, then fuel bought for credits.
 // squad: { members, known, limit, runs(id), set(id, i, line), remove(id, i), move(id, from, to), toggle(id, i) }:
 //   the squad (rules/squad.js), each member with its program (rules/logic.js), and editing it
 //   (game/squad.js programs).
@@ -343,9 +341,6 @@ const StationMenu = (() => {
     ],
     // Utility gear does one thing each: only what it does is shown (sparse).
     utility: [
-      { code: 'COL', label: 'Heat shed', get: (i) => i.stats.cool || 0, fmt: (v) => `+${r2(v)}/s`, fmtDiff: (v) => `${r2(v)}` },
-      { code: 'RAD', label: 'Radiation stopped', get: (i) => i.stats.radGuard || 0, fmt: pct, fmtDiff: pct },
-      { code: 'FUL', label: 'Fuel', get: (i) => i.stats.fuel || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
       { code: 'CRG', label: 'Hold', get: (i) => i.stats.cargo || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
     ],
   };
@@ -506,22 +501,6 @@ const StationMenu = (() => {
           kind: 'warn', price: affordable, disabled: affordable <= 0, aria: `Repair the hull for ${affordable} credits`,
         })
         : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Intact'));
-  }
-
-  // The tank: filled on docking (game/docking.js), hydrazine aboard or in this station's stock first, then credits;
-  // short of credits, it tops up on launch with what's been earned meanwhile.
-  function fuelRow() {
-    const { fuelling: f } = ctx;
-    const k = clamp(f.fuel / f.max, 0, 1);
-    const room = f.room >= 0.5;
-    return h('div', { class: 'st-hull' },
-      Kit.icon('fuel', 24, { code: 'FUL' }),
-      h('div', { class: 'gauge' },
-        h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Fuel'), h('span', { class: 'num' }, `${Math.floor(f.fuel)}/${f.max}`)),
-        Kit.meter(k, { color: k < 0.25 ? 'var(--hostile)' : room ? 'var(--warn)' : 'var(--good)' })),
-      room
-        ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--warn)' } }, 'Tops up on launch')
-        : h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, 'Full'));
   }
 
   // The kit: consumables (rules/abilities.js), made by industry: used from the HUD (game/field.js) or in a fight.
@@ -731,7 +710,7 @@ const StationMenu = (() => {
     // The hold isn't shown here: it's on Trade, where it's bought and sold.
     return [
       shipSwitcher(),
-      section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null, ctx.fuelling ? fuelRow() : null),
+      section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class') : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),

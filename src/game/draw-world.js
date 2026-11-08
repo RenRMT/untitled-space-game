@@ -10,11 +10,9 @@ import { Goods } from '../rules/goods.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS, selectedKey } from './selection.js';
-import { drawDashRing } from './dash.js';
 import { industry } from './industry.js';
 import { PLAYER_DRAW, SHIP, cam, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
-import { flameThrust } from './screen-fx.js';
 import { warpShipScale } from './warp.js';
 import { world } from './world.js';
 
@@ -154,9 +152,8 @@ export function drawShip(t) {
   ctx.save();
   ctx.translate(rx(ship.x), ry(ship.y));
   if (k !== 1) ctx.scale(k, k);
-  Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: flameThrust(ship.thrust, t) }); // sputtering on a low tank
+  Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
   ctx.restore();
-  drawDashRing(rx(ship.x), ry(ship.y), SHIP.radius * 1.9, 1.5 / view.zoom); // the dash coming back (game/dash.js)
 }
 
 // Haulers on routes and shuttles (game/industry.js haulerSpots): small arrowheads flying between

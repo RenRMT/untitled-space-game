@@ -1,13 +1,11 @@
 // Touch and mouse input on the flight view: a drag sets the heading and its length the speed (the
-// joypad under the finger, game/hud.js drawDragIndicator, in space and on a surface); a quick flick
-// dashes (game/dash.js); a tap selects (or, in a fight, targets an enemy), and the selected thing's
+// joypad under the finger, game/hud.js drawDragIndicator, in space and on a surface); a tap selects (or, in a fight, targets an enemy), and the selected thing's
 // context menu does the rest (Mine is never started by a tap alone); a drop dragged onto the ship
 // is picked up; a long press on something does what you'd most likely do there (dock at a
 // station), flying there first.
 // Part of the flight view; src/main.js starts it.
 
 import { focusOn, foeAt, foeMarkerAt } from './combat.js';
-import { FLICK, canDash, tryDash } from './dash.js';
 import { actions } from './docking.js';
 import { moveMode } from './options.js';
 import { act, frameList, hitRadius, pickAt, screenToWorld, select } from './selection.js';
@@ -127,16 +125,6 @@ export function endDrag(e) {
   drag.item = null;
   if (item && drag.moved >= DEADZONE) { letGo(item, e.clientX, e.clientY); return; } // a drop dragged
   if (drag.long) return; // the long press did its action
-  // A flick (a short drag let go at once) dashes the way it went, if it can (game/dash.js). Its own
-  // steering is undone either way, so the ship keeps the course it had; in Direct mode letting go
-  // stops it, as ever.
-  const fx = e.clientX - drag.x0, fy = e.clientY - drag.y0;
-  if (e.type === 'pointerup' && seconds(e) - drag.t0 <= FLICK.time && Math.hypot(fx, fy) >= FLICK.min && canDash()) {
-    tryDash(Math.atan2(fy, fx));
-    ship.targetAngle = drag.course.angle;
-    ship.targetSpeed = moveMode.value === 'direct' ? 0 : drag.course.speed;
-    return;
-  }
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
   if (landing.on) { // on the surface (game/landing.js): a tap on an enemy targets it; on a node or a drop selects it

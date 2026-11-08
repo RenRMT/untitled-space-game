@@ -60,7 +60,6 @@ test('a new game: beside the capital in Wedge space, the gates online; no squad'
   // Hostiles out in low and lawless security, none in high.
   assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');
   assert.ok(game(`world.galaxy.packs.filter((k) => k.system === 0).every((k) => k.tier <= 2)`), 'gentle ones in the start system');
-  assert.strictEqual(game('hazardsOn'), false, 'no hazards');
 });
 
 test('docks at the capital, buys and sells a good, and launches', () => {
@@ -114,12 +113,12 @@ test('mines an asteroid with the starting tools and keeps what it drops', () => 
 });
 
 test('lands on the terran planet, flies over its surface, and takes off', () => {
-  game(`globalThis.__body = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'terran'); cargo.fuel = SHIP.fuel;
+  game(`globalThis.__body = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'terran');
     placeBeside(__body); react(nearbyEntities(simTime)); select(__body); react(nearbyEntities(simTime));`);
   clickCard('land');
   assert.ok(until('landing.phase === "surface"', 1500), 'down on the surface');
   const x0 = game('landing.craft.x');
-  game('while (Hazards.dust(surfaceRun.site, simTime)) skipTime(1); ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
+  game('ship.targetAngle = 0; ship.targetSpeed = SHIP.maxSpeed');
   browser.frames(30);
   game('ship.targetSpeed = 0');
   assert.ok(game('landing.craft.x') > x0 + 20, 'flying over the ground');
@@ -286,13 +285,13 @@ test('drops: the same thing lying together is one stack, named when selected, pi
   game(`cargo.items = []; cargo.drops = cargo.drops.filter((d) => !d.key.startsWith('drop:smoke'))`);
 });
 
-test('settings: combat is turn-based or active, turn-based to start; the hints wait behind the ⓘ', () => {
+test('settings: combat is turn-based, and not a setting; the hints wait behind the ⓘ', () => {
   assert.strictEqual(game('combatMode.value'), 'rounds');
   game('Settings.open()');
   const body = browser.document.getElementById('settings').querySelector('.set-body');
   const flat = (n) => [n, ...(n.children || []).flatMap((c) => (c && typeof c === 'object' ? flat(c) : []))];
   const all = () => flat(body);
-  assert.ok(all().some((n) => n.attributes && n.attributes['data-option'] === 'combat'), 'a Combat setting');
+  assert.ok(!all().some((n) => n.attributes && n.attributes['data-option'] === 'combat'), 'no Combat setting');
   assert.ok(!all().some((n) => n.className === 'set-hint'), 'no hints unasked');
   browser.document.getElementById('settings').querySelector('.set-info').dispatch('click');
   assert.ok(all().some((n) => n.className === 'set-hint'), 'the ⓘ shows them');

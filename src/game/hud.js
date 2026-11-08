@@ -6,15 +6,11 @@ import { COLORS, Theme } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
 import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
-import { Hazards } from '../rules/hazards.js';
-import { Status } from '../rules/status.js';
 import { Glyphs } from '../ui/glyphs.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { shieldNow } from './combat.js';
 import { DROP_PX, visible } from './draw-world.js';
-import { dashFuel } from './dash.js';
-import { hazard, hazardLine, hazardsOn, warnSteps } from './hazards.js';
 import { DEADZONE, drag, interacted, maxDrag, steering } from './input.js';
 import { CONTROLS, moveMode, reducedMotion } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
@@ -386,8 +382,6 @@ export function drawHud() {
     lines.push([`${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · SECURITY ${security.label.toUpperCase()}`, security.color, locAlpha]);
     if (r.nebula) lines.push([`${r.nebula.name} · sensors dampened`, r.nebula.color, locAlpha]);
   }
-  const danger = hazardLine(); // a flare coming, a storm, an empty tank (game/hazards.js)
-  if (danger) lines.push([...danger, 1]);
   const obj = here.objective;
   if (obj) for (const t of wrap(`◇ ${obj.text}`, room)) lines.push([t, COLORS.amber, 1]);
   if (!interacted) {
@@ -417,14 +411,8 @@ export function drawHud() {
 
 // Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),
 // and above it the hold and the meters that need watching, each an icon with a small gauge, in rows
-// going up as they fill one (notes/hazards.md):
-// - heat and radiation (game/hazards.js) are timers: the gauge, and arrows for which way they're
-//   going and how fast (rules/status.js), or once the limit is near, the seconds left;
-// - fuel is a budget: what it buys. Pips for the dashes left when few are; on a surface the take-off
-//   cost marked on its gauge (o.takeoff), red when the tank is short of it;
-// - a damaged hull, and the shields while down or recharging.
-// Each is calm, then amber past its first warning step, then red and pulsing at the last.
-// Also on a planet's surface (game/landing.js).
+// going up as they fill one: a damaged hull, and the shields while down or recharging. Each is calm,
+// then amber, then red and pulsing when it's nearly gone. Also on a planet's surface (game/landing.js).
 const glyphImages = new Map();
 function glyph(name, color) {
   const key = `${name}|${color}`;
@@ -437,7 +425,7 @@ function glyph(name, color) {
   return img.complete && img.naturalWidth ? img : null;
 }
 
-export function drawStatus(speed, set, fontSize = 14, o = {}) {
+export function drawStatus(speed, set, fontSize = 14) {
   const k = Theme.scale, I = view.inset, pad = 12, left = pad + I.l;
   const now = performance.now() / 1000;
   ctx.save();
@@ -453,11 +441,9 @@ export function drawStatus(speed, set, fontSize = 14, o = {}) {
   ctx.fillRect(left, by, barW * Math.min(1, speed), 6);
   ctx.fillStyle = COLORS.flame;
   ctx.fillRect(left + barW * set - 1, by - 3, 2, 12);
-  const H = Hazards.config.max, is = Math.round(15 * k), gw = Math.round(40 * k), gh = Math.round(5 * k), lh = Math.round(Math.max(fontSize * 1.45, 19) * k);
-  // Each: { icon, color, f (the gauge, 0..1), tail (text after it), trend, pips: [left, of], mark, critical }.
+  const is = Math.round(15 * k), gw = Math.round(40 * k), gh = Math.round(5 * k), lh = Math.round(Math.max(fontSize * 1.45, 19) * k);
+  // Each: { icon, color, f (the gauge, 0..1), tail (text after it), critical }.
   const items = [];
-  const level = (f, steps) => (f >= steps[steps.length - 1] ? 2 : f >= steps[0] ? 1 : 0);
-  const LEVEL_COLOR = [COLORS.hud, COLORS.flame, COLORS.hostile];
   if (cargo.items.length) items.push({ icon: 'HLD', tail: `${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
   if (!inShipFight()) { // in a fight with ships the panel shows these
     if (cargo.hull < SHIP.hull) { // until it's repaired at a station
@@ -466,27 +452,10 @@ export function drawStatus(speed, set, fontSize = 14, o = {}) {
     }
     if (SHIP.shield && shieldNow() < SHIP.shield - 0.5) items.push({ icon: 'SHD', f: shieldNow() / SHIP.shield, color: COLORS.cyan });
   }
-  for (const [meter, icon, v] of [['heat', 'HEAT', hazard.heat], ['rad', 'RAD', cargo.rad]]) {
-    if (v < 1) continue;
-    const f = v / H, lv = level(f, warnSteps(meter)), rate = hazard.rate[meter], eta = Status.eta(v, H, rate);
-    items.push({ icon, f, color: LEVEL_COLOR[lv], critical: lv === 2, ...(Status.timerShown(eta) ? { tail: `${Math.ceil(eta)}s` } : { trend: Status.trend(rate, H) }) });
-  }
-  if (hazardsOn && SHIP.fuel && (o.takeoff !== undefined || cargo.fuel < SHIP.fuel - 0.5)) {
-    const f = cargo.fuel / SHIP.fuel, short = o.takeoff !== undefined && cargo.fuel + 1e-6 < o.takeoff;
-    const low = f <= warnSteps('fuel')[0] || short, it = { icon: 'FUEL', color: low ? COLORS.hostile : COLORS.hud, critical: short || f <= warnSteps('fuel').at(-1) };
-    const dashes = Status.dashesLeft(cargo.fuel, dashFuel());
-    if (o.takeoff !== undefined) Object.assign(it, { f, mark: clamp(o.takeoff / SHIP.fuel, 0, 1) });
-    else if (dashes <= 5) it.pips = [dashes, 5];
-    else Object.assign(it, { f, tail: `×${dashes}` });
-    items.push(it);
-  }
   const room = Math.max(barW, Math.min(view.w * 0.6, 420 * k));
-  const pipW = Math.round(6 * k), triW = Math.round(7 * k);
   const widthOf = (it) => is + 5 * k
     + (it.f !== undefined ? gw + 5 * k : 0)
-    + (it.pips ? it.pips[1] * (pipW + 3 * k) : 0)
-    + (it.tail ? ctx.measureText(it.tail).width + 3 * k : 0)
-    + (it.trend === 'up2' ? 2 * triW + 3 * k : it.trend === 'up' || it.trend === 'down' ? triW + 3 * k : 0);
+    + (it.tail ? ctx.measureText(it.tail).width + 3 * k : 0);
   let x = left, ty = by - 10;
   for (const it of items) {
     const w = widthOf(it);
@@ -503,32 +472,7 @@ export function drawStatus(speed, set, fontSize = 14, o = {}) {
       ctx.fillRect(cx, mid - gh / 2, gw, gh);
       ctx.globalAlpha = 0.95 * pulse;
       ctx.fillRect(cx, mid - gh / 2, gw * clamp(it.f, 0, 1), gh);
-      if (it.mark !== undefined) { // the take-off cost
-        ctx.fillStyle = COLORS.bright;
-        ctx.fillRect(cx + gw * it.mark - 1, mid - gh / 2 - 3, 2, gh + 6);
-        ctx.fillStyle = it.color;
-      }
       cx += gw + 5 * k;
-    }
-    if (it.pips) {
-      for (let i = 0; i < it.pips[1]; i++) {
-        ctx.globalAlpha = (i < it.pips[0] ? 0.95 : 0.25) * pulse;
-        ctx.fillRect(cx, mid - pipW / 2, pipW, pipW);
-        cx += pipW + 3 * k;
-      }
-      ctx.globalAlpha = 0.95 * pulse;
-    }
-    if (it.trend && it.trend !== 'flat') {
-      const n = it.trend === 'up2' ? 2 : 1, up = it.trend !== 'down', hh = triW * 0.8;
-      for (let i = 0; i < n; i++) {
-        ctx.beginPath();
-        ctx.moveTo(cx, mid + (up ? hh / 2 : -hh / 2));
-        ctx.lineTo(cx + triW, mid + (up ? hh / 2 : -hh / 2));
-        ctx.lineTo(cx + triW / 2, mid + (up ? -hh / 2 : hh / 2));
-        ctx.closePath();
-        ctx.fill();
-        cx += triW + 2 * k;
-      }
     }
     if (it.tail) ctx.fillText(it.tail, cx, mid + fontSize * k * 0.35);
     x += w + 14 * k;

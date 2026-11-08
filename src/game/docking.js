@@ -13,8 +13,7 @@ import { Reputation } from '../rules/reputation.js';
 import { Factions } from '../world/factions.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
-import { cargo, fuelling, hold, news, repairs, saveCargo } from './cargo.js';
-import { decontaminate } from './hazards.js';
+import { cargo, hold, news, repairs, saveCargo } from './cargo.js';
 import { drag } from './input.js';
 import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
@@ -94,9 +93,6 @@ export function dock(station) {
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
   missionDocked(station);
   repairSquad();
-  if (decontaminate()) notify('Decontaminated · radiation cleared', 2.5, { tone: 'good' });
-  fuelling.at = station.key; // hydrazine in this station's stock goes into the tank
-  refuelled();
   saveCargo();
   ship.vx = ship.vy = 0;
   ship.targetSpeed = 0;
@@ -121,7 +117,6 @@ export function dock(station) {
     get kit() { return cargo.kit; },
     shipyard: station.market.type === 'capital' && restoration.online(station.key), // hulls: at the shipyard, restored
     repairs,
-    fuelling,
     squad: programs,
     missions: { list: () => missionViews(station) },
     tab: null, // the last tab used
@@ -132,21 +127,12 @@ export function dock(station) {
 }
 
 // Back to space just outside the station, on the side the ship came in from, at rest.
-// The tank filled on docking, and again on launch (credits earned meanwhile buy the rest), with a
-// notice of what it took, or (on docking) that the credits ran short.
-function refuelled(short = true) {
-  const r = fuelling.refuel();
-  if (r) notify(`Refuelled · ${[r.hydrazine && `${r.hydrazine} hydrazine`, r.credits && `${r.credits} cr`].filter(Boolean).join(', ')}`, 2.5, { tone: 'good' });
-  if (short && fuelling.room >= 0.5) notify(`Tank at ${Math.floor(cargo.fuel)}/${SHIP.fuel} · too few credits for fuel`, 3, { tone: 'warn' });
-}
 
 export function launch() {
   const st = docked.station;
-  refuelled(false);
   Store.persist(); // a tap on Launch: a good moment to ask the browser to keep the save
   docked = null;
   industry.here = null;
-  fuelling.at = null;
   StationMenu.close();
   setMode('docked', false);
   const a = Math.atan2(ship.y - st.y, ship.x - st.x);

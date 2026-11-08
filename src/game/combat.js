@@ -24,7 +24,6 @@ import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
 import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
-import { rescued } from './hazards.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
 import { surfaceWalls } from './surface-squad.js';
@@ -209,8 +208,8 @@ export function hurtShip(amount, at = null) {
   return d;
 }
 
-// The ship lost outside a fight (a hull knocked to nothing, a hazard meter full, the tank empty:
-// game/hazards.js): it spills its hold, and is towed home after a moment.
+// The ship lost outside a fight (a hull knocked to nothing): it spills its hold, and is towed home
+// after a moment.
 export function wreck(reason = 'Hull breached') {
   playerDestroyed();
   fight.wreckT = 2.6;
@@ -481,7 +480,6 @@ export function playerDestroyed() {
 export function towHome() {
   cargo.hull = SHIP.hull; // patched up enough to fly
   guard.shield = SHIP.shield;
-  rescued(); // cooled, decontaminated, and fuel enough to reach a pump (game/hazards.js)
   fight.wrecked = false;
   setMode('in-combat', false);
   const home = cargo.home;

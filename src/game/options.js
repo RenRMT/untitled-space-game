@@ -1,4 +1,4 @@
-// The flight view's settings (art style, movement, combat; ui/settings.js shows them), the hull
+// The flight view's settings (art style, movement; ui/settings.js shows them), the combat mode, the hull
 // art per ship class, the Settings button and the keyboard shortcuts.
 // Part of the flight view; src/main.js starts it.
 
@@ -8,7 +8,7 @@ import { Art } from '../art/render.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Combat } from '../combat/combat.js';
 import { Feedback } from '../core/feedback.js';
-import { Store } from '../core/store.js';
+import { Params, Store } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { SystemMap } from '../ui/map.js';
@@ -57,16 +57,18 @@ export function applyUiStyle() {
 export const MOVE_MODES = ['cruise', 'direct'];
 export const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
-// Combat: turn-based on a timeline (combat/combat.js, the default: 'rounds', its saved name), or
-// active, in real time (combat/combat-realtime.js); ships fly throughout in both, in space and on a
-// surface alike. Settings and the B key switch it; each fight keeps the mode it started in.
+// Combat: turn-based on a timeline (combat/combat.js, 'rounds'), the game's one combat mode. Real
+// time (combat/combat-realtime.js, the engine under it) can still be played for comparison with
+// ?combat=realtime; it isn't offered in Settings, and isn't saved. Each fight keeps the mode it
+// started in. set() is for the tests.
 export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
-export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
+export const combatMode = { value: COMBAT_MODES.includes(Params.get('combat')) ? Params.get('combat') : 'rounds' };
+combatMode.set = (v) => { if (COMBAT_MODES.includes(v)) combatMode.value = v; };
 
 // A conversation's question answered ({ ask: key, options }):
 // the setting it asks about, by its saved key, takes the chosen value.
-export const SETTINGS = { style: artStyle, move: moveMode, combat: combatMode };
+export const SETTINGS = { style: artStyle, move: moveMode };
 export function chooseSetting(key, value) {
   if (SETTINGS[key]) SETTINGS[key].set(value);
 }
@@ -107,7 +109,7 @@ export const reducedMotion = () => motion.value === 'reduce';
 // one long rattle.
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
-  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], dash: [8], hazard: [20, 60, 20],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20],
 };
 const HIT_GAP = 0.15;
 let lastHit = 0;
@@ -128,8 +130,8 @@ export const ART_HINT = {
 
 // The controls, as the Controls section of Settings lists them (and the flight hints show them).
 export const CONTROLS = {
-  cruise: ['Drag to fly; drag length sets speed.', 'Flick to dash.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
-  direct: ['Hold and drag to fly; drag length sets speed.', 'Flick to dash.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
+  cruise: ['Drag to fly; drag length sets speed.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
+  direct: ['Hold and drag to fly; drag length sets speed.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
@@ -169,14 +171,6 @@ export function init() {
       { value: 'direct', label: 'Direct', hint: 'Moves only while you drag, with no drift. Let go to brake to a stop.' },
     ],
     get: () => moveMode.value, set: (v) => moveMode.set(v),
-  });
-  Settings.add({
-    id: 'combat', label: 'Combat', shortcut: 'B',
-    choices: [
-      { value: 'rounds', label: 'Turn-based', hint: 'Ships act when their gauge fills.' },
-      { value: 'realtime', label: 'Active', hint: 'Guns fire as soon as they bear.' },
-    ],
-    get: () => combatMode.value, set: (v) => combatMode.set(v),
   });
   Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',
@@ -250,7 +244,6 @@ export function init() {
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();
     if (e.key === 'c' || e.key === 'C') { moveMode.cycle(); notify(`Movement: ${moveMode.value === 'cruise' ? 'Cruise' : 'Direct'}`); }
-    if (e.key === 'b' || e.key === 'B') { combatMode.cycle(); notify(`Combat: ${combatMode.value === 'rounds' ? 'Turn-based' : 'Active'}${inShipFight() ? ' · from the next fight' : ''}`); }
     if (e.key === 'Escape') select(null);
     // Several actions can share a key (E mines an asteroid or collects gas): the first that has a
     // target acts.

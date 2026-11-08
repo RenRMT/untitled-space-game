@@ -16,8 +16,6 @@ import { drawEntities, drawHaulers, drawParticles, drawShip, origin, rx, ry } fr
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers } from './hud.js';
 import { tickHold } from './input.js';
 import { drawDebris, drawMining, drawMiningLabel } from './mining.js';
-import { tickDash } from './dash.js';
-import { active as hazardsOn, drawFlareGlow, drawHazards } from './hazards.js';
 import { drawHazardScreen } from './screen-fx.js';
 import { objective } from './missions.js';
 import { drawSelection, placeMenu, updateSelection } from './selection.js';
@@ -61,7 +59,6 @@ export function render(list = nearbyEntities(simTime)) {
   ctx.translate(view.w / 2, view.h / 2);
   ctx.scale(view.zoom, view.zoom);
   ctx.translate(-rx(cam.x), -ry(cam.y));
-  drawHazards(); // radiation belts, and shadows while a flare comes (game/hazards.js)
   drawEntities(list, t);
   drawHaulers();
   drawSelection(t);
@@ -72,8 +69,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawShip(t);
   ctx.restore();
   drawFight(); // screen px (game/combat.js), as on a surface
-  drawFlareGlow();
-  if (hazardsOn()) drawHazardScreen(view.w, view.h, t); // heat, radiation, cracks, the shields (game/screen-fx.js)
+  if (!docked && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0)) drawHazardScreen(view.w, view.h, t); // cracks, the shields (game/screen-fx.js)
   drawWarpOverlay();
   drawLandingOverlay();
   placeMenu();
@@ -193,7 +189,7 @@ export function frame(now) {
   tickTravel(dt);
   if (onSurface()) { // on a planet's surface (game/landing.js) space is left as it was
     if (!SystemMap.isOpen) { // the map covers it, and pauses it
-      if (!(Settings.isOpen || FactionsMenu.isOpen)) { tickDash(dt); tickLanding(dt); } // (update, which ticks the dash in space, doesn't run here)
+      if (!(Settings.isOpen || FactionsMenu.isOpen)) tickLanding(dt);
       drawLanding(simTime);
       recordFrame(performance.now() - t0, gap);
       if (SystemMap.perf) drawPerf(surfacePerf());
