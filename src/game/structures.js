@@ -88,6 +88,7 @@ export function tickStructures(list) {
 export function structureGroup(e) {
   const host = hostOf(e);
   const standing = (x) => x && !cargo.removed.has(x.key) && !isRazed(x.key) && !fight.dying.has(x.key);
+  if (e.group) return e.group.filter(standing); // a mission's turret battery
   const list = [host, ...(host?.turrets || [])].filter(standing);
   if (e.kind === 'turret' && !host && standing(e)) list.push(e);
   return list;
@@ -163,7 +164,7 @@ let engageHook = null; // game/combat.js engageStructures (set in its init: the 
 export function setEngage(fn) { engageHook = fn; }
 export function attackStructure(e) {
   if (!isStructure(e) || e.razed || docked || landing.on) return;
-  const host = hostOf(e), owner = ownerOf(e);
+  const host = hostOf(e) || e, owner = ownerOf(e);
   if (!structureHostile(e)) {
     const now = Clock.now();
     if (armed.key !== host.key || now > armed.until) {

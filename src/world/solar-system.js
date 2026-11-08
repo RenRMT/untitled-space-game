@@ -605,7 +605,7 @@ const SolarSystem = (() => {
     return {
       seed, name, radius: R, origin: O, cultures: CULTURES, star, planets, moons, belts, fields, nebulae,
       stations, wrecks, contacts, packs, asteroids, gates, pockets, startStation: 0,
-      securityAt, nebulaAt, regionAt, stationDist,
+      securityAt, nebulaAt, regionAt, stationDist, securityCap: Math.min(2, SEC.cap ?? 2), // the most security it has anywhere
       cultureColor: (id) => (CULTURES[id] || CULTURES[0]).color,
     };
   }

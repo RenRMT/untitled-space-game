@@ -204,6 +204,103 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   assert.ok(until('!landing.on', 1500), 'back in space');
 });
 
+test('turrets: round the stations; a friendly one warns before a fight, then its station\'s defence fights back; destroyed, razed, loot', () => {
+  game(`fight.result = null; fight.grace = 0; cargo.hull = SHIP.hull; globalThis.__st = world.scene.stations.find((st) => st.turrets.length >= 2 && st.station.owner === 'wedge')`);
+  assert.ok(game('!!__st'), 'a Wedge station with turrets');
+  assert.ok(game('world.scene.turrets.length > 0'));
+  game(`globalThis.__t = __st.turrets[0]; placeShip(__t.x + 500, __t.y); react(nearbyEntities(simTime))`);
+  assert.ok(game(`actions.of(__t).some((a) => a.id === 'attack-structure')`), 'Attack on a turret');
+  assert.ok(game('!__t.hostile'), 'friendly to start');
+  const regard = game(`Reputation.regard(cargo.rep, 'wedge')`);
+  game('attackStructure(__t)');
+  assert.ok(game('!fight.s'), 'the first press only warns');
+  game('attackStructure(__t)');
+  assert.ok(game('!!fight.s && fight.ships.has(__t.key)'), 'the fight is on');
+  assert.ok(game(`fight.ships.has(__st.key) && __st.turrets.every((t) => fight.ships.has(t.key))`), 'the station and its turrets together');
+  assert.ok(game(`Reputation.regard(cargo.rep, 'wedge')`) < regard, 'regard lost');
+  const t = game(`(() => { const s = fight.s, c = (id) => s.enemies.find((e) => e.id === id); return { turret: c(__t.key).stats.hull, station: c(__st.key).stats.hull }; })()`);
+  assert.ok(t.station > t.turret * 3 && t.turret > game(`Loadout.stats(Loadout.npc('fighter', 1)).hull`) * 3, 'stations tougher than turrets, turrets than ships');
+  game(`fight.s.player.invulnerable = true; const c = fight.s.enemies.find((e) => e.id === __t.key); c.hull = 1; c.shield = 0; fight.s.focus = __t.key`);
+  assert.ok(until('cargo.razed[__t.key] > 0', 60 * 20), 'the turret destroyed');
+  assert.ok(game('isRazed(__t.key) && !nearbyEntities(simTime).includes(__t)'), 'gone until it is rebuilt');
+  assert.ok(game(`__t.hostile === false || structureHostile(__st)`), 'the provoked station stays hostile');
+  game('endSurfaceFight(); fight.s = null; fight.result = null; setMode("in-combat", false); fight.grace = 30');
+  // Rebuilt after its time.
+  game('Clock.now = ((n) => () => n + 3 * 3600 * 1000)(Date.now())');
+  assert.ok(game('!isRazed(__t.key)'), 'rebuilt');
+  game('Clock.now = () => Date.now()');
+});
+
+test('loot: a station destroyed drops gear that floats, is picked up into the spare gear, and survives a save', () => {
+  game(`globalThis.__st2 = world.scene.stations.find((st) => st !== __st && !st.station.waystation); provoked.add(__st2.key);
+    structureDestroyed(__st2)`);
+  assert.ok(game('isRazed(__st2.key)'), 'razed');
+  assert.ok(game(`!canDock(__st2).ok && /Destroyed/.test(canDock(__st2).reason)`), 'docking refused while it is a wreck');
+  const drops = game(`cargo.drops.filter((d) => d.kind === 'loot').length`);
+  assert.ok(drops >= 2, 'a station drops two pieces, at least');
+  assert.ok(game(`cargo.drops.filter((d) => d.kind === 'loot').every((d) => Loot.RANK[d.rarity] >= Loot.RANK.uncommon)`), 'Uncommon or better');
+  game(`const d = cargo.drops.find((x) => x.kind === 'loot'); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime), 0.1)`);
+  assert.ok(game('cargo.gear[__lootId] === 1 && !!Loadout.EQUIPMENT[__lootId].loot'), 'in the spare gear, as equipment');
+  assert.ok(game(`/loot/.test(toast.text)`), 'announced');
+  // Fitted, then saved and read back: the same item.
+  game(`const slot = Loadout.slotsOf(cargo.loadout.hull).find((x) => x.type === Loadout.EQUIPMENT[__lootId].slot).id; outfitting.fit(slot, __lootId); applyShip()`);
+  assert.ok(game('Object.values(cargo.loadout.fitted).includes(__lootId)'), 'fitted');
+  const saved = game('JSON.stringify(ownedLoot())');
+  assert.ok(JSON.parse(saved)[game('__lootId')], 'kept with the save');
+  game(`const name = Loadout.EQUIPMENT[__lootId].name; delete Loadout.EQUIPMENT[__lootId]; readCargo({ loot: JSON.parse(${JSON.stringify(saved)}), loadout: cargo.loadout }); globalThis.__name = name`);
+  assert.ok(game('Loadout.EQUIPMENT[__lootId] && Loadout.EQUIPMENT[__lootId].name === __name'), 'remade from its spec');
+});
+
+test('the squad lands with the ship, follows its trail and fights the guardians beside it', () => {
+  game(`fight.result = null; cargo.hull = SHIP.hull; repairSquad(); globalThis.__body2 = __find((e) => e.kind === 'planet' && e.body && e.body.type === 'ice');
+    placeBeside(__body2); react(nearbyEntities(simTime)); select(__body2); react(nearbyEntities(simTime));`);
+  clickCard('land');
+  assert.ok(until('landing.phase === "surface"', 1500), 'down');
+  assert.ok(game(`activeSquad().length === 1 && Math.hypot(wings.get(cargo.squad[0].id).x - landing.craft.x, wings.get(cargo.squad[0].id).y - landing.craft.y) < 300`), 'the wingman beside the ship');
+  assert.ok(game(`dungeonRun.guards.some((g) => g.role === 'turret') && dungeonRun.guards.some((g) => g.role === 'raider')`), 'turrets and raiders');
+  assert.ok(game(`dungeonRun.guards.filter((g) => g.role === 'turret').every((g) => g.art.type === 'station-turret')`), 'the turrets are turrets');
+  // A guardian roused: the wingman is in the fight.
+  game(`globalThis.__g = dungeonRun.guards.find((g) => g.role === 'raider'); cargo.hull = SHIP.hull * 50;
+    for (const g of dungeonRun.guards) if (g !== __g) g.alive = false; Object.assign(landing.craft, { x: __g.x + 200, y: __g.y, vx: 0, vy: 0 })`);
+  assert.ok(until('!!fight.s && fight.ships.has(__g.key)', 30), 'the raider wakes');
+  assert.ok(game('fight.s.allies.length === 1 && !!fight.s.blocked'), 'the squad beside you, the walls in the fight');
+  assert.ok(game(`!fight.s.enemies.find((e) => e.id === __g.key).fixed`), 'a raider flies');
+  game('fight.s.player.invulnerable = true; for (const a of fight.s.allies) a.invulnerable = true; const c = fight.s.enemies[0]; c.hull = 2; c.shield = 0');
+  assert.ok(until('!__g.alive', 60 * 20), 'destroyed');
+  game('cargo.hull = SHIP.hull; takeOff()');
+  assert.ok(until('!landing.on', 1500), 'back in space');
+  assert.ok(game(`Math.hypot(wings.get(cargo.squad[0].id).x - ship.x, wings.get(cargo.squad[0].id).y - ship.y) < 1000`), 'the wingman back in formation in space');
+});
+
+test('missions: a siege (waves at the station, its turrets with you) and an assault (a battery destroyed), each paid in gear', () => {
+  game(`fight.result = null; fight.grace = 0; cargo.hull = SHIP.hull;
+    globalThis.__siege = cargo.board.list.find((j) => j.id.endsWith('/siege') && world.scene.stations.find((st) => st.key === j.steps[0].station.key && st.turrets.length && !isRazed(st.key) && !structureHostile(st)));
+    acceptJob(__siege.id, __siege.scope); globalThis.__sst = world.scene.stations.find((st) => st.key === __siege.steps[0].station.key);
+    placeShip(__sst.x + __sst.radius + 300, __sst.y)`);
+  assert.ok(game('!!__siege && cargo.missions.status(__siege.id) === "active"'), 'a siege accepted');
+  const waves = game('__siege.steps[0].waves.length');
+  for (let w = 0; w < waves; w++) {
+    assert.ok(until('!!fight.s && !fight.extract', 60 * 15), `wave ${w + 1} attacks`);
+    if (w === 0) assert.ok(game('fight.s.allies.some((a) => a.defender)'), 'the station\'s turrets fight with you');
+    game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = 1; e.shield = 0; }');
+    assert.ok(until('!fight.s', 60 * 30), `wave ${w + 1} beaten`);
+    game('fight.result = null; fight.grace = 0');
+    browser.frames(2);
+  }
+  assert.strictEqual(game('cargo.missions.status(__siege.id)'), 'ready');
+  const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
+  game('completeJob(__siege.id)');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear as the reward');
+  // A battery: its turrets appear at its point and are counted as they go.
+  game(`globalThis.__bat = cargo.board.list.find((j) => j.id.endsWith('/battery') && j.systems.length === 1); acceptJob(__bat.id, __bat.scope);
+    const b = __bat.steps[0].base; placeShip(b.x + 3000, b.y); react(nearbyEntities(simTime))`);
+  assert.ok(game(`nearbyEntities(simTime).filter((e) => e.kind === 'turret' && e.mission === __bat.id).length === __bat.steps[0].base.turrets.length`), 'its turrets');
+  game(`for (const e of nearbyEntities(simTime).filter((x) => x.kind === 'turret' && x.mission === __bat.id)) structureDestroyed(e); tickJobs(0.1)`);
+  assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'ready');
+  game('completeJob(__bat.id)');
+  assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'done');
+});
+
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {
   const r = game(`(() => {
     const g = world.galaxy, f = (i) => g.systems[i].faction;

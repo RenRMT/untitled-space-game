@@ -18,6 +18,12 @@
 //   bring  have goods in the hold, handed over with the job
 //   mine   break up asteroids of a type, anywhere
 //   gas    collect the job's own gas pockets in a nebula
+//   assault  destroy a hostile installation at a point: a turret battery, or a pirate outpost with
+//          its turrets (rules/structures.js), guarded by ships
+//   defend hold off waves of hostile ships attacking a station, one after another
+// A job has a difficulty (DIFFICULTY: Easy, Normal, Hard, Elite) that raises its hostiles' tier and
+// pay, and what drops as its reward (rules/loot.js 'mission'). Its fights may be in its own system
+// or a nearby one (places().nearby()).
 // A step may have lines said on the comms as it opens (say: a new objective or changed plans),
 // and be a twist (secret: not listed until then). Then the job is handed in: where it was
 // accepted, or at the station its last step docks at (a delivery). A job may bring an escort, a
@@ -56,6 +62,13 @@ const Jobs = (() => {
   const CREWS = {
     pirates: { label: 'Pirates', culture: 'pirates' },
   };
+  // Difficulty: tier steps up on the hostiles, pay, and the reward's rarity floor and luck.
+  const DIFFICULTY = {
+    easy: { label: 'Easy', up: 0, pay: 1, floor: 'common', luck: 1 },
+    normal: { label: 'Normal', up: 0, pay: 1.25, floor: 'uncommon', luck: 1.2 },
+    hard: { label: 'Hard', up: 1, pay: 1.6, floor: 'uncommon', luck: 1.6 },
+    elite: { label: 'Elite', up: 2, pay: 2.2, floor: 'rare', luck: 2.2 },
+  };
   const REACH = 2500; // a point in space counts as reached this close (map travel to it stops 2200 short)
   const ROCK_LABEL = { metal: 'metallic', stony: 'stony', carbon: 'carbonaceous', ice: 'icy' };
   // The rock that's commonest where (solar-system.js ASTEROIDS).
@@ -65,7 +78,7 @@ const Jobs = (() => {
 
   // Helpers for one system's jobs (story/job-texts.js uses them). r: the job's own stream; taken:
   // points other jobs already fight at, kept apart so their fights never merge.
-  function places(galaxy, sys, r, taken) {
+  function places(galaxy, sys, r, taken, takenIn = () => taken) {
     const star = sys.star;
     const near = (list, p) => [...list].sort((a, b) => dist(a, p) - dist(b, p));
     // What a point is near, as a text names it: "near Livo III", "in the Livo Belt".
@@ -143,7 +156,19 @@ const Jobs = (() => {
     }
     const n = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
     const pick = (list) => list[Math.floor(r() * list.length)];
-    return { galaxy, sys, r, n, pick, nameAt, space, rocks, derelicts, nebula, stations, named, wanted, hops: (to) => hops(galaxy, sys.index, to), jumps: (a, b) => hops(galaxy, a, b) };
+    // A nearby system's places: one a gate jump away (else the nearest), not the aliens' and no more
+    // than a level harder; null where there's none.
+    function nearby() {
+      if (!galaxy.systems || galaxy.systems.length < 2) return null;
+      const linked = (galaxy.links || []).filter(([a, b]) => a === sys.index || b === sys.index).map(([a, b]) => (a === sys.index ? b : a));
+      const ok = (o) => o && o.index !== sys.index && o.faction !== 'alien' && (o.level || 1) <= (sys.level || 1) + 1;
+      let list = linked.map((i) => galaxy.systems[i]).filter(ok);
+      if (!list.length) list = galaxy.systems.filter(ok).sort((a, b) => dist(a.origin, sys.origin) - dist(b.origin, sys.origin)).slice(0, 2);
+      if (!list.length) return null;
+      const other = list[Math.floor(r() * list.length)];
+      return places(galaxy, other, r, takenIn(other.index), takenIn);
+    }
+    return { galaxy, sys, r, n, pick, nameAt, space, rocks, derelicts, nebula, stations, named, wanted, nearby, hops: (to) => hops(galaxy, sys.index, to), jumps: (a, b) => hops(galaxy, a, b) };
   }
 
   // Gate jumps between two systems (Infinity if they aren't linked at all).
@@ -209,9 +234,24 @@ const Jobs = (() => {
       }
       if (pockets.length < s.n) return null;
       Object.assign(out, { n: s.n, nebula: galaxy.nebulae.indexOf(neb), name: neb.name, pockets: pockets.map((q) => ({ ...q, system: neb.system })) });
+    } else if (s.type === 'assault') {
+      if (!s.at) return null;
+      const sec = galaxy.securityAt(s.at.x, s.at.y), level = galaxy.systems?.[s.at.system]?.level || 1;
+      const t = clamp(Math.max(level, Security.pick(r, Security.pirates(sec).tier)) + (s.up || 0), 1, 5);
+      const turrets = Array.from({ length: s.turrets || 2 }, (_, k) => ({ kind: r() < 0.45 ? 'missile' : 'gun', seed: nextSeed(r), angle: (k / Math.max(1, s.turrets || 2)) * TAU + r() * 0.4, orbit: (s.outpost ? 420 : 260) + Math.round(r() * 80) }));
+      const guards = wave(galaxy, r, s.at, s.guards || 0, { tier: t, crew: s.crew || 'pirates' }, 5);
+      Object.assign(out, { base: { x: s.at.x, y: s.at.y, system: s.at.system, name: s.at.name, tier: t, outpost: !!s.outpost, seed: nextSeed(r), crew: s.crew || 'pirates', turrets }, guards });
+    } else if (s.type === 'defend') {
+      const st = s.at;
+      if (!st || !st.key) return null;
+      const level = galaxy.systems?.[st.system]?.level || 1, t = clamp(level + (s.up || 0), 1, 5);
+      const waves = Array.from({ length: s.waves || 3 }, (_, k) => wave(galaxy, r, st, (s.size || 2) + Math.floor(k / 2), { tier: t, crew: s.crew || 'pirates' }, 5));
+      Object.assign(out, { station: { key: st.key, x: st.x, y: st.y, system: st.system, name: st.name }, tier: t, waves });
     } else return null;
     return out;
   }
+  // How many things an assault step's base has to lose: its outpost (if any) and every turret.
+  const assaultNeed = (s) => s.base.turrets.length + (s.base.outpost ? 1 : 0);
 
   // The log's objectives for the steps: per step one listed (s0, s1, ...), with a hidden one per
   // point when a go step has several (s0p0, ...) and a hidden one before it for its lines (m1).
@@ -221,7 +261,8 @@ const Jobs = (() => {
       const prev = i ? [`s${i - 1}`] : [];
       if (s.say && i) list.push({ id: `m${i}`, hidden: true, after: prev });
       const after = s.say && i ? [`m${i}`] : prev;
-      const need = s.type === 'go' ? s.points.length : s.type === 'fight' ? s.wave.ships.length : s.type === 'take' ? s.items.length : s.n;
+      const need = s.type === 'go' ? s.points.length : s.type === 'fight' ? s.wave.ships.length : s.type === 'take' ? s.items.length
+        : s.type === 'assault' ? assaultNeed(s) : s.type === 'defend' ? s.waves.length : s.n;
       list.push({ id: `s${i}`, label: s.label, ...(need > 1 ? { need } : {}), after, ...(s.twist ? { secret: true } : {}) });
       if (s.type === 'go' && s.points.length > 1) s.points.forEach((p, k) => list.push({ id: `s${i}p${k}`, hidden: true, after }));
     });
@@ -233,7 +274,7 @@ const Jobs = (() => {
   // Credits by what its steps take: the flying (within a system by distance, between systems by
   // the jumps), each hostile ship by its tier, items, goods handed over at a little over their
   // worth, rocks and gas; then the tier's share on top. Rounded to 50.
-  const VALUE = { perUnit: 0.025, perJump: 700, ship: 170, item: 100, goods: 1.3, rock: 70, pocket: 150, escort: 400 };
+  const VALUE = { perUnit: 0.025, perJump: 700, ship: 170, item: 100, goods: 1.3, rock: 70, pocket: 150, escort: 400, turret: 250, outpost: 800, wave: 1.5 };
   function value(galaxy, job, start, end) {
     let v = TIERS[job.tier].base, at = start;
     const fly = (p) => {
@@ -248,10 +289,17 @@ const Jobs = (() => {
       if (s.type === 'bring') v += Goods.type(s.kind).price * s.n * VALUE.goods;
       if (s.type === 'mine') { fly(s.at); v += s.n * VALUE.rock; }
       if (s.type === 'gas') { fly(s.pockets[0]); v += s.n * VALUE.pocket; }
+      if (s.type === 'assault') {
+        fly(s.base);
+        const k = s.base.tier ** 1.5;
+        v += (s.base.turrets.length * VALUE.turret + (s.base.outpost ? VALUE.outpost : 0) + s.guards.ships.length * VALUE.ship) * k;
+      }
+      if (s.type === 'defend') { fly(s.station); for (const w of s.waves) v += w.ships.length * VALUE.ship * VALUE.wave * w.tier ** 1.5; }
     }
     fly(end);
     if (job.escort) v += VALUE.escort;
-    return Math.max(50, Math.round((v * TIERS[job.tier].k * (job.hiddenGiver ? 1.15 : 1)) / 50) * 50);
+    const hard = (DIFFICULTY[job.difficulty] || DIFFICULTY.easy).pay;
+    return Math.max(50, Math.round((v * TIERS[job.tier].k * hard * (job.hiddenGiver ? 1.15 : 1)) / 50) * 50);
   }
 
   // Loyalty: a station's job raises that station's; a system's raises every station in it the
@@ -284,7 +332,9 @@ const Jobs = (() => {
     const w = o.write;
     if (!w || !w.steps || !w.steps.length) return null;
     const steps = [];
-    for (const s of w.steps) {
+    const D = DIFFICULTY[w.difficulty] || null;
+    for (const s0 of w.steps) {
+      const s = D && D.up && ['fight', 'assault', 'defend'].includes(s0.type) ? { ...s0, up: (s0.up || 0) + D.up } : s0;
       const step = makeStep(galaxy, r, s, o.tier, taken);
       if (!step) return null;
       steps.push(step);
@@ -294,14 +344,14 @@ const Jobs = (() => {
     const handIn = deliver ? last.points[0].station : null;
     const job = {
       id: o.id, tier: o.tier, scope: o.scope, name: w.name, title: `${o.scopeName}: ${w.name}`, from: w.from || o.from,
-      faction: o.faction, system: o.system, situation: o.situation || null, against: o.against || null,
+      faction: o.faction, system: o.system, situation: o.situation || null, against: o.against || null, difficulty: D ? w.difficulty : null,
       hiddenGiver: !!Factions.get(o.faction)?.hidden,
       briefing: w.briefing, report: w.report || REPORT[o.tier], debrief: w.debrief,
       provided: w.provided || null, escort: w.escort ? { ...w.escort, seed: nextSeed(r) } : null, steps, handIn,
     };
     job.objectives = objectives(steps);
     job.byId = Object.fromEntries(job.objectives.map((x) => [x.id, x]));
-    job.systems = [...new Set([o.system, ...steps.flatMap((s) => [...(s.points || []), ...(s.items || []), s.wave, s.at].filter(Boolean).map((p) => p.system)),
+    job.systems = [...new Set([o.system, ...steps.flatMap((s) => [...(s.points || []), ...(s.items || []), s.wave, s.at, s.base, s.station].filter(Boolean).map((p) => p.system)),
       ...steps.filter((s) => s.nebula !== undefined).map((s) => galaxy.nebulae[s.nebula].system)].filter((x) => x !== null && x !== undefined))];
     const start = o.anchor, end = handIn ? null : o.anchor;
     const credits = value(galaxy, job, start, end);
@@ -310,8 +360,12 @@ const Jobs = (() => {
     const loyal = loyalty(galaxy, o.tier, o.scope, o.faction, o.against, o.system);
     const d = Reputation.JOB[o.tier], name = (id) => Factions.get(id).name.replace(/^The /, '');
     const regard = [`Regard +${d} with ${name(o.faction)}`, ...(o.against ? [`Regard −${d} with ${name(o.against)}`] : [])];
-    job.reward = { credits, components, loyalty: loyal, regard };
-    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text), ...regard].join(' · ');
+    // Gear as the reward (rules/loot.js 'mission' drops), its rarity floor and luck by difficulty, at
+    // the level of the hardest system the job goes to.
+    const level = Math.max(1, ...job.systems.map((i) => galaxy.systems?.[i]?.level || 1));
+    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: ${{ common: 'any', uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
+    job.reward = { credits, components, loyalty: loyal, regard, gear };
+    job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...Object.entries(components).map(([k, n]) => `${n} × ${Goods.type(k).name}`), ...loyal.map((l) => l.text), ...regard].join(' · ');
     return job;
   }
   // What the giver says once the job is done, before it's handed in, unless the job says otherwise.
@@ -335,11 +389,11 @@ const Jobs = (() => {
         const pool = JobTexts.forStation(st);
         // In the order the stream deals them, those not yet used in this system first.
         const order = pool.map((t) => ({ t, k: r() + (used.has(t.id) ? 1 : 0) })).sort((a, b) => a.k - b.k).map((x) => x.t);
-        const want = r() < 0.5 ? 2 : 1;
+        const want = Math.min(pool.length, r() < 0.5 ? 3 : 2);
         let made = 0;
         for (const t of order) {
           if (made >= want) break;
-          const c = places(galaxy, sys, r, takenIn(sys.index));
+          const c = places(galaxy, sys, r, takenIn(sys.index), takenIn);
           const job = make(galaxy, r, takenIn(sys.index), {
             id: `st/${st.key}/${t.id}`, tier: 'station', scope: st.key, scopeName: st.name, from: st.name, faction: st.owner,
             system: sys.index, anchor: { x: st.x, y: st.y, system: sys.index }, write: t.write({ ...c, st, owner: Factions.get(st.owner) }),
@@ -394,7 +448,7 @@ const Jobs = (() => {
   // station of its faction.
   const offeredAt = (job, st) => (job.tier === 'station' ? job.scope === st.key : job.tier === 'system' ? job.scope === st.system : job.scope === st.owner);
 
-  return { TIERS, CREWS, REACH, ROCK_LABEL, VALUE, board, offeredAt, hops, value };
+  return { TIERS, CREWS, DIFFICULTY, REACH, ROCK_LABEL, VALUE, board, offeredAt, hops, value, assaultNeed };
 })();
 
 export { Jobs };

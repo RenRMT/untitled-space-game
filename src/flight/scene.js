@@ -119,7 +119,7 @@ const Scene = (() => {
     for (const st of stations) {
       const s = st.station, sys = galaxy.systems && galaxy.systems[s.system || 0];
       const r = mulberry32(hashInt(base, seedToInt(s.key), 0x7a22e7));
-      const security = sys && sys.securityAt ? sys.securityAt(s.x, s.y) : 2;
+      const security = sys && sys.securityCap !== undefined ? sys.securityCap : 2; // the system's, not where the station has got to
       const n = Structures.turretCount(r, { security, level: st.tier, size: st.size === 'capital' || s.size === 'major' ? 'major' : 'minor' });
       for (let i = 0; i < n; i++) {
         const kind = Structures.turretKind(r), seed = nextSeed(r);

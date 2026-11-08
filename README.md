@@ -19,8 +19,30 @@ what you destroy, and push out from the safe core of your faction's space into h
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
   class starts with a program that does.
 - **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth of caverns
-  (`src/game/dungeon.js`): sentinels in the chambers, a Warden in the deepest, harder the higher the
-  system's level, with loot, gear and a bounty for the Warden.
+  (`src/game/dungeon.js`): turrets that never move and raiders that patrol and chase hold the
+  chambers, a Warden (a heavy ship) the deepest, harder the higher the system's level, with loot,
+  gear and a bounty for the Warden. The squad lands with the ship, follows its trail through the
+  caverns and fights beside it (`src/game/surface-squad.js`); walls stop every ship in a fight.
+- **Stations and turrets.** Every station holds 0–3 turrets in orbit round it, more in high
+  security and in harder systems (`src/rules/structures.js`). Every man-made thing can be attacked
+  and destroyed: turrets are tougher than ships, stations tougher still (`src/game/structures.js`).
+  A station and its turrets fight as one. Attacking a faction's station warns first, then costs
+  regard with it and keeps that station hostile for the session; a faction that counts you Hostile
+  has its turrets open fire on sight. Destroyed, a faction's turret or station is a wreck until it's
+  rebuilt (20 min, 90 min real time; no docking meanwhile). Friendly turrets fight on your side
+  against hostiles near their station.
+- **Missions.** Every station posts combat contracts (`src/story/job-texts.js`, run by
+  `src/game/jobs.js`): a raider patrol (Easy), a turret battery (Normal), holding the station against
+  waves with its turrets beside you (Normal or Hard), a pirate outpost with its turrets in this
+  system or a nearby one (Hard), and a strike on a fortified outpost a jump away (Elite). The
+  difficulty sets the hostiles' tier, the pay and the gear rewarded.
+- **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
+  cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
+  level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
+  stronger stats the rarer, drop tables per source (fighters, turrets, stations, outposts, dungeon
+  guardians, the Warden, missions) with rarity floors, bad-luck protection (Rare at least after a
+  long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
+  dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
 - **Hazards are off** for now (heat, radiation, flares, ion storms, surface hazards and fuel use);
   `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
   with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
@@ -40,8 +62,8 @@ nebula and an asteroid field) on an outer arm. `notes/galaxy.md` is how it is gr
 sites are on the galaxy map for now; flying to them finds nothing yet.
 
 The game is otherwise pared back to its core mechanics for now: one trade good per category and one
-component per salvage type, six factions (one per culture, all neutral but the hostile aliens), no
-generated jobs, and the introduction switched off. `notes/archived-systems.md` says what was taken
+component per salvage type, six factions (one per culture, all neutral but the hostile aliens), only
+combat contracts on the jobs board, and the introduction switched off. `notes/archived-systems.md` says what was taken
 out and how to bring it back.
 
 ## Running it

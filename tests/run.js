@@ -41,6 +41,8 @@ import { Industry } from '../src/rules/industry.js';
 import { Restoration } from '../src/rules/restoration.js';
 import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
+import { Loot } from '../src/rules/loot.js';
+import { Structures } from '../src/rules/structures.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { Classes } from '../src/rules/classes.js';
 import { CombatCore } from '../src/combat/combat-core.js';
@@ -3151,14 +3153,38 @@ off('?missions', 'missions: offered, accepted, objectives in order, ready once a
 });
 
 // The galaxy's jobs (story/jobs.js), for every test galaxy.
-test('jobs: no job texts yet, so the board is empty', () => {
-  for (const [seed, g] of galaxies) assert.deepStrictEqual(Jobs.board(g).list, [], `seed ${seed}`);
+test('jobs: every station posts combat contracts: raiders, a battery, an outpost (here or nearby), a siege, a strike', () => {
+  for (const [seed, g] of galaxies) {
+    const B = Jobs.board(g), where = `seed ${seed}`;
+    assert(B.list.length > 0, `${where}: contracts`);
+    const kinds = new Set(B.list.map((j) => j.id.split('/').pop()));
+    for (const k of ['patrol', 'battery', 'outpost', 'siege', 'strike']) assert(kinds.has(k), `${where}: a ${k}`);
+    for (const j of B.list) {
+      assert(Jobs.DIFFICULTY[j.difficulty], `${where}: ${j.id} has a difficulty`);
+      assert(j.reward.gear && j.reward.gear.level >= 1, `${where}: ${j.id} rewards gear`);
+      const texts = [j.title, j.rewardText, ...j.briefing, ...j.debrief, ...j.steps.map((s) => s.label)];
+      for (const t of texts) assert(typeof t === 'string' && t && !/undefined|null|NaN|\[object/.test(t), `${where}: ${t}`);
+      for (const s of j.steps) {
+        if (s.type === 'assault') {
+          assert.strictEqual(j.objectives.find((o) => o.id === `s${j.steps.indexOf(s)}`).need ?? 1, Jobs.assaultNeed(s));
+          assert(s.base.turrets.length >= 2 && s.base.tier >= 1 && s.base.tier <= 5);
+        }
+        if (s.type === 'defend') assert(s.waves.length >= 3 && g.stations.some((st) => st.key === s.station.key));
+      }
+    }
+    // Harder pays more, on the whole; some fights are in another system.
+    const med = (d) => { const v = B.list.filter((j) => j.difficulty === d).map((j) => j.reward.credits).sort((a, b) => a - b); return v[v.length >> 1]; };
+    assert(med('easy') < med('hard') && med('hard') < med('elite'), `${where}: pay by difficulty`);
+    assert(B.list.some((j) => j.systems.some((i) => i !== j.system)), `${where}: a contract in a nearby system`);
+  }
 });
 
 // A station job, a system job and a faction job written for the test, to check the machinery the
 // board runs on while the game has none of its own.
 function withTestJobs(fn) {
   const { go, fight, bring } = JobTexts;
+  const saved = { ...JobTexts.STATION }; // the combat contracts, out of the way meanwhile
+  for (const k of Object.keys(JobTexts.STATION)) JobTexts.STATION[k] = [];
   JobTexts.STATION.capital = [['test-delivery', (c) => ({
     name: 'Test delivery', briefing: [`${c.st.name} needs iron.`, 'Bring some in.'],
     steps: [bring('iron', 5, 'Bring 5 iron')], debrief: ['Delivered.'],
@@ -3178,6 +3204,7 @@ function withTestJobs(fn) {
   try { return fn(); } finally {
     delete JobTexts.STATION.capital;
     delete JobTexts.STATION['mining camp'];
+    Object.assign(JobTexts.STATION, saved);
     delete JobTexts.FACTION.wedge;
   }
 }
@@ -5105,6 +5132,117 @@ test('4x building: an Outpost or a Starbase round a planet or moon, one each; di
       }
     }
   }
+});
+
+// ---------- Loot (rules/loot.js) ----------
+
+test('loot: item levels by source level, rarities by weight, affixes by rarity, one stat each', () => {
+  const r = mulberry32(42), seen = {};
+  for (let i = 0; i < 4000; i++) {
+    const level = 1 + (i % 5), spec = Loot.roll(r, { level });
+    assert(spec.ilvl >= (level - 1) * 10 + 1 && spec.ilvl <= level * 10, `ilvl ${spec.ilvl} at level ${level}`);
+    const item = Loot.make(spec), R = Loot.rarityOf(spec.rarity);
+    seen[spec.rarity] = (seen[spec.rarity] || 0) + 1;
+    assert.strictEqual(item.slot, Loot.BASES[spec.base].slot);
+    assert.strictEqual(item.tier, Loot.tierOf(spec.ilvl));
+    assert(item.loot.affixes.length <= R.affixes, 'no more affixes than its rarity has');
+    assert.strictEqual(new Set(item.loot.affixes.map((a) => a.stat)).size, item.loot.affixes.length, 'never one stat twice');
+    for (const [k, v] of Object.entries(item.stats)) if (k !== 'vs') assert(Number.isFinite(v) && v >= 0, `${k}: ${v}`);
+    assert(item.stats.accuracy === undefined || item.stats.accuracy <= 0.99);
+    assert(item.price > 0 && item.name && !/undefined/.test(item.name));
+  }
+  assert(seen.common > seen.uncommon && seen.uncommon > seen.rare && seen.rare > seen.epic && seen.epic > (seen.legendary || 0), JSON.stringify(seen));
+  // Remade from its spec, the same item.
+  const spec = Loot.roll(mulberry32(7), { level: 4, floor: 'epic' });
+  assert.deepStrictEqual(Loot.make(JSON.parse(JSON.stringify(spec))), Loot.make(spec));
+  assert.deepStrictEqual(Loot.read({ [spec.id]: spec, bad: { id: 'x' } }), { [spec.id]: spec }, 'a save read back, the bad dropped');
+});
+
+test('loot: drop tables, floors, the same drops from the same kill, bad-luck protection and class bias', () => {
+  for (const [source, S] of Object.entries(Loot.SOURCES)) {
+    let n = 0;
+    for (let k = 0; k < 400; k++) {
+      const d = Loot.drops(source, `k${k}`, { level: 3, seed: 1 });
+      if (d.length) n++;
+      for (const spec of d) assert(Loot.RANK[spec.rarity] >= Loot.RANK[S.floor], `${source}: floor ${S.floor}`);
+    }
+    assert(Math.abs(n / 400 - S.chance) < 0.08, `${source}: drops ${n / 400} of the time, not ${S.chance}`);
+  }
+  assert.deepStrictEqual(Loot.drops('station', 'st1', { level: 2, seed: 9 }), Loot.drops('station', 'st1', { level: 2, seed: 9 }), 'the same every time');
+  assert(Loot.drops('warden', 'w', { level: 2, seed: 1 }).every((s) => Loot.RANK[s.rarity] >= Loot.RANK.rare));
+  // Pity: never more than PITY.rare rolls in a row below Rare.
+  const pity = {}, r = mulberry32(3);
+  let run = 0, worst = 0;
+  for (let i = 0; i < 3000; i++) {
+    const spec = Loot.roll(r, { level: 1, pity });
+    run = Loot.RANK[spec.rarity] >= Loot.RANK.rare ? 0 : run + 1;
+    worst = Math.max(worst, run);
+  }
+  assert(worst <= Loot.PITY.rare, `${worst} in a row`);
+  // A DPS finds more weapons than a Tank does.
+  const weapons = (cls) => { const q = mulberry32(5); let n = 0; for (let i = 0; i < 2000; i++) if (Loot.BASES[Loot.roll(q, { level: 2, cls }).base].slot === 'weapon') n++; return n; };
+  assert(weapons('dps') > weapons('tank') * 1.3, 'class bias');
+});
+
+test('loot: fitted like any gear: its stats and hull affixes count in the loadout', () => {
+  const EQ = Loadout.EQUIPMENT;
+  let spec, r = mulberry32(11);
+  do spec = Loot.roll(r, { level: 3, floor: 'rare', base: 'laser' }); while (!Loot.make(spec).stats.hullPlus);
+  const item = Loot.register(spec, EQ);
+  assert.strictEqual(EQ[spec.id], item);
+  const l = Loadout.starter('courier');
+  const before = Loadout.stats(l);
+  l.fitted['weapon-1'] = spec.id;
+  const after = Loadout.stats(l);
+  assert.strictEqual(after.hull, before.hull + Math.round(item.stats.hullPlus));
+  assert.strictEqual(after.weapons[0].damage, item.stats.damage);
+  assert(Loadout.summary(item).includes('hull'));
+  delete EQ[spec.id];
+});
+
+// ---------- Structures (rules/structures.js) ----------
+
+test('structures: 0-3 turrets a station, more in safe space; turrets tougher than ships, stations tougher still', () => {
+  const r = mulberry32(1), avg = (o) => { let n = 0; for (let i = 0; i < 2000; i++) { const k = Structures.turretCount(r, o); assert(k >= 0 && k <= 3); n += k; } return n / 2000; };
+  assert(avg({ security: 2, level: 1 }) > avg({ security: 1, level: 1 }) && avg({ security: 1, level: 1 }) > avg({ security: 0, level: 1 }));
+  assert(avg({ security: 1, level: 4 }) > avg({ security: 1, level: 1 }), 'harder systems a few more');
+  for (let t = 1; t <= 5; t++) {
+    const ship = Loadout.stats(Loadout.npc('fighter', t)), gun = Structures.turretStats('gun', t), missile = Structures.turretStats('missile', t);
+    const st = Structures.stationStats(t), cap = Structures.stationStats(t, 'capital');
+    assert(gun.hull > ship.hull * 3 && missile.hull === gun.hull, `tier ${t}: turrets`);
+    assert(st.hull > gun.hull * 3 && cap.hull > st.hull, `tier ${t}: stations`);
+    for (const s of [gun, missile, st]) assert(s.structure && s.weapons.length && s.weapons.every((w) => w.arc === 360) && s.evasion === 0);
+  }
+});
+
+test('structures: every station in the scene has its turrets, round it, keyed by it', () => {
+  const g = galaxies.get(1), scene = Scene.create(g, ArtCulture.forGalaxy(g));
+  assert(scene.turrets.length > 0);
+  for (const st of scene.stations) {
+    assert(st.turrets.length <= 3);
+    for (const t of st.turrets) {
+      assert(t.key.startsWith(`${st.key}.t`) && t.host === st && t.owner === st.station.owner && scene.get(t.key) === t);
+      assert(Math.hypot(t.x - st.x, t.y - st.y) > st.radius, 'outside the station');
+    }
+  }
+  scene.move(1000);
+  for (const t of scene.turrets) assert(Math.hypot(t.x - t.host.x, t.y - t.host.y) < t.host.radius + 400, 'still round it as things move');
+  const again = Scene.create(g, ArtCulture.forGalaxy(g));
+  assert.deepStrictEqual(again.turrets.map((t) => t.key), scene.turrets.map((t) => t.key), 'the same turrets each time');
+});
+
+test('real time: fixed combatants hold their place on either side, and walls stop ships', () => {
+  const fighter = Loadout.stats(Loadout.npc('fighter', 1));
+  const player = RealtimeCombat.ship('player', 'you', Loadout.stats(Loadout.starter('courier')), { x: 0, y: 0, radius: 16 });
+  const turret = RealtimeCombat.ship('t', 'turret', Structures.turretStats('gun', 1), { x: 0, y: 200, radius: 20 }, undefined, { fixed: true });
+  const ally = RealtimeCombat.ship('a', 'ally turret', Structures.turretStats('gun', 1), { x: 0, y: -150, radius: 20 }, undefined, { fixed: true, defender: true });
+  const raider = RealtimeCombat.ship('r', 'raider', fighter, { x: 900, y: 0, radius: 14 });
+  const wall = (x) => x > 500 && x < 520; // a wall between the raider and the rest
+  const s = RealtimeCombat.create(mulberry32(1), player, [turret, raider], { allies: [ally], blocked: (x) => wall(x) });
+  ally.order = { target: 't' };
+  for (let i = 0; i < 300; i++) RealtimeCombat.step(s, 1 / 30);
+  assert.deepStrictEqual([turret.x, turret.y, ally.x, ally.y], [0, 200, 0, -150], 'held in place');
+  assert(raider.x >= 520 || raider.hull <= 0, 'the raider never got through the wall');
 });
 
 if (failed) {
