@@ -15,14 +15,16 @@ what you destroy, and push out from the safe core of your faction's space into h
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
-  below. Real time is the alternative in Settings.
+  below; tap a ship to target it. Active (real time) is the alternative: Settings → Combat, or B.
+  Fights play the same in space and on a surface, and the ship flies there as fast as in space.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
   each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
   class starts with a program that does.
-- **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth of caverns
+- **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth cut into its own ground
+  (canyons on a desert world, ice caves, lava tubes, a storm maze on a gas giant, crater mazes on moons)
   (`src/game/dungeon.js`): turrets that never move and raiders that patrol and chase hold the
   chambers, a Warden (a heavy ship) the deepest, harder the higher the system's level, with loot,
   gear and a bounty for the Warden. The squad lands with the ship, follows its trail through the
@@ -51,7 +53,12 @@ what you destroy, and push out from the safe core of your faction's space into h
   `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
   with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
 
-Mining, production, research and the station services are as they were.
+Mining is a timed action (`src/game/mining.js`): Mine (or Siphon) sets the tools on a rock, a ring
+round it fills as they work, and it breaks up when it's done; fly off and the work stops. Jump gates
+are named for where they lead. Floating drops are drawn as their menu icons; drag one onto the ship
+to pick it up. A dungeon's way out is its landing pad: fly off it and back onto it to take off.
+Explanations in the menus wait behind an ⓘ. Production, research and the station services are as
+they were.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms

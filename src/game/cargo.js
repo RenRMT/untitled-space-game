@@ -2,7 +2,6 @@
 // research, industry, squad and missions), and the ship's stats from its loadout (applyShip).
 // Part of the flight view; src/main.js starts it.
 
-import { mulberry32 } from '../core/rng.js';
 import { Clock } from '../core/clock.js';
 import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
@@ -29,7 +28,7 @@ import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
 import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
-import { SHIP, TAU, clamp, notify, ship } from './state.js';
+import { SHIP, clamp, notify, ship } from './state.js';
 
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
 // each. components: salvaged components by type ({ [kind]: count }), kept apart from the hold:
@@ -93,10 +92,12 @@ export const PICKUP_RANGE = 40; // world units beyond the item's own size
 // PULL_SPEED world units a second faster than it flies.
 export const PULL_RANGE = 220, PULL_SPEED = 450;
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
+// Drops are held still at the three-quarter turn their icons are drawn at (art/icons.js), so what
+// floats is what the menus show; dragged onto the ship, one is picked up (game/input.js).
+export const DROP_ANGLE = -0.35;
 export function dropEntity(d) {
-  const r = mulberry32(d.seed);
-  if (d.loot) return { ...Entities.lootDrop({ key: d.key, spec: d.loot, x: d.x, y: d.y, angle: r() * TAU, tumble: (r() - 0.5) * 0.3 }), drop: d };
-  return { ...Entities.item({ key: d.key, kind: d.kind, seed: d.seed, x: d.x, y: d.y, angle: r() * TAU, tumble: (r() - 0.5) * 0.3 }), drop: d };
+  if (d.loot) return { ...Entities.lootDrop({ key: d.key, spec: d.loot, x: d.x, y: d.y, angle: DROP_ANGLE, tumble: 0 }), drop: d };
+  return { ...Entities.item({ key: d.key, kind: d.kind, seed: d.seed, x: d.x, y: d.y, angle: DROP_ANGLE, tumble: 0 }), drop: d };
 }
 
 // An item record from a save, brought up to date: saves from before item types stored a category

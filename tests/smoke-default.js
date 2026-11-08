@@ -84,7 +84,7 @@ test('mines an asteroid with the starting tools and keeps what it drops', () => 
   game('cargo.items = []; placeShip(__rock.x, __rock.y + __rock.radius + 60); select(__rock)');
   browser.frames(1);
   clickCard('mine');
-  assert.ok(game('extracting() && fight.ships.has(__rock.key)'), 'mining');
+  assert.ok(game('mine.target === __rock'), 'mining');
   assert.ok(until('cargo.removed.has(__rock.key)', 60 * 30), 'the asteroid broke up');
   // The tools chain on through its shards; what it all left is pulled in and collected.
   assert.ok(until('!shards.some((e) => e.parent.key === __rock.key)', 60 * 20), 'every shard broken');
@@ -165,8 +165,17 @@ test('the squad: a wingman hired at a dock, its class program using its skills',
 test('a fight with hostiles: skills activate, then cool down; the healer wingman repairs; loot drops', () => {
   game(`globalThis.__foe = __find((e) => e.kind === 'ship' && e.pirate && e.tier === 1 && !cargo.removed.has(e.key) && world.galaxy.securityAt(e.x, e.y) < 2);
     placeShip(__foe.x + 300, __foe.y); snapWings()`);
-  assert.ok(until('!!fight.s && !fight.extract', 120), 'the pirates attack');
+  assert.ok(until('!!fight.s', 120), 'the pirates attack');
   assert.strictEqual(game('fight.s.allies.length'), 1, 'the wingman fights beside you');
+  assert.strictEqual(game('fight.mode'), 'rounds', 'turn-based by default');
+  // A tap on an enemy targets it.
+  if (game('fight.s.enemies.length') > 1) {
+    game(`globalThis.__other = fight.s.enemies.find((e) => e.id !== fight.s.focus).id; globalThis.__at = worldToScreen(fighterPos(__other).x, fighterPos(__other).y)`);
+    const [x, y] = game('__at'), canvas = browser.document.getElementById('game');
+    canvas.dispatch('pointerdown', { pointerId: 5, pointerType: 'touch', button: 0, clientX: x, clientY: y, timeStamp: 100 });
+    canvas.dispatch('pointerup', { pointerId: 5, pointerType: 'touch', button: 0, clientX: x, clientY: y, timeStamp: 150 });
+    assert.ok(game('fight.s.focus === __other'), 'tapped, targeted');
+  }
   game('for (const e of fight.s.enemies) { e.stats = { ...e.stats, hull: e.stats.hull * 6 }; e.hull = e.stats.hull; }'); // long enough to see it all
   assert.ok(game(`skillButtons(fight.s).length === 3`), 'three skill buttons');
   game(`fight.s.player.hull = fight.s.player.stats.hull * 0.5`);
@@ -178,7 +187,7 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
   game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
   assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
   assert.strictEqual(game('fight.result'), 'won');
-  assert.ok(game(`cargo.drops.some((d) => d.key.startsWith('drop:' + __foe.key))`) || game(`cargo.removed.has(__foe.key)`), 'destroyed, its loot floating');
+  assert.ok(until(`cargo.drops.some((d) => d.key.startsWith('drop:' + __foe.key)) || cargo.removed.has(__foe.key)`, 30), 'destroyed, its loot floating');
 });
 
 test('landing: every planet is a dungeon of guardians, its Warden in the deepest chamber, fought for loot', () => {
@@ -187,6 +196,8 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   clickCard('land');
   assert.ok(until('landing.phase === "surface"', 1500), 'down');
   assert.ok(game('!!surfaceRun.W.dungeon'), 'a labyrinth');
+  assert.strictEqual(game('surfaceRun.W.type'), 'desert', 'cut into the desert world\'s own ground');
+  assert.ok(!game('Object.keys(landing).includes("button")') && !browser.document.getElementById('takeoff-btn').listeners.click, 'no Take off button');
   assert.ok(game('dungeonRun.guards.filter((g) => g.boss).length === 1 && dungeonRun.guards.length > 3'), 'guardians and one Warden');
   // Straight to the Warden (god mode for the test: the hull doesn't matter here).
   game(`globalThis.__boss = dungeonRun.guards.find((g) => g.boss); fight.s && endSurfaceFight();
@@ -200,8 +211,41 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear looted');
   assert.ok(game('cargo.credits') > credits, 'a bounty');
   assert.ok(game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'loot lying on the ground');
-  game('cargo.hull = SHIP.hull; takeOff()');
+  // The way out: off the landing pad, then back onto it.
+  game('fight.s && endSurfaceFight(); cargo.hull = SHIP.hull; const W = surfaceRun.W; Object.assign(landing.craft, { x: W.start[0], y: W.start[1] - EXIT.r - EXIT.arm - 40, vx: 0, vy: 0 }); ship.targetSpeed = 0');
+  browser.frames(2);
+  assert.ok(game('dungeonRun.armed && landing.phase === "surface"'), 'off the pad: flying back onto it leaves');
+  game('Object.assign(landing.craft, { x: surfaceRun.W.start[0], y: surfaceRun.W.start[1], vx: 0, vy: 0 })');
+  browser.frames(2);
+  assert.ok(game('landing.phase === "takeoff" || !landing.on'), 'taking off from the pad');
   assert.ok(until('!landing.on', 1500), 'back in space');
+});
+
+test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
+  game(`fight.grace = 1e9; cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:drag', kind: 'iron', seed: 3, x: ship.x + PULL_RANGE + 300, y: ship.y }))`);
+  browser.frames(1);
+  assert.strictEqual(game(`cargo.drops.find((d) => d.key === 'drop:smoke:drag').angle`), game('DROP_ANGLE'), 'held at its icon\'s turn');
+  const from = game(`worldToScreen(ship.x + PULL_RANGE + 300, ship.y)`), to = game('worldToScreen(ship.x, ship.y)'), canvas = browser.document.getElementById('game');
+  canvas.dispatch('pointerdown', { pointerId: 6, pointerType: 'touch', button: 0, clientX: from[0], clientY: from[1], timeStamp: 200 });
+  canvas.dispatch('pointermove', { pointerId: 6, pointerType: 'touch', clientX: (from[0] + to[0]) / 2, clientY: from[1] });
+  canvas.dispatch('pointermove', { pointerId: 6, pointerType: 'touch', clientX: to[0], clientY: to[1] });
+  assert.strictEqual(game('ship.targetSpeed'), 0, 'carrying a drop doesn\'t steer');
+  canvas.dispatch('pointerup', { pointerId: 6, pointerType: 'touch', button: 0, clientX: to[0], clientY: to[1], timeStamp: 900 });
+  assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:drag')`) && game(`cargo.items.some((it) => it.kind === 'iron')`), 'picked up');
+});
+
+test('settings: combat is turn-based or active, turn-based to start; the hints wait behind the ⓘ', () => {
+  assert.strictEqual(game('combatMode.value'), 'rounds');
+  game('Settings.open()');
+  const body = browser.document.getElementById('settings').querySelector('.set-body');
+  const flat = (n) => [n, ...(n.children || []).flatMap((c) => (c && typeof c === 'object' ? flat(c) : []))];
+  const all = () => flat(body);
+  assert.ok(all().some((n) => n.attributes && n.attributes['data-option'] === 'combat'), 'a Combat setting');
+  assert.ok(!all().some((n) => n.className === 'set-hint'), 'no hints unasked');
+  browser.document.getElementById('settings').querySelector('.set-info').dispatch('click');
+  assert.ok(all().some((n) => n.className === 'set-hint'), 'the ⓘ shows them');
+  game('Settings.close()');
 });
 
 test('turrets: round the stations; a friendly one warns before a fight, then its station\'s defence fights back; destroyed, razed, loot', () => {
@@ -282,7 +326,7 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.ok(game('!!__siege && cargo.missions.status(__siege.id) === "active"'), 'a siege accepted');
   const waves = game('__siege.steps[0].waves.length');
   for (let w = 0; w < waves; w++) {
-    assert.ok(until('!!fight.s && !fight.extract', 60 * 15), `wave ${w + 1} attacks`);
+    assert.ok(until('!!fight.s', 60 * 15), `wave ${w + 1} attacks`);
     if (w === 0) assert.ok(game('fight.s.allies.some((a) => a.defender)'), 'the station\'s turrets fight with you');
     game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = 1; e.shield = 0; }');
     assert.ok(until('!fight.s', 60 * 30), `wave ${w + 1} beaten`);

@@ -34,7 +34,7 @@ export function startWarp(gate, there, onArrive) {
   const dir = Math.atan2(gate.y - ship.y, gate.x - ship.x);
   Object.assign(warp, {
     on: true, t: 0, gate, there, onArrive, from: { x: ship.x, y: ship.y }, dir, angle0: ship.angle,
-    dist: Math.hypot(there.x - gate.x, there.y - gate.y), name: there.gate.name,
+    dist: Math.hypot(there.x - gate.x, there.y - gate.y), name: gate.name || gate.gate.name,
   });
   setMode('warping', true);
 }

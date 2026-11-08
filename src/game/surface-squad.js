@@ -15,13 +15,13 @@ import { SurfaceGlobe } from '../art/surface-globe.js';
 import { Entities } from '../flight/entities.js';
 import { Flight } from '../flight/flight.js';
 import { COLORS } from '../core/theme.js';
-import { landing } from './landing.js';
+import { SURFACE_ACCEL, SURFACE_SPEED, landing } from './landing.js';
 import { artStyle } from './options.js';
 import { activeSquad, snapWings } from './squad.js';
 import { clamp, ctx, fight, wings } from './state.js';
 
 export const TRAIL = { step: 14, gap: 70, max: 400 }; // a crumb every `step` units; each wingman `gap` further back
-const SPEED = 0.5, ACCEL = 0.6, SCALE = 0.85; // as the player's ship on a surface (game/landing.js)
+const SCALE = 0.85; // drawn as the player's ship on a surface (game/landing.js)
 const run = { W: null, trail: [] };
 
 // The walls of the surface the ship is on, as a fight takes them: whether a ship of radius r at
@@ -75,12 +75,12 @@ export function tickSurfaceSquad(dt) {
     run.trail.push({ x: C.x, y: C.y });
     if (run.trail.length > TRAIL.max) run.trail.shift();
   }
-  if (fight.s && !fight.extract) return; // the fight flies them
+  if (fight.s) return; // the fight flies them
   const lead = Math.hypot(C.vx, C.vy);
   members().forEach((w, i) => {
     const st = along((i + 1) * TRAIL.gap), d = Math.hypot(st.x - w.x, st.y - w.y);
     if (d > TRAIL.gap * 8) { Object.assign(w, st, { vx: 0, vy: 0 }); return; }
-    const stats = { ...w.stats, maxSpeed: w.stats.maxSpeed * SPEED, accel: w.stats.accel * ACCEL };
+    const stats = { ...w.stats, maxSpeed: w.stats.maxSpeed * SURFACE_SPEED, accel: w.stats.accel * SURFACE_ACCEL };
     const there = d < 12, x0 = w.x, y0 = w.y;
     Flight.step(w, stats, {
       targetAngle: there ? C.angle : Math.atan2(st.y - w.y, st.x - w.x),

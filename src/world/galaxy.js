@@ -356,6 +356,11 @@ const Galaxy = (() => {
     for (const st of observed) { st.id = all.stations.length; all.stations.push(st); }
     // Gate pairs: each gate knows the one at the other end.
     for (const g of all.gates) g.link = all.gates.find((o) => o !== g && o.system === g.to && o.to === g.system).id;
+    // Each gate is named after where it leads, so a system's gates read apart.
+    for (const g of all.gates) {
+      const to = systems.find((s) => s.index === g.to);
+      if (to) g.name = `${to.name} ${g.wormhole ? 'Wormhole' : 'Gate'}`;
+    }
 
     const inSystem = (s, x, y) => Math.hypot(x - s.origin.x, y - s.origin.y) <= s.radius;
     const systemAt = (x, y) => systems.find((s) => inSystem(s, x, y)) || null;

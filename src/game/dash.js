@@ -36,7 +36,7 @@ const surfaceDash = () => landing.on && landing.phase === 'surface';
 // Where the ship can dash now (the fuel aside).
 export function canDash() {
   if (docked || intro.on || warp.on || SystemMap.isOpen || fight.wrecked || fight.wreckT > 0) return false;
-  if (fight.s && !fight.extract) return false; // a fight with ships flies by its own rules
+  if (fight.s) return false; // a fight with ships flies by its own rules
   if (landing.on) return surfaceDash() && !landing.wrecked;
   return true;
 }

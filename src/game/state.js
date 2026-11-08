@@ -82,8 +82,8 @@ export const fight = {
 // arrive: the pod drifting in at the start, before anyone speaks ({ t, from, to, a0, a1 }).
 export const intro = { on: false, run: null, station: null, face: null, flying: false, beam: null, arrive: null };
 export const inFight = () => !!fight.s || fight.wreckT > 0;
-// The same, but for mining (a session against rocks, game/combat.js extract): a fight with ships, or the ship being lost.
-export const inShipFight = () => inFight() && !(fight.s && fight.extract);
+// The same (mining is not a fight any more: game/mining.js).
+export const inShipFight = inFight;
 export const fightMode = () => COMBAT[fight.mode];
 export const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
 export let flash = 0; // white-out when the wrecked ship is towed home or jumps through a gate, fading from 1

@@ -1,8 +1,7 @@
 // Asteroid mining: how much an asteroid or gas pocket takes to break up and what it leaves behind.
-// Mining is extraction (game/combat.js): a rock is a passive target in a real-time fight
-// (combat/combat-realtime.js) with no shields, no engine and no guns, and its integrity as its hull.
-// The ship's tools wear it down while it's locked, in range and in their arc, each by its factor
-// for the rock's material (rules/loadout.js `vs`). Broken up, an asteroid may drop one raw material
+// Mining is a timed action (game/mining.js): a rock's integrity over how hard the ship's tools bite
+// (each by its factor for the rock's material, rules/loadout.js `vs`, × the computer's mining rate)
+// is how long it takes. (stats(): a rock as a passive combatant, kept for the combat rules' tests.) Broken up, an asteroid may drop one raw material
 // to collect: a metal, mineral or gas (rules/goods.js). Drops are seeded by the system and the
 // asteroid, so an asteroid always yields the same. A gas pocket in a nebula (world/solar-system.js)
 // always yields gas, one to three units by the pocket's size (gasOf).

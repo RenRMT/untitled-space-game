@@ -118,7 +118,7 @@ export function update(dt) {
   const k = 1 - Math.exp(-4 * dt);
   let tx = ship.x + ship.vx * lead, ty = ship.y + ship.vy * lead;
   if (warp.on) { tx = ship.x; ty = ship.y; } // a gate jump's speed would throw the lead far ahead
-  const focus = fight.s && !fight.extract && fight.ships.get(fight.s.focus);
+  const focus = fight.s && fight.ships.get(fight.s.focus);
   if (focus) {
     const top = CombatPanel.top;
     const covered = steady('fight', top === null ? 0 : Math.max(0, view.h - top));

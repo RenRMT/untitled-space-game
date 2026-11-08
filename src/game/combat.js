@@ -1,8 +1,6 @@
-// Combat in flight: extraction (mining an asteroid or a gas pocket as a fight against a passive
-// target), engaging and being ambushed, the fight's events as effects, loot, the combat panel,
+// Combat in flight: engaging and being ambushed, the fight's events as effects, loot, the combat panel,
 // knocks to the ship (collisions: hurtShip) and losing the ship. The rules: combat/combat.js (turns on
-// a timeline, the default for fights with ships) and combat/combat-realtime.js (the alternative, and
-// always for mining).
+// a timeline, the default) and combat/combat-realtime.js (active, the alternative).
 // Part of the flight view; src/main.js starts it.
 
 import { CombatCore } from '../combat/combat-core.js';
@@ -17,7 +15,6 @@ import { Scene } from '../flight/scene.js';
 import { Abilities } from '../rules/abilities.js';
 import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
-import { Mining } from '../rules/mining.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
 import { CombatPanel } from '../ui/combat-panel.js';
@@ -29,19 +26,19 @@ import { addTo, cargo, dropEntity, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { rescued } from './hazards.js';
 import { lostOnSurface } from './surface-run.js';
-import { landing } from './landing.js';
+import { landing, surfaceAt } from './landing.js';
 import { surfaceWalls } from './surface-squad.js';
 import { guardianDown } from './dungeon.js';
 import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
 import { Loot } from '../rules/loot.js';
-import { rx, ry, visible } from './draw-world.js';
+import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
 import { lab } from './lab.js';
-import { burst, chips, rockBroken } from './mining.js';
+import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
-import { HOSTILE_COLOR, brackets, fmtDist, frameList, isHostile, select } from './selection.js';
+import { HOSTILE_COLOR, fmtDist, frameList, isHostile, select } from './selection.js';
 import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
 import { NEAR, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
 import { simTime } from './update.js';
@@ -70,10 +67,7 @@ export const godMode = Params.has('dev');
 //   station it docked at (or the capital), with the hull patched up.
 // Pirates that survive a real-time fight fly back to their usual paths.
 //
-// Mining is a fight too, always in real time (extract): the asteroid or gas pocket is a passive
-// target, with its integrity as its hull (rules/mining.js). Your tools fire at it while it's locked,
-// in range and in their arc; another rock tapped joins the session. Broken up, it leaves what it
-// held (rockBroken); fly out past lock range and the session ends.
+// Mining is a timed action of its own (game/mining.js), not a fight; a fight starting ends it.
 export const FLEE_GRACE = 12; // seconds the pirates leave you alone after you get away
 export const RESPAWN_GRACE = 8;
 export const SHOT_COLOR = { player: COLORS.cyan, ally: '#5ad8ff', enemy: COLORS.hostile };
@@ -97,8 +91,8 @@ function defenderPos(id) {
 const isDefender = (id) => !!fight.s && (fight.s.allies || []).some((c) => c.id === id && c.defender);
 // How far out a combatant is drawn, for what's drawn round it (brackets, shields, bars): ships are
 // drawn larger than their size (flight/entities.js SHIP_SCALE), the player's a quarter larger again
-// (game/draw-world.js drawShip); rocks at their size.
-const shownRadius = (p) => (p.rock || p.structure ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
+// (game/draw-world.js drawShip); structures at their size.
+const shownRadius = (p) => (p.structure ? p.radius : p.radius * Entities.SHIP_SCALE * (p.player ? 1.25 : 1));
 // Effects are attached to a combatant (by id, so they follow it) or to a fixed point.
 export const fxPos = (v) => (typeof v === 'string' ? fighterPos(v) : v);
 
@@ -169,61 +163,6 @@ export function threat(target) {
   return { word: 'Outmatched', tone: 'hostile', detail };
 }
 
-// ---------- Extraction ----------
-
-// A rock (an asteroid or a gas pocket) as the real-time mode takes it, and its pose for the effects.
-export const rockName = (e) => (e.surface ? e.name : Entities.KINDS[e.kind].card(e, null).title);
-export function rockSpec(e) {
-  return { id: e.key, name: rockName(e), stats: Mining.stats(e), passive: true, material: Mining.material(e), body: { x: e.x, y: e.y, vx: 0, vy: 0, angle: 0, radius: e.radius } };
-}
-const rockPose = (e) => ({ x: e.x, y: e.y, a: 0, thrust: 0, radius: e.radius, name: rockName(e), rock: e });
-// Whether a fight is mining (only rocks in it).
-export const extracting = () => !!fight.s && fight.extract;
-
-// Start mining a rock, or add it to the session under way and turn the tools on it. On a surface
-// (game/surface-run.js), a deposit there, without the squad (it stays in orbit).
-export function extract(rock) {
-  const onGround = landing.phase === 'surface';
-  if (docked || (landing.on && !onGround) || !!rock.surface !== onGround || landing.wrecked) return;
-  if (fight.wreckT > 0 || cargo.removed.has(rock.key) || fight.dying.has(rock.key)) return;
-  const s = fight.s;
-  if (s) {
-    if (!fight.extract) return;
-    joinRock(rock);
-    focusOn(rock.key);
-    return;
-  }
-  fight.mode = 'realtime';
-  fight.extract = true;
-  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  fight.s = fightMode().start(rng, playerSpec(), [rockSpec(rock)], { target: rock.key, ambushed: false, allies: onGround ? [] : allySpecs() });
-  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
-  fight.ships = new Map([[rock.key, rockPose(rock)]]);
-  fight.log = [`${Mining.material(rock) === 'gas' ? 'Siphoning' : 'Mining'} the ${rockName(rock).toLowerCase()}`];
-  fight.lowHull = false;
-  fight.lockers = new Set();
-  fight.result = null;
-  autopilot.key = null;
-  setMode('mining', true); // no combat panel: the lock and the rock's integrity show on the rock itself
-}
-
-// A rock added to the mining session under way without turning the tools on it (game/mining.js
-// autoMine: the next one, ready for when the target breaks).
-export function joinRock(rock) {
-  if (!extracting() || fight.ships.has(rock.key) || fight.dying.has(rock.key) || cargo.removed.has(rock.key)) return;
-  fightMode().join(fight.s, rockSpec(rock));
-  fight.ships.set(rock.key, rockPose(rock));
-}
-
-// Mining stopped without the rocks broken (the ship moved by a teleport, or something else
-// tapped): the session just ends.
-export function endExtraction() {
-  if (!fight.s || !fight.extract) return;
-  fight.final = fight.s;
-  fight.s = null;
-  endFight('fled');
-}
-
 // The player's ship as a fight takes it: its hull and the shields it has now.
 function playerSpec() {
   const P = pilot();
@@ -249,7 +188,7 @@ export function tickShield(dt) {
 
 // The ship takes a knock (a collision, flight/collide.js; a storm pocket on a gas giant): shields
 // first, then the hull, shown like a hit in a fight. Returns what it took; a hull knocked to nothing
-// loses the ship (wreck; on a surface, lostOnSurface: the hold stays there). Mining, the session ends.
+// loses the ship (wreck; on a surface, lostOnSurface: the hold stays there), and mining stops.
 export function hurtShip(amount, at = null) {
   if (amount <= 0 || fight.wrecked || fight.wreckT > 0 || landing.wrecked) return { shieldDamage: 0, hullDamage: 0 };
   const target = fight.s ? fight.s.player : { hull: cargo.hull, shield: shieldNow(), invulnerable: godMode };
@@ -262,8 +201,8 @@ export function hurtShip(amount, at = null) {
   if (d.hullDamage > 0) burst(at ? at.x : P.x, at ? at.y : P.y, 6, { speed: [40, 180], life: [0.3, 0.8], size: [1.5, 3.5], colors: [COLORS.flash, COLORS.flame] });
   addDamage('player', d.shieldDamage + d.hullDamage, d.hullDamage > 0);
   Feedback.emit('hit', { hull: d.hullDamage > 0 });
-  if (target.hull <= 0 && (!fight.s || fight.extract)) {
-    if (fight.s) { cargo.hull = 0; endExtraction(); }
+  if (target.hull <= 0 && !fight.s) {
+    endExtraction();
     if (landing.on) lostOnSurface('Hull breached'); // game/landing.js takes off, and the ship is lost in orbit
     else wreck();
   }
@@ -285,8 +224,8 @@ export function engage(target, ambushed = false) {
   const group = packOf(target);
   const names = group.map((e, i) => shipName(e, i, group.length));
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  endExtraction(); // mining stops for a fight
   fight.mode = combatMode.value;
-  fight.extract = false;
   const m = fightMode();
   fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: [...allySpecs(), ...(m.flying ? defenderSpecs(target) : [])] });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) if (!c.defender) c.invulnerable = true;
@@ -316,7 +255,7 @@ export function engageStructures(target, ambushed = false) {
   if (docked || landing.on || fight.dying.has(target.key)) return;
   const group = [...structureGroup(target)];
   if (!group.length) return;
-  if (fight.s && !fight.extract && fightMode().join) {
+  if (fight.s && fightMode().join) {
     for (const e of group) {
       if (fight.ships.has(e.key)) continue;
       fightMode().join(fight.s, structureSpec(e));
@@ -330,8 +269,8 @@ export function engageStructures(target, ambushed = false) {
   const ships = frameList.filter((e) => isHostile(e) && !cargo.removed.has(e.key) && !fight.dying.has(e.key) && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange);
   const names = ships.map((e, i) => shipName(e, i, ships.length));
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  endExtraction();
   fight.mode = combatMode.value;
-  fight.extract = false;
   const specs = [...group.map(structureSpec), ...ships.map((e, i) => enemySpec(e, names[i]))];
   fight.s = fightMode().start(rng, playerSpec(), specs, { target: ambushed ? null : target.key, ambushed, allies: allySpecs() });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
@@ -349,7 +288,7 @@ export function engageStructures(target, ambushed = false) {
   if (ambushed) notify(what, 2, { priority: 2, tone: 'hostile' });
 }
 
-// A dungeon's guardians waking (game/dungeon.js): a real-time fight on the surface, with the squad
+// A dungeon's guardians waking (game/dungeon.js): a fight on the surface (the Combat setting's mode, as in space), with the squad
 // (it lands with you: game/surface-squad.js). Turrets hold their place; raiders and the Warden fly,
 // and the caverns' walls stop every ship in it. Mining stops for it; guardians woken while one is
 // on join it.
@@ -357,7 +296,7 @@ const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: g
 const guardianPose = (g) => ({ x: g.x, y: g.y, a: g.angle, thrust: 0, role: 'fighter', tier: g.tier, radius: g.radius, name: g.name, guardian: g });
 export function engageOnSurface(foes) {
   if (!foes.length || landing.phase !== 'surface' || landing.wrecked || fight.wreckT > 0) return;
-  if (fight.s && !fight.extract) {
+  if (fight.s) {
     for (const g of foes) {
       if (fight.ships.has(g.key)) continue;
       fightMode().join(fight.s, guardianSpec(g));
@@ -366,12 +305,12 @@ export function engageOnSurface(foes) {
     }
     return;
   }
-  if (fight.s) endExtraction();
+  endExtraction();
   fight.mode = combatMode.value;
-  fight.extract = false;
   const rng = mulberry32((Math.random() * 4294967296) >>> 0);
   fight.s = fightMode().start(rng, playerSpec(), foes.map(guardianSpec), { target: null, ambushed: true, allies: allySpecs(), blocked: surfaceWalls() });
   if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
+  if (fight.mode !== 'realtime') ship.targetSpeed = 0; // as in space: the ship eases to a stop in a turn-based fight
   fight.ships = new Map(foes.map((g) => [g.key, guardianPose(g)]));
   const boss = foes.find((g) => g.boss), what = boss ? `The ${boss.name} wakes!` : `${foes.length > 1 ? `${foes.length} sentinels wake` : 'A sentinel wakes'}!`;
   fight.log = [what];
@@ -383,7 +322,7 @@ export function engageOnSurface(foes) {
 }
 // Taking off in the middle of one: it's over, the guardians left as they were.
 export function endSurfaceFight() {
-  if (!fight.s || fight.extract) return;
+  if (!fight.s) return;
   fight.final = fight.s;
   fight.s = null;
   endFight('fled');
@@ -417,7 +356,7 @@ export function checkAggro(list) {
     && (e.pack === undefined || world.galaxy.securityAt(e.x, e.y) < 2);
   if (fight.s && fightMode().join) {
     for (const e of list) if (!fight.ships.has(e.key) && near(e)) joinFight(e);
-    if (!fight.extract) structureAggro(list, (e) => engageStructures(e, true));
+    structureAggro(list, (e) => engageStructures(e, true));
     return;
   }
   if (inFight() || fight.grace > 0) return;
@@ -444,13 +383,10 @@ export function playEvents(s, events) {
     if (ev.type !== 'shot') continue;
     const d = ev.delay || 0, hit = d + look.after;
     if (ev.skill) fightLog(`${ev.from === 'player' ? 'You' : (s.allies || []).find((a) => a.id === ev.from)?.name || 'Enemy'}: ${Abilities.ABILITIES[ev.skill].name} · −${ev.damage}`);
-    // Mining: chips (or puffs of gas) off the rock with each hit.
-    const rock = fight.ships.get(ev.to)?.rock;
-    if (rock && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => chips(rock, 2, 90) });
     const color = ev.from === 'player' ? SHOT_COLOR.player : wings.has(ev.from) || isDefender(ev.from) ? SHOT_COLOR.ally : SHOT_COLOR.enemy;
     fight.fx.push({ type: 'beam', delay: d, t: look.beam, max: look.beam, from: ev.from, to: ev.to, hits: ev.hits, color, heavy: !!ev.heavy });
     if (ev.shieldDamage > 0) fight.fx.push({ type: 'shield', delay: hit, t: look.shield, max: look.shield, at: ev.to });
-    if (ev.hullDamage > 0 && !rock) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
+    if (ev.hullDamage > 0) fight.fx.push({ type: 'sparks', delay: hit, at: ev.to, n: look.sparks(ev) });
     if (ev.to === 'player' && ev.damage > 0) fight.fx.push({ type: 'call', delay: hit, run: () => Feedback.emit('hit', { hull: ev.hullDamage > 0 }) });
     if (look.sum) { if (ev.damage > 0) addDamage(ev.to, ev.damage, ev.hullDamage > 0); }
     else if (ev.damage > 0) fight.fx.push({ type: 'number', delay: hit, t: 1, max: 1, at: ev.to, jx: jitter(), text: `−${Math.round(ev.damage)}${ev.heavy ? '!' : ''}`, color: ev.hullDamage > 0 ? COLORS.flame : COLORS.cyan, big: ev.heavy });
@@ -499,7 +435,6 @@ export function explode(x, y, r) {
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  if (p?.rock) { fight.dying.delete(key); rockBroken(p.rock); return; }
   if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); return; } // a dungeon's (game/dungeon.js)
   if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); return; } // a station, turret or outpost (game/structures.js)
   const was = world.scene.get(key);
@@ -572,15 +507,6 @@ export function endFight(result) {
   fight.ships = new Map();
   fight.result = result;
   fight.resultT = 4;
-  const mined = fight.extract;
-  fight.extract = false;
-  if (mined) setMode('mining', false);
-  if (mined && result !== 'lost') {
-    // Mining over: every rock broken up, or the ship flown off. No outcome to show.
-    fight.result = null;
-    saveCargo();
-    return;
-  }
   if (result === 'lost' && !landing.on) {
     // Controls and the map stay locked until the wreck is towed home (towHome).
     fight.wreckT = 2.6;
@@ -707,16 +633,6 @@ function skillLanded(s, ev) {
   fightLog(`${who}: ${a.name}${on}`);
 }
 
-// A seismic charge (game/field.js): a burst of damage on the rock the tools are on, played as a hit
-// from the ship (chips, the number, and the rock breaking if it was enough).
-export function blastRock(amount) {
-  const s = fight.s, t = extracting() && s.enemies.find((e) => e.id === s.focus && e.hull > 0);
-  if (!t) return false;
-  const d = CombatCore.applyDamage(t, amount);
-  playEvents(s, [{ type: 'shot', from: 'player', to: t.id, weapon: 0, shots: 1, hits: 1, damage: amount, ...d, destroyed: t.hull <= 0 }]);
-  return true;
-}
-
 // The player's ability buttons: what each would be used on (yourself, or the enemy you're targeting).
 // A Healer's friendly skills go to whoever on your side is worst off (by hull, then shields).
 function playerTarget(s, id) {
@@ -741,20 +657,19 @@ export function skillButtons(s) {
   });
 }
 export function abilityButtons(s) {
-  return [...(extracting() ? [] : skillButtons(s)), ...Abilities.LIST.filter((a) => cargo.kit[a.id] > 0).map((a) => {
+  return [...skillButtons(s), ...Abilities.LIST.filter((a) => cargo.kit[a.id] > 0).map((a) => {
     const t = [s.player, ...s.enemies].find((c) => c.id === playerTarget(s, a.id));
     return { id: `ability:${a.id}`, code: a.code, label: a.name, count: cargo.kit[a.id], enabled: !!t && Abilities.ready(s.player, a.id, t, s.t) };
   })];
 }
 // A skill by its key (1–3), in a fight with ships.
 export function useSkillKey(n) {
-  const s = fight.s, id = s && !extracting() && Classes.skills(SHIP.cls)[n];
+  const s = fight.s, id = s && Classes.skills(SHIP.cls)[n];
   if (!id) return false;
   return useAbility(s, s.player, id, playerTarget(s, id));
 }
 
-// Target an enemy (a tap on it, its marker or its row; manual: false, picked by the tools on their
-// own, game/mining.js autoMine).
+// Target an enemy (a tap on it, its marker or its row).
 export function focusOn(id, manual = true) {
   const s = fight.s;
   if (!s) return;
@@ -762,25 +677,41 @@ export function focusOn(id, manual = true) {
 }
 
 // The combat bar: the skills and the kit while the fight runs (the outcome is a notice: endFight).
-// Not while mining: the rocks show their own lock and integrity, and the HUD the ship's meters and
-// consumables (game/field.js).
 export function updateCombatPanel() {
-  if (extracting() || !fight.s || fight.wrecked) { CombatPanel.hide(); return; }
+  if (!fight.s || fight.wrecked) { CombatPanel.hide(); return; }
   CombatPanel.show({ abilities: abilityButtons(fight.s) });
 }
 
-// Real time: the guns' field of fire ahead of the ship, out to their range; brighter while the
-// locked target is inside it. And a faint red line from every enemy that has you in its sights.
-export function drawFieldOfFire(s) {
+// Where a fight is drawn, in screen px: in space the world through the camera (worldToScreen,
+// view.zoom px a unit); on a surface its ground (game/surface-run.js passes its own). The same
+// drawing serves both, so a fight looks and reads the same wherever it is.
+export const SPACE_VIEW = { at: (x, y) => worldToScreen(x, y), k: () => view.zoom };
+// Brackets round a point (screen px): closing in as `open` goes to 0.
+function bracketsAt(x, y, R0, open = 0) {
+  const R = (R0 + 12) * (1 + open * 0.9), len = Math.min(R * 0.45, 18);
+  ctx.beginPath();
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.moveTo(x + sx * R, y + sy * (R - len));
+    ctx.lineTo(x + sx * R, y + sy * R);
+    ctx.lineTo(x + sx * (R - len), y + sy * R);
+  }
+  ctx.stroke();
+}
+
+// Active (real time): the guns' field of fire ahead of the ship, out to their range; brighter while
+// the locked target is inside it. And a faint red line from every enemy that has you in its sights.
+function drawFieldOfFire(s, V) {
   const w = SHIP.weapons[0];
   if (!w || fight.wrecked) return;
+  const k = V.k(), P = pilot(), me = V.at(P.x, P.y);
+  if (!me) return;
   const t = s.enemies.find((e) => e.id === s.focus && e.hull > 0);
   const live = t && s.locked && RealtimeCombat.canFire(s.player, w, t);
   const half = w.arc >= 360 ? Math.PI : (w.arc * Math.PI) / 360;
-  const x = rx(ship.x), y = ry(ship.y), R = w.range + SHIP.radius;
+  const [x, y] = me, R = (w.range + SHIP.radius) * k, angle = s.player.angle ?? P.angle;
   ctx.beginPath();
   ctx.moveTo(x, y);
-  ctx.arc(x, y, R, ship.angle - half, ship.angle + half);
+  ctx.arc(x, y, R, angle - half, angle + half);
   ctx.closePath();
   if (live) {
     ctx.fillStyle = SHOT_COLOR.player;
@@ -789,58 +720,60 @@ export function drawFieldOfFire(s) {
   }
   ctx.strokeStyle = SHOT_COLOR.player;
   ctx.globalAlpha = live ? 0.32 : 0.16;
-  ctx.lineWidth = 1.5 / view.zoom;
-  ctx.setLineDash([8 / view.zoom, 10 / view.zoom]);
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 10]);
   ctx.stroke();
   // An enemy locking on: an arc round your ship on its side, growing as the lock comes on.
   ctx.setLineDash([]);
   ctx.strokeStyle = HOSTILE_COLOR;
-  ctx.lineWidth = 2.5 / view.zoom;
+  ctx.lineWidth = 2.5;
   for (const it of CombatCore.intents(s)) {
     if (it.target !== 'player' || it.lock <= 0 || it.lock >= 1) continue;
     const e = s.enemies.find((c) => c.id === it.id);
     if (!e) continue;
-    const a = Math.atan2(e.y - ship.y, e.x - ship.x), spread = (Math.PI / 4) * it.lock;
+    const a = Math.atan2(e.y - P.y, e.x - P.x), spread = (Math.PI / 4) * it.lock;
     ctx.globalAlpha = 0.35 + 0.4 * it.lock;
     ctx.beginPath();
-    ctx.arc(x, y, SHIP.radius + 18 / view.zoom, a - spread, a + spread);
+    ctx.arc(x, y, SHIP.radius * k + 18, a - spread, a + spread);
     ctx.stroke();
   }
-  ctx.lineWidth = 1.5 / view.zoom;
-  ctx.setLineDash([8 / view.zoom, 10 / view.zoom]);
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 10]);
   ctx.globalAlpha = 0.3;
   for (const e of CombatCore.alive(s)) {
     if (CombatCore.aimAt(s, e) !== s.player) continue; // after a wingman
     if (e.lockT < e.stats.lockTime || !e.stats.weapons.some((ew) => RealtimeCombat.canFire(e, ew, s.player))) continue;
+    const q = V.at(e.x, e.y);
+    if (!q) continue;
     ctx.beginPath();
-    ctx.moveTo(rx(e.x), ry(e.y));
+    ctx.moveTo(q[0], q[1]);
     ctx.lineTo(x, y);
     ctx.stroke();
   }
   ctx.setLineDash([]);
 }
 
-// Turns: round every ship in the fight, its action gauge filling (yours cyan, your squad's light
-// blue, theirs red); full and out of reach, a dashed ring: holding fire. From each enemy, a line to
-// whom it is after, firming up as its turn nears; a heavy shot charging is orange, thicker, and
-// pulses as it comes due. Hit its shields down to cancel it.
+// Turn-based: round every ship in the fight, its action gauge filling (yours cyan, your squad's
+// light blue, theirs red); full and out of reach, a dashed ring: holding fire. From each enemy, a
+// line to whom it is after, firming up as its turn nears; a heavy shot charging is orange, thicker,
+// and pulses as it comes due. Hit its shields down to cancel it.
 const HEAVY_COLOR = '#ffa040';
-function drawGauges(s) {
-  const m = fightMode();
+function drawGauges(s, V) {
+  const m = fightMode(), k = V.k();
   const ring = (c, color) => {
-    const p = fighterPos(c.id);
-    if (!p) return null;
-    const g = m.gauge(s, c), R = shownRadius(p) + 9 / view.zoom, x = rx(p.x), y = ry(p.y);
+    const p = fighterPos(c.id), q = p && V.at(p.x, p.y);
+    if (!q) return null;
+    const g = m.gauge(s, c), R = shownRadius(p) * k + 9, [x, y] = q;
     const col = g.heavy ? HEAVY_COLOR : color;
     ctx.strokeStyle = col;
-    ctx.lineWidth = (g.heavy ? 3 : 2) / view.zoom;
+    ctx.lineWidth = g.heavy ? 3 : 2;
     ctx.globalAlpha = 0.18;
     ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.stroke();
     ctx.globalAlpha = g.holding ? 0.5 : 0.85;
-    if (g.holding) ctx.setLineDash([4 / view.zoom, 4 / view.zoom]);
+    if (g.holding) ctx.setLineDash([4, 4]);
     ctx.beginPath(); ctx.arc(x, y, R, -Math.PI / 2, -Math.PI / 2 + TAU * Math.min(1, g.gauge)); ctx.stroke();
     ctx.setLineDash([]);
-    return { p, g };
+    return { q, g };
   };
   const pulse = 0.5 + 0.5 * Math.sin(simTime * 14);
   for (const c of [s.player, ...CombatCore.allies(s)]) ring(c, c === s.player ? SHOT_COLOR.player : SHOT_COLOR.ally);
@@ -848,107 +781,114 @@ function drawGauges(s) {
     if (e.passive) continue;
     const r = ring(e, HOSTILE_COLOR);
     if (!r || !r.g.target) continue;
-    const to = fighterPos(r.g.target);
-    if (!to) continue;
+    const to = fighterPos(r.g.target), tq = to && V.at(to.x, to.y);
+    if (!tq) continue;
     // The intent line: faint while the gauge is low, firmer as the turn nears; a heavy one always shows.
     const near = Math.max(0, (r.g.gauge - 0.4) / 0.6);
     if (!r.g.heavy && near <= 0) continue;
     ctx.strokeStyle = r.g.heavy ? HEAVY_COLOR : HOSTILE_COLOR;
-    ctx.lineWidth = (r.g.heavy ? 2.5 : 1.5) / view.zoom;
+    ctx.lineWidth = r.g.heavy ? 2.5 : 1.5;
     ctx.globalAlpha = r.g.heavy ? 0.3 + 0.5 * Math.max(near, r.g.gauge > 0.75 ? pulse : 0) : 0.12 + 0.4 * near;
-    ctx.setLineDash([10 / view.zoom, 8 / view.zoom]);
-    ctx.lineDashOffset = -simTime * 60 / view.zoom;
-    ctx.beginPath(); ctx.moveTo(rx(r.p.x), ry(r.p.y)); ctx.lineTo(rx(to.x), ry(to.y)); ctx.stroke();
+    ctx.setLineDash([10, 8]);
+    ctx.lineDashOffset = -simTime * 60;
+    ctx.beginPath(); ctx.moveTo(r.q[0], r.q[1]); ctx.lineTo(tq[0], tq[1]); ctx.stroke();
     ctx.setLineDash([]);
     ctx.lineDashOffset = 0;
   }
 }
 
 // Breaking away (either mode): a cyan ring round your ship closing as you get clear.
-function drawEscape(s) {
-  const k = Math.min(1, (s.away || 0) / RealtimeCombat.config.escapeTime);
-  if (k <= 0 || fight.wrecked) return;
-  const P = pilot(), R = SHIP.radius * 2.6 + 16 / view.zoom;
+function drawEscape(s, V) {
+  const k = Math.min(1, (s.away || 0) / RealtimeCombat.config.escapeTime), P = pilot(), q = V.at(P.x, P.y);
+  if (k <= 0 || fight.wrecked || !q) return;
+  const R = SHIP.radius * 2.6 * V.k() + 16;
   ctx.strokeStyle = SHOT_COLOR.player;
-  ctx.lineWidth = 2.5 / view.zoom;
+  ctx.lineWidth = 2.5;
   ctx.globalAlpha = 0.8;
-  ctx.beginPath(); ctx.arc(rx(P.x), ry(P.y), R, -Math.PI / 2, -Math.PI / 2 + TAU * k); ctx.stroke();
+  ctx.beginPath(); ctx.arc(q[0], q[1], R, -Math.PI / 2, -Math.PI / 2 + TAU * k); ctx.stroke();
 }
 
-// Beams, shield flashes and explosion flashes, in world space; brackets on the target (closing
-// in as the lock comes on, in real time).
-export function drawFight() {
+// Beams, shield flashes and explosion flashes; brackets on the target (closing in as the lock comes
+// on, in real time). In screen px, through V (SPACE_VIEW, or a surface's).
+export function drawFight(V = SPACE_VIEW) {
   const s = fight.s;
+  if (V === SPACE_VIEW && landing.on) return; // the surface draws its own (game/surface-run.js)
+  const k = V.k();
   ctx.save();
-  if (s && fightMode().look.arcs) drawFieldOfFire(s);
-  if (s && fightMode().look.gauges) drawGauges(s);
-  if (s) drawEscape(s);
+  if (s && fightMode().look.arcs) drawFieldOfFire(s, V);
+  if (s && fightMode().look.gauges) drawGauges(s, V);
+  if (s) drawEscape(s, V);
   if (s) {
-    const f = fight.ships.get(s.focus);
-    if (f) {
+    const f = fighterPos(s.focus), q = f && s.enemies.some((c) => c.id === s.focus && c.hull > 0) && V.at(f.x, f.y);
+    if (q) {
       const lock = fightMode().lock(s);
       ctx.strokeStyle = HOSTILE_COLOR;
       ctx.globalAlpha = 0.5 + 0.35 * lock;
-      ctx.lineWidth = 2 / view.zoom;
-      if (lock < 1) ctx.setLineDash([5 / view.zoom, 4 / view.zoom]);
-      brackets(rx(f.x), ry(f.y), shownRadius(f), { open: 1 - lock });
+      ctx.lineWidth = 2;
+      if (lock < 1) ctx.setLineDash([5, 4]);
+      bracketsAt(q[0], q[1], shownRadius(f) * k, 1 - lock);
       ctx.setLineDash([]);
     }
   }
   ctx.lineCap = 'round';
   for (const f of fight.fx) {
     if (f.delay > 0 || f.t === undefined) continue;
-    const k = f.t / f.max;
+    const t = f.t / f.max;
     if (f.type === 'beam') {
       // A hit lands on the target; a miss streaks past it.
-      const from = fxPos(f.from), to = fxPos(f.to);
-      if (!from || !to) continue;
-      const ang = Math.atan2(to.y - from.y, to.x - from.x);
-      const d = Math.hypot(to.x - from.x, to.y - from.y);
-      const len = f.hits > 0 ? d - to.radius * 0.4 : d + 120;
+      const from = fxPos(f.from), to = fxPos(f.to), a = from && V.at(from.x, from.y), b = to && V.at(to.x, to.y);
+      if (!a || !b) continue;
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const len = f.hits > 0 ? d - to.radius * k * 0.4 : d + 120 * k;
       const off = f.hits > 0 ? 0 : 0.06;
-      const x0 = rx(from.x) + Math.cos(ang) * shownRadius(from), y0 = ry(from.y) + Math.sin(ang) * shownRadius(from);
-      const x1 = rx(from.x) + Math.cos(ang + off) * len, y1 = ry(from.y) + Math.sin(ang + off) * len;
+      const x0 = a[0] + Math.cos(ang) * shownRadius(from) * k, y0 = a[1] + Math.sin(ang) * shownRadius(from) * k;
+      const x1 = a[0] + Math.cos(ang + off) * len, y1 = a[1] + Math.sin(ang + off) * len;
       ctx.strokeStyle = f.color;
-      ctx.globalAlpha = k * (f.hits > 0 ? 0.3 : 0.12);
-      ctx.lineWidth = (f.heavy ? 12 : 6) / view.zoom;
+      ctx.globalAlpha = t * (f.hits > 0 ? 0.3 : 0.12);
+      ctx.lineWidth = f.heavy ? 12 : 6;
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.globalAlpha = k * (f.hits > 0 ? 0.95 : 0.35);
-      ctx.lineWidth = (f.heavy ? 3 : 1.6) / view.zoom;
+      ctx.globalAlpha = t * (f.hits > 0 ? 0.95 : 0.35);
+      ctx.lineWidth = f.heavy ? 3 : 1.6;
       ctx.stroke();
     } else if (f.type === 'shield') {
-      const at = fxPos(f.at);
-      if (!at) continue;
+      const at = fxPos(f.at), q = at && V.at(at.x, at.y);
+      if (!q) continue;
       ctx.strokeStyle = COLORS.cyan;
-      ctx.globalAlpha = k * 0.8;
-      ctx.lineWidth = 2 / view.zoom;
+      ctx.globalAlpha = t * 0.8;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(rx(at.x), ry(at.y), shownRadius(at) + 10 + (1 - k) * 8, 0, TAU);
+      ctx.arc(q[0], q[1], (shownRadius(at) + 10 + (1 - t) * 8) * k, 0, TAU);
       ctx.stroke();
     } else if (f.type === 'flash') {
+      const q = V.at(f.at.x, f.at.y);
+      if (!q) continue;
       ctx.fillStyle = COLORS.flash;
-      ctx.globalAlpha = k * 0.6;
+      ctx.globalAlpha = t * 0.6;
       ctx.beginPath();
-      ctx.arc(rx(f.at.x), ry(f.at.y), f.at.radius * (1.5 + (1 - k) * 2.5), 0, TAU);
+      ctx.arc(q[0], q[1], f.at.radius * k * (1.5 + (1 - t) * 2.5), 0, TAU);
       ctx.fill();
     }
   }
   ctx.restore();
 }
 
-// In screen space: damage numbers rising off the ships, and small hull/shield bars and letters
-// above every ship in the fight.
-export function drawFightOverlay() {
+// Damage numbers rising off the ships, and small hull/shield bars and letters above every ship in
+// the fight (screen px, through V).
+export function drawFightOverlay(V = SPACE_VIEW) {
   const s = fight.s;
+  if (V === SPACE_VIEW && landing.on) return;
+  const k = V.k();
+  const above = (p) => { const q = V.at(p.x, p.y); return q && [q[0], q[1] - shownRadius(p) * k]; };
   ctx.save();
   ctx.font = Theme.font(12);
   ctx.textAlign = 'center';
   if (s) {
     for (const c of [s.player, ...(s.allies || []), ...s.enemies]) {
       if (c.hull <= 0) continue;
-      const p = fighterPos(c.id);
-      if (!p) continue;
-      const [x, y] = worldToScreen(p.x, p.y - shownRadius(p));
+      const p = fighterPos(c.id), q = p && above(p);
+      if (!q) continue;
+      const [x, y] = q;
       const w = 34, top = y - 18;
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = 'rgba(38, 48, 74, 0.9)';
@@ -971,31 +911,30 @@ export function drawFightOverlay() {
       }
     }
     // Breaking away: how long until you're clear.
-    if (s.away > 0 && !fight.wrecked) {
-      const P = pilot(), [x, y] = worldToScreen(P.x, P.y + SHIP.radius * 2.6);
+    const P = pilot(), q = V.at(P.x, P.y);
+    if (s.away > 0 && !fight.wrecked && q) {
       ctx.fillStyle = SHOT_COLOR.player;
-      ctx.fillText(`Breaking away ${Math.max(0, RealtimeCombat.config.escapeTime - s.away).toFixed(1)}s`, x, y + 30);
+      ctx.fillText(`Breaking away ${Math.max(0, RealtimeCombat.config.escapeTime - s.away).toFixed(1)}s`, q[0], q[1] + SHIP.radius * 2.6 * k + 30);
     }
   }
   for (const f of fight.fx) {
     if (f.type !== 'number' || f.delay > 0) continue;
-    const at = fxPos(f.at);
-    if (!at) continue;
-    const k = f.t / f.max;
-    const [x, y] = worldToScreen(at.x, at.y);
-    ctx.globalAlpha = Math.min(1, k * 1.6);
+    const at = fxPos(f.at), q = at && V.at(at.x, at.y);
+    if (!q) continue;
+    const t = f.t / f.max;
+    ctx.globalAlpha = Math.min(1, t * 1.6);
     ctx.fillStyle = f.color;
     if (f.big) ctx.font = Theme.font(14);
-    ctx.fillText(f.text, x + 14 + (f.jx || 0), y - 26 + (f.dy || 0) - (1 - k) * 26);
+    ctx.fillText(f.text, q[0] + 14 + (f.jx || 0), q[1] - 26 + (f.dy || 0) - (1 - t) * 26);
     if (f.big) ctx.font = Theme.font(12);
   }
   // A wingman's program line taking over (game/squad.js orderSquad), as code above its bars.
   ctx.font = Theme.font(11);
   for (const f of fight.fx) {
     if (f.type !== 'code') continue;
-    const at = fxPos(f.at);
-    if (!at) continue;
-    const [x, y] = worldToScreen(at.x, at.y - shownRadius(at));
+    const at = fxPos(f.at), q = at && above(at);
+    if (!q) continue;
+    const [x, y] = q;
     const w = ctx.measureText(f.text).width + 10, top = y - 42;
     ctx.globalAlpha = Math.min(1, (f.t / f.max) * 3);
     ctx.fillStyle = 'rgba(11, 14, 23, 0.85)';
@@ -1013,7 +952,7 @@ export let foeHits = [];
 export function drawFoeMarkers() {
   foeHits = [];
   const s = fight.s;
-  if (!s) return;
+  if (!s || landing.on) return;
   const foes = [];
   for (const e of CombatCore.alive(s)) {
     const p = fight.ships.get(e.id);
@@ -1027,6 +966,27 @@ export function drawFoeMarkers() {
 
 // The enemy whose edge marker is under a tap, if any.
 export function foeMarkerAt(sx, sy) { return markerAt(foeHits, sx, sy); }
+// The enemy under a point of the screen (CSS px) in a fight, in space or on a surface: the nearest
+// within its drawn size and a finger's width (TAP px). Its id, or null.
+const TAP = 30;
+export function foeAt(sx, sy) {
+  const s = fight.s;
+  if (!s) return null;
+  const ground = landing.phase === 'surface' ? surfaceAt(sx, sy) : null;
+  let best = null, bd = Infinity;
+  for (const c of s.enemies) {
+    if (c.hull <= 0) continue;
+    const p = fighterPos(c.id);
+    if (!p) continue;
+    let d, reach;
+    if (ground) { d = Math.hypot(ground[0] - p.x, ground[1] - p.y); reach = p.radius + TAP; } else {
+      const [x, y] = worldToScreen(p.x, p.y);
+      d = Math.hypot(sx - x, sy - y); reach = shownRadius(p) * view.zoom + TAP;
+    }
+    if (d <= reach && d / reach < bd) { best = c.id; bd = d / reach; }
+  }
+  return best;
+}
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
@@ -1040,7 +1000,7 @@ export function init() {
   };
   // Keys 1–3: the class's skills, in a fight with ships (the field bar has them otherwise).
   window.addEventListener('keydown', (e) => {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !/^[1-3]$/.test(e.key) || !fight.s || fight.extract) return;
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !/^[1-3]$/.test(e.key) || !fight.s) return;
     useSkillKey(Number(e.key) - 1);
   });
 }

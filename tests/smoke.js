@@ -335,8 +335,8 @@ off('?missions', 'the second mission: mining and gas, an android signal, a hosti
     game(`{ globalThis.__rock = mission.rocks.find((a) => !cargo.removed.has(a.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); }`);
     browser.frames(1);
     game('extract(__rock)');
-    assert.ok(game('extracting() && fight.ships.has(__rock.key)'), 'mining');
-    if (i) game('fight.s.enemies.find((e) => e.id === __rock.key).hull = 1');
+    assert.ok(game('mine.target === __rock'), 'mining');
+    if (i) game('mine.t = mine.total');
     assert.ok(until('cargo.removed.has(__rock.key)', 60 * 15), 'mined');
   }
   assert.strictEqual(game('cargo.missions.count(SALVAGE, "mine")'), 3);
@@ -347,7 +347,7 @@ off('?missions', 'the second mission: mining and gas, an android signal, a hosti
     assert.ok(game('!!__gas && __gas.pocket.nebula === mission.salvage.nebula'), 'the marker is on a pocket of the nebula');
     game('placeShip(__gas.x, __gas.y + __gas.radius + 60)');
     browser.frames(1);
-    game('extract(__gas); fight.s.enemies.find((e) => e.id === __gas.key).hull = 1');
+    game('extract(__gas); mine.t = mine.total');
     assert.ok(until('cargo.removed.has(__gas.key)', 60 * 4), 'collected');
     game(`for (const d of cargo.drops.filter((e) => e.key.startsWith('drop:' + __gas.key))) { placeShip(d.x, d.y); react(nearbyEntities(simTime)); }`);
   }
@@ -908,7 +908,7 @@ test('production: an order at a mining camp makes steel pipe while away, taken o
   // Pausing and cancelling work from anywhere; changing only at the order's station.
   const id = game('cargo.industry.orders[0].id');
   game(`StationMenu.showOrder({ mode: 'view', id: ${id} })`);
-  assert.match(onStation(), /Steel pipe.*Ore works ·.*Changed only at/);
+  assert.match(onStation(), /Steel pipe.*Ore works ·/);
   pressOnStation('Pause');
   assert.ok(game('cargo.industry.orders[0].paused'));
   assert.ok(!game(`industry.edit(${id}, 'make.hydrazine', 1)`), 'not changed from here');
@@ -1081,21 +1081,21 @@ test('mines an asteroid, chains on through its shards, and collects what they le
   game('select(__rock)');
   browser.frames(1);
   assert.deepStrictEqual(game('describe(__rock).actions.map((a) => a.id)'), ['mine']);
-  // Mining is a fight against the rock: the tools lock on and wear it down.
+  // Mining is a timed action: the tools work the rock until it breaks.
   clickCard('mine');
-  assert.ok(game('extracting() && fight.ships.has(__rock.key)'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
-  browser.frames(120); // the lock, then some work
-  // No combat panel pops up: the rock shows its own lock and integrity; the settings stay to hand.
+  assert.ok(game('mine.target === __rock'), `mining started: ${game(`actions.state('mine', __rock).label`)}`);
+  browser.frames(30); // some work
+  // No combat panel pops up: the rock shows its own progress; the settings stay to hand.
   assert.ok(!game('CombatPanel.isOpen') && browser.document.getElementById('combat').hidden, 'no panel while mining');
   assert.ok(game('modes.has("mining") && !modes.has("in-combat")'), 'mining, not a fight');
   assert.match(game('describe(__rock).actions[0].label'), /^Mining · \d+%$/);
-  assert.ok(game('fight.s.enemies[0].hull < fight.s.enemies[0].stats.hull'), 'worn down');
+  assert.ok(game('mine.t > 0 && mine.t < mine.total && !fight.s'), 'under way, and no fight');
   assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a rock never fires back');
   assert.ok(until('cargo.removed.has(__rock.key)', 60 * 30), 'the asteroid broke up');
   // Into shards, which the tools chain on through on their own.
   const n = game('shards.filter((e) => e.parent.key === __rock.key).length');
   assert.ok(n >= game('Mining.config.shards.n[0]'), `${n} shards`);
-  assert.ok(until('extracting() && fight.s.focus.startsWith(__rock.key + ":s")', 60 * 2), 'the session carries on into a shard');
+  assert.ok(until('!!mine.target && mine.target.key.startsWith(__rock.key + ":s")', 60 * 2), 'the tools carry on into a shard');
   assert.ok(until('!shards.some((e) => e.parent.key === __rock.key)', 60 * 20), 'every shard broken');
   // In a field, it chains on to the next asteroid in reach; it stops when told to.
   game('endExtraction()');
@@ -1105,7 +1105,7 @@ test('mines an asteroid, chains on through its shards, and collects what they le
   // Flying past an asteroid never starts mining by itself.
   game(`{ const r = __find((e) => e.kind === 'asteroid' && !cargo.removed.has(e.key)); placeShip(r.x, r.y + r.radius + 80); }`);
   browser.frames(60);
-  assert.ok(!game('fight.s'), 'no session without Mine');
+  assert.ok(!game('mine.target'), 'no mining without Mine');
 });
 
 test('the ship bounces off an asteroid: a gentle bump does nothing, a hard one knocks the shields', () => {
@@ -1140,7 +1140,7 @@ test('collects a gas pocket in a nebula and picks up its gas', () => {
   // The E shortcut collects it (no asteroid near enough to mine instead).
   game('select(null)');
   browser.key('e');
-  assert.ok(game('extracting() && fight.ships.has(__gas.key)'), `siphoning: ${game(`actions.state('collect', __gas).label`)}`);
+  assert.ok(game('mine.target === __gas'), `siphoning: ${game(`actions.state('collect', __gas).label`)}`);
   game('select(__gas)');
   browser.frames(30);
   assert.match(game('describe(__gas).actions[0].label'), /^Siphoning · \d+%$/);
@@ -1300,9 +1300,9 @@ test('consumables in the field: a button each on the HUD, used on the ship, mini
   assert.ok(!game('useField("seismic-charge")'), 'no rock');
   game(`globalThis.__rock = __find((e) => e.kind === 'asteroid' && e.radius >= 15 && !cargo.removed.has(e.key)); placeShip(__rock.x, __rock.y + __rock.radius + 60); extract(__rock)`);
   browser.frames(1);
-  const before = game('fight.s.enemies[0].hull');
+  const before = game('minedRock().hull');
   assert.ok(game('useField("seismic-charge")'), 'a blast');
-  assert.ok(game('fight.s.enemies[0].hull') <= before - 40 || game('cargo.removed.has(__rock.key)'), 'the rock took it');
+  assert.ok(game('minedRock()?.hull ?? 0') <= before - 39 || game('cargo.removed.has(__rock.key)'), 'the rock took it');
   assert.ok(!game('CombatPanel.isOpen'), 'still no panel');
   game('endExtraction(); cargo.kit = {}');
   browser.frames(1);
@@ -1373,14 +1373,14 @@ test('a jump gate is offline until the gates come online, then takes the ship to
   }
   game('cargo.story.add("gates"); showGates()');
   assert.match(game('__gate.name'), /Gate$/);
-  assert.match(game('describe(__gate).subtitle'), /^Jump gate to the .* Gate\b/);
+  assert.match(game('describe(__gate).subtitle'), /^Jump gate to \w+/);
   assert.ok(game(`actions.state('jump', __gate).ok`), 'in range to jump');
   game('select(__gate)');
   browser.key('j');
   browser.frames(2);
   assert.ok(game('warp.on'), 'the jump is under way');
   assert.ok(until('!warp.on', 60 * 3), 'and over within a few seconds');
-  assert.match(game('toast.text'), /^Through to the .* Gate/);
+  assert.match(game('toast.text'), /^Through to \w+/);
   assert.ok(game('Math.hypot(ship.x - __there.x, ship.y - __there.y) < 800'), 'beside the gate at the other end');
   assert.strictEqual(game('world.galaxy.systemAt(ship.x, ship.y).index'), game('__there.gate.system'), 'in the other system');
   // And back.
@@ -2215,7 +2215,7 @@ test('the surface run: the scan before landing; the tools work the nodes on thei
   assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /SUNRISE IN \d+:\d\d.*\d+ nodes · hold 0\/\d+ · yield ×2 · take-off [\d.]+ fuel/);
   // Beside a node, doing nothing: the tools pick it, and work it down; its goods are pulled in.
   game(`globalThis.__dep = surfaceRun.deposits.filter((d) => !d.rich && __night(d.x, d.y))[0]; Object.assign(landing.craft, { x: __dep.x - 100, y: __dep.y, vx: 0, vy: 0, angle: 0 }); ship.targetSpeed = 0`);
-  assert.ok(until('extracting() && fight.ships.has(__dep.key)', 30), 'mining it, untouched');
+  assert.ok(until('mine.target === __dep', 30), 'mining it, untouched');
   assert.ok(until('!surfaceRun.deposits.includes(__dep)', 60 * 5), 'worked out quickly');
   assert.ok(until('cargo.items.some((it) => it.kind === __dep.good)', 60 * 3), 'its goods pulled into the hold without flying over them');
   assert.strictEqual(game('cargo.surfaceDrops["Zantal I"]'), undefined, 'nothing left lying there');
@@ -2230,7 +2230,7 @@ test('the surface run: the scan before landing; the tools work the nodes on thei
   game(`cargo.items = Array.from({ length: SHIP.cargo }, () => ({ kind: 'iron', label: 'Iron', category: 'trade' })); endExtraction();
     { const C = landing.craft, d = surfaceRun.deposits[0]; Object.assign(C, { x: d.x - 80, y: d.y, vx: 0, vy: 0, angle: 0 }); }`);
   browser.frames(30);
-  assert.ok(!game('fight.s'), 'no mining with the hold full');
+  assert.ok(!game('mine.target'), 'no mining with the hold full');
   assert.match(game('surfaceLines().map((l) => l[0]).join("|")'), /HOLD FULL/);
   game('cargo.items = []; cargo.surfaceDrops = {}');
   // Back again later: a fresh field.

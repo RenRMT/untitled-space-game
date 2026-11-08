@@ -24,6 +24,8 @@ const FactionsMenu = (() => {
   let unfolded = null; // the faction id whose row is open
   let onToggle = null;
   let returnFocus = null;
+  let explain = false; // the header's ⓘ: the panel's note shown
+  const infoBtn = root.querySelector('.set-info');
 
   const TONE = { devoted: 'var(--cyan)', friendly: 'var(--good)', neutral: 'var(--dim)', unfriendly: 'var(--busy)', hostile: 'var(--hostile)' };
   const ABOUT = [['ideals', 'Ideals'], ['drive', 'Drive'], ['territory', 'Territory'], ['concern', 'Concern']];
@@ -66,9 +68,9 @@ const FactionsMenu = (() => {
   // Redraw, keeping focus on the row just tapped, and it with what it unfolded in view.
   function render(focusId) {
     if (!isOpen) return;
-    body.replaceChildren(
-      h('p', { class: 'set-note' }, 'How each faction regards you. Jobs move it, and every faction reacts to what you do for its friends and enemies.'),
-      h('div', { class: 'fac-list' }, Reputation.ranked(rep).map(row)));
+    body.replaceChildren(...[
+      explain ? h('p', { class: 'set-note' }, 'How each faction regards you. Jobs move it, and every faction reacts to what you do for its friends and enemies.') : null,
+      h('div', { class: 'fac-list' }, Reputation.ranked(rep).map(row))].filter(Boolean));
     if (focusId) {
       const item = body.querySelector(`[data-faction="${focusId}"]`);
       if (item) { item.querySelector('.fac-row').focus({ preventScroll: true }); item.scrollIntoView({ block: 'nearest' }); }
@@ -98,6 +100,7 @@ const FactionsMenu = (() => {
   }
 
   root.querySelector('.set-close').addEventListener('click', close);
+  if (infoBtn) infoBtn.addEventListener('click', () => { explain = !explain; infoBtn.setAttribute('aria-expanded', String(explain)); render(); });
   root.addEventListener('pointerdown', (e) => { if (e.target === root) close(); }); // the backdrop
   // While open: Escape (or R, which opened it) closes, Tab stays inside the panel, and the game's
   // shortcuts are held back.

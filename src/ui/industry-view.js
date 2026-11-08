@@ -10,7 +10,7 @@
 //
 //   IndustryView.create(env) -> { render(), sheet(open), tick(), reset() }
 //     env: { ctx() (the station's open() options; ctx.industry: game/industry.js), refresh(), act(fn, after),
-//            section(label, ...children), lead(text), explain(key, text), fold(key, label, content),
+//            section(label, ...children), lead(text), explain(key, text), info(text), fold(key, label, content),
 //            itemIcon(kind, size), switcher({ label, names, at, step }) (the Ship tab's), showTab(name),
 //            showOrder(open), setOrder(changes), closeSheet() }
 //     sheet(open): the options for a Kit.sheet, open being
@@ -428,7 +428,7 @@ const IndustryView = {
           action: hub ? Kit.button('Remove', env.act(() => ind().removeRoute(r.id)), { kind: 'warn', aria: `Remove the route ${r.name}` }) : null,
         }))) : h('p', { class: 'ui-empty' }, 'No routes yet.'),
         hub ? Kit.button('New route', () => env.showOrder({ mode: 'route', stops: [], haulers: 1 }), { kind: 'ghost', disabled: routes.length >= max, title: routes.length >= max ? 'No more routes: research more at the transport hub' : undefined })
-          : h('p', { class: 'ui-note' }, 'Routes are set up at the transport hub.'));
+          : env.info('Routes are set up at the transport hub.'));
     }
     function routeSheet(open) {
       if (!ind().atHub()) return null;
@@ -447,7 +447,7 @@ const IndustryView = {
       body.push(h('span', { class: 'ui-label' }, 'Add a stop'),
         Kit.choices(stations.map((s) => ({ id: s.key, label: s.name, on: false })),
           (key) => env.setOrder({ stops: [...open.stops, { station: key, load: 'made', unload: open.stops.length ? 'all' : {}, keep: {} }] }), { label: 'Add a stop' }),
-        h('p', { class: 'ui-note' }, open.stops.length < 2 ? 'A route needs two stops or more.' : 'The haulers go round the stops in this order, and back to the first.'));
+        open.stops.length < 2 ? h('p', { class: 'ui-note' }, 'A route needs two stops or more.') : env.info('The haulers go round the stops in this order, and back to the first.'));
       return {
         title: 'New route', code: 'TRD', sub: `Transport hub · ${ind().here.name}`, tall: true, body,
         foot: Kit.button('Set up route', env.act(() => ind().addRoute(open.stops, open.haulers), () => env.closeSheet()), {
@@ -507,7 +507,7 @@ const IndustryView = {
           h('div', { class: 'pr-prio' }, h('span', { class: 'num' }, `#${i + 1} of ${n} for inputs`),
             Kit.button('Up', env.act(() => ind().move(i, i - 1)), { kind: 'ghost', disabled: i === 0, aria: 'Move up: it goes first for inputs' }),
             Kit.button('Down', env.act(() => ind().move(i, i + 1)), { kind: 'ghost', disabled: i === n - 1, aria: 'Move down' })),
-          here ? null : h('p', { class: 'ui-note' }, `Changed only at ${o.name}. Pause, resume and cancel work from any station.`),
+          here ? null : env.info(`Changed only at ${o.name}. Pause, resume and cancel work from any station.`),
         ],
         foot: [
           o.left !== 0 ? Kit.button(o.paused ? 'Resume' : 'Pause', env.act(() => ind().pause(o.id, !o.paused)), { kind: 'primary', lg: true, wide: true }) : null,
