@@ -30,6 +30,7 @@ const FILES = [
   '../src/art/blueprints.js',
   '../src/art/bodies.js',
   '../src/art/culture.js',
+  '../src/art/equipment.js',
   '../src/art/icons.js',
   '../src/art/items.js',
   '../src/art/render.js',

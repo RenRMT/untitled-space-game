@@ -55,6 +55,7 @@ import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logic } from '../rules/logic.js';
+import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
 import { Research } from '../rules/research.js';
 import { Squad } from '../rules/squad.js';
@@ -299,7 +300,10 @@ const StationMenu = (() => {
   const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN', utility: 'UTL' };
   const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Tool mount' };
   const SHORT = { computer: 'Computer' }; // slot labels on the schematic
-  const lineName = (item) => Loadout.LINES[item.line].name; // the name without its Mk
+  const lineName = (item) => (item.loot ? item.name : Loadout.LINES[item.line].name); // the name without its Mk (loot: its own name)
+  // Loot (rules/loot.js): its rarity and item level as a tag, in the rarity's colour; what its affixes add.
+  const lootTag = (item) => `${Loot.rarityOf(item.loot.rarity).name} · ilvl ${item.loot.ilvl}`;
+  const lootNote = (item) => [item.loot.legendary ? `Legendary ${item.loot.legendary.toLowerCase()}.` : '', ...item.loot.affixes.map((a) => `${a.name}: ${Loot.affixText(a)}.`)].filter(Boolean).join(' ');
   const deg = (r) => Math.round((r * 180) / Math.PI);
   const r2 = (v) => Math.round(v * 100) / 100;
   const pct = (v) => `${Math.round(v * 100)}%`;
@@ -433,10 +437,10 @@ const StationMenu = (() => {
     if (!s) return null;
     const cur = s.item;
     const npc = (e) => !!Loadout.EQUIPMENT[e].npc;
-    const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && e !== cur?.id && (!npc(e) || (o.android && o.gear[e])));
+    const ids = Object.keys(Loadout.EQUIPMENT).filter((e) => Loadout.EQUIPMENT[e].slot === s.type && e !== cur?.id && (!npc(e) || (o.android && o.gear[e])) && (!Loadout.EQUIPMENT[e].loot || o.gear[e]));
     // Of each line (that industry makes), the Mk after the best you have (fitted or spare).
     const next = new Set();
-    for (const line of new Set(ids.filter((e) => !npc(e)).map((e) => Loadout.EQUIPMENT[e].line))) {
+    for (const line of new Set(ids.filter((e) => !npc(e) && !Loadout.EQUIPMENT[e].loot).map((e) => Loadout.EQUIPMENT[e].line))) {
       const best = Math.max(0, ...[cur?.id, ...Object.keys(o.gear)].filter((e) => e && Loadout.EQUIPMENT[e].line === line).map((e) => Loadout.EQUIPMENT[e].tier));
       const n = ids.filter((e) => Loadout.EQUIPMENT[e].line === line && Loadout.EQUIPMENT[e].tier > best && !o.gear[e]).sort((x, y) => Loadout.EQUIPMENT[x].tier - Loadout.EQUIPMENT[y].tier)[0];
       if (n) next.add(n);
@@ -454,10 +458,10 @@ const StationMenu = (() => {
         };
         return Kit.optionRow({
           code: SLOT_CODE[s.type], name: lineName(item), tier: item.tier, rows: Kit.compare(cur, item, METRICS[s.type]).filter((r) => !SPARSE.has(s.type) || r.diff),
-          tag: kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In stock' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
-          tagTone: kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
+          tag: item.loot ? `${lootTag(item)}${o.gear[e] > 1 ? ` ×${o.gear[e]}` : ''}` : kind === 'fit' ? `Spare ×${o.gear[e]}` : stored ? 'In stock' : kind === 'make' ? 'Can be made' : 'Blueprint needed',
+          tagTone: item.loot ? Loot.rarityOf(item.loot.rarity).color : kind === 'fit' ? 'good' : kind === 'make' || stored ? 'cyan' : null,
           locked: kind === 'locked',
-          note: kind === 'fit' ? `${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
+          note: kind === 'fit' ? `${item.loot ? `${lootNote(item)} ` : ''}${npc(e) ? 'Android gear, for squad ships.' : 'Spare gear aboard.'} Fitting it ${cur ? 'moves the current one to spare gear' : 'fills this slot'}.`
             : [stored ? `Made, and waiting in the stock at ${stored}: take it out from the Production tab there.` : '',
               kind === 'make' ? `Assembled by a production order at ${Loadout.EQUIPMENT[e].tier > 1 ? 'the shipyard' : 'the waystation\'s bench or the shipyard'} (Production tab), from parts.` : 'Research its blueprint first (Research tab), or recover a schematic from pirates.'].filter(Boolean).join(' '),
           open: openOption === e, onToggle: () => { openOption = openOption === e ? null : e; refresh(); },
@@ -535,7 +539,8 @@ const StationMenu = (() => {
         const item = { id, ...Loadout.EQUIPMENT[id] };
         return Kit.optionRow({
           code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
-          tag: [item.npc ? 'Android' : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '), tagTone: item.npc ? 'cyan' : null,
+          tag: [item.npc ? 'Android' : '', item.loot ? lootTag(item) : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '),
+          tagTone: item.npc ? 'cyan' : item.loot ? Loot.rarityOf(item.loot.rarity).color : null, note: item.loot ? lootNote(item) || null : null,
           action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
       }))));

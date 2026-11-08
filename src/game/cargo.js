@@ -14,6 +14,7 @@ import { Hazards } from '../rules/hazards.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Logistics } from '../rules/logistics.js';
+import { Loot } from '../rules/loot.js';
 import { HullMods } from '../rules/hullmods.js';
 import { Logic } from '../rules/logic.js';
 import { Mods } from '../rules/mods.js';
@@ -56,11 +57,15 @@ import { SHIP, TAU, clamp, notify, ship } from './state.js';
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
 // restored: the restoration projects done ([id], rules/restoration.js): which stations are online.
+// loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
+// Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }).
+// razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, fuel: 0, rad: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, lab: Research.empty(), industry: Industry.empty(), loyalty: {}, squad: [], story: new Set(),
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(), restored: [],
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
+  loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
 };
 // Story flags: 'intro', the introduction played (or skipped); 'gates', the jump gates brought
 // online by the third opening mission (until then the first system is all there is).
@@ -90,6 +95,7 @@ export const PULL_RANGE = 220, PULL_SPEED = 450;
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
 export function dropEntity(d) {
   const r = mulberry32(d.seed);
+  if (d.loot) return { ...Entities.lootDrop({ key: d.key, spec: d.loot, x: d.x, y: d.y, angle: r() * TAU, tumble: (r() - 0.5) * 0.3 }), drop: d };
   return { ...Entities.item({ key: d.key, kind: d.kind, seed: d.seed, x: d.x, y: d.y, angle: r() * TAU, tumble: (r() - 0.5) * 0.3 }), drop: d };
 }
 
@@ -138,6 +144,9 @@ export function loadCargo(galaxy) {
   cargo.loadout = Loadout.starter('courier');
   cargo.cls = Classes.DEFAULT;
   cargo.gear = {};
+  cargo.loot = {};
+  cargo.lootPity = { rare: 0, epic: 0 };
+  cargo.razed = {};
   cargo.mods = {};
   cargo.kit = {};
   cargo.lab = Research.empty();
@@ -432,6 +441,11 @@ export function readLoyalty(d) {
 
 // The parts of a save (in the current form), each checked.
 export function readCargo(d, galaxy = null) {
+  // Loot gear first: the loadouts (the ship's and the squad's) and the spare gear name it.
+  cargo.loot = Loot.read(d.loot);
+  for (const spec of Object.values(cargo.loot)) Loot.register(spec, Loadout.EQUIPMENT);
+  if (d.lootPity && typeof d.lootPity === 'object') cargo.lootPity = { rare: Math.max(0, d.lootPity.rare | 0), epic: Math.max(0, d.lootPity.epic | 0) };
+  if (d.razed && typeof d.razed === 'object') for (const [key, t] of Object.entries(d.razed)) if (typeof key === 'string' && Number.isFinite(t)) cargo.razed[key] = t;
   cargo.lab = readLab(d.lab); // before the squad: what its programs may use
   cargo.industry = readIndustry(d.industry, galaxy?.stations[galaxy.waystation]?.key ?? null);
   cargo.loyalty = readLoyalty(d.loyalty);
@@ -459,8 +473,9 @@ export function readCargo(d, galaxy = null) {
   if (Array.isArray(d.removed)) cargo.removed = new Set(d.removed);
   if (Number.isFinite(d.credits)) cargo.credits = d.credits;
   if (Array.isArray(d.drops)) {
-    cargo.drops = d.drops.filter((x) => x && Goods.resolve(x.kind, x.label))
-      .map((x) => dropEntity({ key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
+    cargo.drops = d.drops.filter((x) => x && (x.loot ? Loot.read({ [x.loot.id]: x.loot })[x.loot.id] : Goods.resolve(x.kind, x.label)))
+      .map((x) => dropEntity(x.loot ? { key: x.key, loot: Loot.read({ [x.loot.id]: x.loot })[x.loot.id], seed: x.seed >>> 0, x: x.x, y: x.y }
+        : { key: x.key, kind: Goods.resolve(x.kind, x.label), seed: x.seed, x: x.x, y: x.y }));
   }
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
   if (Number.isFinite(d.fuel)) cargo.fuel = Math.max(0, d.fuel);
@@ -484,7 +499,22 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, lab: cargo.lab, industry: cargo.industry, loyalty: cargo.loyalty, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, story: [...cargo.story], missions: cargo.missions.save(), track: cargo.track, restored: cargo.restored,
+  loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
 }), 1000);
+// The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
+export function ownedLoot() {
+  const ids = new Set([...Object.keys(cargo.gear), ...Object.values(cargo.loadout.fitted), ...cargo.squad.flatMap((m) => Object.values(m.loadout?.fitted || {}))]);
+  const out = {};
+  for (const id of ids) if (id && cargo.loot[id]) out[id] = cargo.loot[id];
+  return out;
+}
+// A piece of loot comes aboard: remade into the equipment list, kept with the save, into the spare gear.
+export function takeLoot(spec) {
+  cargo.loot[spec.id] = spec;
+  const item = Loot.register(spec, Loadout.EQUIPMENT);
+  addTo(cargo.gear, spec.id);
+  return item;
+}
 export const saveCargo = () => cargoSave.change();
 export const saveCargoNow = () => cargoSave.now();
 
@@ -572,14 +602,22 @@ export const fuelling = {
   },
 };
 
+// A piece of loot picked up or handed over, said in its rarity's tone.
+const RARITY_TONE = { common: 'info', uncommon: 'good', rare: 'good', epic: 'good', legendary: 'good' };
+export function lootNotice(item) {
+  if (!item) return;
+  const R = Loot.rarityOf(item.loot.rarity);
+  notify(`${R.name} loot: ${item.name} · item level ${item.loot.ilvl} · in your spare gear`, item.loot.rarity === 'common' ? 2.5 : 4, { tone: RARITY_TONE[R.id] });
+}
+
 // Floating items near the ship are pulled in to it (dt seconds of pull), and those within reach
 // are picked up: trade goods into the hold while there's room, components into their own store,
 // which never fills. A trade good that won't fit is left where it is.
 export function collectItems(list, dt = 0) {
   for (const e of list) {
-    if (e.kind !== 'item' || cargo.removed.has(e.key)) continue;
+    if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
     let d = Math.hypot(ship.x - e.x, ship.y - e.y);
-    const fits = e.mission || Goods.isSalvage(e.itemKind) || hold.free >= 1;
+    const fits = e.kind === 'loot' || e.mission || Goods.isSalvage(e.itemKind) || hold.free >= 1;
     if (fits && dt > 0 && d > 0 && d < e.radius * 0.7 + PULL_RANGE) {
       const step = Math.min(d, (Math.hypot(ship.vx, ship.vy) + PULL_SPEED) * dt);
       e.x += ((ship.x - e.x) / d) * step;
@@ -588,6 +626,14 @@ export function collectItems(list, dt = 0) {
       d -= step;
     }
     if (d > e.radius * 0.7 + PICKUP_RANGE) continue;
+    if (e.kind === 'loot') { // gear: into the spare gear, which takes no hold room
+      if (e.drop) cargo.drops.splice(cargo.drops.indexOf(e), 1);
+      else cargo.removed.add(e.key);
+      const item = takeLoot(e.spec);
+      lootNotice(item);
+      saveCargo();
+      continue;
+    }
     if (e.mission) { // a mission's cargo: kept apart from the hold, for the mission
       cargo.removed.add(e.key);
       notify(`Recovered: ${e.label}`, 2.5);

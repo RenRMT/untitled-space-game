@@ -24,6 +24,8 @@ import { Goods } from './rules/goods.js';
 import { Hazards } from './rules/hazards.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
+import { Loot } from './rules/loot.js';
+import { Structures } from './rules/structures.js';
 import { Logistics } from './rules/logistics.js';
 import { Logic } from './rules/logic.js';
 import { Mining } from './rules/mining.js';
@@ -80,9 +82,11 @@ import * as warp from './game/warp.js';
 import * as landing from './game/landing.js';
 import * as surfaceRun from './game/surface-run.js';
 import * as dungeon from './game/dungeon.js';
+import * as structures from './game/structures.js';
+import * as surfaceSquad from './game/surface-squad.js';
 
 const parts = [state, options, world, cargo, outfitting, lab, industry, restoration, intro, missions, jobs, docking, squad, mining, travel,
-  selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon];
+  selection, combat, collisions, dash, hazards, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);
@@ -90,7 +94,7 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout, Loot, Structures,
   Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel,
 };
 for (const part of parts) {

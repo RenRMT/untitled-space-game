@@ -11,6 +11,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { ArtBlueprints } from '../art/blueprints.js';
+import { ArtTurrets } from '../art/turrets.js';
 import { ArtCrew } from '../art/crew.js';
 import { ArtCulture } from '../art/culture.js';
 import { hashInt, seedToInt } from '../core/rng.js';
@@ -18,11 +19,13 @@ import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
 import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
+import { Loot } from '../rules/loot.js';
+import { Structures } from '../rules/structures.js';
 import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, devUnlock, gatesOnline, hold, opening, saveCargo } from './cargo.js';
+import { addTo, cargo, devUnlock, gatesOnline, hold, lootNotice, opening, saveCargo, takeLoot } from './cargo.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -35,7 +38,10 @@ import { world } from './world.js';
 // built: per job id, its things in space for the attempt under way ({ n, steps: [[entity]] per
 // step (made when first needed), escort }); centre: where a rushing wave came in (by `${id}:${i}`),
 // this session only; callT: seconds the next comms call has waited for calm.
-export const jobRun = { built: new Map(), centre: new Map(), callT: 0 };
+export const jobRun = { built: new Map(), centre: new Map(), callT: 0, defend: new Map() };
+// A defence: waves come in this far from the station once the ship is within `near` of it, `gap`
+// seconds after the last one is beaten.
+export const DEFEND = { near: 6000, arrive: 1600, gap: 4 };
 // A rushing wave comes in this far from the ship, once the ship is out in open space (this far
 // from every station, and out of a waystation's signal) or near the step's own place.
 export const RUSH = { arrive: 1500, open: 5000, signal: 7500, near: 5000 };
@@ -54,8 +60,8 @@ export const handInKey = (J) => J.handIn || log().at(J.id);
 const stationByKey = (key) => world.scene.stations.find((s) => s.key === key) || null;
 
 // A job's hostile ship, circling (cx, cy).
-function hostile(J, i, k, p, cx, cy) {
-  const w = J.steps[i].wave, crew = Jobs.CREWS[w.crew] || Jobs.CREWS.pirates;
+function hostile(J, i, k, p, cx, cy, w = J.steps[i].wave) {
+  const crew = Jobs.CREWS[w.crew] || Jobs.CREWS.pirates;
   const culture = crew.culture === 'pirates' ? world.cultures.pirates : world.cultures.of(crew.culture);
   return {
     ...Entities.fighter({ key: keyOf(J.id, i, k), art: ArtBlueprints.create(Entities.fighterClass(w.tier, p.seed), culture, p.seed), x: cx, y: cy, orbit: p.orbit, speed: p.speed, a0: p.a0, tier: w.tier }),
@@ -79,6 +85,7 @@ function stepThings(J, i) {
     const at = s.wave.rush ? rushCentre(J, i) : s.wave;
     return s.wave.ships.map((p, k) => hostile(J, i, k, p, at.x, at.y));
   }
+  if (s.type === 'assault') return assaultThings(J, i);
   if (s.type === 'take') {
     return s.items.map((it, k) => ({ ...Entities.item({ key: keyOf(J.id, i, k), kind: it.kind, seed: it.seed, angle: it.seed % 6, tumble: 0.2, x: it.x, y: it.y }), label: it.label, mission: J.id }));
   }
@@ -87,6 +94,32 @@ function stepThings(J, i) {
     return s.pockets.map((q, k) => ({ kind: 'gas', gas: { type: q.type, seed: q.seed, r: q.r }, key: keyOf(J.id, i, k), pocket: { type: q.type, r: q.r }, color: n.color, radius: q.r, x: q.x, y: q.y }));
   }
   return [];
+}
+
+// An assault's base: its outpost (a pirate station that docks no one) and turrets, keyed first (so
+// the step counts them: stepKeys), then the ships guarding it. A battery's turrets fight as one
+// group; an outpost's with it (game/structures.js).
+function assaultThings(J, i) {
+  const s = J.steps[i], B = s.base, crew = Jobs.CREWS[B.crew] || Jobs.CREWS.pirates;
+  const culture = crew.culture === 'pirates' ? world.cultures.pirates : world.cultures.of(crew.culture);
+  const out = [], group = [];
+  let host = null;
+  if (B.outpost) {
+    const art = ArtBlueprints.create('station-minor', culture, B.seed);
+    host = { kind: 'outpost', key: keyOf(J.id, i, 0), art, name: `${crew.label.replace(/s$/, '')} outpost`, crew: crew.label, raider: true, mission: J.id, tier: B.tier, spin: 0, radius: art.radius, x: B.x, y: B.y, turrets: group };
+    out.push(host);
+  }
+  B.turrets.forEach((t, k) => {
+    const art = ArtTurrets.create(t.kind, culture, t.seed);
+    group.push({
+      kind: 'turret', key: keyOf(J.id, i, k + (host ? 1 : 0)), art, turretKind: t.kind, name: t.kind === 'missile' ? 'Missile turret' : 'Gun turret', host, raider: true, mission: J.id,
+      tier: B.tier, color: '#ff5a6e', radius: art.radius * Structures.TURRET_SCALE, x: B.x + Math.cos(t.angle) * t.orbit, y: B.y + Math.sin(t.angle) * t.orbit, aim: t.angle,
+    });
+  });
+  if (!host) for (const e of group) e.group = group;
+  out.push(...group);
+  s.guards.ships.forEach((p, k) => out.push(hostile(J, i, `g${k}`, p, B.x, B.y, s.guards)));
+  return out;
 }
 
 // A job's things for the attempt under way, made as they're first needed.
@@ -107,7 +140,7 @@ const things = (J, i) => {
 };
 // The keys a step's things go by (without making them).
 const stepKeys = (J, i) => {
-  const s = J.steps[i], n = s.type === 'fight' ? s.wave.ships.length : s.type === 'take' ? s.items.length : s.type === 'gas' ? s.pockets.length : 0;
+  const s = J.steps[i], n = s.type === 'fight' ? s.wave.ships.length : s.type === 'take' ? s.items.length : s.type === 'gas' ? s.pockets.length : s.type === 'assault' ? Jobs.assaultNeed(s) : 0;
   return Array.from({ length: n }, (_, k) => keyOf(J.id, i, k));
 };
 
@@ -139,7 +172,8 @@ export function jobThings() {
   for (const id of activeJobs()) {
     const J = jobOf(id);
     J.steps.forEach((s, i) => {
-      if (!['fight', 'take', 'gas'].includes(s.type) || L.done(id, stepId(i))) return;
+      if (s.type === 'defend') { const D = jobRun.defend.get(`${id}:${i}`); if (D && D.ships && !L.done(id, stepId(i))) out.push(...D.ships); return; }
+      if (!['fight', 'take', 'gas', 'assault'].includes(s.type) || L.done(id, stepId(i))) return;
       if (s.type === 'fight' && s.wave.rush && !rushCentre(J, i)) return;
       const list = things(J, i);
       const c = list[0];
@@ -178,9 +212,11 @@ export function tickJobs(dt) {
           if (p.station || Math.hypot(ship.x - p.x, ship.y - p.y) >= Jobs.REACH) return;
           if (reachPoint(J, i, k)) { changed = true; notify(`Reached · ${p.name}`, 2.5, { priority: 1 }); }
         });
-      } else if (s.type === 'fight' || s.type === 'take' || s.type === 'gas') {
+      } else if (s.type === 'fight' || s.type === 'take' || s.type === 'gas' || s.type === 'assault') {
         changed = L.set(id, o, stepKeys(J, i).filter((k) => cargo.removed.has(k)).length) || changed;
         if (s.type === 'fight' && s.wave.rush && open && !L.done(id, o)) rushIn(J, i);
+      } else if (s.type === 'defend' && open && !L.done(id, o)) {
+        changed = tickDefence(J, i, dt) || changed;
       }
     });
   }
@@ -225,6 +261,39 @@ function rushIn(J, i) {
   if (!due) return;
   const e = frameList.find((x) => x.key === due.key);
   if (e) engage(e, true);
+}
+
+// A defence step: once the ship is near the station, its waves come in one after another, each a
+// moment after the last is beaten, and each attacks at once (the station's turrets join you:
+// game/structures.js defenderSpecs). Whether the log changed.
+function tickDefence(J, i, dt) {
+  const s = J.steps[i], o = stepId(i), L = log(), k = L.count(J.id, o), key = `${J.id}:${i}`;
+  const st = stationByKey(s.station.key);
+  if (!st) return false;
+  let D = jobRun.defend.get(key);
+  if (!D) { D = { ships: null, wait: 0, n: log().attempt(J.id) }; jobRun.defend.set(key, D); }
+  if (D.ships) {
+    const left = D.ships.filter((e) => !cargo.removed.has(e.key));
+    if (left.length) {
+      if (!inFight() && fight.grace <= 0 && !docked && !landing.on && !fight.result) {
+        const e = frameList.find((x) => x.key === left[0].key && !fight.dying.has(x.key));
+        if (e) engage(e, true);
+      }
+      return false;
+    }
+    D.ships = null;
+    D.wait = DEFEND.gap;
+    if (k + 1 < s.waves.length) notify(`Wave ${k + 1} of ${s.waves.length} beaten · more coming`, 2.5, { tone: 'good' });
+    return L.set(J.id, o, k + 1);
+  }
+  if (k >= s.waves.length || Math.hypot(ship.x - st.x, ship.y - st.y) > DEFEND.near || docked || landing.on) return false;
+  D.wait -= dt;
+  if (D.wait > 0) return false;
+  const a = Math.atan2(ship.y - st.y, ship.x - st.x) + (Math.random() - 0.5) * 1.2;
+  const cx = st.x + Math.cos(a) * DEFEND.arrive, cy = st.y + Math.sin(a) * DEFEND.arrive, w = s.waves[k];
+  D.ships = w.ships.map((p, n) => hostile(J, i, `w${k}.${n}`, p, cx, cy, w)).filter((e) => !cargo.removed.has(e.key));
+  notify(`Wave ${k + 1} of ${s.waves.length} inbound · ${st.name} under attack`, 2.5, { priority: 2, tone: 'hostile' });
+  return false;
 }
 
 // Docking at a station: the go steps that stop there count it.
@@ -274,6 +343,8 @@ export function jobObjective(id) {
     return at(near(list.map((p) => ({ x: p.x, y: p.y }))), 300);
   }
   if (s.type === 'mine') return at(s.at, 1200);
+  if (s.type === 'assault') return at(s.base, 900);
+  if (s.type === 'defend') { const st = stationByKey(s.station.key); return st && { text, x: st.x, y: st.y, station: st, r: st.radius }; }
   if (s.type === 'bring') {
     const st = stationByKey(handInKey(J));
     return st && { text, x: st.x, y: st.y, station: st, r: st.radius };
@@ -344,12 +415,12 @@ export function jobViews(station) {
     const lines = status === 'done' ? J.debrief : status === 'ready' ? J.report : J.briefing;
     const where = handIn && stationByKey(handIn);
     out.push({
-      id: J.id, title: J.title, from: J.from, face: giverFace(J), status, here, tier: Jobs.TIERS[J.tier].label,
+      id: J.id, title: J.title, from: J.from, face: giverFace(J), status, here, tier: `${Jobs.TIERS[J.tier].label}${J.difficulty ? ` · ${Jobs.DIFFICULTY[J.difficulty].label}` : ''}`,
       lines: Missions.lines(lines, L, J.id),
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,
       reward: J.rewardText,
-      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...J.reward.loyalty.map((l) => l.text), ...J.reward.regard] },
+      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...(J.reward.gear ? [J.reward.gear.text] : []), ...J.reward.loyalty.map((l) => l.text), ...J.reward.regard] },
       note: status === 'done' ? doneNote(J) : status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
       handIn: where ? where.name : null,
       tracked: trackedJob() === J.id,
@@ -395,13 +466,19 @@ export function completeJob(id) {
   for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);
   for (const l of J.reward.loyalty) for (const key of l.keys) cargo.loyalty[key] = Math.max(0, (cargo.loyalty[key] ?? Industry.LOYALTY.start) + l.n);
   Reputation.earn(cargo.rep, J);
+  // The gear it rewards (rules/loot.js 'mission' drops, by its difficulty).
+  const G = J.reward.gear;
+  if (G) for (const spec of Loot.drops('mission', `${id}:${log().attempt(id)}`, { level: G.level, floor: G.floor, luck: G.luck, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity })) lootNotice(takeLoot(spec));
   jobRun.built.delete(id);
+  clearDefence(id);
   if (cargo.track === id) cargo.track = null;
   saveCargo();
 }
+const clearDefence = (id) => { for (const k of [...jobRun.defend.keys()]) if (k.startsWith(`${id}:`)) jobRun.defend.delete(k); };
 export function abandonJob(id) {
   if (!log().abandon(id)) return;
   jobRun.built.delete(id);
+  clearDefence(id);
   if (cargo.track === id) cargo.track = null;
   notify(`${jobOf(id).title} abandoned`, 2.5);
   saveCargo();

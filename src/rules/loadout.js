@@ -240,6 +240,7 @@ const Loadout = (() => {
     for (const { id, type, item } of slots(loadout, upgrades)) {
       if (!item) continue;
       const s = tuned(item.stats, bonusFor(item, upgrades, loadout.mods?.[id]));
+      if (s.hullPlus) out.hull += Math.round(s.hullPlus); // loot's flat hull affixes (rules/loot.js), on any slot
       if (type === 'engine') Object.assign(out, { maxSpeed: s.maxSpeed, accel: s.accel * handling, turnRate: s.turnRate * handling, evasion: s.evasion || 0 });
       else if (type === 'scanner') Object.assign(out, { sensorRange: s.sensorRange, pingRange: s.pingRange, initiative: s.sensorRange + s.pingRange, lockRange: s.lockRange });
       else if (type === 'computer') Object.assign(out, { miningRate: s.miningRate, accuracy: s.accuracy || 0, lockTime: s.lockTime });
@@ -275,6 +276,10 @@ const Loadout = (() => {
 
   // One line of what a piece of equipment does, for the Ship tab.
   function summary(item) {
+    const text = slotSummary(item);
+    return item.stats.hullPlus ? `${text} · +${Math.round(item.stats.hullPlus)} hull` : text;
+  }
+  function slotSummary(item) {
     const s = item.stats;
     switch (item.slot) {
       case 'weapon': return `${s.damage} damage · ${s.fireRate}/s · ${s.range} range · ${s.arc >= 360 ? 'all round' : `${s.arc}° arc`}${s.vs ? ` · ${vsText(s.vs)}` : ''}`;

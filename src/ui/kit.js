@@ -191,7 +191,7 @@ const Kit = (() => {
       art || icon(code, 40, { code, tier }),
       h('span', { class: 'main' },
         h('span', { class: 'line' }, h('span', { class: 'name' }, name), tier ? mk(tier) : null,
-          label ? tag(label, tagTone ? `var(--${tagTone})` : null) : null),
+          label ? tag(label, tagTone ? (tagTone.startsWith('#') ? tagTone : `var(--${tagTone})`) : null) : null),
         rows?.length ? deltas(rows) : vals?.length ? values(vals) : null,
         sub ? h('span', { class: 'sub' }, sub) : null,
         extra || null),

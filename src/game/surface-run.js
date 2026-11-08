@@ -36,6 +36,7 @@ import { endExtraction, endSurfaceFight, extract, extracting, focusOn, fxPos, hu
 import { hazard, hazardsOn, meterWarnings, trackMeters } from './hazards.js';
 import { SURFACE_SPEED, landing, takeOff } from './landing.js';
 import { autoMine, chips } from './mining.js';
+import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
 import { SHIP, TAU, clamp, ctx, debris, fight, notify, setMode } from './state.js';
@@ -127,6 +128,7 @@ export function enterSurface(e, W) {
     })),
   });
   if (W.dungeon) enterDungeon(W, e, field); else dungeonRun.W = null;
+  landSquad(W); // the squad comes down with you (game/surface-squad.js)
   const rich = surfaceRun.deposits.filter((d) => d.rich).length;
   notify(`${site.label} · ${site.hazard} · ${surfaceRun.deposits.length} nodes${rich ? `, ${rich} rich` : ''} · yield ×${site.rich}`, 3.5, { tone: site.tag === 'Mild' ? 'info' : 'warn' });
 }
@@ -141,6 +143,7 @@ export function leaveSurface() {
   surfaceRun.exp = null;
   dungeonRun.W = null;
   dungeonRun.guards = [];
+  liftSquad();
 }
 
 // ---------- Each step on the surface ----------
@@ -244,7 +247,8 @@ export function tickSurface(dt) {
   meterWarnings();
   pickUp(C, dt);
   tickDungeon(C); // charting a labyrinth, and its chambers found
-  tickGuardians(C); // its guardians waking as the ship comes near (game/dungeon.js)
+  tickGuardians(C, dt); // its guardians waking as the ship comes near (game/dungeon.js)
+  tickSurfaceSquad(dt); // the squad following the ship over the ground (game/surface-squad.js)
   autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
   tickFight(dt); // mining a deposit (and the effects of it)
   // Take off: short of fuel for it, Jettison or Call a tow (their buttons).

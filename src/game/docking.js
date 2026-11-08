@@ -27,6 +27,7 @@ import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
 import { startWarp, warp } from './warp.js';
 import { world } from './world.js';
+import { dockBlock } from './structures.js';
 
 // ---------- Docking: stop near a station, dock, trade, launch ----------
 
@@ -36,6 +37,8 @@ export let docked = null; // { station } while docked; flight is paused and the 
 // Whether the player may dock at a station: not where its owner counts them Hostile
 // (rules/reputation.js; the androids' waystations turn no one away).
 export function canDock(station) {
+  const razed = dockBlock(station);
+  if (razed) return razed;
   const owner = ownerOf(station);
   if (Reputation.refuses(cargo.rep, owner)) return { ok: false, reason: `Refused · ${Factions.get(owner).name.replace(/^The /, '')} hostile` };
   return { ok: true, reason: '' };
