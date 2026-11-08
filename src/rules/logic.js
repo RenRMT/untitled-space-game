@@ -32,7 +32,8 @@
 //   Logic.blocks(pkg) -> [{ kind, id, label }]   what a package gives
 // ctx: what a squad member knows when it decides: { self, leader, enemies: the enemies still
 //   flying, allies: the other squad members still flying, leaderTarget: the enemy id the leader is
-//   fighting or null, dist(a, b), targetOf(enemy) -> the id it shoots at, ready(skill, target) }.
+//   fighting or null, dist(a, b), targetOf(enemy) -> the id it shoots at, ready(skill, target),
+//   charging(enemy) -> whether it's charging a heavy shot, hasStatus(c, status) }.
 //   A combatant: { id, hull, shield, stats: { hull, shield, name, weapons }, x?, y? }.
 // Intents: { type: 'follow' }, { type: 'attack', target, keep? }, { type: 'guard', ward },
 //   { type: 'retreat' }, { type: 'use', skill, target }.
@@ -79,6 +80,13 @@ const Logic = (() => {
     class: { kind: 'enum', of: ['enemy'], pkg: 'combat.focus', values: ['fighter', 'freighter'], note: 'what kind of ship', get: (c) => String(c.stats.name || '').toLowerCase() },
     enemies: { kind: 'cmp', of: ['fight'], pkg: 'tactics.count', unit: '', values: [1, 2, 3, 4, 5], note: 'enemies still flying', get: (c, ctx) => ctx.enemies.length },
     allies: { kind: 'cmp', of: ['fight'], pkg: 'tactics.count', unit: '', values: [1, 2, 3, 4, 5], note: 'squad members flying, self included', get: (c, ctx) => ctx.allies.length + 1 },
+    // Reading the fight's telegraphs (combat/combat.js): an enemy charging a heavy shot (break its
+    // shields to cancel it), and the statuses on a ship (rules/abilities.js).
+    charging: { kind: 'flag', of: ['enemy'], pkg: 'tactics.read', note: 'charging a heavy shot', get: (c, ctx) => !!ctx.charging?.(c) },
+    has: {
+      kind: 'flagArg', of: ['enemy', 'ally', 'self', 'leader'], pkg: 'tactics.read', values: ['taunt', 'fortify', 'overload', 'mark', 'emp', 'jam'],
+      note: 'a status on it: a skill or an ability still working', get: (c, ctx, v) => !!ctx.hasStatus?.(c, v),
+    },
   };
   const RELS = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '>=': (a, b) => a >= b, '==': (a, b) => a === b, '!=': (a, b) => a !== b };
   for (const p of Object.values(PROPS)) p.rels = p.kind === 'cmp' ? CMP : p.kind === 'enum' ? EQ : [];
@@ -104,9 +112,12 @@ const Logic = (() => {
     pick: { any: 'Any', nearest: 'Nearest', weakest: 'Weakest', strongest: 'Strongest' },
     prop: {
       isLeaderTarget: "is the leader's target", hull: 'Hull', shield: 'Shield', distance: 'Distance', targeting: 'is targeting',
-      class: 'is a', enemies: 'Enemies left', allies: 'Squad left',
+      class: 'is a', enemies: 'Enemies left', allies: 'Squad left', charging: 'is charging a heavy shot', has: 'has',
     },
-    value: { self: 'Self', leader: 'Leader', ally: 'an Ally', fighter: 'Fighter', freighter: 'Freighter' },
+    value: {
+      self: 'Self', leader: 'Leader', ally: 'an Ally', fighter: 'Fighter', freighter: 'Freighter',
+      taunt: 'Taunt', fortify: 'Fortify', overload: 'Overload', mark: 'Mark', emp: 'EMP', jam: 'Jam',
+    },
     act: { attack: 'Attack', follow: 'Follow leader', keepRange: 'Attack from range', guard: 'Guard', retreat: 'Retreat', use: 'Use' },
     rel: { '<': '<', '<=': '≤', '>': '>', '>=': '≥', '==': '=', '!=': '≠' },
   };

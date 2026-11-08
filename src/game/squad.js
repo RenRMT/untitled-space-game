@@ -100,6 +100,9 @@ export function logicContext(s, a) {
   return {
     self: a, leader: s.player, enemies: CombatCore.alive(s), allies: CombatCore.allies(s).filter((x) => x !== a),
     leaderTarget: s.focus ?? null, dist: distance, targetOf: (e) => CombatCore.aimAt(s, e).id,
+    // The telegraphs (combat/combat.js): a heavy shot being charged; and statuses still running.
+    charging: (e) => !!(e.intent && e.intent.kind === 'heavy'),
+    hasStatus: (c, id) => Abilities.has(c, id, s.t || 0),
     // A `use` line runs when there's a charge in the kit, the ability is off cooldown for this ship
     // and would help, and its target is on the right side (rules/abilities.js).
     // A class skill (rules/classes.js) needs no charge, but the member's class has to have it, and

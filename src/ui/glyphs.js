@@ -23,6 +23,8 @@ const Glyphs = (() => {
     IND: '<path d="M3 20.5V11l5 3v-3l5 3V5h5v15.5z"/><path d="M2 20.5h20M15.5 8.5h0"/>',
     SQD: '<path d="M12 3l3.5 7-3.5-1.8L8.5 10zM6 12.5l3.5 7L6 17.7l-3.5 1.8zM18 12.5l3.5 7-3.5-1.8-3.5 1.8z"/>',
     MSN: '<path d="M5.5 21V3.5"/><path d="M5.5 4h12l-2.5 4 2.5 4h-12"/>',
+    OUT: '<path d="M5 8h14l-1.2 12.5H6.2z"/><path d="M9 8V6.5a3 3 0 0 1 6 0V8"/>', // the outfitter: a bag
+    LOG: '<path d="M8 6l-5 6 5 6M16 6l5 6-5 6"/><path d="M13.5 4.5l-3 15"/>', // a gambit: code
     // Ship slots and what they do.
     WPN: CROSSHAIR,
     SHD: `<path d="${SHIELD}"/>`,
@@ -111,7 +113,7 @@ const Glyphs = (() => {
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
   };
   // Names that mean a code above.
-  const ALIAS = { 'tab-trade': 'TRD', 'tab-ship': 'SHP', 'tab-research': 'RSC', 'tab-industry': 'IND', 'tab-squad': 'SQD', 'tab-missions': 'MSN', hold: 'HLD', hull: 'HUL', face: 'FACE', android: 'AND', open: '+' };
+  const ALIAS = { 'tab-trade': 'TRD', 'tab-ship': 'SHP', 'tab-research': 'RSC', 'tab-industry': 'IND', 'tab-outfitter': 'OUT', 'tab-squad': 'SQD', 'tab-missions': 'MSN', hold: 'HLD', hull: 'HUL', face: 'FACE', android: 'AND', open: '+' };
   const find = (name) => ICONS[name] ?? ICONS[ALIAS[name]] ?? null;
 
   return {

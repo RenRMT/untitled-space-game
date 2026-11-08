@@ -17,10 +17,8 @@ import { cargo, hold, news, repairs, saveCargo } from './cargo.js';
 import { drag } from './input.js';
 import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
-import { lab } from './lab.js';
-import { industry } from './industry.js';
+import { vendor } from './vendor.js';
 import { outfitting, placeShip } from './outfitting.js';
-import { restoration } from './restoration.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
@@ -99,9 +97,7 @@ export function dock(station) {
   ship.thrust = 0;
   drag.active = false;
   particles.length = 0;
-  lab.settle();
-  industry.here = { key: station.key, name: station.name, type: station.market.type };
-  industry.settle();
+  vendor.at(station);
   setMode('docked', true);
   StationMenu.open({
     station: {
@@ -112,10 +108,9 @@ export function dock(station) {
     hold,
     ship: SHIP,
     outfitting,
-    lab,
-    industry,
+    vendor,
     get kit() { return cargo.kit; },
-    shipyard: station.market.type === 'capital' && restoration.online(station.key), // hulls: at the shipyard, restored
+    shipyard: station.market.type === 'capital', // hulls: at a capital's shipyard
     repairs,
     squad: programs,
     missions: { list: () => missionViews(station) },
@@ -132,7 +127,7 @@ export function launch() {
   const st = docked.station;
   Store.persist(); // a tap on Launch: a good moment to ask the browser to keep the save
   docked = null;
-  industry.here = null;
+  vendor.at(null);
   StationMenu.close();
   setMode('docked', false);
   const a = Math.atan2(ship.y - st.y, ship.x - st.x);

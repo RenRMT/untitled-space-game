@@ -17,6 +17,7 @@ import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
+import { Vendor } from '../rules/vendor.js';
 import { CombatPanel } from '../ui/combat-panel.js';
 import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
@@ -33,7 +34,7 @@ import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
-import { lab } from './lab.js';
+import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
@@ -429,8 +430,8 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a
-// schematic: the blueprint for that gear, researched at once). One of the pirates' own (a pack's)
+// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a gambit
+// in its computer, owned at once: game/vendor.js). One of the pirates' own (a pack's)
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
@@ -450,10 +451,10 @@ export function shipDestroyed(key) {
   Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
-  // A schematic in its computer: the blueprint for that gear, so an assembler can make it.
-  const id = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier);
-  const bp = id && Research.blueprintFor(id);
-  if (bp && lab.grant(bp)) notify(`Blueprint recovered: ${Loadout.EQUIPMENT[id].name} · assemble it at a shipyard (Production tab)`, 4);
+  // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned
+  // yet, of up to a tier above its own.
+  const g = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier) && Vendor.gambitDrop(world.galaxy.seed, key, p.tier || 1, ownedGambits());
+  if (g && grantGambit(g)) notify(`Gambit recovered: import ${Research.title(g)} · your squad can use it now`, 4, { tone: 'good' });
   saveCargo();
 }
 

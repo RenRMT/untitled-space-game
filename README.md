@@ -11,7 +11,7 @@ what you destroy, and push out from the safe core of your faction's space into h
   outside, 5 the aliens'), shown on the map.
 - **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
   in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  leave loot to pick up: components, goods and now and then a schematic. Fights are turn-based on a
+  leave loot to pick up: components, goods and now and then a gambit. Fights are turn-based on a
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
@@ -23,12 +23,18 @@ what you destroy, and push out from the safe core of your faction's space into h
   each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
-  class starts with a program that does.
+  class starts with a program that does. A program is built from **gambits**, FF12 style: the
+  building blocks (conditions such as "is charging a heavy shot" or "has Taunt", picks, actions,
+  more memory), bought at any station's outfitter (better ones further out) or found on pirates
+  and Wardens (`src/rules/vendor.js`, `src/game/vendor.js`).
+- **The outfitter.** Every station's Outfitter tab sells gambits up to its system's level, a stock of
+  gear rolled like loot (Common and Uncommon, Rare at a capital) that turns over every day,
+  consumables, and at capitals and major stations mods. Hulls are at a capital's shipyard.
 - **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth cut into its own ground
   (canyons on a desert world, ice caves, lava tubes, a storm maze on a gas giant, crater mazes on moons)
   (`src/game/dungeon.js`): turrets that never move and raiders that patrol and chase hold the
   chambers, a Warden (a heavy ship) the deepest, harder the higher the system's level, with loot,
-  gear and a bounty for the Warden. The squad lands with the ship, follows its trail through the
+  gear, a bounty and a gambit for the Warden. The squad lands with the ship, follows its trail through the
   caverns and fights beside it (`src/game/surface-squad.js`); walls stop every ship in a fight.
 - **Stations and turrets.** Every station holds 0–3 turrets in orbit round it, more in high
   security and in harder systems (`src/rules/structures.js`). Every man-made thing can be attacked
@@ -63,8 +69,8 @@ the only way to pick it up: nothing is pulled in or picked up by flying near it.
 shows under the finger in space and on a surface alike, and the map, settings, factions and
 context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
 its landing pad: fly off it and back onto it to take off.
-Explanations in the menus wait behind an ⓘ. Production, research and the station services are as
-they were.
+Explanations in the menus wait behind an ⓘ. There is no production or research in the main game
+any more (the idle game has them, on the same rules: `notes/archived-systems.md`).
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
 The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms
@@ -100,7 +106,7 @@ URL parameters:
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
 | `?combat=realtime` | fights in real time instead of on the timeline, for comparison (not saved) |
-| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
+| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open and the jobs board up (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
 | `?style=lowpoly`, `?move=direct` | a setting for this visit |
 

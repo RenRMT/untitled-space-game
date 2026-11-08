@@ -10,8 +10,6 @@ import { updateRegion } from './draw-world.js';
 import { steady } from './input.js';
 import { trackShields } from './screen-fx.js';
 import { docked } from './docking.js';
-import { tickIndustry } from './industry.js';
-import { tickLab } from './lab.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { moveMode } from './options.js';
@@ -53,8 +51,6 @@ export function update(dt) {
   simTime += dt;
   tickOrbits(dt);
   if (!landing.on && !warp.on && !inFight()) carry(); // (a fight holds its ships where it has them)
-  tickLab();
-  tickIndustry();
   tickAutopilot();
   // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight/flight.js).
   if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {

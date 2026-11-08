@@ -42,6 +42,7 @@ import { Restoration } from '../src/rules/restoration.js';
 import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Loot } from '../src/rules/loot.js';
+import { Vendor } from '../src/rules/vendor.js';
 import { Structures } from '../src/rules/structures.js';
 import { Abilities } from '../src/rules/abilities.js';
 import { Classes } from '../src/rules/classes.js';
@@ -3350,11 +3351,11 @@ test('reputation: what regard does: prices, docking, pirates letting you pass', 
 
 test('every icon code the UI uses has a line icon', () => {
   // The codes in the panels' sources (code: 'XYZ', and the codes rules give abilities, bays and
-  // consumables), plus the tabs, slots, research groups and the context menu's actions.
-  const src = ['station.js', 'research-view.js', 'industry-view.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
+  // consumables), plus the tabs, slots, the old research groups and the context menu's actions.
+  const src = ['station.js', 'kit.js'].map((f) => fs.readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8')).join('\n');
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
-  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-research', 'tab-industry', 'tab-squad', 'tab-missions', 'hold', 'hull', 'face', 'android', 'open',
+  for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-outfitter', 'tab-squad', 'tab-missions', 'LOG', 'OUT', 'hold', 'hull', 'face', 'android', 'open',
     'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach',
     'HLD', 'HUL', 'SHD']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
   const missing = [...codes].filter((c) => !Glyphs.has(c));
@@ -4978,6 +4979,36 @@ test('real time: fixed combatants hold their place on either side, and walls sto
   for (let i = 0; i < 300; i++) RealtimeCombat.step(s, 1 / 30);
   assert.deepStrictEqual([turret.x, turret.y, ally.x, ally.y], [0, 200, 0, -150], 'held in place');
   assert(raider.x >= 520 || raider.hull <= 0, 'the raider never got through the wall');
+});
+
+test('vendor: gambits by level, needing what they build on; gear rolled per station and day, capped; a gambit drop', () => {
+  for (const id of Object.keys(Research.PACKAGES).filter((x) => Research.PACKAGES[x].kind === 'logic' && !Vendor.FREE.includes(x))) {
+    assert.ok(Vendor.GAMBIT_TIER[id], `${id} has a tier`);
+    assert.ok(Vendor.gambitPrice(id) > 0, `${id} has a price`);
+  }
+  assert.ok(Vendor.gambits(1).length < Vendor.gambits(3).length && Vendor.gambits(3).length < Vendor.gambits(5).length, 'more further out');
+  assert.ok(!Vendor.gambits(5).some((id) => Vendor.FREE.includes(id)), 'the free ones are never sold');
+  const owned = new Set(Vendor.FREE);
+  assert.deepStrictEqual(Vendor.canBuyGambit('core.bool.or', owned), { ok: false, why: 'Needs core.bool@1.0' });
+  owned.add('core.bool');
+  assert.ok(Vendor.canBuyGambit('core.bool.or', owned).ok);
+  assert.strictEqual(Vendor.canBuyGambit('core.bool', owned).why, 'Owned');
+  // Gear: the same for a station and day, another the next day; never above the cap.
+  const a = Vendor.gear('s1', 3, 100), b = Vendor.gear('s1', 3, 100), c = Vendor.gear('s1', 3, 101), d = Vendor.gear('s2', 3, 100);
+  assert.deepStrictEqual(a, b);
+  assert.notDeepStrictEqual(a, c);
+  assert.notDeepStrictEqual(a, d);
+  for (let day = 0; day < 40; day++) {
+    for (const spec of Vendor.gear('s1', 2, day)) assert.ok(Loot.RANK[spec.rarity] <= Loot.RANK.uncommon, spec.rarity);
+    for (const spec of Vendor.gear('cap', 2, day, { capital: true })) assert.ok(Loot.RANK[spec.rarity] <= Loot.RANK.rare, spec.rarity);
+  }
+  assert.ok(Vendor.gear('s1', 4, 7).every((spec) => spec.ilvl >= 31 && spec.ilvl <= 40), 'at the level');
+  assert.ok(Vendor.gearPrice(a[0]) === 2 * Loot.make(a[0]).price);
+  // A drop: not owned, up to a tier above; none once all are owned.
+  const drop = Vendor.gambitDrop(1, 'warden', 1, owned);
+  assert.ok(drop && !owned.has(drop) && Vendor.GAMBIT_TIER[drop] <= 2, drop);
+  assert.strictEqual(Vendor.gambitDrop(1, 'warden', 5, new Set([...owned, ...Vendor.gambits(5)])), null);
+  assert.ok(Vendor.sellsMods('capital') && !Vendor.sellsMods('minor'));
 });
 
 if (failed) {

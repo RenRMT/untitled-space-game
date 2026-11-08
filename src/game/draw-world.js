@@ -10,7 +10,6 @@ import { Goods } from '../rules/goods.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS, selectedKey } from './selection.js';
-import { industry } from './industry.js';
 import { PLAYER_DRAW, SHIP, cam, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
 import { warpShipScale } from './warp.js';
@@ -154,25 +153,6 @@ export function drawShip(t) {
   if (k !== 1) ctx.scale(k, k);
   Art.drawAsset(ctx, ship.art, artStyle.value, { angle: ship.angle, t, thrust: ship.thrust });
   ctx.restore();
-}
-
-// Haulers on routes and shuttles (game/industry.js haulerSpots): small arrowheads flying between
-// stations on the real clock, amber when loaded. Only for show: nothing touches them.
-export function drawHaulers() {
-  const hw = view.w / 2 / view.zoom + 40, hh = view.h / 2 / view.zoom + 40;
-  for (const h of industry.haulerSpots()) {
-    if (Math.abs(h.x - cam.x) > hw || Math.abs(h.y - cam.y) > hh) continue;
-    ctx.save();
-    ctx.translate(rx(h.x), ry(h.y));
-    ctx.rotate(h.angle);
-    ctx.fillStyle = h.loaded ? COLORS.amber : COLORS.cyan;
-    ctx.globalAlpha = 0.85;
-    ctx.beginPath();
-    ctx.moveTo(14, 0); ctx.lineTo(-9, 8); ctx.lineTo(-5, 0); ctx.lineTo(-9, -8);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
 }
 
 export function drawParticles() {

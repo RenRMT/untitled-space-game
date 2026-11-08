@@ -2,7 +2,7 @@
 // things in space (hostile waves, items to collect, gas pockets, the ship being escorted), their
 // progress each frame, the lines said on the comms as a step opens, where the HUD and map point,
 // and the station screen's view of them: accepting, handing in, abandoning and tracking one, and
-// what handing it in pays (credits, components, loyalty at stations).
+// what handing it in pays (credits, components, gear, regard).
 // Progress is read from what has happened where it can be (a wave's ships and a job's items are
 // gone from the world: cargo.removed; goods are in the hold), so a save can't fall out of step
 // with it; points reached, stations docked at and rocks mined are counted as they happen. Things
@@ -19,7 +19,6 @@ import { hashInt, seedToInt } from '../core/rng.js';
 import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
-import { Industry } from '../rules/industry.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Structures } from '../rules/structures.js';
@@ -431,8 +430,8 @@ export function jobViews(station) {
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,
       reward: J.rewardText,
-      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...(J.reward.gear ? [J.reward.gear.text] : []), ...J.reward.loyalty.map((l) => l.text), ...J.reward.regard] },
-      note: status === 'done' ? doneNote(J) : status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
+      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...(J.reward.gear ? [J.reward.gear.text] : []), ...J.reward.regard] },
+      note: status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
       handIn: where ? where.name : null,
       tracked: trackedJob() === J.id,
       accept: () => acceptJob(J.id, st.key), complete: () => completeJob(J.id),
@@ -442,16 +441,6 @@ export function jobViews(station) {
   }
   return out;
 }
-// What a job done opened up: production at the stations it made trust you.
-function doneNote(J) {
-  const keys = J.reward.loyalty.filter((l) => l.n > 0).flatMap((l) => l.keys)
-    .filter((k) => Industry.trusted(cargo.loyalty, k) && Industry.processes(stationType(k)).length);
-  if (!keys.length) return null;
-  const st = stationByKey(keys[0]);
-  return keys.length === 1 ? `${st.name} now takes your production orders.` : `${keys.length} stations now take your production orders.`;
-}
-const stationType = (key) => { const s = world.galaxy.stations.find((x) => x.key === key); return s && (s.waystation ? 'waystation' : s.market.type); };
-
 // Accepting: tracked on the map from now on; docked at a station its first step stops at, that
 // counts at once.
 export function acceptJob(id, at) {
@@ -461,7 +450,7 @@ export function acceptJob(id, at) {
   saveCargo();
 }
 // Handing in: the goods a bring step asked for leave the hold; then the pay, the components and
-// the loyalty (never below nothing) and the factions' regard (rules/reputation.js).
+// and the factions' regard (rules/reputation.js).
 export function completeJob(id) {
   const J = jobOf(id);
   if (!J || log().status(id) !== 'ready') return;
@@ -475,7 +464,6 @@ export function completeJob(id) {
   log().complete(id);
   cargo.credits += J.reward.credits;
   for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);
-  for (const l of J.reward.loyalty) for (const key of l.keys) cargo.loyalty[key] = Math.max(0, (cargo.loyalty[key] ?? Industry.LOYALTY.start) + l.n);
   Reputation.earn(cargo.rep, J);
   // The gear it rewards (rules/loot.js 'mission' drops, by its difficulty).
   const G = J.reward.gear;

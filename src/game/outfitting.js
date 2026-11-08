@@ -4,11 +4,9 @@
 
 import { Loadout } from '../rules/loadout.js';
 import { Mods } from '../rules/mods.js';
-import { Recipes } from '../rules/recipes.js';
-import { Research } from '../rules/research.js';
 import { DeepSpace } from '../world/deep-space.js';
 import { SolarSystem } from '../world/solar-system.js';
-import { addTo, applyShip, cargo, saveCargo } from './cargo.js';
+import { addTo, applyShip, cargo, saveCargo, shipUpgrades } from './cargo.js';
 import { stopMining } from './mining.js';
 import { memberOf, refreshWing, snapWings } from './squad.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
@@ -66,7 +64,8 @@ function trimmed(loadout) {
 // Equipment: what's fitted, spare gear (assembled, or taken out) to fit, mods fitted to a slot (as
 // many as its gear has room for; the rest go back to the spare mods), selling spare gear for half
 // its price, and the shipyard's hulls (the current one traded in for half its price; the gear moves
-// across, what doesn't fit goes to the spare gear). Gear isn't sold: industry assembles it.
+// across, what doesn't fit goes to the spare gear). Gear is bought at an outfitter (game/vendor.js)
+// or found as loot.
 // Android gear (taken out of a squad ship) fits only squad ships, and isn't sold.
 // member(id): the same for a squad member's ship (fit, unfit, fitMod, removeMod; null if no such member).
 export const SELL_BACK = 0.5;
@@ -78,12 +77,10 @@ const playerFit = fitter({
 });
 export const outfitting = {
   get loadout() { return cargo.loadout; },
-  get upgrades() { return Research.upgrades(cargo.lab.done); },
+  get upgrades() { return shipUpgrades(); },
   get gear() { return cargo.gear; },
   get mods() { return cargo.mods; },
   android: false,
-  // Whether industry can make a piece of gear: Mk I always, the rest once its blueprint is researched.
-  canMake: (id) => Recipes.known(cargo.lab.done).has(`make.${id}`),
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
   tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
   hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
@@ -124,7 +121,6 @@ export const outfitting = {
       get gear() { return cargo.gear; },
       get mods() { return cargo.mods; },
       android: true,
-      canMake: outfitting.canMake,
       ...fitter({
         get: () => m.loadout, set: (l) => { m.loadout = l; }, upgrades: () => ({}), takes: () => true,
         changed: () => { m.loadout = trimmed(m.loadout); refreshWing(m); saveCargo(); return true; },

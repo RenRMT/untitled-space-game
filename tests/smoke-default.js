@@ -127,18 +127,41 @@ test('lands on the terran planet, flies over its surface, and takes off', () => 
   assert.ok(game('Math.hypot(ship.x - __body.x, ship.y - __body.y) < __body.body.r * 2.1 + 400'), 'beside the planet');
 });
 
-test('at the waystation, goods and credits restore the first station', () => {
-  game(`globalThis.__T = Date.now(); Clock.now = () => __T;
-    globalThis.__way = world.galaxy.stations[world.galaxy.waystation];
-    globalThis.__wayAt = __find((e) => e.kind === 'station' && e.key === __way.key);
-    placeBeside(__wayAt); dock(__wayAt); StationMenu.showTab('industry')`);
-  assert.ok(game('!!docked'), 'docked at the waystation');
-  assert.match(onStation(), /Restoration0\/\d+/, 'nothing restored yet');
-  const first = game('Restoration.LIST[0]');
-  game(`for (const [k, n] of Object.entries(Restoration.LIST[0].goods)) Industry.deposit(cargo.industry, __way.key, k, n, industry.env(), __T);
-    cargo.credits = Math.max(cargo.credits, Restoration.LIST[0].credits); StationMenu.refresh()`);
-  pressOnStation('Restore');
-  assert.deepStrictEqual(game('cargo.restored'), [first.id]);
+test('the outfitter: gambits, today\'s gear and consumables for credits; the gear stock turns over each day', () => {
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; cargo.credits = 50000;
+    globalThis.__st = startStation(); placeBeside(__st); dock(__st); StationMenu.showTab('outfitter')`);
+  assert.ok(game('!!docked && StationMenu.tab === "outfitter"'), 'docked, on the Outfitter tab');
+  assert.strictEqual(game('vendor.level'), 1, 'a level 1 outfitter in Wedge space');
+  const text = onStation();
+  assert.match(text, /Gambits/);
+  assert.match(text, /import core\.bool@1\.0/);
+  assert.ok(!/import mem\.ext@3\.0/.test(text), 'the best gambits are sold further out');
+  // A gambit: bought once, known by the squad's programs from then on.
+  assert.ok(!game('logicKnown().has("core.bool")'));
+  const credits = game('cargo.credits');
+  assert.ok(game('vendor.buyGambit("core.bool")'), 'bought');
+  assert.ok(game('logicKnown().has("core.bool") && cargo.gambits.includes("core.bool")'), 'known');
+  assert.strictEqual(game('cargo.credits'), credits - game('Vendor.gambitPrice("core.bool")'), 'paid for');
+  assert.ok(!game('vendor.buyGambit("core.bool")'), 'only once');
+  assert.ok(!game('vendor.buyGambit("core.bool.or")'), 'not sold at level 1');
+  // Gear: six pieces, the same all day; one bought goes into the spare gear and is gone from the stock.
+  const stock = game('vendor.gear().map((g) => g.spec.id).join()');
+  assert.strictEqual(game('vendor.gear().length'), 6);
+  assert.ok(game('vendor.gear().every((g) => Loot.RANK[g.spec.rarity] <= Loot.RANK.rare)'), 'nothing above Rare');
+  const id = game('vendor.gear()[0].spec.id');
+  assert.ok(game('vendor.buyGear(0)') && game(`cargo.gear['${id}'] === 1`), 'bought into the spare gear');
+  assert.ok(game('vendor.gear()[0].sold') && !game('vendor.buyGear(0)'), 'sold out for today');
+  game('StationMenu.refresh()');
+  assert.match(onStation(), /Sold/);
+  game('__T += 24 * 3600 * 1000');
+  assert.notStrictEqual(game('vendor.gear().map((g) => g.spec.id).join()'), stock, 'a new stock the next day');
+  assert.ok(!game('vendor.gear()[0].sold'), 'nothing sold from it yet');
+  // A consumable: into the kit; mods at a capital.
+  assert.ok(game('vendor.buyKit("repair-nanites")') && game('cargo.kit["repair-nanites"]') >= 1, 'into the kit');
+  assert.ok(game('vendor.mods().length') > 0, 'mods at a capital');
+  // Saved: gambits owned and what was bought today.
+  game('saveCargoNow(); loadCargo(world.galaxy)');
+  assert.ok(game('cargo.gambits.includes("core.bool") && !!cargo.shop'), 'survives a reload');
   game('Clock.now = () => Date.now(); launch()');
   browser.frames(2);
 });

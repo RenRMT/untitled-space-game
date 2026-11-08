@@ -171,8 +171,6 @@
 :root[data-ui="line"] .ui-tnode.locked .ui-icon { opacity: 1; color: var(--wreck); }
 :root[data-ui="line"] .ui-tnode:hover { border-color: var(--cyan); }
 :root[data-ui="line"] .ui-tnode[aria-expanded="true"] { border: 1px solid var(--cyan); background: var(--sky); outline: 1px solid var(--cyan); outline-offset: 3px; }
-:root[data-ui="line"] .st-tree-lines path { stroke: var(--line-strong); }
-:root[data-ui="line"] .st-tree-lines path.done { stroke: var(--cyan); stroke-opacity: 1; }
 
 /* Stat chips: the label over its value over a dimension line; the open one hatched behind. */
 :root[data-ui="line"] .ui-chip {
@@ -398,21 +396,8 @@
 :root[data-ui="line"] .st-gauge .mark { background: var(--sky); border: 1px solid var(--hud); box-sizing: border-box; }
 :root[data-ui="line"] .st-gauge .mark.cheap { border-color: var(--good); background: var(--good); }
 :root[data-ui="line"] .st-gauge .mark.dear { border-color: var(--warn); background: var(--warn); }
-:root[data-ui="line"] .st-components th { font-family: var(--mono); }
-:root[data-ui="line"] .st-bench-cur { background: var(--hatch-faint); border-radius: 0; }
-:root[data-ui="line"] .st-bench-cur.idle { background: var(--sky); border-color: var(--dim); }
-:root[data-ui="line"] .st-bench-slot { border-radius: 0; background: var(--sky); }
-:root[data-ui="line"] .st-lane { font-family: var(--mono); color: var(--ink); }
-:root[data-ui="line"] .st-clause { border-left: 1px solid var(--line); }
 
-/* Production: ruled nodes on the board. */
-:root[data-ui="line"] .pr-board { border-radius: 0; background-image: radial-gradient(color-mix(in oklch, var(--ink) 22%, var(--sky)) 1px, transparent 1px); }
-:root[data-ui="line"] :is(.pr-node, .pr-stage, .pr-empty, .pr-detail, .pr-prod, .pr-pnode, .pr-lin .row) { border-radius: 0; background-color: var(--sky); }
-:root[data-ui="line"] .pr-stage .bar, :root[data-ui="line"] .pr-stage .bar > span { border-radius: 0; }
-:root[data-ui="line"] .pr-prod[aria-pressed="true"] { background: var(--hatch-faint); }
-:root[data-ui="line"] .pr-pnode { border-left-width: 1px; border-color: var(--tone, var(--line)); }
-:root[data-ui="line"] .pr-pnode .prio .ar { border-radius: 0; background: var(--sky); }
-:root[data-ui="line"] .pr-cols, :root[data-ui="line"] .pr-stage .lbl { font-family: var(--mono); }
+:root[data-ui="line"] .st-clause { border-left: 1px solid var(--line); }
 
 /* Settings and factions: a hatched sheet; its body scrolls, so the shadow isn't clipped. */
 :root[data-ui="line"] .set-panel { position: relative; display: flex; flex-direction: column; overflow: visible; }

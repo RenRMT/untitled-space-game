@@ -25,13 +25,16 @@ import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
+import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
+import { Vendor } from '../rules/vendor.js';
 import { cargo, lootNotice, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
 import { leave } from './surface-run.js';
+import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
 
 // Every planet and moon is a dungeon: landing puts the ship in a labyrinth of caverns, guarded,
@@ -183,6 +186,10 @@ export function guardianDown(g) {
     cargo.credits += bounty;
     R.bossDown = true;
     notify(`The ${g.name} is destroyed · ${bounty} credits salvaged from its core`, 4, { tone: 'good' });
+    // And a gambit in its core: one not owned yet, up to a tier above the dungeon's level
+    // (game/vendor.js; some are found only this way, further out).
+    const gambit = Vendor.gambitDrop(world.galaxy.seed ^ (R.field >>> 0), `${g.key}:gambit`, level, ownedGambits());
+    if (gambit && grantGambit(gambit)) notify(`Gambit recovered from the ${g.name}: import ${Research.title(gambit)}`, 4, { tone: 'good' });
   }
   saveCargo();
 }

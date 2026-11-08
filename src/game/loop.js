@@ -12,7 +12,7 @@ import { Settings } from '../ui/settings.js';
 import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
 import { updateFieldBar } from './field.js';
-import { drawEntities, drawHaulers, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
+import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
 import { checkMarker, drawDragIndicator, drawHud, drawLabels, drawMinimap, drawNavMarkers } from './hud.js';
 import { tickHold } from './input.js';
 import { drawDebris, drawMining, drawMiningLabel } from './mining.js';
@@ -60,7 +60,6 @@ export function render(list = nearbyEntities(simTime)) {
   ctx.scale(view.zoom, view.zoom);
   ctx.translate(-rx(cam.x), -ry(cam.y));
   drawEntities(list, t);
-  drawHaulers();
   drawSelection(t);
   drawMining();
   drawDebris();
