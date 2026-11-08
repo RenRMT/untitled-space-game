@@ -79,10 +79,10 @@ export function primary(id, state, e) {
 }
 
 // Approach: offered for things with nothing else to do (a friendly ship), and as Cancel while
-// flying to anything.
+// flying to anything. A drop offers neither: it's dragged onto the ship, in space as on a surface.
 export function approachActions(e, hasActions) {
   if (autopilot.key === entityKey(e)) return [{ id: 'cancel-approach', label: 'Cancel approach', enabled: true }];
-  return hasActions ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
+  return hasActions || e.kind === 'item' || e.kind === 'loot' ? [] : [{ id: 'approach', label: 'Approach', enabled: true }];
 }
 
 // Do an action on e: now if it can be done, else (too far, too fast) fly there and do it on arrival.
