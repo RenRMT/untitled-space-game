@@ -9,11 +9,11 @@ import { Entities } from '../flight/entities.js';
 import { ContextCard } from '../ui/context.js';
 import { threat } from './combat.js';
 import { actions, gapTo } from './docking.js';
-import { rx, ry } from './draw-world.js';
+import { DROP_PX, rx, ry } from './draw-world.js';
 import { navMarkerAt, worldToScreen } from './hud.js';
 import { drag } from './input.js';
 import { landable } from './landing.js';
-import { siteScan } from './surface-run.js';
+import { selectOnSurface, siteScan, surfaceAction } from './surface-run.js';
 import { SHIP, autopilot, cam, ctx, inFight, ship, view } from './state.js';
 import { world } from './world.js';
 
@@ -37,7 +37,8 @@ export const KINDS = Entities.KINDS;
 export const entityKey = (e) => (KINDS[e.kind].selectable && e.key ? `${e.kind}:${e.key}` : null);
 
 // How far from its centre a tap still hits the object (for stations only their core).
-export const hitRadius = (e) => e.radius * (KINDS[e.kind].hit || 1);
+// (A drop: its icon, drawn DROP_PX across on the screen whatever the zoom: game/draw-world.js.)
+export const hitRadius = (e) => (e.kind === 'item' || e.kind === 'loot' ? Math.max(e.radius, DROP_PX / 2 / view.zoom) : e.radius * (KINDS[e.kind].hit || 1));
 
 export const screenToWorld = (sx, sy) => [(sx - view.w / 2) / view.zoom + cam.x, (sy - view.h / 2) / view.zoom + cam.y];
 
@@ -58,6 +59,7 @@ export function pickAt(sx, sy) {
   return best;
 }
 
+export const selectedKey = () => (selected ? selected.key : null);
 export function select(e) {
   selected = e ? { key: entityKey(e), e } : null;
   if (!selected) ContextCard.hide();
@@ -215,8 +217,9 @@ export function brackets(x, y, radius, { open = 0, arm = 18 } = {}) {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
-  ContextCard.onClose = () => select(null);
+  ContextCard.onClose = () => { select(null); selectOnSurface(null); };
   ContextCard.onAction = (id) => {
+    if (surfaceAction(id)) return; // on a planet's surface, its own selection (game/surface-run.js)
     const e = selected && selected.e;
     if (!e) return;
     if (id === 'approach') approach(e);

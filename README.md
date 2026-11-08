@@ -53,10 +53,15 @@ what you destroy, and push out from the safe core of your faction's space into h
   `?hazards` brings them back (`hazardsOn`, `src/game/hazards.js`), and `?sites` the landing sites
   with their deposits and hazards instead of dungeons. `notes/hazards.md` was their plan.
 
-Mining is a timed action (`src/game/mining.js`): Mine (or Siphon) sets the tools on a rock, a ring
-round it fills as they work, and it breaks up when it's done; fly off and the work stops. Jump gates
-are named for where they lead. Floating drops are drawn as their menu icons; drag one onto the ship
-to pick it up. A dungeon's way out is its landing pad: fly off it and back onto it to take off.
+Mining is an action you start: select a rock (or, on a surface, a deposit) and press Mine (or
+Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
+(`src/game/mining.js`). The tools never pick a rock on their own, nor go on to the next, and a big
+asteroid's shards are each mined the same way. Fly off and the work stops. Drops (in space and on a
+surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship is
+the only way to pick it up: nothing is pulled in or picked up by flying near it. The drag joypad
+shows under the finger in space and on a surface alike, and the map, settings, factions and
+context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
+its landing pad: fly off it and back onto it to take off.
 Explanations in the menus wait behind an ⓘ. Production, research and the station services are as
 they were.
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
@@ -74,7 +79,7 @@ sites are on the galaxy map for now; flying to them finds nothing yet.
 
 The game is otherwise pared back to its core mechanics for now: one trade good per category and one
 component per salvage type, six factions (one per culture, all neutral but the hostile aliens), only
-combat contracts on the jobs board, and the introduction switched off. `notes/archived-systems.md` says what was taken
+combat contracts on the jobs board. The old introduction and opening missions are gone. `notes/archived-systems.md` says what was taken
 out and how to bring it back.
 
 ## Running it
@@ -92,13 +97,10 @@ URL parameters:
 | --- | --- |
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
-| `?intro` | play the introduction on a new game (it's switched off: `INTRO_ENABLED` in `src/game/intro.js`) |
-| `?pirates` | pirates in the showcase-alone galaxy too, for the opening missions and the tests (the spiral galaxy has its hostiles anyway) |
+| `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
 | `?hazards` | the hazards back (heat, radiation, flares, ion storms, surface hazards, fuel use) |
 | `?sites` | landing sites (deposits and surface hazards) instead of dungeons, Zantal VI still the empty test labyrinth |
-| `?missions` | play the opening missions (they're switched off: `MISSIONS_ENABLED` in `src/game/cargo.js`; while off, the jump gates are online from the start) |
-| `?skipintro` | skip the introduction and the opening missions |
-| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: the jump gates online, every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
+| `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open, the jobs board up and production orders taken at every station (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
 | `?style=lowpoly`, `?move=direct`, `?combat=realtime` | a setting for this visit |
 
@@ -156,7 +158,7 @@ station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
 | `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
-| `src/story/` | the introduction's script, the missions' data and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
+| `src/story/` | the mission log (`missions.js`) and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
 | `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`), planet and moon surfaces to land on (`surface.js`: a landing site ringed by cliffs or sea; `surface-globe.js` draws them in chunks built as the ship flies (and, in the prototype, bent over a globe); `tools/surface.html` is the prototype it started from) and the sprite caches |

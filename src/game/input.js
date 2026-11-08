@@ -1,21 +1,21 @@
-// Touch and mouse input on the flight view: a drag sets the heading and its length the speed; a
-// quick flick dashes (game/dash.js); a
-// tap selects (or, in a fight, focuses fire; on a planet's surface, mines the deposit under it); a long press on something does what you'd most
-// likely do there (dock at a station, mine an asteroid, collect a gas pocket), flying there first.
+// Touch and mouse input on the flight view: a drag sets the heading and its length the speed (the
+// joypad under the finger, game/hud.js drawDragIndicator, in space and on a surface); a quick flick
+// dashes (game/dash.js); a tap selects (or, in a fight, targets an enemy), and the selected thing's
+// context menu does the rest (Mine is never started by a tap alone); a drop dragged onto the ship
+// is picked up; a long press on something does what you'd most likely do there (dock at a
+// station), flying there first.
 // Part of the flight view; src/main.js starts it.
 
 import { focusOn, foeAt, foeMarkerAt } from './combat.js';
-import { endExtraction, extract, mine } from './mining.js';
 import { FLICK, canDash, tryDash } from './dash.js';
 import { actions } from './docking.js';
-import { endArrive } from './intro.js';
 import { moveMode } from './options.js';
-import { act, frameList, pickAt, screenToWorld, select } from './selection.js';
+import { act, frameList, hitRadius, pickAt, screenToWorld, select } from './selection.js';
 import { cargo, collectItems } from './cargo.js';
 import { worldToScreen } from './hud.js';
-import { SHIP, autopilot, canvas, fight, flyingFight, inFight, intro, ship, view } from './state.js';
+import { SHIP, autopilot, canvas, fight, flyingFight, inFight, ship, view } from './state.js';
 import { landing, onSurface, surfaceAt } from './landing.js';
-import { depositAt, dropOnCraft, mineDeposit, surfaceDropAt } from './surface-run.js';
+import { depositAt, dropOnCraft, onCraft, selectOnSurface, surfaceDropAt } from './surface-run.js';
 import { warp } from './warp.js';
 
 export const DEADZONE = 8;
@@ -26,16 +26,16 @@ export const drag = { active: false, id: null, x0: 0, y0: 0, x: 0, y: 0, moved: 
 
 // Drops: what floats in space (an item or loot: game/cargo.js dropEntity) or lies on a surface
 // (game/surface-run.js) can be dragged; let go over the ship, it's picked up; anywhere else, it
-// stays where it was let go. GRAB: CSS px round a drop that a finger takes it from; ONTO: round the
-// ship that counts as onto it.
-const GRAB = 30, ONTO = 40;
+// stays where it was let go. Nothing is picked up by flying near it. GRAB: CSS px round a drop's
+// icon that a finger takes it from; ONTO: round the ship that counts as onto it.
+const GRAB = 8, ONTO = 40;
 function dropAt(sx, sy) {
   if (landing.on) return landing.phase === 'surface' ? surfaceDropAt(surfaceAt(sx, sy)) : null;
   let best = null, bd = Infinity;
   for (const e of frameList) {
     if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
     const [x, y] = worldToScreen(e.x, e.y), d = Math.hypot(sx - x, sy - y);
-    if (d <= e.radius * view.zoom + GRAB && d < bd) { best = e; bd = d; }
+    if (d <= hitRadius(e) * view.zoom + GRAB && d < bd) { best = e; bd = d; }
   }
   return best;
 }
@@ -47,10 +47,10 @@ function moveDrop(it, sx, sy) {
 // Let go: onto the ship, picked up (the hold full, a trade good waits beside it).
 function letGo(it, sx, sy) {
   if (landing.on) {
-    const [x, y] = surfaceAt(sx, sy), C = landing.craft;
-    if (Math.hypot(x - C.x, y - C.y) <= SHIP.radius + ONTO) dropOnCraft(it);
+    if (onCraft(...surfaceAt(sx, sy))) dropOnCraft(it);
     return;
   }
+  if (fight.wrecked) return; // a lost ship waiting for its tow picks nothing up
   const [x, y] = worldToScreen(ship.x, ship.y);
   if (Math.hypot(sx - x, sy - y) > SHIP.radius * view.zoom + ONTO) return;
   moveDrop(it, ...worldToScreen(ship.x, ship.y));
@@ -61,7 +61,7 @@ export const LONG_PRESS = 0.5; // seconds
 // Each step (game/loop.js react): a finger held still on something for LONG_PRESS does its long
 // press action (flight/interactions.js `hold`), approaching first if it's out of reach.
 export function tickHold(dt) {
-  if (!drag.active || drag.long || drag.item || drag.moved >= DEADZONE || inFight() || intro.on || warp.on || landing.on) return;
+  if (!drag.active || drag.long || drag.item || drag.moved >= DEADZONE || inFight() || warp.on || landing.on) return;
   drag.held += dt;
   if (drag.held < LONG_PRESS) return;
   const hit = pickAt(drag.x0, drag.y0);
@@ -86,6 +86,14 @@ export function steady(key, value) {
   if (!drag.active) return value;
   if (!held.has(key)) held.set(key, value);
   return held.get(key);
+}
+
+// Whether a drag flies the ship now: not in a round-based fight (taps still target), nor in a
+// gate jump, landing or taking off.
+export function steering() {
+  if (inFight() && !flyingFight()) return false;
+  if (warp.on) return false;
+  return !landing.on || landing.phase === 'surface';
 }
 
 // Drag length (CSS px) that maps to full speed.
@@ -125,26 +133,18 @@ export function endDrag(e) {
   }
   const tap = e.type === 'pointerup' && drag.moved < DEADZONE;
   if (warp.on) return; // a gate jump has the controls
-  if (landing.on) { // on the surface (game/landing.js): a tap on an enemy targets it, on a deposit mines it
+  if (landing.on) { // on the surface (game/landing.js): a tap on an enemy targets it; on a node or a drop selects it
     const foe = tap && landing.phase === 'surface' ? foeAt(e.clientX, e.clientY) : null;
     if (foe) { focusOn(foe); return; }
-    const dep = tap && landing.phase === 'surface' ? depositAt(surfaceAt(e.clientX, e.clientY)) : null;
-    if (dep) { mineDeposit(dep); return; }
+    const at = tap && landing.phase === 'surface' ? surfaceAt(e.clientX, e.clientY) : null;
+    const it = at && (surfaceDropAt(at) || depositAt(at));
+    if (it) { selectOnSurface(it); return; }
+    if (tap && landing.phase === 'surface') selectOnSurface(null);
     if (onSurface() && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
-    return;
-  }
-  if (intro.on) { // nothing to select yet: only flying
-    if (intro.arrive && tap) endArrive(); // a tap skips the opening drift
-    if (intro.flying && (moveMode.value === 'direct' || (tap && emptyTapStops(e)))) ship.targetSpeed = 0;
     return;
   }
   const marker = tap && fight.s ? foeMarkerAt(e.clientX, e.clientY) || foeAt(e.clientX, e.clientY) : null;
   const hit = tap && !marker ? pickAt(e.clientX, e.clientY) : null;
-  // Mining: another rock tapped is worked instead; anything else ends it, and is selected.
-  if (mine.target && hit && hit !== mine.target) {
-    if (hit.kind === 'asteroid' || hit.kind === 'gas') { extract(hit); return; }
-    endExtraction();
-  }
   if (inFight()) {
     const foe = marker || (hit && fight.ships.has(hit.key) ? hit.key : null);
     if (foe) focusOn(foe);
@@ -167,7 +167,7 @@ export function init() {
       active: true, id: e.pointerId,
       x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, moved: 0, held: 0, long: false,
       t0: seconds(e), course: { angle: ship.targetAngle, speed: ship.targetSpeed },
-      item: intro.on || warp.on || (landing.on && landing.phase !== 'surface') ? null : dropAt(e.clientX, e.clientY),
+      item: warp.on || (landing.on && landing.phase !== 'surface') ? null : dropAt(e.clientX, e.clientY),
     });
     interacted = true;
   });
@@ -180,10 +180,7 @@ export function init() {
     const len = Math.hypot(dx, dy);
     drag.moved = Math.max(drag.moved, len);
     if (drag.item) { if (drag.moved >= DEADZONE) moveDrop(drag.item, drag.x, drag.y); return; } // carrying a drop, not steering
-    if (inFight() && !flyingFight()) return; // no flying in a round-based fight; taps still focus fire
-    if (intro.on && !intro.flying) return; // the pod waits while the station talks, then the beam has it
-    if (warp.on) return; // a gate jump has the controls
-    if (landing.on && landing.phase !== 'surface') return; // landing or taking off has them
+    if (!steering()) return;
     if (len > DEADZONE) {
       autopilot.key = null; // flying by hand ends an approach
       ship.targetAngle = Math.atan2(dy, dx);

@@ -5,7 +5,6 @@
 import { ArtBlueprints } from '../art/blueprints.js';
 import { ArtCulture } from '../art/culture.js';
 import { Art } from '../art/render.js';
-import { ArtUtil } from '../art/util.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Combat } from '../combat/combat.js';
 import { Feedback } from '../core/feedback.js';
@@ -21,7 +20,7 @@ import { drag, showHints } from './input.js';
 import { landing } from './landing.js';
 import { invalidate } from './loop.js';
 import { frameList, select, selected } from './selection.js';
-import { autopilot, inShipFight, intro, notify, setMode, ship } from './state.js';
+import { autopilot, inShipFight, notify, setMode, ship } from './state.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
 
@@ -65,7 +64,7 @@ export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
 export const combatMode = setting('combat', COMBAT_MODES, 'rounds');
 
-// A conversation's question answered (story/intro.js, story/missions.js: { ask: key, options }):
+// A conversation's question answered ({ ask: key, options }):
 // the setting it asks about, by its saved key, takes the chosen value.
 export const SETTINGS = { style: artStyle, move: moveMode, combat: combatMode };
 export function chooseSetting(key, value) {
@@ -140,7 +139,7 @@ export const settingsBtn = document.getElementById('settings-btn');
 export const factionsBtn = document.getElementById('factions-btn');
 export function toggleFactions() {
   if (FactionsMenu.isOpen) { FactionsMenu.close(); return; }
-  if (inShipFight() || docked || intro.on) return;
+  if (inShipFight() || docked) return;
   SystemMap.close();
   Settings.close();
   FactionsMenu.open(cargo.rep, new Set(world.galaxy.stations.map((st) => st.owner)));
@@ -154,24 +153,7 @@ export const HULL_ART = {
   hauler: () => ArtBlueprints.create('freighter', ArtCulture.legacy, 7),
   corvette: () => ArtBlueprints.create('fighter', ArtCulture.legacy, 11),
   gunship: () => ArtBlueprints.create('fighter-heavy', ArtCulture.legacy, 29),
-  pod: () => escapePod(ArtCulture.legacy),
 };
-
-// The introduction's escape pod: a blunt capsule with a porthole and one small thruster, in the
-// original ship's colours.
-export function escapePod(culture) {
-  const b = ArtBlueprints.builder('pod', culture, 1);
-  b.poly([[8, 0], [6, 4.6], [1, 6.4], [-5, 5.6], [-7.5, 3], [-7.5, -3], [-5, -5.6], [1, -6.4], [6, -4.6]], 'hull', { lvl: 1, h: 3, bevel: 3 });
-  b.poly([[-1, 6.2], [-4.5, 5.6], [-4.5, -5.6], [-1, -6.2]], 'hull2', { lvl: 2, h: 0.5, line: false });
-  b.circle(3, 0, 2.3, 'glass', { lvl: 3, h: 1, lineWidth: 0.75 });
-  b.poly(ArtUtil.rect(-8.6, 0, 2, 4), 'engine', { lvl: 2, h: 2, line: false });
-  b.light(-4, 5.4, 0.8, culture.pal.light, { blink: 1.2 });
-  b.engine(-9.5, 0, 2);
-  b.bp.glow = true;
-  b.bp.line = culture.pal.line;
-  b.bp.label = 'Escape pod';
-  return ArtBlueprints.finish(b.bp);
-}
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
@@ -238,7 +220,7 @@ export function init() {
   // what the first opened, and each one swaps the others' menus for its own.
   settingsBtn.addEventListener('click', () => {
     if (Settings.isOpen) { Settings.close(); return; }
-    if (inShipFight() || docked || intro.on) return;
+    if (inShipFight() || docked) return;
     SystemMap.close();
     FactionsMenu.close();
     Settings.open();
@@ -263,7 +245,7 @@ export function init() {
   // Keyboard shortcuts. An action's key (F to dock, E to mine: see `actions` below) acts on the
   // selected object, or else on the nearest one in reach.
   window.addEventListener('keydown', (e) => {
-    if (SystemMap.isOpen || docked || intro.on || warp.on || (landing.on && landing.phase !== 'surface')) return;
+    if (SystemMap.isOpen || docked || warp.on || (landing.on && landing.phase !== 'surface')) return;
     // With no buttons showing them any more, the V and C shortcuts say what they switched to.
     if (e.key === 'v' || e.key === 'V') { artStyle.cycle(); notify(`Art style: ${STYLE_LIST.find((s) => s.id === artStyle.value).label}`); }
     if (e.key === 'r' || e.key === 'R') toggleFactions();

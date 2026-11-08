@@ -1,6 +1,7 @@
 // Item icons for menus: an item type's own art (art/items.js), drawn by the game's renderer in
 // the current art style onto a small canvas and kept as an image URL.
 // Ship equipment (art/equipment.js) is drawn the same way: pass its kind ('laser', 'scanner', …).
+// ItemIcons.image(kind, style, size, o?) -> the same icon as a canvas, to draw on another canvas.
 // ItemIcons.url(kind, style, size, o?) -> data URL of a size x size (CSS pixels) icon, sharp on
 // high-DPI screens; o: ArtItems.create's { shape, color }. Each kind/style/size/o is drawn once and reused.
 // Items differ a lot in shape (a long ingot, a squat canister), so each is drawn once to find
@@ -54,10 +55,13 @@ const ItemIcons = (() => {
     return cv.getContext('2d', read ? { willReadFrequently: true } : undefined);
   }
 
-  function url(kind, style = 'line', size = 28, o = {}) {
+  // The icon drawn onto its own canvas (size x size CSS px, at the screen's pixel ratio), kept: for
+  // drawing it on another canvas (a drop floating in space or lying on a surface).
+  const images = new Map();
+  function image(kind, style = 'line', size = 28, o = {}) {
     const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
     const key = `${kind}|${style}|${size}|${dpr}|${o.shape ?? ''}|${o.color || ''}`;
-    if (cache.has(key)) return cache.get(key);
+    if (images.has(key)) return images.get(key);
     const bp = ArtEquipment.has(kind) ? ArtEquipment.create(kind, 1, o) : ArtItems.create(kind, 1, o);
     const px = Math.round(size * dpr);
     const texel = Math.max(1, Math.round(config.texelPx * dpr));
@@ -79,12 +83,18 @@ const ItemIcons = (() => {
     }
     const ctx = canvas(px, false);
     draw(ctx, bp, style, k, ox, oy, texel);
-    const u = ctx.canvas.toDataURL();
-    cache.set(key, u);
-    return u;
+    images.set(key, ctx.canvas);
+    return ctx.canvas;
   }
 
-  return { config, url };
+  function url(kind, style = 'line', size = 28, o = {}) {
+    const dpr = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
+    const key = `${kind}|${style}|${size}|${dpr}|${o.shape ?? ''}|${o.color || ''}`;
+    if (!cache.has(key)) cache.set(key, image(kind, style, size, o).toDataURL());
+    return cache.get(key);
+  }
+
+  return { config, url, image };
 })();
 
 export { ItemIcons };

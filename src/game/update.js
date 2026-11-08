@@ -3,15 +3,12 @@
 
 import { Flight } from '../flight/flight.js';
 import { CombatPanel } from '../ui/combat-panel.js';
-import { Comms } from '../ui/comms.js';
 import { SystemMap } from '../ui/map.js';
 import { tickFight, tickShield } from './combat.js';
 import { tickCollisions } from './collisions.js';
 import { dashing, tickDash } from './dash.js';
 import { hazard, tickHazards } from './hazards.js';
-import { gapTo } from './docking.js';
 import { updateRegion } from './draw-world.js';
-import { TRACTOR, arriveView, tickArrive, tickBeam, tickIntro } from './intro.js';
 import { steady } from './input.js';
 import { tickIndustry } from './industry.js';
 import { tickLab } from './lab.js';
@@ -24,7 +21,7 @@ import { tickWings } from './squad.js';
 import { landing, landingCamera, tickLanding } from './landing.js';
 import { tickWarp, warp, warpZoom } from './warp.js';
 import { tickOrbits, world } from './world.js';
-import { SHIP, cam, debris, fadeFlash, fight, fightMode, inFight, intro, lerp, particles, ship, toast, view } from './state.js';
+import { SHIP, cam, debris, fadeFlash, fight, fightMode, inFight, lerp, particles, ship, toast, view } from './state.js';
 
 export let simTime = 0; // advances only while flying, so the map pause doesn't make ships jump
 export let senseTimer = 0;
@@ -55,19 +52,15 @@ function carry() {
 export function update(dt) {
   simTime += dt;
   tickOrbits(dt);
-  if (!landing.on && !warp.on && !intro.arrive && !intro.beam && !inFight()) carry(); // (a fight holds its ships where it has them)
+  if (!landing.on && !warp.on && !inFight()) carry(); // (a fight holds its ships where it has them)
   tickDash(dt);
   tickLab();
   tickIndustry();
   tickAutopilot();
-  // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight/flight.js);
-  // in the introduction's tractor beam, the beam's pull.
-  if (intro.on && !intro.flying) ship.targetSpeed = 0; // the pod waits while the station talks
-  if (intro.arrive) tickArrive(dt);
-  else if (intro.beam) tickBeam(dt);
-  else if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
+  // Turning, speed and drift by the engine's numbers, in the chosen movement mode (flight/flight.js).
+  if (tickWarp(dt)) { /* a gate jump steers the ship (game/warp.js) */ } else if (tickLanding(dt)) { /* so does landing (game/landing.js) */ } else {
     Flight.step(ship, SHIP, { targetAngle: ship.targetAngle, targetSpeed: ship.targetSpeed, mode: moveMode.value, coast: dashing() }, dt);
-    if (!intro.on) tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
+    tickCollisions(); // bouncing off asteroids and stations (game/collisions.js)
   }
   tickHazards(dt); // heat, radiation, flares, storms and fuel (game/hazards.js)
   const hx = Math.cos(ship.angle);
@@ -96,7 +89,6 @@ export function update(dt) {
   tickFight(dt);
   tickShield(dt);
   tickWings(dt);
-  tickIntro(dt);
   tickMission(dt);
 
   fadeFlash(dt);
@@ -130,24 +122,15 @@ export function update(dt) {
     tx = ship.x + dx;
     ty = ship.y + dy + covered / 2 / view.zoom;
   }
-  // The introduction frames the pod and the station together above the comms box, unless the pod
-  // has flown off.
-  if (intro.on && gapTo(intro.station) < 1500) {
-    const top = Comms.top, covered = steady('intro', top === null ? 0 : Math.max(0, view.h - top + 12));
-    tx = (ship.x + intro.station.x) / 2;
-    ty = (ship.y + intro.station.y) / 2 + covered / 2 / view.zoom;
-  }
   cam.x = lerp(cam.x, tx, k);
   cam.y = lerp(cam.y, ty, k);
-  // The opening shot pulls back from the pod to frame it with the station (arriveView).
-  if (intro.arrive) arriveView();
-  // Zoom eases out for the introduction and back after it.
-  const zk = intro.on ? TRACTOR.zoom : 1;
-  if (intro.arrive) { /* set by arriveView */ } else if (view.k !== zk) {
+  // Zoom eases back to normal after anything that changed it.
+  const zk = 1;
+  if (view.k !== zk) {
     view.k = Math.abs(view.k - zk) < 0.002 ? zk : lerp(view.k, zk, 1 - Math.exp(-2.5 * dt));
     view.zoom = view.base * view.k;
   }
-  if (!intro.arrive) view.zoom = view.base * view.k * warpZoom(); // a gate jump pulls back and settles
+  view.zoom = view.base * view.k * warpZoom(); // a gate jump pulls back and settles
   landingCamera(); // landing closes in on the planet, taking off pulls back from it
 
   SystemMap.setPlayer(ship.x, ship.y);

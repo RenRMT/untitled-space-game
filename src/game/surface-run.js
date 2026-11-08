@@ -3,11 +3,13 @@
 // - Deposits (rules/mining.js deposits): many small nodes on open ground round the landing site,
 //   each a unit of one of the body's goods, seeded afresh on every landing; more of them the more
 //   dangerous the site (site.rich), gathered near its vents or storm pockets, where they're rich.
-//   The ship's tools pick their own (game/mining.js autoMine) and work them as an asteroid in space:
-//   the same timed action (game/mining.js extract). A tap (or E) picks one by hand. Broken up, a node leaves what it held lying
-//   beside it, a unit more on a hot day side (notes/hazards.md phase 4).
+//   A tap selects one, and its context menu's Mine (or E) sets the tools on it: the same timed
+//   action as an asteroid in space (game/mining.js extract). The tools never pick one on their own.
+//   Broken up, a node leaves what it held lying beside it, a unit more on a hot day side
+//   (notes/hazards.md phase 4).
 // - What lies on the surface (cargo.surfaceDrops): a node's goods, cargo jettisoned and the hold
-//   of a ship lost there. Flying near it pulls it in and picks it up.
+//   of a ship lost there, drawn as their icons. A tap selects one; dragged onto the ship
+//   (game/input.js), it's picked up. Nothing is picked up by flying near it.
 // - Hazards (rules/hazards.js surface): the day side sweeping over the ground (heat; the countdown to
 //   sunrise and the way to the night on the HUD), hot vents on the lava planet, dust storms on the desert, radiation on the moons, the
 //   cold on the ice planet (dashes cost twice the fuel) and the storm pockets of the gas giants. The meters
@@ -25,18 +27,21 @@ import { SurfaceGlobe } from '../art/surface-globe.js';
 import { ArtSurface } from '../art/surface.js';
 import { Feedback } from '../core/feedback.js';
 import { hashInt, seedToInt } from '../core/rng.js';
+import { Format } from '../core/format.js';
 import { COLORS } from '../core/theme.js';
+import { ContextCard } from '../ui/context.js';
 import { Goods } from '../rules/goods.js';
 import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
 import { addTo, cargo, hold, saveCargo } from './cargo.js';
 import { drawFight, drawFightOverlay, endSurfaceFight, hurtShip, tickFight, tickShield } from './combat.js';
 import { hazard, hazardsOn, meterWarnings, trackMeters } from './hazards.js';
-import { SURFACE_SPEED, landing, takeOff } from './landing.js';
-import { autoMine, chips, drawRing, endExtraction, extract, mine, mineReach, tickMining } from './mining.js';
+import { SURFACE_SPEED, landing, landedZoom, takeOff } from './landing.js';
+import { REACH, chips, drawRing, endExtraction, extract, mine, mineReach, tickMining } from './mining.js';
 import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { dungeonLines, dungeonRun, dungeonSite, enterDungeon, isDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { dashSafe } from './dash.js';
+import { DROP_PX, dropColor, drawDrop } from './draw-world.js';
 import { SHIP, TAU, clamp, ctx, debris, notify, setMode } from './state.js';
 import { simTime, skipTime } from './update.js';
 import { world } from './world.js';
@@ -44,16 +49,13 @@ import { world } from './world.js';
 // e: the body landed on; W: its surface; site: what it does to a ship (Hazards.surface); field: this
 // landing's (its nodes seeded by it); deposits: those not yet worked out, as extraction targets; exp:
 // the last step's exposure; burn: storm-pocket
-// damage still to take (whole points at a time); left: drops not to pick up again until the ship has
-// moved off them (just jettisoned); said: notices given this landing; vents, pockets: the lava's
+// damage still to take (whole points at a time); said: notices given this landing; vents, pockets: the lava's
 // vents and the gas giants' storm pockets ({ x, y, r, seed }: Hazards.eruption, strike); blast: a
 // vent's damage still to take; struck: each pocket's last strike (by index) already resolved; bolts:
 // lightning just struck ({ x, y, t }), to draw; warn: a burst coming where the ship is ('vent' |
 // 'strike' | null).
-export const surfaceRun = { e: null, W: null, site: null, field: 0, deposits: [], exp: null, burn: 0, left: new Set(), said: new Set(), vents: [], pockets: [], blast: 0, struck: new Map(), bolts: [], warn: null };
-const PICKUP = 30; // surface units between the ship and something lying there to pick it up
-const PULL = { range: 120, speed: 260 }; // what lies this close is pulled in, this much faster than the ship flies
-const AUTO_REACH = 240; // the tools pick a node on their own this close (fly to the next cluster)
+export const surfaceRun = { e: null, W: null, site: null, field: 0, deposits: [], exp: null, burn: 0, said: new Set(), vents: [], pockets: [], blast: 0, struck: new Map(), bolts: [], warn: null };
+const PICKUP = 30; // surface units round the ship that a drop let go over it counts as onto it
 const HAZARD_NEAR = [30, 110]; // nodes gather by a vent or storm pocket: in full this far past its rim, none past this
 // The next landing's field, for the tests (tests/smoke.js): null picks one at random.
 export const nextField = { value: null };
@@ -118,7 +120,7 @@ export function enterSurface(e, W) {
   const pockets = site.pockets ? props.filter((p) => p.type === 'tall').map(seeded) : [];
   const struck = new Map(pockets.map((p, k) => { const st = Hazards.strike(p, simTime); return [k, st.phase === 'on' ? st.n : st.n - 1]; }));
   Object.assign(surfaceRun, {
-    e, W, site, field, exp: null, burn: 0, left: new Set(), said: new Set(), vents, pockets, blast: 0, struck, bolts: [], warn: null,
+    e, W, site, field, exp: null, burn: 0, said: new Set(), vents, pockets, blast: 0, struck, bolts: [], warn: null,
     deposits: found.map((d) => ({
       kind: 'deposit', surface: true, key: `${e.key}:deposit:${field}:${d.i}`, i: d.i, x: d.x, y: d.y, radius: d.r, material: d.material, rich: d.rich,
       good: d.kind, name: `${d.rich ? 'Rich ' : ''}${goodName(d.kind)} ${d.material === 'gas' ? 'pocket' : 'node'}`, color: goodColor(d.kind), edge: goodColor(d.kind, 0.78),
@@ -133,6 +135,7 @@ export function enterSurface(e, W) {
 // Off the surface (taking off): mining stops, and the buttons go.
 export function leaveSurface() {
   endExtraction();
+  selectOnSurface(null);
   endSurfaceFight(); // taking off from a dungeon's fight leaves its guardians behind
   setMode('short-fuel', false);
   setMode('stranded', false);
@@ -242,12 +245,10 @@ export function tickSurface(dt) {
   if (vent > 0.5) once('vent', 'Over a hot vent · it heats the ship');
   trackMeters(dt);
   meterWarnings();
-  pickUp(C, dt);
   tickDungeon(C); // charting a labyrinth, and its chambers found
   tickGuardians(C, dt); // its guardians waking as the ship comes near (game/dungeon.js)
   tickSurfaceSquad(dt); // the squad following the ship over the ground (game/surface-squad.js)
-  autoMine(surfaceRun.deposits, true, AUTO_REACH); // the tools pick their next node (game/mining.js)
-  tickMining(dt); // and work it (space's update, which ticks it there, doesn't run here)
+  tickMining(dt); // the node the tools were set on, worked (space's update, which ticks it there, doesn't run here)
   tickFight(dt); // a dungeon's fight (and the effects of it)
   // Take off: short of fuel for it, Jettison or Call a tow (their buttons).
   const short = cargo.fuel + 1e-6 < takeoffNeed(), stranded = hazardsOn && cargo.fuel + 1e-6 < Hazards.takeoffFuel(site.gravity, 0);
@@ -298,51 +299,72 @@ function tickBursts(C, dt) {
   return true;
 }
 
-// What lies on the surface, pulled in as the ship flies near it and picked up: trade goods while the
-// hold has room (salvage into its store), as floating drops in space (game/cargo.js collectItems).
-// Just jettisoned, it waits until the ship has moved off it.
-function pickUp(C, dt = 0) {
-  const list = cargo.surfaceDrops[surfaceRun.e.key];
-  if (!list) return;
-  let got = false;
-  for (let i = list.length - 1; i >= 0; i--) {
-    const it = list[i];
-    let d = Math.hypot(C.x - it.x, C.y - it.y);
-    if (surfaceRun.left.has(it.key)) { if (d > PICKUP * 3) surfaceRun.left.delete(it.key); continue; }
-    const component = Goods.isSalvage(it.kind);
-    if ((component || hold.free >= 1) && dt > 0 && d > 0 && d < PULL.range) {
-      const step = Math.min(d, (Math.hypot(C.vx, C.vy) + PULL.speed) * dt);
-      it.x += ((C.x - it.x) / d) * step;
-      it.y += ((C.y - it.y) / d) * step;
-      d -= step;
-    }
-    if (d >= PICKUP) continue;
-    if (!component && cargo.items.length >= SHIP.cargo) { notify('Hold full', 2.5, { once: true, tone: 'warn' }); continue; }
-    list.splice(i, 1);
-    if (component) addTo(cargo.components, it.kind);
-    else cargo.items.push({ kind: it.kind, label: goodName(it.kind), category: 'trade' });
-    notify(`Recovered: ${goodName(it.kind)}`, 1.5);
-    got = true;
-  }
-  if (!got) return;
-  if (!list.length) delete cargo.surfaceDrops[surfaceRun.e.key];
-  saveCargo();
-}
-
-// What lies on this surface under a point of the ground (a finger's width round it), and one of
-// them dragged onto the ship (game/input.js): picked up, if there's room.
+// What lies on this surface under a point of the ground: the nearest whose icon (DROP_PX across on
+// the screen) is under it, give or take a finger's width.
 export function surfaceDropAt([x, y]) {
   const list = surfaceRun.e && cargo.surfaceDrops[surfaceRun.e.key];
   if (!list) return null;
+  const reach = (DROP_PX / 2 + 8) / landedZoom();
   let best = null, bd = Infinity;
-  for (const it of list) { const d = Math.hypot(it.x - x, it.y - y); if (d < PICKUP + 14 && d < bd) { best = it; bd = d; } }
+  for (const it of list) { const d = Math.hypot(it.x - x, it.y - y); if (d < reach && d < bd) { best = it; bd = d; } }
   return best;
 }
+// One of them dragged onto the ship (game/input.js; at (x, y) on the ground when let go): picked
+// up, trade goods while the hold has room, salvage into its store; anywhere else it stays where it
+// was let go.
+export const onCraft = (x, y) => Math.hypot(x - landing.craft.x, y - landing.craft.y) <= SHIP.radius + PICKUP + DROP_PX / 2 / landedZoom();
 export function dropOnCraft(it) {
-  const C = landing.craft;
-  Object.assign(it, { x: C.x, y: C.y });
-  surfaceRun.left.delete(it.key);
-  pickUp(C);
+  const list = surfaceRun.e && cargo.surfaceDrops[surfaceRun.e.key], i = list ? list.indexOf(it) : -1;
+  if (i < 0) return false;
+  const component = Goods.isSalvage(it.kind);
+  if (!component && cargo.items.length >= SHIP.cargo) { notify('Hold full', 2.5, { tone: 'warn' }); return false; }
+  list.splice(i, 1);
+  if (component) addTo(cargo.components, it.kind);
+  else cargo.items.push({ kind: it.kind, label: goodName(it.kind), category: 'trade' });
+  notify(`Recovered: ${goodName(it.kind)}`, 1.5);
+  if (surfaceSel.it === it) selectOnSurface(null);
+  if (!list.length) delete cargo.surfaceDrops[surfaceRun.e.key];
+  saveCargo();
+  return true;
+}
+
+// ---------- Selection: a tap on a node or on something lying there ----------
+
+// What's selected (a deposit or a drop): its context menu (ui/context.js) round it, as in space.
+// A deposit's offers Mine (busy, a ring filling, while it's worked); a drop's has no buttons, it's
+// dragged onto the ship.
+export const surfaceSel = { it: null };
+export function selectOnSurface(x) {
+  surfaceSel.it = x || null;
+  if (!x) ContextCard.hide();
+}
+const isDeposit = (x) => !!x && x.kind === 'deposit';
+// The gap from the ship's hull to a node's edge, and whether the tools reach it.
+const gapTo = (d) => Math.hypot(d.x - landing.craft.x, d.y - landing.craft.y) - d.radius;
+export const inMineReach = (d) => gapTo(d) <= mineReach() + REACH;
+export function mineState(d) {
+  if (mine.target === d) {
+    const k = Math.min(1, mine.t / mine.total);
+    return { id: 'mine', label: `Mining · ${Math.round(100 * k)}%`, enabled: false, busy: true, progress: k };
+  }
+  if (hold.free < 1) return { id: 'mine', label: 'Mine · hold full', enabled: false };
+  if (!inMineReach(d)) return { id: 'mine', label: 'Mine · too far, fly closer', enabled: false };
+  return { id: 'mine', label: 'Mine', enabled: true };
+}
+function selCard(x) {
+  if (!isDeposit(x)) return { title: goodName(x.kind), subtitle: 'Drag it onto the ship to pick it up', color: COLORS.amber, actions: [] };
+  return { title: x.name, subtitle: `${goodName(x.good)} · ${Format.dist(Math.max(0, gapTo(x)))}`, tag: x.rich ? 'Rich' : '', color: x.color, actions: [mineState(x)] };
+}
+// Still there? (A node worked out, a drop picked up: the selection goes.)
+function selGone(x) {
+  if (isDeposit(x)) return !surfaceRun.deposits.includes(x);
+  return !(cargo.surfaceDrops[surfaceRun.e.key] || []).includes(x);
+}
+// A context menu button pressed while on the surface (game/selection.js): true if it was ours.
+export function surfaceAction(id) {
+  if (landing.phase !== 'surface' || !surfaceSel.it) return false;
+  if (id === 'mine' && isDeposit(surfaceSel.it)) mineDeposit(surfaceSel.it);
+  return true;
 }
 
 // Leave things lying on this surface, scattered round (x, y): [kind], keyed by tag.
@@ -365,6 +387,7 @@ const exposed = () => !!(surfaceRun.exp?.day.day && hotDay(surfaceRun.site));
 export function depositBroken(dep) {
   if (!surfaceRun.e) return;
   surfaceRun.deposits = surfaceRun.deposits.filter((d) => d !== dep);
+  if (surfaceSel.it === dep) selectOnSurface(null);
   chips(dep, 8 + Math.round(dep.radius * 0.6), 100 + dep.radius * 3);
   const got = Mining.depositYield(surfaceRun.e.body.seed, { i: dep.i, kind: dep.good, rich: dep.rich, field: surfaceRun.field }, { exposed: exposed() });
   leave(got.map((g) => g.kind), dep.x, dep.y, `deposit:${dep.key}`, dep.radius + 16);
@@ -383,16 +406,18 @@ export function depositAt(at) {
   }
   return best;
 }
-// Set the tools on a deposit (or switch to it).
+// Set the tools on a deposit (or switch to it): the Mine button, or E. Only within reach.
 export function mineDeposit(d) {
-  if (!d || landing.phase !== 'surface' || landing.wrecked) return;
+  if (!d || landing.phase !== 'surface' || landing.wrecked || mine.target === d) return;
+  const st = mineState(d);
+  if (!st.enabled) { notify(st.label, 2, { tone: 'warn' }); return; }
   extract(d);
 }
-// E: the nearest deposit within reach of a lock.
+// E: the selected node, or else the nearest within reach.
 export function mineNearest() {
-  const C = landing.craft, reach = mineReach();
-  const d = surfaceRun.deposits.filter((x) => x !== mine.target).sort((a, b) => Math.hypot(a.x - C.x, a.y - C.y) - Math.hypot(b.x - C.x, b.y - C.y))[0];
-  if (d && Math.hypot(d.x - C.x, d.y - C.y) - d.radius <= reach) mineDeposit(d);
+  if (isDeposit(surfaceSel.it)) { mineDeposit(surfaceSel.it); return; }
+  const d = surfaceRun.deposits.filter((x) => x !== mine.target).sort((a, b) => gapTo(a) - gapTo(b))[0];
+  if (d && inMineReach(d)) { selectOnSurface(d); mineDeposit(d); }
   else if (!d || !mine.target) notify(d ? 'No node in range · fly closer' : 'No nodes left here', 2, { tone: 'warn' });
 }
 
@@ -424,7 +449,7 @@ export function jettison() {
     out.push(it.kind);
   }
   if (!out.length) return;
-  for (const d of leave(out, C.x - Math.cos(C.angle) * 30, C.y - Math.sin(C.angle) * 30, `jettison:${Date.now().toString(36)}`, 24)) surfaceRun.left.add(d.key);
+  leave(out, C.x - Math.cos(C.angle) * 30, C.y - Math.sin(C.angle) * 30, `jettison:${Date.now().toString(36)}`, 24);
   notify(`Jettisoned ${out.length} × cargo · it waits here for you`, 3);
   saveCargo();
 }
@@ -459,21 +484,9 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     const p = at(d.x, d.y);
     if (p) drawDeposit(d, p, v.ct, time);
   }
-  for (const it of cargo.surfaceDrops[surfaceRun.e.key] || []) {
+  for (const it of cargo.surfaceDrops[surfaceRun.e.key] || []) { // as their icons (game/draw-world.js)
     const p = at(it.x, it.y);
-    if (!p) continue;
-    const pulse = 0.5 + 0.5 * Math.sin(time * 3 + it.x);
-    ctx.globalAlpha = 0.25 + 0.2 * pulse;
-    ctx.fillStyle = COLORS.amber;
-    ctx.beginPath();
-    ctx.ellipse(p[0], p[1], 14, 14 * v.ct, 0, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = goodColor(it.kind);
-    ctx.strokeStyle = COLORS.bg;
-    ctx.lineWidth = 1;
-    ctx.fillRect(p[0] - 4, p[1] - 4, 8, 8);
-    ctx.strokeRect(p[0] - 4, p[1] - 4, 8, 8);
+    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), time, it.key, surfaceSel.it === it);
   }
   for (const b of debris) {
     const p = at(b.x, b.y, 4);
@@ -498,6 +511,23 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
       ctx.beginPath(); ctx.moveTo(q[0], q[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
     }
     drawRing(p[0], p[1], dep.radius * zoom + 10, Math.min(1, mine.t / mine.total), 3);
+  }
+  // The selection: a node ringed (a drop's own ring brightens), its context menu round it.
+  const sel = surfaceSel.it;
+  if (sel && selGone(sel)) selectOnSurface(null);
+  else if (sel) {
+    const q = scr(sel.x, sel.y), r = isDeposit(sel) ? sel.radius * zoom + 16 : DROP_PX / 2 + 6;
+    if (q && isDeposit(sel)) {
+      ctx.strokeStyle = COLORS.cyan;
+      ctx.globalAlpha = 0.7 + 0.25 * Math.sin(time * 4);
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath(); ctx.arc(q[0], q[1], r, 0, TAU); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
+    ContextCard.show(selCard(sel));
+    if (q) ContextCard.place(q[0], q[1], r);
   }
   ctx.restore();
 }
@@ -699,7 +729,7 @@ export function surfaceLines() {
   if (surfaceRun.warn === 'strike') out.push(['LIGHTNING ABOUT TO STRIKE HERE · move or dash', COLORS.hostile]);
   const need = takeoffNeed();
   if (cargo.fuel + 1e-6 < need) out.push([`NOT ENOUGH FUEL TO TAKE OFF · ${need} needed`, COLORS.hostile]);
-  if (hold.free < 1) out.push(['HOLD FULL · the tools stop', COLORS.amber]);
+  if (hold.free < 1) out.push(['HOLD FULL · no mining', COLORS.amber]);
   if (site.dungeon) out.push(...dungeonLines());
   out.push([`${surfaceRun.deposits.length} node${surfaceRun.deposits.length === 1 ? '' : 's'} · hold ${cargo.items.length}/${SHIP.cargo} · yield ×${site.rich} · take-off ${need} fuel`, COLORS.hud]);
   return out;

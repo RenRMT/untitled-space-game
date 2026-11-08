@@ -12,14 +12,13 @@ import { Glyphs } from '../ui/glyphs.js';
 import { Security } from '../world/security.js';
 import { cargo } from './cargo.js';
 import { shieldNow } from './combat.js';
-import { visible } from './draw-world.js';
+import { DROP_PX, visible } from './draw-world.js';
 import { dashFuel } from './dash.js';
 import { hazard, hazardLine, hazardsOn, warnSteps } from './hazards.js';
-import { DEADZONE, drag, interacted, maxDrag } from './input.js';
-import { mission } from './missions.js';
+import { DEADZONE, drag, interacted, maxDrag, steering } from './input.js';
 import { CONTROLS, moveMode, reducedMotion } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inShipFight, intro, notify, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inShipFight, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -36,7 +35,7 @@ export function drawLabels(list) {
     if (!e.name || e === menu || !visible(e)) continue;
     const l = KINDS[e.kind].label(e);
     if (!l) continue;
-    const [sx, sy] = worldToScreen(e.x, e.y + l[1]);
+    const [sx, sy] = worldToScreen(e.x, e.y + (e.kind === 'loot' ? DROP_PX / 2 / view.zoom : l[1])); // loot: under its icon
     ctx.fillStyle = l[0];
     ctx.fillText(e.name.toUpperCase(), sx, sy + 14);
   }
@@ -132,7 +131,6 @@ export const markerFade = (d, range, far) => {
 // (which reaches only NEAR).
 const MARKED = 0.6;
 export function drawNavMarkers() {
-  if (!hudShown()) { navHits = []; return; }
   const stations = [];
   const obj = here.objective;
   const mark = (st) => {
@@ -148,7 +146,7 @@ export function drawNavMarkers() {
   };
   world.scene.stations.forEach(mark);
   world.scene.gates.forEach(mark);
-  const R = obj && (obj.r ?? (obj.station ? obj.station.radius : mission.site ? mission.site.spread : 600));
+  const R = obj && (obj.r ?? (obj.station ? obj.station.radius : 600));
   if (obj && !visible({ x: obj.x, y: obj.y, radius: R }) && !stations.some((m) => m.ref === obj.station)) {
     const d = Math.hypot(obj.x - ship.x, obj.y - ship.y);
     const label = `${obj.station ? obj.station.name.toUpperCase() : 'OBJECTIVE'} · ${fmtDist(d - (obj.station ? R : 0))}`;
@@ -192,8 +190,11 @@ export function checkMarker() {
 // The station whose edge marker is under a tap, if any.
 export function navMarkerAt(sx, sy) { return markerAt(navHits, sx, sy); }
 
+// The joypad: while a finger steers (in space and on a surface), a ring round where it touched
+// down (full speed at its edge) and the stick from there to the finger, with the throttle it sets.
+// Not while it carries a drop, nor when the controls aren't the player's.
 export function drawDragIndicator() {
-  if (!drag.active) return;
+  if (!drag.active || drag.item || !steering()) return;
   const md = maxDrag();
   const dx = drag.x - drag.x0;
   const dy = drag.y - drag.y0;
@@ -307,10 +308,6 @@ export function drawMinimap(list) {
   ctx.restore();
 }
 
-// No HUD (minimap, speed, location, edge markers) in the introduction: it appears once the player
-// first launches.
-export const hudShown = () => !intro.on;
-
 // Where the top-left text ends on screen (px): the edge markers keep below it.
 export let hudBottom = 0;
 // The location line shows for LOCATION_TIME seconds on entering a system, a region of another
@@ -392,7 +389,7 @@ export function drawHud() {
   if (danger) lines.push([...danger, 1]);
   const obj = here.objective;
   if (obj) for (const t of wrap(`◇ ${obj.text}`, room)) lines.push([t, COLORS.amber, 1]);
-  if (!interacted && !intro.on) { // the introduction has its own hint
+  if (!interacted) {
     const pulse = 0.75 + 0.25 * Math.sin(now * 2.5);
     for (const tip of CONTROLS[moveMode.value]) for (const t of wrap(tip, room)) lines.push([t, COLORS.hud, pulse]);
   }

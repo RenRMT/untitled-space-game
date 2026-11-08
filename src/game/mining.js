@@ -1,5 +1,5 @@
 // Mining: the Mine and Siphon actions, a timed action on an asteroid, a gas pocket or a deposit on a
-// surface: the ship's tools lock on, and after a while (by how much the rock holds and how hard the
+// surface, started only from its context menu (select it, then Mine) or E: the ship's tools lock on, and after a while (by how much the rock holds and how hard the
 // tools bite: mineTime) it breaks up and leaves what it held (rules/mining.js). Flying out of reach
 // pauses it; flying well away, or doing something else, ends it. Also the particle bursts and debris
 // other parts use.
@@ -11,21 +11,20 @@ import { COLORS, Theme } from '../core/theme.js';
 import { Goods } from '../rules/goods.js';
 import { Mining } from '../rules/mining.js';
 import { Entities } from '../flight/entities.js';
-import { cargo, dropEntity, hold, saveCargo } from './cargo.js';
+import { cargo, dropEntity, saveCargo } from './cargo.js';
 import { pilot } from './combat.js';
 import { actions, docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { worldToScreen } from './hud.js';
 import { landing } from './landing.js';
 import { missionCollected } from './missions.js';
-import { frameList } from './selection.js';
 import { depositBroken } from './surface-run.js';
 import { SHIP, TAU, ctx, debris, fight, notify, setMode, ship, view } from './state.js';
 import { world } from './world.js';
 
-// Gas pockets in nebulae are worked the same way (Siphon), and leave gas floating to pick up. Once a
-// rock breaks, the tools go on to the next one in reach (autoMine), and a big asteroid breaks into
-// shards to chain through.
+// Gas pockets in nebulae are worked the same way (Siphon), and leave gas floating to pick up. A big
+// asteroid breaks into shards, each mined in turn the same way. The tools never pick a rock on
+// their own.
 
 export const MINE_COLOR = COLORS.busy;
 
@@ -35,15 +34,16 @@ export const isGas = (e) => e.kind === 'gas';
 // saved; they crumble away after SHARD_LIFE seconds (left alone that long).
 export const shards = [];
 const SHARD_LIFE = 120;
-// How far past a tool's range a rock can be and still be picked next (the ship closes on it).
-const REACH = 120;
+// How far past the tools' reach a rock can be and still be worked (on a surface, Mine is offered
+// this far out).
+export const REACH = 120;
 // The time a rock takes, in seconds, kept within these; how far past its reach the ship can fly
-// before the work is dropped; how long after a rock breaks the tools look for the next one.
-const TIME = [1, 12], DROP = 400, CHAIN = 2;
+// before the work is dropped.
+const TIME = [1, 12], DROP = 400;
 export const mineVerb = (e) => (isGas(e) ? ['Siphon', 'Siphoning'] : ['Mine', 'Mining']);
 
-// The work under way: the rock, the seconds put in and needed; chain: seconds left to pick the next.
-export const mine = { target: null, t: 0, total: 1, chain: 0, chipT: 0 };
+// The work under way: the rock, the seconds put in and needed.
+export const mine = { target: null, t: 0, total: 1, chipT: 0 };
 export const extracting = () => !!mine.target;
 // How fast the tools wear a rock down (points a second: each tool's damage × rate × its factor
 // for the material, × the computer's mining rate), and so how long it takes.
@@ -66,14 +66,13 @@ export function extract(rock) {
   if (fight.s || fight.wreckT > 0 || cargo.removed.has(rock.key) || mine.target === rock) return;
   const total = mineTime(rock);
   if (!Number.isFinite(total)) { notify(`No tool fitted that can ${mineVerb(rock)[0].toLowerCase()} this`, 2, { tone: 'warn' }); return; }
-  Object.assign(mine, { target: rock, t: 0, total, chain: 0, chipT: 0 });
+  Object.assign(mine, { target: rock, t: 0, total, chipT: 0 });
   setMode('mining', true);
 }
 // The work dropped (flown off, something else tapped, a fight, a teleport): the rock stays as it was.
 export function endExtraction() {
   if (!mine.target) return;
   mine.target = null;
-  mine.chain = 0;
   setMode('mining', false);
 }
 
@@ -189,33 +188,10 @@ function shardBroken(a) {
   saveCargo();
 }
 
-// ---------- The tools on their own ----------
-
-// The tools that work a rock's material, and how far the furthest of them reaches.
-function toolsFor(c) {
-  const mat = Mining.material(c);
-  return SHIP.weapons.filter((w) => (w.vs ? w.vs[mat] ?? 1 : 1) > 0);
-}
-// How good a next target a rock is (lower is better): its distance; Infinity further than `reach`.
-function rank(P, c, reach) {
-  const d = Math.hypot(c.x - P.x, c.y - P.y);
-  return !toolsFor(c).length || d - c.radius > reach ? Infinity : d;
-}
-
-// Keep the tools busy: just after a rock breaks (or, start: whenever idle, on a surface), the
-// nearest rock in `list` within reach is next. Not with the hold full, nor in a fight.
-export function autoMine(list, start = false, reach = mineReach() + REACH) {
-  if (mine.target || hold.free < 1 || fight.s || fight.wreckT > 0 || !(start || mine.chain > 0)) return;
-  const P = pilot();
-  const next = list.filter((c) => !cargo.removed.has(c.key)).map((c) => [c, rank(P, c, reach)]).filter(([, v]) => v < Infinity).sort((a, b) => a[1] - b[1])[0];
-  if (next) extract(next[0]);
-}
-
 // Each step (in space and on a surface): the work goes on while the rock is within reach, chips
-// flying; out of reach it waits, and well out of it it's dropped. Done, the rock breaks up. Shards
-// crumble away in time (not while being worked), and the tools chain on.
+// flying; out of reach it waits, and well out of it it's dropped. Done, the rock breaks up and the
+// tools stop. Shards crumble away in time (not while being worked).
 export function tickMining(dt) {
-  mine.chain = Math.max(0, mine.chain - dt);
   for (let i = shards.length - 1; i >= 0; i--) {
     const e = shards[i];
     if (mine.target === e) continue;
@@ -235,10 +211,8 @@ export function tickMining(dt) {
     if (mine.t >= mine.total) {
       endExtraction();
       rockBroken(t);
-      mine.chain = CHAIN;
     }
   }
-  if (!landing.on) autoMine(frameList.filter((e) => e.kind === 'asteroid' || e.kind === 'gas'));
 }
 
 // The rock being worked: a ring round it filling as the work goes, and the beam from the ship while
@@ -290,9 +264,10 @@ export function drawDebris() {
   ctx.globalAlpha = 1;
 }
 
-// Wiring, run once every module has loaded (src/main.js). Mine (or Siphon) sets the tools on the
-// rock, from as far as they reach; tapping another while working switches to it.
+// Wiring, run once every module has loaded (src/main.js). Mine (or Siphon) on the selected rock's
+// context menu sets the tools on it, from as far as they reach (or flies there first); Mine on
+// another while working switches to it.
 export function init() {
-  actions.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: mineReach, busy: miningBusy, hold: true, run: extract });
-  actions.add({ id: 'collect', kind: 'gas', verb: 'Siphon', key: 'e', range: mineReach, busy: miningBusy, hold: true, run: extract });
+  actions.add({ id: 'mine', kind: 'asteroid', verb: 'Mine', key: 'e', range: mineReach, busy: miningBusy, run: extract });
+  actions.add({ id: 'collect', kind: 'gas', verb: 'Siphon', key: 'e', range: mineReach, busy: miningBusy, run: extract });
 }

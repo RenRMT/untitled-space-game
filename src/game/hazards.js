@@ -9,7 +9,7 @@
 // over the screen in a flare's wave, and the HUD's warning line. Each step (here and on a surface)
 // also tracks how fast heat and radiation are changing, for the HUD's status icons
 // (rules/status.js), and notes the moment the shields break (game/screen-fx.js draws it).
-// Only in open flight: not docked, landing, jumping, in the introduction or wrecked. On a planet's
+// Only in open flight: not docked, landing, jumping or wrecked. On a planet's
 // surface game/surface-run.js does the same with that surface's hazards.
 // Part of the flight view; src/main.js starts it.
 
@@ -25,7 +25,7 @@ import { docked } from './docking.js';
 import { rx, ry } from './draw-world.js';
 import { landing } from './landing.js';
 import { frameList } from './selection.js';
-import { SHIP, TAU, clamp, ctx, fight, here, intro, notify, ship, view } from './state.js';
+import { SHIP, TAU, clamp, ctx, fight, here, notify, ship, view } from './state.js';
 import { simTime } from './update.js';
 import { warp } from './warp.js';
 import { world } from './world.js';
@@ -42,7 +42,7 @@ const BIG_ROCK = 24; // asteroids at least this big cast a shadow
 // radiation, flares, ion storms or surface hazards, and nothing burns fuel. ?hazards brings them back.
 export const hazardsOn = Params.has('hazards');
 export const outOfFuel = () => hazardsOn && cargo.fuel <= 0;
-export const active = () => !docked && !intro.on && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0);
+export const active = () => !docked && !landing.on && !warp.on && !fight.wrecked && !(fight.wreckT > 0);
 
 // A warning as a meter passes a step up (again only once it has fallen below it): a vibration and
 // the status icon's pulse (game/hud.js), and at the last step a notice too. The steps between are

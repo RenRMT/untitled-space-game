@@ -11,8 +11,8 @@
 //
 //   Squad.BASE_LINES, Squad.MAX_LINES       lines that run with no memory research, and at most
 //   Squad.lineLimit(bonus) -> lines that run, with `bonus` more from research
-//   Squad.member(seed, { program, hull, loadout }) -> a new member (the first joins at the end
-//                                           of the first mission, story/missions.js); with no loadout,
+//   Squad.member(seed, { program, hull, loadout }) -> a new member (hired at a dock,
+//                                           game/squad.js); with no loadout,
 //                                           Squad.starter(hull)
 //   Squad.starter(hull) -> loadout          a hull with the player's starting gear (the Courier's
 //                                           Mk I kit) in the slots it has

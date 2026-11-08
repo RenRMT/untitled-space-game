@@ -13,8 +13,7 @@ import { Squad } from '../rules/squad.js';
 import { applyShip, cargo, logicKnown, logicLines, saveCargo } from './cargo.js';
 import { explode, useAbility } from './combat.js';
 import { escorts } from './jobs.js';
-import { escorting, mission, workSpot } from './missions.js';
-import { SHIP, fight, fightMode, intro, notify, ship, turnToward, wings } from './state.js';
+import { SHIP, fight, fightMode, notify, ship, turnToward, wings } from './state.js';
 import { world } from './world.js';
 
 //
@@ -25,7 +24,7 @@ import { world } from './world.js';
 
 export const WING_SNAP = 4000; // a wingman this far from its place (after a jump or map travel) is put there
 // (Function declarations: buildWings and snapWings run while the galaxy first loads.)
-export function activeSquad() { return intro.on ? [] : cargo.squad.filter((m) => !m.disabled); }
+export function activeSquad() { return cargo.squad.filter((m) => !m.disabled); }
 export function memberOf(id) { return cargo.squad.find((m) => m.id === id) || null; }
 
 // The wingmen's ships, from the squad: android art (world.android) and their designations.
@@ -41,12 +40,10 @@ export function buildWings() {
   snapWings();
 }
 
-// The ships flying in formation: the active wingmen, then the android being escorted home in
-// the first mission (it isn't in the squad yet, and stays out of fights), then any ship a job
-// has you escort (game/jobs.js; out of fights too).
+// The ships flying in formation: the active wingmen, then any ship a job has you escort
+// (game/jobs.js; out of fights).
 export function formationShips() {
   const list = activeSquad().map((m) => wings.get(m.id)).filter(Boolean);
-  if (escorting()) list.push(mission.android);
   list.push(...escorts());
   return list;
 }
@@ -70,13 +67,11 @@ export function tickWings(dt) {
   }
   const lead = Math.hypot(ship.vx, ship.vy);
   formationShips().forEach((w, i) => {
-    // At work on the gate blocks (the third mission), it holds its spot by the gate instead.
-    const job = workSpot(w);
-    const st = job || Squad.formation(ship, i), d = Math.hypot(st.x - w.x, st.y - w.y);
+    const st = Squad.formation(ship, i), d = Math.hypot(st.x - w.x, st.y - w.y);
     if (d > WING_SNAP) { Object.assign(w, st, { vx: ship.vx, vy: ship.vy, angle: ship.angle, a: ship.angle }); return; }
-    const there = d < 30, speed = job ? 0 : lead;
+    const there = d < 30, speed = lead;
     Flight.step(w, w.stats, {
-      targetAngle: there ? (job ? job.face : ship.angle) : Math.atan2(st.y - w.y, st.x - w.x),
+      targetAngle: there ? ship.angle : Math.atan2(st.y - w.y, st.x - w.x),
       targetSpeed: there ? speed : Math.min(w.stats.maxSpeed, speed + d * 1.5), mode: 'cruise',
     }, dt);
     w.a = w.angle;

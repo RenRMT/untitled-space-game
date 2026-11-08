@@ -1,5 +1,5 @@
-// Jobs: the missions the galaxy's stations post, grown from the seed with it (the opening missions
-// are story/missions.js's). There are no job texts at the moment (story/job-texts.js), so the board
+// Jobs: the missions the galaxy's stations post, grown from the seed with it (their log is
+// story/missions.js). There are no job texts at the moment (story/job-texts.js), so the board
 // is empty; this module is the machinery that will place new ones. There are three tiers, by who
 // offers a job and what is at stake:
 //   station  one station's own concerns, offered only there: every station has one or two,

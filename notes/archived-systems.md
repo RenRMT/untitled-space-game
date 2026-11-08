@@ -344,14 +344,14 @@ see exactly what was taken out.
   type to its category's survivor (`Goods.resolve`).
 - **Generated jobs**: the job texts (`src/story/job-texts.js` STATION, SITUATION, FACTION) are
   empty, so the board posts nothing; the machinery that places, pays and runs jobs is unchanged,
-  and the tests drive it with jobs of their own. The three handwritten opening missions stay.
-- **The introduction** is switched off (`INTRO_ENABLED` in `src/game/intro.js`): a new game starts
-  beside the waystation with the opening missions on offer (with those off too, beside the start
-  station). `?intro` plays it anyway.
-- **The opening missions** are switched off (`MISSIONS_ENABLED` in `src/game/cargo.js`): none is
-  offered (an old save's are counted done, without their rewards), a new game starts beside the
-  start station with every station service open, and the jump gates are online from the start.
-  `?missions` plays them anyway, with the gates offline until the third is handed in.
+  and the tests drive it with jobs of their own.
+- **The introduction and the opening missions** (the escape pod talked in to the waystation, then
+  "Payment in kind", "The remaining balance" and "Gated community") were switched off, then removed
+  in November 2026 with their tests: `src/game/intro.js`, `src/story/intro.js`, the opening chain in
+  `src/game/missions.js` and `src/story/missions.js` (which keeps only the mission log the jobs
+  use), the story flags in the save, and `?intro`, `?missions` and `?skipintro`. A new game starts
+  beside the start station with every station service open and the jump gates online. The last
+  commit with them is `7757edb`.
 
 ## Pirates and fighting (October 2026)
 
@@ -360,8 +360,8 @@ pirate packs and no ambushes (`pirates` in the system params, `src/world/galaxy.
 setting is out of the menu (real time is the default; `?combat=rounds` still picks rounds) and the
 starting Courier carries a gas siphon in its second mount. Mining is a real-time fight against a
 passive rock (`game/combat.js` extract). The code for ship fights is all still there: both combat
-modes, pirate AI, loot, schematics, threat, aggro and the regard pirates hold. The opening missions
-(`?missions`) still fight their androids, and `?pirates` brings the packs back for testing. The last
+modes, pirate AI, loot, schematics, threat, aggro and the regard pirates hold. `?pirates`
+brings the packs back for testing. The last
 commit with pirates on by default is `b30865d`.
 
 **To bring it back.** Remove the `pirates` override in `src/world/galaxy.js` and put the Combat

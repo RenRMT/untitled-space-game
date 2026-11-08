@@ -12,7 +12,7 @@ import { landing } from './landing.js';
 import { shards } from './mining.js';
 import { missionThings } from './missions.js';
 import { dropNearContact, placeBeside, placeShip } from './outfitting.js';
-import { NEAR, cam, fight, intro, notify, ship, wings } from './state.js';
+import { NEAR, cam, fight, notify, ship, wings } from './state.js';
 import { world } from './world.js';
 import { isRazed } from './structures.js';
 
@@ -84,14 +84,14 @@ export function nearbyEntities(t) {
     poseAt(e, t);
     out.push(e);
   }
-  // The first mission's field and what's in it (or the android following you home).
+  // The jobs' things in space (game/jobs.js).
   for (const e of missionThings()) {
     if (cargo.removed.has(e.key)) continue;
     poseAt(e, t);
     out.push(e);
   }
   // The squad's ships fly with yours.
-  if (!intro.on) for (const w of wings.values()) if (!w.member.disabled) out.push(w);
+  for (const w of wings.values()) if (!w.member.disabled) out.push(w);
   // A broken asteroid's shards (game/mining.js), outside the generated scene too.
   for (const e of shards) {
     if (Math.abs(e.x - cam.x) > NEAR || Math.abs(e.y - cam.y) > NEAR) continue;

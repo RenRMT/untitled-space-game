@@ -9,7 +9,6 @@
 //   Comms.hint({ from, text, face? })
 //   Comms.hide(), Comms.isOpen (a line or question showing, not a hint)
 //   Comms.top             the box's top edge on screen (px), or null while hidden
-//   Comms.onSkip = fn    shows a Skip button that calls it (null hides it)
 // ES module (`Comms`); needs a browser.
 
 import { UI } from './ui.js';
@@ -19,16 +18,14 @@ const Comms = (() => {
   const root = document.getElementById('comms');
   const faceEl = h('canvas', { class: 'cm-face', 'aria-hidden': 'true' });
   const fromEl = h('span', { class: 'cm-from' });
-  const skipEl = h('button', { class: 'cm-skip', type: 'button', hidden: true }, 'Skip intro');
   const textEl = h('p', { class: 'cm-text' });
   const choicesEl = h('div', { class: 'cm-choices', role: 'group', 'aria-label': 'Answers', hidden: true });
   const moreEl = h('div', { class: 'cm-more', 'aria-hidden': 'true' }, 'Tap to continue ▸');
   root.replaceChildren(h('div', { class: 'cm-box' }, faceEl,
-    h('div', { class: 'cm-main' }, h('div', { class: 'cm-head' }, fromEl, skipEl), textEl, choicesEl, moreEl)));
+    h('div', { class: 'cm-main' }, h('div', { class: 'cm-head' }, fromEl), textEl, choicesEl, moreEl)));
   const edge = UI.topEdge(root);
   const FACE = 72, CHOICE_FACE = 64; // portrait sizes, CSS px
   let current = null; // what's showing: the options given to show() or hint()
-  let skip = null;
 
   const paint = UI.paint; // a portrait into a canvas (ui/ui.js)
 
@@ -50,7 +47,6 @@ const Comms = (() => {
     choicesEl.replaceChildren(...choices);
     choicesEl.hidden = !choices.length;
     moreEl.hidden = !waits || !!choices.length;
-    skipEl.hidden = !skip;
     const first = choices[0];
     if (first && first.focus) first.focus({ preventScroll: true });
   }
@@ -73,7 +69,6 @@ const Comms = (() => {
 
   // A tap anywhere on a line's box goes on (buttons handle their own).
   root.addEventListener('click', (e) => { if (!e.target || !e.target.closest || !e.target.closest('button')) next(); });
-  skipEl.addEventListener('click', (e) => { e.stopPropagation(); if (skip) skip(); });
   window.addEventListener('keydown', (e) => {
     if (!current || !current.waits) return;
     if (e.key === 'Enter' || e.key === ' ') {
@@ -89,7 +84,6 @@ const Comms = (() => {
     hide,
     get isOpen() { return !!current && current.waits; },
     get top() { return edge.top; },
-    set onSkip(fn) { skip = fn; skipEl.hidden = !fn || !current; },
     // For tests: what the buttons and keys do.
     next, choose,
   };

@@ -13,10 +13,10 @@ import { Reputation } from '../rules/reputation.js';
 import { Factions } from '../world/factions.js';
 import { SystemMap } from '../ui/map.js';
 import { StationMenu } from '../ui/station.js';
-import { cargo, fuelling, gatesOnline, hold, news, opening, repairs, saveCargo } from './cargo.js';
+import { cargo, fuelling, hold, news, repairs, saveCargo } from './cargo.js';
 import { decontaminate } from './hazards.js';
 import { drag } from './input.js';
-import { missionDocked, missionLaunched, missionViews, stationLocks } from './missions.js';
+import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
 import { lab } from './lab.js';
 import { industry } from './industry.js';
@@ -124,9 +124,8 @@ export function dock(station) {
     fuelling,
     squad: programs,
     missions: { list: () => missionViews(station) },
-    locks: stationLocks,
-    tab: opening() ? 'missions' : null, // the opening missions are all there is to do at first; else the last tab used
-    news: opening() ? [] : news.splice(0), // what finished since the last dock, shown once
+    tab: null, // the last tab used
+    news: news.splice(0), // what finished since the last dock, shown once
     artStyle: artStyle.value, // item icons; the style can't change while docked
     onLaunch: launch,
   });
@@ -155,7 +154,6 @@ export function launch() {
   placeShip(st.x + Math.cos(a) * d, st.y + Math.sin(a) * d, a);
   notify(`Launched from ${st.name}`, 2.5);
   Feedback.emit('launched');
-  missionLaunched();
 }
 
 // ---------- Jump gates: stop by a gate and jump to the system at its other end ----------
@@ -179,6 +177,5 @@ export function init() {
   actions.add({ id: 'dock', kind: 'station', verb: 'Dock', key: 'f', range: () => DOCK.range, maxSpeed: () => DOCK.maxSpeed, allowed: canDock, hold: true, run: dock });
   actions.add({
     id: 'jump', kind: 'gate', verb: 'Jump', key: 'j', range: () => GATE.range, maxSpeed: () => GATE.maxSpeed, run: jump,
-    allowed: (e) => (e.gate.wormhole || gatesOnline() ? { ok: true, reason: '' } : { ok: false, reason: 'Gate offline' }),
   });
 }

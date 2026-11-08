@@ -46,7 +46,7 @@ import { Flight } from '../flight/flight.js';
 import { hurtShip, wreck } from './combat.js';
 import { dashHit, dashSafe, dashing, drawDashRing } from './dash.js';
 import { actions, docked } from './docking.js';
-import { drawEventLog, drawStatus, minimapBox } from './hud.js';
+import { drawDragIndicator, drawEventLog, drawStatus, minimapBox } from './hud.js';
 import { drag } from './input.js';
 import { artStyle, moveMode } from './options.js';
 import { placeShip } from './outfitting.js';
@@ -344,6 +344,14 @@ export function surfaceAt(sx, sy) {
   return [v.fx + sx / zoom - v.ox, v.fy + (sy / zoom - v.oy) / v.ct];
 }
 
+// Screen px to a surface unit on the landed view.
+export const landedZoom = () => viewAt(1).zoom;
+// And the other way: where a point of the ground is on the screen (CSS px), on the landed view.
+export function surfaceToScreen(x, y) {
+  const { v, zoom } = viewAt(1);
+  return [(x - v.fx + v.ox) * zoom, ((y - v.fy) * v.ct + v.oy) * zoom];
+}
+
 // The surface's view at t: its zoom along the path; the landing spot where the planet's middle was
 // (the screen's) as it fades in, coming to rest a little below the middle (to see more ahead).
 function viewAt(t) {
@@ -454,6 +462,7 @@ export function drawLanding(time) {
   }
   drawSurfaceMinimap();
   drawSurfaceHud();
+  if (L.phase === 'surface') drawDragIndicator(); // the joypad under the finger, as in space
   buildAhead();
 }
 
