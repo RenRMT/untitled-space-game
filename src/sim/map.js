@@ -6,7 +6,7 @@
 // round them; the gate grows stage by stage.
 //
 // Everything turns on the system's local time (view.time, in cycles), which the black hole slows:
-// as the horizon fills, orbits crawl. The hole itself creeps in from the top of the screen (Core A*,
+// as the horizon fills, orbits crawl. The hole itself creeps in from the top of the screen (a black hole,
 // art/sites.js), larger as the meter fills; the stars streak toward it, the edges darken and the
 // light reddens. A past system (view.frozen) is drawn still, in the hole's red.
 //
@@ -127,7 +127,7 @@ const SimMap = (() => {
         }
       }
       specks = Array.from({ length: 160 }, () => ({ x: rr(), y: rr(), a: 0.15 + rr() * 0.4, s: rr() < 0.1 ? 1.4 : 0.9, v: 0.3 + rr() }));
-      hole = ArtSites.sample('smbh', sys.seed % 97 + 3);
+      hole = ArtSites.sample('stellar-black-hole', sys.seed % 97 + 3, 'heavy');
       stationArt.clear();
       fit();
       want.x = want.y = 0; want.k = fitK; cam.x = cam.y = 0; cam.k = fitK; follow = null;
@@ -512,17 +512,17 @@ const SimMap = (() => {
       ctx.restore();
     }
 
-    // The hole: Core A* (art/sites.js) at the top of the screen, larger as the meter fills.
+    // The hole: a black hole and its lensed rings (art/sites.js) at the top of the screen, larger as the meter fills.
     function drawHole(pull, frozen, perf) {
       if (!hole) return;
-      const f = frozen ? 1 : pull / 100;
-      const R = Math.max(W, H) * (0.18 + 0.75 * f ** 1.4);
-      const y = -R * (0.62 - 0.25 * f);
+      const f = frozen ? Math.max(0.6, pull / 100) : pull / 100;
+      const R = Math.max(W, H) * (0.3 + 1.1 * f ** 1.4);
+      const y = -R * (0.5 - 0.22 * f);
       const s = R / hole.r;
       ctx.save();
       ctx.globalAlpha = frozen ? 0.5 : 0.35 + 0.65 * f;
       ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * W / 2, dpr * y);
-      ArtSites.draw(ctx, hole, STYLE, { phase: { jet: -Math.PI / 2 + Math.sin(perf / 9000) * 0.05 } });
+      ArtSites.draw(ctx, hole, STYLE, {});
       ctx.restore();
     }
 

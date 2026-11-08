@@ -1,12 +1,13 @@
 // Redshift's full screens, over everything (the #screen layer): the title (story, endless, or the run
 // under way), the jump's choice of destinations, the arrival (what the last system earned), a system
-// lost to the horizon, and a run's end. Built from the UI kit; buttons name what they do through
+// lost to the horizon, a run's end, and the Archive (permanent upgrades, bought with Insight). Built from the UI kit; buttons name what they do through
 // act(name, args), which the page (main.js) carries out.
 //
 //   SimScreens.create(layer, { act }) -> screens
 //     screens.title(state, meta, style), jump(state, meta, style), arrived(state, meta, style, summary),
-//     lost(state, meta, style), over(result, meta, style), hide(), refresh(state, meta, style)
-//     screens.open: whether one is showing; screens.past (a past system being looked at, phase 5)
+//     lost(state, meta, style), over(result, meta, style), archive(state, meta, style, back: 'title' | 'arrive'),
+//     hide(), refresh()   (the title, the jump or the Archive again, after something changed)
+//     screens.open: whether one is showing
 // ES module (`SimScreens`); needs a browser.
 
 import { ArtSites } from '../art/sites.js';
@@ -50,6 +51,9 @@ const SimScreens = (() => {
           h('button', { class: 'sim-mode', type: 'button', onclick: go('start', { mode: 'endless' }) },
             h('img', { src: SimFaces.star({ cls: 'M', r: 200, seed: 3 }, style, 112), alt: '' }),
             h('span', {}, h('b', {}, state ? 'New endless run' : 'Endless'), h('small', {}, meta.best ? `Everything at once. Best: ${meta.best} systems.` : 'Everything at once, for as long as you last.')))),
+        R.archiveOpen(meta) ? h('button', { class: 'sim-mode', type: 'button', onclick: go('archivescreen', { back: 'title' }) },
+          h('span', { class: 'sim-mode-ic' }, Kit.icon('ARC', 40, { code: 'ARC' })),
+          h('span', {}, h('b', {}, 'Archive'), h('small', {}, `${meta.insight || 0} Insight to spend on what every system starts with.`))) : null,
         h('div', { class: 'sim-acts', style: { justifyContent: 'center' } },
           Kit.button('Line', go('style', { style: 'line' }), { kind: style === 'line' ? 'primary' : 'ghost' }),
           Kit.button('Low-poly', go('style', { style: 'lowpoly' }), { kind: style === 'lowpoly' ? 'primary' : 'ghost' })));
@@ -92,6 +96,7 @@ const SimScreens = (() => {
         h('img', { class: 'sim-hero', src: SimFaces.star(w.star, style, 220), alt: '' }),
         h('p', { class: 'sim-big' }, `${w.name}`),
         h('p', { class: 'sim-sub' }, `${DIST[w.distance]} · ${RICH[w.rich]}${hz ? ` · ${hz.name}` : ''}`),
+        R.archiveOpen(meta) ? Kit.button(`Archive · ${meta.insight} Insight`, go('archivescreen', { back: 'arrive' }), { wide: true }) : null,
         Kit.button('Arrive', go('arrive'), { kind: 'primary', lg: true, wide: true }));
     }
 
@@ -119,14 +124,32 @@ const SimScreens = (() => {
         Kit.button('Title screen', go('title'), { kind: 'primary', lg: true, wide: true }));
     }
 
+    // The Archive: permanent upgrades bought with Insight, kept across systems and runs.
+    function archive(state, meta, style, back = 'title') {
+      shown = ['archive', state, meta, style, back];
+      put(
+        h('p', { class: 'sim-big' }, 'The Archive'),
+        h('p', { class: 'sim-sub' }, 'What we learn outlives what we build. Every system after this one starts with these.'),
+        h('div', { class: 'sim-insight' }, Kit.icon('ARC', 28, { code: 'ARC' }), h('span', { class: 'num' }, `${meta.insight || 0}`), h('span', {}, 'Insight')),
+        Object.entries(C.ARCHIVE).map(([id, A]) => {
+          const lv = R.archive(meta, id), cost = A.cost[lv];
+          return Kit.optionRow({
+            code: A.code, name: A.name, sub: A.note, current: lv > 0,
+            extra: h('span', { class: 'sim-lv' }, Array.from({ length: A.lv }, (_, i) => h('i', { class: i < lv ? 'on' : '' })), lv >= A.lv ? h('b', {}, 'Complete') : null),
+            action: lv >= A.lv ? null : Kit.button(`${cost} ✦`, go('archive', { id }), { kind: (meta.insight || 0) >= cost ? 'primary' : '', disabled: (meta.insight || 0) < cost, aria: `Buy ${A.name} for ${cost} Insight` }),
+          });
+        }),
+        Kit.button(back === 'arrive' ? 'Arrive' : 'Back', go(back === 'arrive' ? 'arrive' : 'title'), { kind: back === 'arrive' ? 'primary' : 'ghost', lg: back === 'arrive', wide: true }));
+    }
+
     function hide() { layer.hidden = true; layer.replaceChildren(); shown = null; }
     function refresh() {
       if (!shown) return;
       const [kind, ...args] = shown;
-      ({ title, jump })[kind]?.(...args);
+      ({ title, jump, archive })[kind]?.(...args);
     }
 
-    return { title, jump, arrived, lost, over, hide, refresh, get open() { return !layer.hidden; }, past: null, drawPast() {} };
+    return { title, jump, arrived, lost, over, archive, hide, refresh, get open() { return !layer.hidden; } };
   }
 
   return { create };

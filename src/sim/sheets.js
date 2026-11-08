@@ -6,12 +6,13 @@
 //   lists the best spots,
 // - Cultures: each culture here, its leader, its approval and what it wants,
 // - Gate: its three stages, then the overcharge, what the jump would earn, and the jump,
+// - Chart: the systems left behind, each to look at frozen in time,
 // - the menu: the art style, back to the title.
 // Each is rebuilt when what it shows changes (compared as markup, so a tap is never lost to a
 // refresh). Buttons name what they do through act(name, args), which the page (main.js) carries out.
 //
 //   SimSheets.create(layer, { act, onClose }) -> sheets
-//     sheets.show(view | null, ctx)   view: { kind: 'body' | 'build' | 'cultures' | 'gate' | 'menu', key?, type? };
+//     sheets.show(view | null, ctx)   view: { kind: 'body' | 'build' | 'cultures' | 'gate' | 'chart' | 'offer' | 'menu', key?, id? };
 //                                     ctx: { state, meta, w, style, buildType }
 //     sheets.refresh(ctx)             rebuild if anything shown changed
 //     sheets.view, sheets.top         what's open; the sheet's top edge on screen (px), or null
@@ -275,6 +276,24 @@ const SimSheets = (() => {
       return { title: 'Jump gate', code: 'jump', kicker: 'Ready', body: out };
     }
 
+    // ---------- The Chart: the systems left behind ----------
+    function chart(ctx) {
+      const { state, style, w } = ctx;
+      const out = [h('p', { class: 'sim-note' }, 'Every system we left is still there, frozen at the edge of the hole: so near it, its clock has all but stopped. Look, but nothing there can be changed.')];
+      out.push(Kit.optionRow({ icon: h('img', { class: 'icon', src: SimFaces.star(w.star, style, 80), alt: '' }), name: w.name, tag: 'Here', tagTone: 'good', sub: `Horizon ${state.pull.toFixed(0)}% · ${R.builtCount(state)} stations` }));
+      if (!state.past.length) out.push(h('p', { class: 'ui-empty' }, 'Nowhere yet. The gate is the only way out.'));
+      for (let i = state.past.length - 1; i >= 0; i--) {
+        const p = state.past[i], pw = SimWorld.generate(p.terms.seed, p.terms);
+        const n = Object.values(p.stations).filter((x) => C.STATIONS[x.type] && !x.left).length;
+        out.push(Kit.optionRow({
+          icon: h('img', { class: 'icon', src: SimFaces.star(pw.star, style, 80), alt: '' }), name: p.name,
+          sub: `Left at ${p.pull.toFixed(0)}% · ${n} station${n === 1 ? '' : 's'} · ${Math.floor(p.made.sci)} science`,
+          action: Kit.button('Look', go('chart', { i }), {}),
+        }));
+      }
+      return { title: 'Chart', code: 'SYS', body: out };
+    }
+
     // ---------- An offer (a request, a revolt, a visitor: events.js) ----------
     function offer(ctx) {
       const { state, meta, style } = ctx, o = state.offers.find((x) => x.id === view.id);
@@ -311,7 +330,7 @@ const SimSheets = (() => {
       };
     }
 
-    const BUILD = { body, build: buildSheet, cultures, gate: (ctx) => gate(ctx), offer, menu };
+    const BUILD = { body, build: buildSheet, cultures, gate: (ctx) => gate(ctx), offer, chart, menu };
 
     function render(ctx) {
       const o = view && BUILD[view.kind] ? BUILD[view.kind](ctx) : null;

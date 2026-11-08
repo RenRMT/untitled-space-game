@@ -20,6 +20,7 @@ import { SimRules } from './rules.js';
 import { SimSave } from './save.js';
 import { SimScreens } from './screens.js';
 import { SimSheets } from './sheets.js';
+import { SimWorld } from './world.js';
 
 const { h } = UI;
 const C = SimConfig, R = SimRules;
@@ -48,6 +49,7 @@ applyStyle();
 const ctx = () => ({ state, meta, w: state ? R.world(state) : null, style, buildType });
 
 function pick(key) {
+  if (past) { pastPick(key); return; }
   if (!state || onTitle) return;
   selected = key;
   map.focus(key);
@@ -207,6 +209,7 @@ $('toast').addEventListener('click', () => { $('toast').hidden = true; });
 
 // ---------- The title and the full screens ----------
 function title() {
+  if (past) present();
   onTitle = true;
   buildType = null;
   sheets.show(null, ctx());
@@ -271,12 +274,54 @@ function act(name, a = {}) {
       break;
     }
     case 'archive': if (R.buyArchive(meta, a.id)) { Feedback.emit('built'); saveMeta(); } if (onTitle || screens.open) screens.refresh(state, meta, style); break;
-    case 'chart': screens.past(state, a.i, style, map); return;
+    case 'chart': lookAt(a.i); return;
+    case 'present': present(); return;
+    case 'archivescreen': screens.archive(state, meta, style, a.back); return;
     default: break;
   }
   if (t0 && state) save.change();
   bar(); tabs(); advise();
   sheets.refresh(ctx());
+}
+
+// ---------- The Chart: a past system, frozen ----------
+// Looking at a system left behind: the map draws it as it was left, still and red, under a banner
+// with the way back. Its stations can be tapped, for who ran them; nothing else happens meanwhile.
+let past = null;
+function lookAt(i) {
+  const snap = state.past[i];
+  if (!snap) return;
+  past = { snap, w: SimWorld.generate(snap.terms.seed, snap.terms) };
+  sheets.show(null, ctx());
+  map.setSystem(past.w);
+  document.body.classList.add('past');
+  const banner = $('past');
+  banner.replaceChildren(h('img', { class: 'sim-face', src: SimFaces.star(past.w.star, style, 96), width: 44, height: 44, alt: '' }),
+    h('div', { class: 'grow' }, h('b', {}, `${snap.name} · frozen`), h('span', {}, `Left at ${snap.pull.toFixed(0)}%, cycle ${snap.cycle}. Its clock has all but stopped.`)),
+    Kit.button('Return', () => present(), { kind: 'primary' }));
+  banner.hidden = false;
+}
+function present() {
+  if (!past) return;
+  past = null;
+  $('past').hidden = true;
+  document.body.classList.remove('past');
+  map.setSystem(R.world(state));
+  bar(); tabs();
+}
+function pastPick(key) {
+  map.focus(key);
+  const st = key && past.snap.stations[key], b = key && past.w.bodies.find((x) => x.key === key);
+  if (!b) return;
+  if (!st || !C.STATIONS[st.type]) { toast(b.name, st?.rogue ? 'A Drifter station, still skimming nothing.' : 'Nothing was built here.', { tone: '#ff8a7a' }); return; }
+  const chief = SimFaces.person(st.culture, st.seed);
+  toast(`${C.STATIONS[st.type].name} · Mk ${['', 'I', 'II', 'III'][st.level]}`, `${chief.name} is still at ${b.name}, mid-word, ${st.ships ? `${st.ships} ship${st.ships > 1 ? 's' : ''} hanging beside` : 'alone'}.`, { who: chief, tone: '#ff8a7a', ms: 4200 });
+}
+function pastView() {
+  const s = past.snap, g = s.gate;
+  const stations = {};
+  for (const [k, st] of Object.entries(s.stations)) stations[k] = { ...st, building: st.left > 0 ? 1 - st.left / st.total : null };
+  return { time: s.time, pull: s.pull, stations, gate: { stage: g.stage, building: null, charge: g.charge }, selected: null, marks: {}, frozen: true };
 }
 
 // ---------- Events ----------
@@ -299,7 +344,10 @@ let lastT = performance.now(), slow = 0;
 function frame() {
   const now = performance.now(), dt = Math.min(0.25, (now - lastT) / 1000);
   lastT = now;
-  if (state && !onTitle) {
+  if (past) {
+    map.inset($('past').getBoundingClientRect().bottom, 24);
+    map.draw(pastView());
+  } else if (state && !onTitle) {
     if (!screens.open) {
       const events = R.tick(state, meta, (dt * 1000 * state.speed) / C.CYCLE_MS);
       events.push(...SimEvents.tick(state, meta, events));
@@ -313,7 +361,7 @@ function frame() {
     map.inset($('bar').getBoundingClientRect().bottom, H - (top ?? navTop));
     map.draw(view());
     bubbles();
-  } else if (screens.past) screens.drawPast(map);
+  }
   requestAnimationFrame(frame);
 }
 

@@ -189,3 +189,24 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); 
 .sim-answers { display: flex; gap: 6px; }
 .sim-answer { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .sim-answer .ui-btn { padding: 0 8px; }
+
+/* The Archive: Insight to spend, and each upgrade's levels. */
+.sim-insight { display: flex; align-items: center; justify-content: center; gap: 10px; font: 700 15px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.sim-insight .num { font: 600 28px var(--mono); color: var(--new); letter-spacing: 0; }
+.sim-lv { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; }
+.sim-lv i { width: 14px; height: 6px; border: 1px solid var(--new); }
+.sim-lv i.on { background: var(--new); }
+.sim-lv b { margin-left: 6px; font: 600 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--good); }
+.sim-mode-ic { width: 56px; height: 56px; flex: none; display: grid; place-items: center; color: var(--new); }
+
+/* Looking at a past system: a banner over the frozen map. */
+.sim-past {
+  position: fixed; z-index: 7; top: 0; left: 50%; transform: translateX(-50%); width: min(560px, 100%); box-sizing: border-box;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px; display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(rgba(30, 4, 8, 0.95) 70%, transparent);
+}
+.sim-past[hidden] { display: none; }
+.sim-past .grow { flex: 1; min-width: 0; }
+.sim-past b { display: block; font: 700 17px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #ffb0a0; }
+.sim-past span { font: 400 12px var(--mono); color: #c08080; }
+body.past #bar, body.past #nav, body.past #bubbles { display: none; }

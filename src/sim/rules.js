@@ -26,7 +26,7 @@
 //   SimRules.jump(state, meta, i) -> summary | null  { from, insight, parts: [[label, n]], boons }
 //   SimRules.retry(state, meta)                      a lost system again, from its arrival (story)
 //   SimRules.endRun(state, meta) -> { escaped, insight }   a lost endless run: what it keeps
-//   SimRules.archive(meta, id) -> level, SimRules.buyArchive(meta, id) -> bool
+//   SimRules.archive(meta, id) -> level, SimRules.buyArchive(meta, id) -> bool, SimRules.archiveOpen(meta) -> bool
 //   SimRules.has(state, culture) -> bool             whether a culture is in this system
 // ES module (`SimRules`); also runs in Node (the tests).
 
@@ -52,6 +52,9 @@ const SimRules = (() => {
 
   // ---------- The Archive (meta) ----------
   const archive = (meta, id) => (meta && meta.archive && meta.archive[id]) || 0;
+  // Whether the Archive is open: once the story has reached the Shard (who bring it), or after an
+  // endless run's first jump.
+  const archiveOpen = (meta) => (meta?.story || 0) >= 3 || (meta?.insight || 0) > 0 || Object.keys(meta?.archive || {}).length > 0;
   function buyArchive(meta, id) {
     const A = C.ARCHIVE[id], lv = archive(meta, id);
     if (!A || lv >= A.lv || meta.insight < A.cost[lv]) return false;
@@ -424,7 +427,7 @@ const SimRules = (() => {
 
   return {
     VERSION, RES, ALL, newRun, enter, world, tick, dilation, rates, cost, afford, short, canBuild, previewAt, build, upgrade, addShip, addSlot, demolish,
-    gateStatus, buildGate, choices, jump, retry, endRun, insightNow, boonsNow, archive, buyArchive, has, builtCount, stationRates, snapshot, bodyOf,
+    gateStatus, buildGate, choices, jump, retry, endRun, insightNow, boonsNow, archive, archiveOpen, buyArchive, has, builtCount, stationRates, snapshot, bodyOf,
   };
 })();
 

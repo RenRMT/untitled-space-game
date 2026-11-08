@@ -29,13 +29,13 @@ const SimConfig = (() => {
       name: 'Gas siphon', code: 'VOL', culture: 'android', art: 'station-minor', size: 'minor',
       cost: { cr: 45 }, build: 6, out: { v: 0.35 }, per: 'v', note: 'Draws the body\'s volatiles.',
       ship: { name: 'Tanker', hull: 'freighter', cost: { cr: 35, m: 10 }, bonus: 0.5 },
-      upgrade: { name: 'Scoop booms', gear: 'shield' },
+      upgrade: { name: 'Scoop shields', gear: 'shield-generator' },
     },
     hub: {
       name: 'Trade hub', code: 'TRD', culture: 'block', art: 'factory', size: 'major',
       cost: { cr: 70, m: 25 }, build: 8, in: { m: 0.3, v: 0.3 }, out: { cr: 1.8 }, note: 'Trades minerals and volatiles for credits.',
       ship: { name: 'Trader', hull: 'freighter', cost: { cr: 40, m: 15 }, bonus: 0.5 },
-      upgrade: { name: 'Market computers', gear: 'computer' },
+      upgrade: { name: 'Market computers', gear: 'ship-computer' },
     },
     lab: {
       name: 'Research lab', code: 'LAB', culture: 'shard', art: 'research', size: 'major',
@@ -47,7 +47,7 @@ const SimConfig = (() => {
       name: 'Defense platform', code: 'SHD', culture: 'wedge', art: 'command', size: 'minor',
       cost: { cr: 60, m: 30 }, build: 7, in: { m: 0.15 }, out: {}, sec: 3, note: 'Keeps order: security for the system, and its group safe from blockades.',
       ship: { name: 'Patrol', hull: 'fighter', heavy: 'fighter-heavy', cost: { cr: 40, m: 15 }, bonus: 0, sec: 2 },
-      upgrade: { name: 'Gun batteries', gear: 'laser' },
+      upgrade: { name: 'Plasma batteries', gear: 'plasma-cannon' },
     },
   };
   const STATION_ORDER = ['mine', 'siphon', 'hub', 'lab', 'defense'];
