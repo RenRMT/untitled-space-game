@@ -73,14 +73,15 @@ const Loot = (() => {
   // [id, name, kind, slots ('any': every slot), stat, [lo, hi]]: a share added (lockTime: taken
   // off), or flat (FLAT: hullPlus hull points, initiativePlus initiative, evasionPlus evasion, each
   // added to the ship's: rules/loadout.js stats). The range is at item level 50; lower items roll less.
-  // Every affix is on a stat that counts in a fight on the timeline (combat/combat.js).
+  // Every affix is on a stat that counts in a fight on the timeline (combat/combat.js), and clearly:
+  // none on a weapon's field of fire, worth at most a little hit chance and only when facing the target.
   const AFFIXES = [
     ['overcharged', 'Overcharged', 'prefix', ['weapon'], 'damage', [0.06, 0.2]],
     ['rapid', 'Rapid', 'prefix', ['weapon'], 'fireRate', [0.05, 0.16]],
     ['longshot', 'Long-range', 'prefix', ['weapon'], 'range', [0.06, 0.18]],
     ['ruin', 'of Ruin', 'suffix', ['weapon'], 'damage', [0.05, 0.16]],
     ['reach', 'of Reach', 'suffix', ['weapon'], 'range', [0.05, 0.15]],
-    ['sweep', 'of the Sweep', 'suffix', ['weapon'], 'arc', [0.1, 0.3]],
+    ['volley', 'of the Volley', 'suffix', ['weapon'], 'fireRate', [0.04, 0.13]],
     ['reinforced', 'Reinforced', 'prefix', ['shield'], 'strength', [0.08, 0.24]],
     ['regenerating', 'Regenerating', 'prefix', ['shield'], 'recharge', [0.08, 0.26]],
     ['bulwark', 'of the Bulwark', 'suffix', ['shield'], 'strength', [0.06, 0.18]],

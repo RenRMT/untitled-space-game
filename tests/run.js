@@ -4947,9 +4947,10 @@ test('loot: fewer, better drops: nothing destroyed drops Common, and rarity is w
 });
 
 test('loot: every affix and every rarity boost is on a stat that counts in a fight', () => {
-  // The timeline (combat/combat.js) reads damage, fire rate, range, arc, shields, speed, evasion,
-  // accuracy, initiative (the scanner's reach) and hull; lock range, lock time and mining don't count.
-  const COUNTS = new Set(['damage', 'fireRate', 'range', 'arc', 'strength', 'recharge', 'maxSpeed', 'accel', 'turnRate', 'evasion', 'sensorRange', 'pingRange', 'accuracy', 'hullPlus', 'initiativePlus', 'evasionPlus']);
+  // The timeline (combat/combat.js) reads damage, fire rate, range, shields, speed, evasion, accuracy,
+  // initiative (the scanner's reach) and hull; lock range, lock time and mining don't count, and a
+  // weapon's field of fire hardly does.
+  const COUNTS = new Set(['damage', 'fireRate', 'range', 'strength', 'recharge', 'maxSpeed', 'accel', 'turnRate', 'evasion', 'sensorRange', 'pingRange', 'accuracy', 'hullPlus', 'initiativePlus', 'evasionPlus']);
   for (const a of Loot.AFFIXES) assert(COUNTS.has(a.stat), `${a.name}: ${a.stat}`);
   // A Legendary of every base finds its four affixes.
   for (const base of Loot.BASE_IDS) {
