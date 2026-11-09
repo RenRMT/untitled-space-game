@@ -28,6 +28,7 @@ import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
 import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
+import { queueFit } from './quickfit.js';
 import { upgradeLine } from './upgrades.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
@@ -496,6 +497,7 @@ export function lootNotice(item) {
   const power = item.loot.power ? ` · ${Loot.powerOf(item.loot.power).name}: ${Loot.powerOf(item.loot.power).text}` : '';
   notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${power}${up ? ` · ${up}` : ' · in your spare gear'}`, Loot.RANK[R.id] >= Loot.RANK.epic ? 6 : up || R.id !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
   Feedback.emit('loot', { rarity: R.id });
+  if (up) queueFit(item.loot.id); // offered to fit there and then, once calm (game/quickfit.js)
 }
 // Gear dropped where it floats (specs): felt by its best rarity (game/options.js BUZZ), and an Epic
 // or Legendary called out at once, before it's picked up: the moment it drops is the one to mark.

@@ -82,6 +82,8 @@ what you destroy, and push out from the safe core of your faction's space into h
   dropped, goes into the spare gear (it takes no hold room) and fits like any gear. When it drops, and
   over a selected drop and in the spare gear, it says whom it's an upgrade for and by how much: your
   ship or a squad member's, by how much stronger it makes that ship in a fight (`src/game/upgrades.js`).
+  An upgrade that can be fitted now is offered on the comms box once flight is calm, to fit there and
+  then on your ship or the squad member it helps most, no dock needed (`src/game/quickfit.js`).
 - **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
   out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
   the race and for each surface's deposits). `notes/hazards.md` was their plan.

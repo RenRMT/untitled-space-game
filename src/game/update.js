@@ -13,6 +13,7 @@ import { tickTraffic } from './traffic.js';
 import { docked } from './docking.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
+import { tickQuickFit } from './quickfit.js';
 import { tickRewards } from './rewards.js';
 import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
@@ -89,6 +90,7 @@ export function update(dt) {
   tickWings(dt);
   tickMission(dt);
   tickRewards(dt);
+  tickQuickFit(dt);
 
   fadeFlash(dt);
   toast.t = Math.max(0, toast.t - dt);

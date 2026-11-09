@@ -367,6 +367,29 @@ test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
   assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:drag')`) && game(`cargo.items.some((it) => it.kind === 'iron')`), 'picked up');
 });
 
+test('an upgrade found is offered to fit there and then, once calm; fitted without docking', () => {
+  game(`fight.grace = 1e9; placeShip(ship.x, ship.y); ship.targetSpeed = 0; passFit();
+    globalThis.__up = Loot.roll(() => 0.5, { level: 1, floor: 'legendary', base: 'laser', key: 'quickfit' });
+    globalThis.__loadout = JSON.stringify(cargo.loadout);
+    lootNotice(takeLoot(__up))`);
+  assert.ok(game('isUpgrade(__up.id)'), 'an upgrade for you, fittable now');
+  const passOthers = (id) => `askingFit() && askingFit() !== ${id} ? (passFit(), false) : askingFit() === ${id}`; // earlier finds are offered first
+  assert.ok(until(passOthers('__up.id'), 60 * 5), 'offered on the comms box');
+  game('Comms.choose(0)');
+  assert.ok(game('Object.values(cargo.loadout.fitted).includes(__up.id) && !cargo.gear[__up.id]'), 'fitted on your ship, no dock needed');
+  assert.ok(!game('askingFit()') && !game('Comms.isOpen'));
+  // Kept spare instead: nothing fitted, and not asked again.
+  game(`globalThis.__up2 = Loot.roll(() => 0.6, { level: 1, floor: 'legendary', base: 'shield-generator', key: 'quickfit2' }); lootNotice(takeLoot(__up2))`);
+  if (game('isUpgrade(__up2.id)')) {
+    assert.ok(until(passOthers('__up2.id'), 60 * 5), 'offered');
+    game('passFit()');
+    assert.ok(!until('!!askingFit()', 60 * 3) && game('cargo.gear[__up2.id] === 1'), 'kept spare');
+  }
+  // Not in a fight.
+  assert.strictEqual(game(`(() => { fight.wreckT = 1; const ok = fitNow(__up2.id); fight.wreckT = 0; return ok; })()`), false, 'not in a fight');
+  game('cargo.loadout = JSON.parse(__loadout); changedShip(); delete cargo.gear[__up.id]; delete cargo.gear[__up2.id]; passFit()');
+});
+
 test('drops: Collect all brings every drop near the ship aboard, not in a fight', () => {
   game(`fight.grace = 1e9; cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
     globalThis.__spec = Loot.roll(() => 0.3, { level: 1, floor: 'uncommon', key: 'gather' });
@@ -530,7 +553,7 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   game('completeJob(__siege.id)');
   assert.ok(game('cargo.rewards.length === 1 && cargo.rewards[0].options.length === Loot.OFFER'), 'gear as the reward: one of three to choose');
   // Offered on the comms box once flight is calm (with a Later), and taken by an answer.
-  assert.ok(until('Comms.isOpen', 60 * 3), 'offered on the comms box');
+  assert.ok(until('!!askingReward()', 60 * 3), 'offered on the comms box');
   game('Comms.choose(0)');
   assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear && !game('cargo.rewards.length') && !game('Comms.isOpen'), 'taken, into the spare gear');
   // A battery: its turrets appear at its point and are counted as they go.
@@ -542,10 +565,10 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   game('completeJob(__bat.id)');
   assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'done');
   // Later: the offer goes away for a while and comes back; it waits in the save meanwhile.
-  assert.ok(until('Comms.isOpen', 60 * 3), 'offered');
+  assert.ok(until('askingFit() ? (passFit(), false) : !!askingReward()', 60 * 3), 'offered'); // (an upgrade's fit offer passed by)
   game(`Comms.choose(Loot.OFFER)`);
-  assert.ok(!game('Comms.isOpen') && game('cargo.rewards.length') === 1, 'later: still waiting');
-  assert.ok(!until('Comms.isOpen', 60 * 5), 'not asked again at once');
+  assert.ok(!game('askingReward()') && game('cargo.rewards.length') === 1, 'later: still waiting');
+  assert.ok(!until('askingFit() ? (passFit(), false) : !!askingReward()', 60 * 5), 'not asked again at once');
   const waiting = game('JSON.stringify(cargo.rewards)');
   game(`for (const o of cargo.rewards[0].options) delete Loadout.EQUIPMENT[o.id]; readCargo({ loot: ownedLoot(), loadout: cargo.loadout, rewards: JSON.parse(${JSON.stringify(waiting)}) })`);
   assert.ok(game(`JSON.stringify(cargo.rewards) === ${JSON.stringify(waiting)} && cargo.rewards[0].options.every((o) => !!Loadout.EQUIPMENT[o.id])`), 'kept with the save, its items remade');

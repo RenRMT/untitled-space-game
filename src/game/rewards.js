@@ -6,6 +6,7 @@
 //   rewardViews() -> [{ key, from, options: [{ id, item, up }] }]   the rewards waiting, for the station screen
 //   chooseReward(key, i) -> item | null   take option i (into the spare gear)
 //   tickRewards(dt)                 each frame: the first one waiting, offered on the comms box when calm
+//   askingReward() -> key | null    the one on the comms box now
 // Part of the flight view.
 
 import { Loadout } from '../rules/loadout.js';
@@ -20,6 +21,7 @@ import { upgradeLine } from './upgrades.js';
 // The reward on the comms box now (its key), and how long a "Later" holds the next offer off.
 const asked = { key: null, later: 0 };
 export const LATER = 90; // seconds
+export const askingReward = () => asked.key; // the reward on the comms box now, or null
 
 export function offerReward(from, key, specs) {
   if (!specs.length || cargo.rewards.some((w) => w.key === key)) return;
