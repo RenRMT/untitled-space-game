@@ -304,6 +304,9 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
   game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
   assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
   assert.strictEqual(game('fight.result'), 'won');
+  globalThis.__Messages = Messages;
+  assert.ok(until('__Messages.log.some((l) => /^Victory · \\d+ destroyed · .+/.test(l.text))', 60 * 5), `what the fight brought in, once the wrecks blow up: ${Messages.log.map((l) => l.text).join(' | ')}`);
+  assert.strictEqual(game('fight.tally'), null, 'the tally starts again with the next fight');
   assert.ok(until(`cargo.drops.some((d) => d.key.startsWith('drop:' + __foe.key)) || cargo.removed.has(__foe.key)`, 30), 'destroyed, its loot floating');
 });
 
@@ -325,9 +328,13 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)'), credits = game('cargo.credits');
   assert.ok(until('!__boss.alive', 60 * 20), 'the Warden destroyed');
   assert.ok(game('dungeonRun.bossDown'));
-  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear looted');
+  // Its gear: one of three to choose, each a different kind; taken, into the spare gear.
+  assert.ok(game('cargo.rewards.length === 1 && cargo.rewards[0].options.length === 3 && new Set(cargo.rewards[0].options.map((o) => o.base)).size === 3'), 'a reward to choose: three kinds of gear');
+  assert.ok(game('cargo.rewards[0].options.every((o) => Loot.RANK[o.rarity] >= Loot.RANK.rare)'), 'Rare or better, as a Warden drops');
+  game('chooseReward(cargo.rewards[0].key, 1)');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear && !game('cargo.rewards.length'), 'gear taken');
   assert.ok(game('cargo.credits') > credits, 'a bounty');
-  assert.ok(game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'loot lying on the ground');
+  assert.ok(!game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'its cargo paid as credits, nothing to drag aboard');
   // The way out: off the landing pad, then back onto it.
   game('fight.s && endSurfaceFight(); cargo.hull = SHIP.hull; const W = surfaceRun.W; Object.assign(landing.craft, { x: W.start[0], y: W.start[1] - EXIT.r - EXIT.arm - 40, vx: 0, vy: 0 }); ship.targetSpeed = 0');
   browser.frames(2);
@@ -358,6 +365,54 @@ test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
   assert.strictEqual(game('ship.targetSpeed'), 0, 'carrying a drop doesn\'t steer');
   canvas.dispatch('pointerup', { pointerId: 6, pointerType: 'touch', button: 0, clientX: to[0], clientY: to[1], timeStamp: 900 });
   assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:drag')`) && game(`cargo.items.some((it) => it.kind === 'iron')`), 'picked up');
+});
+
+test('an upgrade found is offered to fit there and then, once calm; fitted without docking', () => {
+  game(`fight.grace = 1e9; placeShip(ship.x, ship.y); ship.targetSpeed = 0; passFit();
+    globalThis.__up = Loot.roll(() => 0.5, { level: 1, floor: 'legendary', base: 'laser', key: 'quickfit' });
+    globalThis.__loadout = JSON.stringify(cargo.loadout);
+    lootNotice(takeLoot(__up))`);
+  assert.ok(game('isUpgrade(__up.id)'), 'an upgrade for you, fittable now');
+  const passOthers = (id) => `askingFit() && askingFit() !== ${id} ? (passFit(), false) : askingFit() === ${id}`; // earlier finds are offered first
+  assert.ok(until(passOthers('__up.id'), 60 * 5), 'offered on the comms box');
+  game('Comms.choose(0)');
+  assert.ok(game('Object.values(cargo.loadout.fitted).includes(__up.id) && !cargo.gear[__up.id]'), 'fitted on your ship, no dock needed');
+  assert.ok(!game('askingFit()') && !game('Comms.isOpen'));
+  // Kept spare instead: nothing fitted, and not asked again.
+  game(`globalThis.__up2 = Loot.roll(() => 0.6, { level: 1, floor: 'legendary', base: 'shield-generator', key: 'quickfit2' }); lootNotice(takeLoot(__up2))`);
+  if (game('isUpgrade(__up2.id)')) {
+    assert.ok(until(passOthers('__up2.id'), 60 * 5), 'offered');
+    game('passFit()');
+    assert.ok(!until('!!askingFit()', 60 * 3) && game('cargo.gear[__up2.id] === 1'), 'kept spare');
+  }
+  // Not in a fight.
+  assert.strictEqual(game(`(() => { fight.wreckT = 1; const ok = fitNow(__up2.id); fight.wreckT = 0; return ok; })()`), false, 'not in a fight');
+  game('cargo.loadout = JSON.parse(__loadout); changedShip(); delete cargo.gear[__up.id]; delete cargo.gear[__up2.id]; passFit()');
+});
+
+test('drops: Collect all brings every drop near the ship aboard, not in a fight', () => {
+  game(`fight.grace = 1e9; cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
+    globalThis.__spec = Loot.roll(() => 0.3, { level: 1, floor: 'uncommon', key: 'gather' });
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:g1', kind: 'iron', seed: 3, x: ship.x + 300, y: ship.y }),
+      dropEntity({ key: 'drop:smoke:g2', kind: 'iron', seed: 4, x: ship.x - 600, y: ship.y + 200 }),
+      dropEntity({ key: 'loot:smoke:g3', loot: __spec, seed: __spec.seed, x: ship.x, y: ship.y + 900 }),
+      dropEntity({ key: 'drop:smoke:far', kind: 'iron', seed: 5, x: ship.x + GATHER + 800, y: ship.y }))`);
+  browser.frames(1);
+  game(`select(cargo.drops.find((d) => d.key === 'drop:smoke:g1'))`);
+  browser.frames(1);
+  assert.ok(game(`describe(selected.e).actions.some((a) => a.id === 'gather' && a.enabled)`), 'Collect all on its menu');
+  game(`act(selected.e, 'gather')`);
+  assert.ok(game(`!cargo.drops.some((d) => /smoke:g[123]/.test(d.key))`), 'every drop in reach aboard');
+  assert.strictEqual(game(`cargo.items.filter((it) => it.kind === 'iron').length`), 2, 'the goods in the hold');
+  assert.ok(game('cargo.gear[__spec.id] === 1'), 'the gear in the spare gear');
+  assert.ok(game(`cargo.drops.some((d) => d.key === 'drop:smoke:far')`), 'one out of reach stays');
+  assert.ok(Messages.log.some((l) => l.text === 'Collected 3'), 'said once');
+  // Not in a fight.
+  game(`select(cargo.drops.find((d) => d.key === 'drop:smoke:far')); fight.wreckT = 1`);
+  assert.ok(game(`!actions.state('gather', selected.e).ok`), 'not in a fight');
+  game('fight.wreckT = 0');
+  assert.match(game(`actions.state('gather', selected.e).label`), /out of reach/, 'a drop out of reach says so; the ship never flies to it');
+  game(`cargo.drops.splice(cargo.drops.findIndex((d) => d.key === 'drop:smoke:far'), 1); delete cargo.gear[__spec.id]; cargo.items = []; select(null)`);
 });
 
 test('drops: the same thing lying together is one stack, named when selected, picked up whole', () => {
@@ -438,6 +493,16 @@ test('loot: a station destroyed drops gear that floats, is picked up into the sp
   game(`const d = cargo.drops.find(__mine); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime))`);
   assert.ok(game('cargo.gear[__lootId] === 1 && !!Loadout.EQUIPMENT[__lootId].loot'), 'in the spare gear, as equipment');
   assert.ok(game(`/loot/.test(toast.text)`), 'announced');
+  // Whom gear is an upgrade for: a Legendary laser far above the starting gear is one for you; the
+  // gear you fly with is none.
+  game(`globalThis.__big = Loot.roll(() => 0.5, { level: 5, floor: 'legendary', base: 'laser' }); Loot.register(__big, Loadout.EQUIPMENT)`);
+  assert.ok(game(`upgradesFor(__big.id).some((u) => u.member === null && u.gain > 0.1)`), 'an upgrade for you');
+  assert.ok(game(`/▲ \\+\\d+% for you/.test(upgradeLine(__big.id))`), game('upgradeLine(__big.id)'));
+  assert.ok(game(`upgradesFor(__big.id).find((u) => u.member === null).need > pilotLevel()`), 'not fittable yet: it asks for a higher level');
+  assert.ok(game(`Object.values(cargo.loadout.fitted).filter(Boolean).every((id) => !upgradesFor(id).some((u) => u.member === null))`), 'what is fitted is no upgrade on itself');
+  game(`takeLoot(__big); lootNotice(Loadout.EQUIPMENT[__big.id])`);
+  assert.ok(game(`/▲/.test(toast.text)`), game('toast.text'));
+  game(`delete cargo.gear[__big.id]; delete cargo.loot[__big.id]`);
   // Fitted, then saved and read back: the same item.
   game(`const slot = Loadout.slotsOf(cargo.loadout.hull).find((x) => x.type === Loadout.EQUIPMENT[__lootId].slot).id; outfitting.fit(slot, __lootId); applyShip()`);
   assert.ok(game('Object.values(cargo.loadout.fitted).includes(__lootId)'), 'fitted');
@@ -486,7 +551,11 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.ok(until('cargo.missions.status(__siege.id) === "ready"', 60), 'every wave counted (the last blows up a moment after its fatal hit)');
   const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
   game('completeJob(__siege.id)');
-  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear as the reward');
+  assert.ok(game('cargo.rewards.length === 1 && cargo.rewards[0].options.length === Loot.OFFER'), 'gear as the reward: one of three to choose');
+  // Offered on the comms box once flight is calm (with a Later), and taken by an answer.
+  assert.ok(until('!!askingReward()', 60 * 3), 'offered on the comms box');
+  game('Comms.choose(0)');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear && !game('cargo.rewards.length') && !game('Comms.isOpen'), 'taken, into the spare gear');
   // A battery: its turrets appear at its point and are counted as they go.
   game(`globalThis.__bat = cargo.board.list.find((j) => j.id.endsWith('/battery') && j.systems.length === 1); acceptJob(__bat.id, __bat.scope);
     const b = __bat.steps[0].base; placeShip(b.x + 3000, b.y); react(nearbyEntities(simTime))`);
@@ -495,6 +564,24 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'ready');
   game('completeJob(__bat.id)');
   assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'done');
+  // Later: the offer goes away for a while and comes back; it waits in the save meanwhile.
+  assert.ok(until('askingFit() ? (passFit(), false) : !!askingReward()', 60 * 3), 'offered'); // (an upgrade's fit offer passed by)
+  game(`Comms.choose(Loot.OFFER)`);
+  assert.ok(!game('askingReward()') && game('cargo.rewards.length') === 1, 'later: still waiting');
+  assert.ok(!until('askingFit() ? (passFit(), false) : !!askingReward()', 60 * 5), 'not asked again at once');
+  const waiting = game('JSON.stringify(cargo.rewards)');
+  game(`for (const o of cargo.rewards[0].options) delete Loadout.EQUIPMENT[o.id]; readCargo({ loot: ownedLoot(), loadout: cargo.loadout, rewards: JSON.parse(${JSON.stringify(waiting)}) })`);
+  assert.ok(game(`JSON.stringify(cargo.rewards) === ${JSON.stringify(waiting)} && cargo.rewards[0].options.every((o) => !!Loadout.EQUIPMENT[o.id])`), 'kept with the save, its items remade');
+  // Docked: on the Missions and Ship tabs, each option with Take.
+  const before = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
+  game(`placeBeside(startStation()); dock(startStation()); StationMenu.showTab('missions')`);
+  assert.ok(/Choose one/.test(onStation()), 'the reward on the Missions tab');
+  game(`StationMenu.showTab('ship')`);
+  assert.ok(/Choose one/.test(onStation()), 'and the Ship tab');
+  pressOnStation('Take');
+  assert.ok(!game('cargo.rewards.length') && game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') === before + 1, 'taken');
+  assert.ok(!/Choose one/.test(onStation()), 'gone from the screen');
+  game('launch()');
 });
 
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {

@@ -24,7 +24,7 @@ import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
+import { addTo, cargo, dropEntity, lootClasses, lootDropped, pilotLevel, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
@@ -389,6 +389,10 @@ export function playEvents(s, events) {
       fight.fx.push({ type: 'number', delay: 0.2, t: 1.3, max: 1.3, at: ev.id, jx: 0, dy: -18, text: ev.cancelled ? 'CANCELLED' : 'BREACH', color: mine ? COLORS.hostile : ev.cancelled ? COLORS.good : COLORS.cyan, big: ev.cancelled });
       continue;
     }
+    if (ev.type === 'power') { // a Legendary's (rules/loot.js POWERS) shown where it worked
+      fight.fx.push({ type: 'number', delay: 0.2, t: 1.5, max: 1.5, at: ev.id, jx: 0, dy: -18, text: (Loot.powerOf(ev.power)?.name || ev.power).toUpperCase(), color: Loot.rarityOf('legendary').color, big: true });
+      continue;
+    }
     if (ev.type !== 'shot') continue;
     const d = ev.delay || 0, hit = d + look.after;
     if (ev.skill) fightLog(`${ev.from === 'player' ? 'You' : (s.allies || []).find((a) => a.id === ev.from)?.name || 'Enemy'}: ${Abilities.ABILITIES[ev.skill].name} · −${ev.damage}`);
@@ -440,18 +444,19 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a gambit
+// An enemy destroyed: gone for good, with its loot floating where it was, its cargo paid as credits
+// (and now and then a gambit
 // in its computer, owned at once: game/vendor.js). One of the pirates' own (a pack's)
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); return; } // a dungeon's (game/dungeon.js)
-  if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); return; } // a station, turret or outpost (game/structures.js)
+  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); settleTally(); return; } // a dungeon's (game/dungeon.js)
+  if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); settleTally(); return; } // a station, turret or outpost (game/structures.js)
   const was = world.scene.get(key), elite = trafficShip(key)?.elite ? trafficShip(key) : null;
   if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
   cargo.removed.add(key);
   fight.dying.delete(key);
-  if (!p) { saveCargo(); return; }
+  if (!p) { settleTally(); saveCargo(); return; }
   explode(p.x, p.y, p.radius);
   if (elite) eliteDown(elite); // a named ace (game/traffic.js): its bounty, loot and gambit
   gainXP(Progress.killXP(p.tier || 1, pilotLevel())); // experience (game/progress.js), the squad's too
@@ -459,14 +464,21 @@ export function shipDestroyed(key) {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
+  // A pirate's cargo, as credits (nothing to drag aboard), said with the rest when the fight is won.
+  const paid = CombatCore.credits(world.galaxy.seed, key, p.role, p.tier);
+  cargo.credits += paid;
   // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
-  Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
+  const gear = Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
+  gear.forEach((spec, i) => {
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
+  lootDropped(gear);
+  tallyKill({ credits: paid, loot: gear });
   // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned
   // yet, of up to a tier above its own.
   const g = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier) && Vendor.gambitDrop(world.galaxy.seed, key, p.tier || 1, ownedGambits());
   if (g && grantGambit(g)) notify(`Gambit recovered: import ${Research.title(g)} · your squad can use it now`, 4, { tone: 'good' });
+  settleTally();
   saveCargo();
 }
 
@@ -514,6 +526,27 @@ export function towHome() {
   saveCargo();
 }
 
+// What a fight has brought in so far (fight.tally), said as one line when it's won, once the last
+// wreck has blown up (the fight is over before they have: settleTally): a short session ends on what
+// it earned. tallyKill: one enemy destroyed, its credits and the loot it left (specs).
+export function tallyKill({ credits = 0, loot = [] } = {}) {
+  const t = fight.tally || (fight.tally = { kills: 0, credits: 0, loot: {} });
+  t.kills++;
+  t.credits += credits;
+  for (const spec of loot) t.loot[spec.rarity] = (t.loot[spec.rarity] || 0) + 1;
+}
+function settleTally() {
+  if (!fight.tallyDue || fight.dying.size) return;
+  notify(tallyLine(fight.tally), 4, { priority: 2, tone: 'good' });
+  fight.tally = null;
+  fight.tallyDue = false;
+}
+export function tallyLine(t) {
+  if (!t || !t.kills) return 'Victory';
+  const loot = [...Loot.RARITIES].reverse().filter((R) => t.loot[R.id]).map((R) => `${t.loot[R.id]} ${R.name}`);
+  return ['Victory', `${t.kills} destroyed`, loot.length ? loot.join(', ') : 'no gear', t.credits ? `+${t.credits} credits` : ''].filter(Boolean).join(' · ');
+}
+
 export function endFight(result) {
   // After a fight in which they flew, the survivors fly back to their usual paths (tickReturning).
   if (fightMode().flying && fight.final) {
@@ -534,7 +567,7 @@ export function endFight(result) {
     setMode('in-combat', false);
   }
   if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5, { priority: 2 }); }
-  else if (result === 'won') { notify('Victory', 2.5, { priority: 2, tone: 'good' }); Feedback.emit('won'); }
+  if (result === 'won') { fight.tallyDue = true; Feedback.emit('won'); settleTally(); } else fight.tally = null;
   saveCargo();
 }
 

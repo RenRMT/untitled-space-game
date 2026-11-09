@@ -270,15 +270,16 @@ const Entities = (() => {
     // Drops: selectable (what it is), picked up by dragging onto the ship (game/input.js).
     item: {
       order: 3.5, selectable: true,
-      card: (e) => ({ title: e.label, sub: 'Drag it onto the ship to pick it up', color: color().amber }),
+      card: (e) => ({ title: e.label, sub: 'Drag it onto the ship, or Collect all', color: color().amber }),
       draw: (ctx, e, style, x, y, { t }) => asset(ctx, e, style, x, y, { angle: e.a, t }),
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
     },
-    // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow.
+    // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow. (In
+    // space it's drawn as its icon, with a beam for Rare and up: game/draw-world.js drawDrop.)
     loot: {
       order: 3.6, selectable: true,
-      card: (e) => ({ title: e.name, sub: 'Drag it onto the ship to pick it up', color: e.color }),
+      card: (e) => ({ title: e.name, sub: 'Drag it onto the ship, or Collect all', color: e.color }),
       draw(ctx, e, style, x, y, { t }) {
         const pulse = 0.5 + 0.5 * Math.sin(t * 3 + (e.x % 7));
         ctx.save();

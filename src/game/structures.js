@@ -25,7 +25,8 @@ import { Loot } from '../rules/loot.js';
 import { Reputation } from '../rules/reputation.js';
 import { Structures } from '../rules/structures.js';
 import { Factions } from '../world/factions.js';
-import { cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
+import { cargo, dropEntity, lootClasses, lootDropped, pilotLevel, saveCargo } from './cargo.js';
+import { tallyKill } from './combat.js';
 import { gainXP } from './progress.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -208,11 +209,13 @@ export function structureDestroyed(e, { friendly = false } = {}) {
   const source = e.kind === 'turret' ? 'turret' : e.kind === 'outpost' ? 'outpost' : 'station';
   const level = e.tier || 1;
   gainXP(Progress.killXP(level + (e.kind === 'station' ? 1 : 0), pilotLevel()) * (e.kind === 'station' ? 3 : 1.5)); // tougher than a ship: more for it
-  const specs = Loot.drops(source, `${e.key}:${cargo.razed[e.key] || 0}`, { level, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity });
+  const specs = Loot.drops(source, `${e.key}:${cargo.razed[e.key] || 0}`, { level, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
   specs.forEach((spec, i) => {
     const a = (i / Math.max(1, specs.length)) * TAU + Math.random(), r = fightRadius(e) + 40 + Math.random() * 60;
     cargo.drops.push(dropEntity({ key: `loot:${e.key}:${Clock.now().toString(36)}:${i}`, loot: spec, seed: spec.seed, x: e.x + Math.cos(a) * r, y: e.y + Math.sin(a) * r }));
   });
+  lootDropped(specs);
+  tallyKill({ loot: specs }); // said when the fight is won (game/combat.js)
   if (e.kind !== 'turret') notify(`${e.name} destroyed${faction ? ` · ${factionName(owner)} will rebuild it` : ''}`, 3.5, { tone: 'good' });
   saveCargo();
 }

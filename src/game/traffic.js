@@ -32,7 +32,7 @@ import { Progress } from '../rules/progress.js';
 import { Research } from '../rules/research.js';
 import { Vendor } from '../rules/vendor.js';
 import { Factions } from '../world/factions.js';
-import { cargo, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
 import { explode } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -204,7 +204,7 @@ function raidWon(raid) {
   cargo.credits += bounty;
   notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
   gainXP(Progress.contractXP('hard', pilotLevel(), raid.level), 'the raid beaten off');
-  for (const spec of Loot.drops('mission', `raid:${raid.sys}:${raid.n}`, { level: raid.level, floor: 'uncommon', seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  for (const spec of Loot.drops('mission', `raid:${raid.sys}:${raid.n}`, { level: raid.level, floor: 'uncommon', seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity })) lootNotice(takeLoot(spec));
   saveCargo();
 }
 
@@ -255,7 +255,7 @@ export function eliteDown(e) {
   cargo.credits += bounty;
   notify(`${e.name} destroyed · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
   gainXP(Progress.wardenXP(levelOf(si)) / 2, '');
-  for (const spec of Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  for (const spec of Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity })) lootNotice(takeLoot(spec));
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());
   if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: import ${Research.title(g)}`, 4, { tone: 'good' });
   saveCargo();

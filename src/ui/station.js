@@ -15,10 +15,11 @@
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
-//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id),
+//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id), upgrade(id),
 //               member(id) -> { loadout, upgrades, gear, mods, android: true, canMake, fit, unfit, fitMod, removeMod } }:
 //               the ship's equipment and mods, spare gear and mods, a
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
+// rewards: { list() -> [{ key, from, options: [{ id, item, up }] }], choose(key, i) }: gear rewards to choose (game/rewards.js).
 // vendor: game/vendor.js: what the station's outfitter sells, and buying it.
 // pilot: game/progress.js pilot: the level, experience and talents, and taking them.
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
@@ -263,7 +264,7 @@ const StationMenu = (() => {
   const lineName = (item) => (item.loot ? item.name : Loadout.LINES[item.line].name); // the name without its Mk (loot: its own name)
   // Loot (rules/loot.js): its rarity and item level as a tag, in the rarity's colour; what its affixes add.
   const lootTag = (item) => `${Loot.rarityOf(item.loot.rarity).name} · ilvl ${item.loot.ilvl}`;
-  const lootNote = (item) => [item.loot.legendary ? `Legendary ${item.loot.legendary.toLowerCase()}.` : '', ...item.loot.affixes.map((a) => `${a.name}: ${Loot.affixText(a)}.`)].filter(Boolean).join(' ');
+  const lootNote = (item) => [item.loot.legendary ? `Legendary ${item.loot.legendary.toLowerCase()}.` : '', item.loot.power ? `${Loot.powerOf(item.loot.power).name}: ${Loot.powerOf(item.loot.power).text}.` : '', ...item.loot.affixes.map((a) => `${a.name}: ${Loot.affixText(a)}.`)].filter(Boolean).join(' ');
   const deg = (r) => Math.round((r * 180) / Math.PI);
   const r2 = (v) => Math.round(v * 100) / 100;
   const pct = (v) => `${Math.round(v * 100)}%`;
@@ -283,6 +284,8 @@ const StationMenu = (() => {
       { code: 'AIM', label: 'Accuracy', get: (i) => i.stats.accuracy, fmt: pct, fmtDiff: pct },
       { code: 'LCK', label: 'Lock time', get: (i) => i.stats.lockTime, fmt: (v) => `${r2(v)} s`, fmtDiff: (v) => `${r2(v)}s`, dir: -1, none: Loadout.stats({ hull: 'courier', fitted: {} }).lockTime },
       { code: 'MIN', label: 'Mining', get: (i) => i.stats.miningRate, fmt: (v) => `×${r2(v)}`, fmtDiff: (v) => `${r2(v)}` },
+      { code: 'INI', label: 'Initiative', get: (i) => i.stats.initiativePlus || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
+      { code: 'EVA', label: 'Evasion', get: (i) => i.stats.evasionPlus || 0, fmt: (v) => `+${pct(v)}`, fmtDiff: pct },
     ],
     engine: [
       { code: 'SPD', label: 'Top speed', get: (i) => i.stats.maxSpeed, fmt: String, fmtDiff: String },
@@ -291,6 +294,7 @@ const StationMenu = (() => {
       { code: 'EVA', label: 'Evasion', get: (i) => i.stats.evasion, fmt: pct, fmtDiff: pct },
     ],
     scanner: [
+      { code: 'INI', label: 'Initiative', get: (i) => i.stats.sensorRange + i.stats.pingRange + (i.stats.initiativePlus || 0), fmt: k1, fmtDiff: k1 },
       { code: 'IDN', label: 'Identify', get: (i) => i.stats.sensorRange, fmt: k1, fmtDiff: k1 },
       { code: 'PNG', label: 'Ping', get: (i) => i.stats.pingRange, fmt: k1, fmtDiff: k1 },
       { code: 'LCK', label: 'Lock range', get: (i) => i.stats.lockRange, fmt: k1, fmtDiff: k1, none: Loadout.stats({ hull: 'courier', fitted: {} }).lockRange },
@@ -459,7 +463,8 @@ const StationMenu = (() => {
         return Kit.optionRow({
           code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
           tag: [item.npc ? 'Android' : '', item.loot ? lootTag(item) : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '),
-          tagTone: item.npc ? 'cyan' : item.loot ? Loot.rarityOf(item.loot.rarity).color : null, note: item.loot ? lootNote(item) || null : null,
+          tagTone: item.npc ? 'cyan' : item.loot ? Loot.rarityOf(item.loot.rarity).color : null,
+          note: [o.upgrade?.(id) || '', item.loot ? lootNote(item) : ''].filter(Boolean).join(' ') || null,
           action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
       }))));
@@ -643,6 +648,7 @@ const StationMenu = (() => {
     const stats = perfStats(ship, slots, o.loadout.hull);
     // The hold isn't shown here: it's on Trade, where it's bought and sold.
     return [
+      renderRewards(),
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       pilotRow(),
@@ -756,14 +762,14 @@ const StationMenu = (() => {
   }
   const face = (m, size) => (m.face ? portrait(m.face, size) : Kit.icon('face', size, { code: 'FACE' }));
 
-  // What a mission pays, compactly: the credits diamond and amount, then each item's icon (×n for
-  // more than one). Missions without such a reward (the story's) say it in words.
+  // What a mission pays, compactly: the credits diamond and amount, then each item's icon, if any (×n
+  // for more than one). Missions without such a reward (the story's) say it in words.
   function payLine(m) {
     if (!m.pays) return h('span', { class: 'txt' }, m.reward);
     const { credits, items } = m.pays;
     return h('span', { class: 'st-pays', 'aria-label': m.reward },
       credits ? Kit.credits(credits) : null,
-      items.map(({ kind, n }) => h('span', { class: 'st-pay', title: Goods.type(kind).name }, itemIcon(kind, 18), n > 1 ? h('span', { class: 'num' }, `×${n}`) : null)));
+      (items || []).map(({ kind, n }) => h('span', { class: 'st-pay', title: Goods.type(kind).name }, itemIcon(kind, 18), n > 1 ? h('span', { class: 'num' }, `×${n}`) : null)));
   }
 
   // A mission's card: who gives it, its title and state, the objective to do now, a segment per
@@ -832,6 +838,20 @@ const StationMenu = (() => {
   }
 
   // Missions: hand-ins first, then those in progress, then new offers; the completed folded away.
+  // Gear rewards waiting to be chosen (game/rewards.js), each a head and its options with Take:
+  // on the Missions tab (where a contract is handed in) and the Ship tab.
+  function renderRewards() {
+    const list = ctx.rewards?.list() || [];
+    if (!list.length) return null;
+    return list.map((w) => section('Reward', Kit.head(`Choose one · ${w.from}`),
+      h('div', { class: 'ui-list' }, w.options.map(({ item, up }, i) => Kit.optionRow({
+        code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
+        tag: lootTag(item), tagTone: Loot.rarityOf(item.loot.rarity).color,
+        note: [up, lootNote(item)].filter(Boolean).join(' ') || null,
+        action: Kit.button('Take', act(() => ctx.rewards.choose(w.key, i)), { kind: 'primary', aria: `Take ${item.name}` }),
+      })))));
+  }
+
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
@@ -840,6 +860,7 @@ const StationMenu = (() => {
     lead('');
     return [
       reason ? Kit.callout(reason, 'var(--warn)') : null,
+      renderRewards(),
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
       h('div', { class: 'ui-list' }, current.map(missionCard),
         done.length ? [Kit.disclosure({ label: `Completed · ${done.length}`, open: doneOpen, onToggle: () => { doneOpen = !doneOpen; refresh(); } }),

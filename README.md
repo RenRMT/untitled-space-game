@@ -11,7 +11,7 @@ what you destroy, and push out from the safe core of your faction's space into h
   outside, 5 the aliens'), shown on the map.
 - **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
   in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  leave loot to pick up: components, goods and now and then a gambit. Fights are turn-based on a
+  pay their cargo as credits and now and then leave gear to pick up, or a gambit. Fights are turn-based on a
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
@@ -68,14 +68,22 @@ what you destroy, and push out from the safe core of your faction's space into h
   `src/game/jobs.js`): a raider patrol (Easy), a turret battery and a convoy escort with an ambush
   on the way (Normal), holding the station against waves with its turrets beside you (Normal or
   Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
-  tier, the pay and the gear rewarded. A contract handed in is posted again the next day.
+  tier, the pay and the gear rewarded: one of three pieces to choose, as a Warden's is (on the comms
+  box when flight is calm, or on the station screen: `src/game/rewards.js`). A contract handed in is
+  posted again the next day.
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
-  stronger stats the rarer, drop tables per source (fighters, turrets, stations, outposts, dungeon
-  guardians, the Warden, missions) with rarity floors, bad-luck protection (Rare at least after a
-  long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
-  dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
+  stronger stats the rarer (a Legendary also has a power, a rule of the fight it bends: Breaker,
+  Overkill, Meltdown, Second wind, Foresight, Afterburn or Insight, by its base), drop tables per source (fighters, turrets, stations, outposts, dungeon
+  guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
+  each worth a look), bad-luck protection (Rare at least after a
+  long dry run) and drops biased toward your party's classes (yours and your squad's). Loot floats in its rarity's colour where it
+  dropped, goes into the spare gear (it takes no hold room) and fits like any gear. When it drops, and
+  over a selected drop and in the spare gear, it says whom it's an upgrade for and by how much: your
+  ship or a squad member's, by how much stronger it makes that ship in a fight (`src/game/upgrades.js`).
+  An upgrade that can be fitted now is offered on the comms box once flight is calm, to fit there and
+  then on your ship or the squad member it helps most, no dock needed (`src/game/quickfit.js`).
 - **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
   out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
   the race and for each surface's deposits). `notes/hazards.md` was their plan.
@@ -84,8 +92,9 @@ Mining is an action you start: select a rock (or, on a surface, a deposit) and p
 Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
 (`src/game/mining.js`). The tools never pick a rock on their own, nor go on to the next, and a big
 asteroid's shards are each mined the same way. Fly off and the work stops. Drops (in space and on a
-surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship is
-the only way to pick it up: nothing is pulled in or picked up by flying near it. The drag joypad
+surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship picks
+it up. In space a drop's menu also has Collect all (G), outside a fight: every drop within reach of
+the ship comes aboard at once. Nothing is pulled in or picked up by flying near it. The drag joypad
 shows under the finger in space and on a surface alike, and the map, settings, factions and
 context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
 its landing pad: fly off it and back onto it to take off.

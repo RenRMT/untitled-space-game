@@ -21,7 +21,6 @@ import { ArtPortraits } from '../art/portraits.js';
 import { hashInt, seedToInt } from '../core/rng.js';
 import { COLORS } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
-import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Structures } from '../rules/structures.js';
@@ -29,8 +28,9 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, hold, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { gainXP } from './progress.js';
+import { offerReward } from './rewards.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -464,7 +464,7 @@ export function jobViews(station) {
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,
       reward: J.rewardText,
-      pays: { credits: J.reward.credits, items: Object.entries(J.reward.components).map(([kind, n]) => ({ kind, n })), also: [...(J.reward.gear ? [J.reward.gear.text] : []), ...J.reward.regard] },
+      pays: { credits: J.reward.credits, also: [...(J.reward.gear ? [J.reward.gear.text] : []), ...J.reward.regard] },
       note: status === 'offered' && J.handIn ? `Handed in at ${stationByKey(J.handIn)?.name || 'its destination'}.` : null,
       handIn: where ? where.name : null,
       tracked: trackedJob() === J.id,
@@ -483,8 +483,8 @@ export function acceptJob(id, at) {
   if (docked) jobsDocked(docked.station);
   saveCargo();
 }
-// Handing in: the goods a bring step asked for leave the hold; then the pay, the components and
-// and the factions' regard (rules/reputation.js).
+// Handing in: the goods a bring step asked for leave the hold; then the pay, the gear and the
+// factions' regard (rules/reputation.js).
 export function completeJob(id) {
   const J = jobOf(id);
   if (!J || log().status(id) !== 'ready') return;
@@ -499,11 +499,10 @@ export function completeJob(id) {
   if (J.tier === 'station') cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
-  for (const [kind, n] of Object.entries(J.reward.components)) if (Goods.isSalvage(kind)) addTo(cargo.components, kind, n);
   Reputation.earn(cargo.rep, J);
-  // The gear it rewards (rules/loot.js 'mission' drops, by its difficulty).
+  // The gear it rewards, one of three to choose (rules/loot.js 'mission' offer, by its difficulty: game/rewards.js).
   const G = J.reward.gear;
-  if (G) for (const spec of Loot.drops('mission', `${id}:${log().attempt(id)}`, { level: G.level, floor: G.floor, luck: G.luck, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  if (G) offerReward(J.title, `job:${id}:${log().attempt(id)}`, Loot.offer('mission', `${id}:${log().attempt(id)}`, { level: G.level, floor: G.floor, luck: G.luck, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }));
   jobRun.built.delete(id);
   clearDefence(id);
   if (cargo.track === id) cargo.track = null;

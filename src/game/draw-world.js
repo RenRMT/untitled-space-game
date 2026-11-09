@@ -7,11 +7,14 @@ import { Art } from '../art/render.js';
 import { COLORS, Theme } from '../core/theme.js';
 import { Entities } from '../flight/entities.js';
 import { Goods } from '../rules/goods.js';
+import { Loadout } from '../rules/loadout.js';
+import { Loot } from '../rules/loot.js';
 import { perfStats } from './loop.js';
 import { artStyle } from './options.js';
 import { KINDS, selectedKey } from './selection.js';
 import { PLAYER_DRAW, SHIP, cam, ctx, fight, here, particles, ship, view } from './state.js';
 import { landingShipScale } from './landing.js';
+import { upgradeLine } from './upgrades.js';
 import { warpShipScale } from './warp.js';
 import { world } from './world.js';
 
@@ -50,11 +53,27 @@ const BADGE = {
   line: { bg: '#05060a', fg: '#e9eef2', border: '#3f7d82', weight: 400, cut: 0 },
   lowpoly: { bg: '#282c34', fg: '#7df9ff', foot: '#2f5b60', weight: 500, cut: 3 },
 };
-export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1, name = '' } = {}) {
+// beam: for loot of Rare and up, 1 (Rare) to 3 (Legendary): a beam of light in its colour stands over
+// it, taller, wider and brighter the rarer, so a good drop is seen across a fight.
+export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1, name = '', sub = '', beam = 0 } = {}) {
   const s = DROP_PX, img = ItemIcons.image(kind, artStyle.value, s);
   c.save();
   c.translate(x, y);
   c.scale(1 / k, 1 / k); // screen px from here
+  if (beam > 0) {
+    const h = s * (2.5 + 1.5 * beam), w = 3 + 3 * beam, pulse = 0.5 + 0.5 * Math.sin(performance.now() / 320 + x * 0.01);
+    const g = c.createLinearGradient(0, 0, 0, -h);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    c.globalAlpha = 0.3 + 0.12 * beam + 0.15 * pulse;
+    c.fillStyle = g;
+    c.fillRect(-w / 2, -h, w, h);
+    c.globalAlpha *= 0.5;
+    c.beginPath(); // and a soft pool of it round the drop
+    c.ellipse(0, 0, s * (0.6 + 0.15 * beam), s * 0.25, 0, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = 1;
+  }
   if (count > 1) { // the stack: two more behind it, up and to the right
     c.globalAlpha = 0.35;
     c.drawImage(img, 6 - s / 2, -6 - s / 2, s, s);
@@ -90,6 +109,11 @@ export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1,
     c.strokeText(name, 0, ny);
     c.fillStyle = color;
     c.fillText(name, 0, ny);
+    if (sub) { // a line over it: for loot, whom it's an upgrade for (game/upgrades.js)
+      c.strokeText(sub, 0, ny - 15);
+      c.fillStyle = COLORS.good;
+      c.fillText(sub, 0, ny - 15);
+    }
   }
   c.restore();
 }
@@ -99,6 +123,12 @@ export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1,
 // list: drops in the order they're drawn; same(a): what makes two the same (null: never stacked,
 // as each piece of loot is its own); reach: how close counts, in the units of their x and y.
 // Returns a WeakMap from each drop in a stack of two or more to its stack (the lead first).
+// Whom a floating piece of loot would be an upgrade for (its item made, to compare), or ''.
+function dropUpgrade(e) {
+  Loot.register(e.spec, Loadout.EQUIPMENT);
+  return upgradeLine(e.spec.id);
+}
+
 export function stackDrops(list, same, reach) {
   const stacks = [], of = new WeakMap();
   for (const e of list) {
@@ -135,7 +165,9 @@ export function drawEntities(list, t) {
   for (const e of shown) {
     if (e.kind === 'item' || e.kind === 'loot') {
       if (underStack(e)) continue;
-      drawDrop(ctx, dropIconKind(e), rx(e.x), ry(e.y), view.zoom, dropColor(e), selectedKey() === `${e.kind}:${e.key}`, { count: stackOf(e).length, name: e.label || e.name });
+      const sel = selectedKey() === `${e.kind}:${e.key}`;
+      const beam = e.kind === 'loot' ? Math.max(0, Loot.RANK[e.rarity] - Loot.RANK.uncommon) : 0;
+      drawDrop(ctx, dropIconKind(e), rx(e.x), ry(e.y), view.zoom, dropColor(e), sel, { count: stackOf(e).length, name: e.label || e.name, sub: sel && e.kind === 'loot' ? dropUpgrade(e) : '', beam });
     }
     else KINDS[e.kind].draw(ctx, e, style, rx(e.x), ry(e.y), scene);
   }

@@ -3,7 +3,7 @@
 // - Everyone keeps flying: enemies steer as in real time (attack runs, stand-offs, the leash), the
 //   player flies freely. Positioning changes the odds; it never stops the guns.
 // - Each ship has an action gauge that charges over its turn time (`turn`, a little quicker with a
-//   better scanner: initiative). Full, the ship takes its turn: every weapon within reach of its
+//   better scanner: initiative, config.tempo and tempoPlus). Full, the ship takes its turn: every weapon within reach of its
 //   target fires a volley (round(fireRate × turn time) shots). A target out of reach: the gauge
 //   holds full and the volley goes the moment it comes in reach.
 // - Hit chance: accuracy (computer) − the target's evasion (its engine: half at rest, in full from
@@ -22,9 +22,16 @@
 //   (CombatCore.aimAt).
 // - Escape: stay clear of every enemy's guns for a few seconds, as in real time.
 // - Abilities (rules/abilities.js) land when their activation is done; an EMP freezes a gauge.
+// - Legendary powers (rules/loot.js POWERS, in stats.powers) bend these rules for whoever flies one:
+//   breaker (a breach knocks the gauge back twice as far), overkill (+50% damage to a ship charging a
+//   heavy shot), meltdown (+25% to one whose shields are down), second-wind (the first time shields
+//   go down, half come back), foresight (every fight starts with a full gauge), afterburn (losing
+//   shields never knocks the gauge back), insight (+15% hit chance on a ship charging a heavy shot).
+//   Real time (the comparison mode) has none.
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode
 // offers) and draws it; this module moves the enemies and does the numbers. Deterministic for a
 // given rng.
+//   Combat.rating(stats) -> number   how strong a loadout is in a fight, to compare two by
 // ES module (`Combat`); also runs in Node (the tests).
 
 import { CombatCore } from './combat-core.js';
@@ -43,6 +50,9 @@ const Combat = (() => {
     tempo: 0.15, // ... up to this share quicker (or slower) with a better (or worse) scanner
     baseInitiative: 4000, // the initiative that charges in exactly `turn` ...
     spanInitiative: 6000, // ... and this much more (or less) for the full `tempo`
+    // The starting scanner already reaches the full `tempo`; a better one (loot, rules/loot.js) gains
+    // up to `tempoPlus` more, from `plusFrom` initiative over `plusSpan` more.
+    tempoPlus: 0.1, plusFrom: 10000, plusSpan: 15000,
     firstStrike: 0.5, // the player's gauge as a fight it started begins
     heavyChance: 0.3, // an enemy's next action is a heavy shot with this chance ...
     heavyCharge: 1.8, // ... charging this many times as long ...
@@ -51,11 +61,17 @@ const Combat = (() => {
     lined: 0.1, // hit chance gained with the target inside the weapon's field of fire
     restEvasion: 0.5, // the share of its engine's evasion a ship keeps at rest (all of it from half top speed)
     rangePenalty: 0.2, // hit chance lost at a weapon's full range (less closer in, by distance²)
+    // Legendary powers (rules/loot.js POWERS)
+    breaker: 2, overkill: 1.5, meltdown: 1.25, secondWind: 0.5, insight: 0.15,
     stagger: 0.1, // seconds between one weapon's volley and the next, as shown
   };
 
   // A ship's turn time, by its initiative.
-  const period = (c) => config.turn * (1 - config.tempo * clamp(((c.stats.initiative || 0) - config.baseInitiative) / config.spanInitiative, -1, 1));
+  function period(c) {
+    const i = c.stats.initiative || 0;
+    return config.turn * (1 - config.tempo * clamp((i - config.baseInitiative) / config.spanInitiative, -1, 1)
+      - config.tempoPlus * clamp((i - config.plusFrom) / config.plusSpan, 0, 1));
+  }
   // How long its current gauge takes to fill: a heavy shot longer.
   const charge = (c) => period(c) * (c.intent && c.intent.kind === 'heavy' ? config.heavyCharge : 1);
   // Shots in a turn's volley: fireRate × turn time, the fraction rounded up by chance, so the
@@ -75,9 +91,13 @@ const Combat = (() => {
   // A ship's evasion: part of it at rest, all of it from half its top speed.
   const evasion = (t) => t.stats.evasion * (config.restEvasion + (1 - config.restEvasion) * Math.min(1, Math.hypot(t.vx || 0, t.vy || 0) / (0.5 * t.stats.maxSpeed || 1)));
 
+  const has = (c, power) => !!c.stats.powers?.includes(power);
+  const charging = (t) => !!(t.intent && t.intent.kind === 'heavy');
+
   function hitChance(c, w, t) {
     const d = Math.max(0, dist(c, t) - t.radius);
-    return limitHit(c.stats.accuracy - evasion(t) - config.rangePenalty * Math.min(1, d / w.range) ** 2 + (lined(c, w, t) ? config.lined : 0));
+    return limitHit(c.stats.accuracy - evasion(t) - config.rangePenalty * Math.min(1, d / w.range) ** 2 + (lined(c, w, t) ? config.lined : 0)
+      + (has(c, 'insight') && charging(t) ? config.insight : 0));
   }
 
   // An enemy picks its next action as its gauge starts over.
@@ -93,8 +113,8 @@ const Combat = (() => {
   function create(rng, player, enemies, o = {}) {
     const s = RT.create(rng, player, enemies, o);
     s.first = o.focus !== undefined && o.focus !== null;
-    player.gauge = s.first ? config.firstStrike : 0;
-    for (const a of s.allies) a.gauge = s.first ? config.firstStrike * rng() : 0;
+    player.gauge = has(player, 'foresight') ? 1 : s.first ? config.firstStrike : 0;
+    for (const a of s.allies) a.gauge = has(a, 'foresight') ? 1 : s.first ? config.firstStrike * rng() : 0;
     for (const e of enemies) { e.gauge = rng() * 0.3; plan(s, e); }
     return s;
   }
@@ -124,9 +144,9 @@ const Combat = (() => {
     if (setFocus(s, pick.id, false)) events.push({ type: 'target', id: pick.id, auto: true });
   }
 
-  // A hit that takes the shields down: the gauge knocked back, a heavy shot cancelled.
-  function breach(s, t, events) {
-    t.gauge = Math.max(0, (t.gauge || 0) - config.breach);
+  // A hit that takes the shields down: the gauge knocked back (by: who hit), a heavy shot cancelled.
+  function breach(s, t, events, by) {
+    if (!has(t, 'afterburn')) t.gauge = Math.max(0, (t.gauge || 0) - config.breach * (has(by, 'breaker') ? config.breaker : 1));
     const cancelled = !!(t.intent && t.intent.kind === 'heavy');
     if (cancelled) t.intent = { kind: 'volley' };
     events.push({ type: 'breach', id: t.id, cancelled });
@@ -141,13 +161,19 @@ const Combat = (() => {
       const shots = shotsPerTurn(c, w, s.rng), p = hitChance(c, w, t);
       let hits = 0;
       for (let k = 0; k < shots; k++) if (s.rng() < p) hits++;
-      const amount = Math.round(hits * w.damage * RT.factor(w, t) * (c.stats.classDamage ?? 1) * (heavy ? config.heavyDamage : 1) * 10) / 10;
+      const power = (has(c, 'overkill') && charging(t) ? config.overkill : 1) * (has(c, 'meltdown') && t.shield <= 0 ? config.meltdown : 1);
+      const amount = Math.round(hits * w.damage * RT.factor(w, t) * (c.stats.classDamage ?? 1) * (heavy ? config.heavyDamage : 1) * power * 10) / 10;
       const up = t.shield > 0;
       const d = applyDamage(t, amount);
       if (amount > 0) t.quiet = 0;
       events.push({ type: 'shot', from: c.id, to: t.id, weapon: i, shots, hits, damage: amount, ...d, destroyed: t.hull <= 0, heavy, delay: config.stagger * i });
       i++;
-      if (up && t.shield <= 0 && t.hull > 0 && t.stats.shield > 0) breach(s, t, events);
+      if (!(up && t.shield <= 0 && t.hull > 0 && t.stats.shield > 0)) continue;
+      if (has(t, 'second-wind') && !t.secondWind) { // half its shields back, once a fight: no breach
+        t.secondWind = true;
+        t.shield = t.stats.shield * config.secondWind;
+        events.push({ type: 'power', id: t.id, power: 'second-wind' });
+      } else breach(s, t, events, c);
     }
     return i > 0;
   }
@@ -163,7 +189,7 @@ const Combat = (() => {
   // Advance the fight by dt seconds. pilot: the player ship's pose this step { x, y, vx, vy, angle }.
   // Returns its events: shots { type: 'shot', from, to, weapon, shots, hits, damage, shieldDamage,
   // hullDamage, destroyed, heavy, delay }, { type: 'breach', id, cancelled }, { type: 'target', id,
-  // auto }, abilities that land. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
+  // auto }, { type: 'power', id, power } (a Legendary's, rules/loot.js), abilities that land. Sets s.over to 'won', 'lost' or 'fled' when the fight ends.
   function step(s, dt, pilot) {
     if (s.over) return [];
     const events = [], p = s.player;
@@ -245,7 +271,20 @@ const Combat = (() => {
     log,
   };
 
-  return { config, period, charge, shotsPerTurn, hitChance, create, join, setFocus, step, simulate, alive, mode };
+  // How strong a ship's stats (rules/loadout.js stats) are on the timeline, as one number to compare
+  // loadouts by (a loot drop against what's fitted: game/upgrades.js): what it deals a second (its
+  // weapons against ships, by its accuracy against an average evasion), times what it takes to bring
+  // down (hull, shields and their recharge, over what its evasion lets through), times how quickly
+  // its turns come round. Only the ratio of two ratings means anything.
+  const AVERAGE_EVASION = 0.15, RECHARGE_WORTH = 6, POWER_WORTH = 0.08; // a Legendary's power: worth a little in every fight
+  function rating(st) {
+    const hit = clamp((st.accuracy || 0) - AVERAGE_EVASION, 0.05, 0.95);
+    const offense = 0.5 + (st.weapons || []).reduce((t, w) => t + w.damage * w.fireRate * (w.vs?.ship ?? 1), 0) * hit;
+    const defense = ((st.hull || 0) + (st.shield || 0) + RECHARGE_WORTH * (st.shieldRecharge || 0)) / (1 - clamp(st.evasion || 0, 0, 0.6));
+    return ((offense * defense) / period({ stats: st })) * (1 + POWER_WORTH * (st.powers?.length || 0));
+  }
+
+  return { config, period, charge, shotsPerTurn, hitChance, rating, create, join, setFocus, step, simulate, alive, mode };
 })();
 
 export { Combat };

@@ -16,6 +16,7 @@
 //   CombatCore.intents(s) -> [{ id, target, lock }]   each enemy's target and lock (0..1; 1 in rounds);
 //                                      passive targets (rocks) have none
 //   CombatCore.loot(galaxySeed, key, role, tier) -> [{ kind, seed }]   what a destroyed ship leaves
+//   CombatCore.credits(galaxySeed, key, role, tier) -> credits   what a destroyed pirate's cargo pays
 //   CombatCore.schematic(galaxySeed, key, role, tier) -> equipment id | null   a schematic recovered
 //                                      from a pirate's computer: the gear it unlocks for purchase
 //
@@ -48,15 +49,13 @@
 // ES module (`CombatCore`); also runs in Node (the tests).
 
 import { MathUtil } from '../core/math.js';
-import { nextSeed, seeded, weightedPick } from '../core/rng.js';
+import { nextSeed, seeded } from '../core/rng.js';
 import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
-import { Security } from '../world/security.js';
 
 const CombatCore = (() => {
   const G = Goods;
-  const Sec = Security;
   const { clamp } = MathUtil;
 
   const config = {
@@ -114,44 +113,34 @@ const CombatCore = (() => {
 
   // What a destroyed ship leaves floating: [{ kind, seed }] (rules/goods.js types). Seeded by the system
   // and the ship.
-  // - Fighters (pirates) usually drop a lot of salvaged components, sometimes two, each lot bigger
-  //   the better their own gear (world/security.js componentCount: better-armed pirates in more
-  //   dangerous space carry more), and often some of the cargo they took: trade goods, the better
-  //   of two from tier 3 up.
-  // - Freighters spill trade goods, and now and then a component.
-  // Computer components go into logic research (rules/research.js) as well as refits, so they turn up as
-  // often as hull and weapon components.
-  const SALVAGE = [['hull', 3], ['weapon', 3], ['drive', 2], ['computer', 3]];
+  // - Freighters spill trade goods.
+  // - Fighters (pirates) leave nothing floating: the cargo they took is paid out as credits
+  //   (CombatCore.credits), so a fight leaves only gear to look at. (Salvaged components no longer
+  //   drop in the main game: nothing there uses them since research and industry moved to the idle
+  //   game.)
   const GOODS = G.categories('trade');
-  const chance = { component: 0.85, second: 0.35, cargo: 0.45 };
-  function loot(galaxySeed, key, role, tier = 1) {
-    const r = seeded(galaxySeed, key, 0x1007);
-    const seed = () => nextSeed(r);
-    const out = [];
-    // A lot of components of one kind.
-    const component = () => {
-      const kind = G.component(weightedPick(SALVAGE, r()));
-      return Array.from({ length: Sec.componentCount(r, tier) }, () => ({ kind, seed: seed() }));
-    };
-    // A trade good; well-armed pirates keep the better of two.
+  const chance = { cargo: 0.45 };
+  // The goods a ship carried: [kind]; well-armed pirates keep the better of two.
+  function cargoOf(r, role, tier) {
     const good = () => {
       const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)], (t) => !t.surface);
       let kind = pick();
       if (tier >= 3) { const other = pick(); if (G.type(other).price > G.type(kind).price) kind = other; }
-      return { kind, seed: seed() };
+      return kind;
     };
-    if (role === 'freighter') {
-      const n = 1 + Math.floor(r() * 2);
-      for (let i = 0; i < n; i++) out.push(good());
-      if (r() < 0.3) out.push(...component());
-      return out;
-    }
-    if (r() < chance.component) {
-      out.push(...component());
-      if (r() < chance.second) out.push(...component());
-    }
-    if (r() < chance.cargo) for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) out.push(good());
-    return out;
+    if (role === 'freighter') return Array.from({ length: 1 + Math.floor(r() * 2) }, good);
+    return r() < chance.cargo ? Array.from({ length: 1 + Math.floor(r() * 2) }, good) : [];
+  }
+  function loot(galaxySeed, key, role, tier = 1) {
+    if (role !== 'freighter') return [];
+    const r = seeded(galaxySeed, key, 0x1007);
+    return cargoOf(r, role, tier).map((kind) => ({ kind, seed: nextSeed(r) }));
+  }
+  // The credits a destroyed pirate's cargo comes to (its goods at their base price): 0 for a freighter,
+  // whose cargo floats (loot).
+  function credits(galaxySeed, key, role, tier = 1) {
+    if (role === 'freighter') return 0;
+    return cargoOf(seeded(galaxySeed, key, 0x1007), role, tier).reduce((t, kind) => t + G.type(kind).price, 0);
   }
 
   // Now and then a pirate's computer holds a schematic: a piece of player equipment (rules/loadout.js)
@@ -173,7 +162,7 @@ const CombatCore = (() => {
     if (a) a.order = order || {};
   }
 
-  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, intents, loot, schematic, setOrders };
+  return { config, combatant, applyDamage, limitHit, alive, allies, aim, aimAt, intents, loot, credits, schematic, setOrders };
 })();
 
 export { CombatCore };

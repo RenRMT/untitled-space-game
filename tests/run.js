@@ -1963,6 +1963,62 @@ off('?pirates', 'a breach: shields down knock the gauge back and cancel a heavy 
   assert(hit.heavy && hit.damage === hit.hits * FOE1.weapons[0].damage * Combat.config.heavyDamage, 'heavy damage');
 });
 
+off('?pirates', 'Legendary powers bend the timeline\'s rules for whoever flies one', () => {
+  const pw = (...powers) => ({ ...COURIER_STATS(), powers });
+  // Every Legendary has a power, and fitted it's in the ship's stats.
+  for (const base of Loot.BASE_IDS) {
+    const item = Loot.make({ id: 'Lp', base, ilvl: 30, rarity: 'legendary', seed: 4 });
+    assert(Loot.powerOf(item.loot.power), `${base} has a power`);
+  }
+  const leg = Loot.register({ id: 'Lpow', base: 'laser', ilvl: 30, rarity: 'legendary', seed: 4 }, Loadout.EQUIPMENT), l = Loadout.starter('courier');
+  l.fitted['weapon-1'] = 'Lpow';
+  assert.deepStrictEqual(Loadout.stats(l).powers, [leg.loot.power]);
+  delete Loadout.EQUIPMENT.Lpow;
+  // Breaker: a breach knocks the gauge back twice as far. Afterburn: not at all.
+  const knock = (me, foe) => {
+    const p = tl('player', me, 0), e = tl('e', { ...foe, hull: 500 }, 400, { fixed: true });
+    const s = Combat.create(always, p, [e], { focus: 'e' });
+    Object.assign(e, { gauge: 0.9, shield: 1, intent: { kind: 'volley' } });
+    p.gauge = 0.999;
+    Combat.step(s, 1 / 30);
+    return 0.9 - e.gauge;
+  };
+  const plain = knock(COURIER_STATS(), FOE1);
+  assert(Math.abs(knock(pw('breaker'), FOE1) - 2 * plain) < 0.05, 'breaker');
+  assert(knock(COURIER_STATS(), { ...FOE1, powers: ['afterburn'] }) < 0.05, 'afterburn');
+  // Overkill and meltdown: more damage on a ship charging a heavy shot, or with its shields down.
+  const dealt = (me, o) => {
+    const p = tl('player', me, 0), e = tl('e', { ...FOE1, hull: 5000 }, 400, { fixed: true });
+    const s = Combat.create(always, p, [e], { focus: 'e' });
+    Object.assign(e, { gauge: 0, shield: 0, intent: { kind: o.heavy ? 'heavy' : 'volley' } });
+    p.gauge = 0.999;
+    return Combat.step(s, 1 / 30).filter((x) => x.type === 'shot' && x.from === 'player').reduce((t, x) => t + x.damage, 0);
+  };
+  const base = dealt(COURIER_STATS(), {});
+  assert(dealt(pw('overkill'), { heavy: true }) > base * 1.4 && dealt(pw('overkill'), {}) === base, 'overkill only on a heavy shot');
+  assert(dealt(pw('meltdown'), {}) > base * 1.2, 'meltdown with its shields down');
+  // Insight: more hit chance on a ship charging a heavy shot.
+  const p = tl('player', pw('insight'), 0), e = tl('e', { ...FOE1, evasion: 0.5 }, 400, { fixed: true }), w = p.stats.weapons[0];
+  e.intent = { kind: 'volley' };
+  const h0 = Combat.hitChance(p, w, e);
+  e.intent = { kind: 'heavy' };
+  assert(Combat.hitChance(p, w, e) > h0, 'insight');
+  // Foresight: a fight starts with the gauge full, even an ambush.
+  assert.strictEqual(Combat.create(always, tl('player', pw('foresight'), 0), [tl('e', FOE1, 400, { fixed: true })], {}).player.gauge, 1, 'foresight');
+  // Second wind: the first time the shields go down, half come back; the second time, a breach.
+  const q = tl('player', { ...pw('second-wind'), shield: 100 }, 0), f = tl('f', { ...FOE1, weapons: [{ name: 'Gun', damage: 500, fireRate: 1, range: 1000, arc: 360 }] }, 400, { fixed: true });
+  const s2 = Combat.create(always, q, [f], { focus: 'f' });
+  q.hull = q.stats.hull = 1e6;
+  Object.assign(f, { gauge: 0.9999, intent: { kind: 'volley' } });
+  const ev = Combat.step(s2, 1 / 30);
+  assert(ev.some((x) => x.type === 'power' && x.power === 'second-wind') && !ev.some((x) => x.type === 'breach'), 'second wind, no breach');
+  assert.strictEqual(q.shield, 50);
+  Object.assign(f, { gauge: 0.9999, intent: { kind: 'volley' } });
+  assert(Combat.step(s2, 1 / 30).some((x) => x.type === 'breach' && x.id === 'player'), 'once a fight');
+  // A power counts a little in a ship's rating.
+  assert(Combat.rating(pw('breaker')) > Combat.rating(COURIER_STATS()));
+});
+
 off('?pirates', 'the player switches to the next enemy when the focused one is destroyed', () => {
   const p = tl('player', COURIER_STATS(), 0);
   const a = tl('a', { ...FOE1, hull: 1, shield: 0, weapons: [] }, 300, { fixed: true }), b = tl('b', { ...FOE1, hull: 500, weapons: [] }, 350, { fixed: true });
@@ -1998,28 +2054,24 @@ off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly
   assert(run.escape > 0.6, `fleeing 4: ${JSON.stringify(run)}`);
 });
 
-off('?pirates', 'pirates leave more components the better armed they are, and some cargo; freighters spill trade goods', () => {
+off('?pirates', 'pirates pay their cargo as credits and leave nothing floating; freighters spill trade goods', () => {
   const g = systems.get(1);
-  const componentsAt = { 1: 0, 4: 0 };
-  let goods = 0;
+  let paid = 0, paidAt4 = 0, none = 0;
   for (let i = 0; i < 300; i++) {
     for (const tier of [1, 4]) {
-      const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier);
-      assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), f, 'loot is not deterministic');
-      for (const d of f) {
-        assert(Goods.type(d.kind), `fighter dropped ${d.kind}`);
-        if (Goods.isSalvage(d.kind)) componentsAt[tier]++;
-        else if (tier === 1) goods++;
-      }
+      assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), [], 'a pirate leaves nothing floating');
+      const c = CombatCore.credits(g.seed, `x,y,s${i}`, 'fighter', tier);
+      assert.strictEqual(CombatCore.credits(g.seed, `x,y,s${i}`, 'fighter', tier), c, 'credits are not deterministic');
+      if (tier === 1) { paid += c; if (!c) none++; } else paidAt4 += c;
     }
     const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
-    for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
+    for (const d of fr) assert(Goods.type(d.kind) && !Goods.isSalvage(d.kind), `freighter dropped ${d.kind}`);
+    assert.strictEqual(CombatCore.credits(g.seed, `x,y,s${i}`, 'freighter'), 0, 'a freighter\'s cargo floats');
   }
-  const components = componentsAt[1];
-  assert(componentsAt[4] > components * 2.5, `Mk IV pirates: ${componentsAt[4]} components against ${components}`);
-  assert(components > 300 && components < 500, `${components} components from 300 pirates`);
-  assert(goods > 140 && goods < 270, `${goods} trade goods from 300 pirates`);
+  assert(none > 120 && none < 210, `${none} of 300 pirates carried nothing`);
+  assert(paid / 300 > 25 && paid / 300 < 110, `${paid / 300} credits a pirate`);
+  assert(paidAt4 > paid, 'better-armed pirates keep better cargo');
 });
 
 // ---------- Progression: security, equipment tiers, research ----------
@@ -3359,7 +3411,7 @@ test('every icon code the UI uses has a line icon', () => {
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
   for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-outfitter', 'tab-squad', 'tab-missions', 'LOG', 'OUT', 'hold', 'hull', 'face', 'android', 'open',
-    'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach',
+    'dock', 'mine', 'collect', 'gather', 'jump', 'attack', 'approach', 'cancel-approach',
     'HLD', 'HUL', 'SHD']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
   const missing = [...codes].filter((c) => !Glyphs.has(c));
   assert.deepStrictEqual(missing, [], 'codes with no icon');
@@ -4921,6 +4973,28 @@ test('loot: drop tables, floors, the same drops from the same kill, bad-luck pro
   // A DPS finds more weapons than a Tank does.
   const weapons = (cls) => { const q = mulberry32(5); let n = 0; for (let i = 0; i < 2000; i++) if (Loot.BASES[Loot.roll(q, { level: 2, cls }).base].slot === 'weapon') n++; return n; };
   assert(weapons('dps') > weapons('tank') * 1.3, 'class bias');
+  // A party's classes: a DPS pilot with two Healers finds more shields than a DPS alone, and still
+  // more weapons than the Healers alone would.
+  const shields = (cls) => { const q = mulberry32(6); let n = 0; for (let i = 0; i < 3000; i++) if (Loot.roll(q, { level: 2, cls }).base === 'shield-generator') n++; return n; };
+  assert(shields(['dps', 'dps', 'healer', 'healer']) > shields('dps') * 1.15, 'the squad\'s classes count');
+  assert(weapons(['dps', 'dps', 'healer', 'healer']) > weapons('healer'), 'the pilot\'s still counts most');
+  assert.deepStrictEqual(Loot.roll(mulberry32(1), { level: 2, cls: [] }).base.length > 0, true, 'an empty party is no bias');
+});
+
+test('loot: an offer is three kinds of gear to choose from, the first for the party, the same every time', () => {
+  for (let k = 0; k < 200; k++) {
+    const o = Loot.offer('warden', `w${k}`, { level: 3, seed: 2, cls: ['tank', 'tank', 'healer'] });
+    assert.strictEqual(o.length, Loot.OFFER);
+    assert.strictEqual(new Set(o.map((s) => s.base)).size, Loot.OFFER, 'each a different kind');
+    assert(o.every((s) => Loot.RANK[s.rarity] >= Loot.RANK.rare), 'the source\'s floor');
+    assert(Loot.CLASS_BIAS.tank.includes(o[0].base) || Loot.CLASS_BIAS.healer.includes(o[0].base), 'the first for a class in the party');
+    assert.strictEqual(new Set(o.map((s) => s.id)).size, Loot.OFFER);
+  }
+  assert.deepStrictEqual(Loot.offer('mission', 'j1', { level: 2, seed: 5 }), Loot.offer('mission', 'j1', { level: 2, seed: 5 }));
+  // Only the first roll counts toward bad-luck protection.
+  const pity = { rare: 0, epic: 0 };
+  Loot.offer('mission', 'j2', { level: 2, seed: 5, pity, floor: 'uncommon' });
+  assert(pity.rare <= 1 && pity.epic <= 1, JSON.stringify(pity));
 });
 
 test('loot: fitted like any gear: its stats and hull affixes count in the loadout', () => {
@@ -4937,6 +5011,57 @@ test('loot: fitted like any gear: its stats and hull affixes count in the loadou
   assert.strictEqual(after.weapons[0].damage, item.stats.damage);
   assert(Loadout.summary(item).includes('hull'));
   delete EQ[spec.id];
+});
+
+test('loot: fewer, better drops: nothing destroyed drops Common, and rarity is worth item levels', () => {
+  for (const [source, S] of Object.entries(Loot.SOURCES)) assert(Loot.RANK[S.floor] >= Loot.RANK.uncommon, `${source} drops Common`);
+  for (const D of Object.values(Jobs.DIFFICULTY)) assert(Loot.RANK[D.floor] >= Loot.RANK.uncommon, `${D.label} contracts pay Common gear`);
+  // A Legendary's rarity alone is worth some eight item levels of a weapon's damage.
+  const power = (rarity) => Loot.RARITIES[Loot.RANK[rarity]].power;
+  const grow = Loot.BASES.laser.grow.damage;
+  assert(power('legendary') >= (1 + grow * 17) / (1 + grow * 9), `Legendary power ${power('legendary')}`);
+  const dmg = (rarity, ilvl) => Loot.make({ id: 'Lx', base: 'laser', ilvl, rarity, seed: 1 }).stats.damage;
+  assert(dmg('rare', 10) > dmg('uncommon', 10) && dmg('uncommon', 10) > dmg('common', 10));
+});
+
+test('loot: every affix and every rarity boost is on a stat that counts in a fight', () => {
+  // The timeline (combat/combat.js) reads damage, fire rate, range, shields, speed, evasion, accuracy,
+  // initiative (the scanner's reach) and hull; lock range, lock time and mining don't count, and a
+  // weapon's field of fire hardly does.
+  const COUNTS = new Set(['damage', 'fireRate', 'range', 'strength', 'recharge', 'maxSpeed', 'accel', 'turnRate', 'evasion', 'sensorRange', 'pingRange', 'accuracy', 'hullPlus', 'initiativePlus', 'evasionPlus']);
+  for (const a of Loot.AFFIXES) assert(COUNTS.has(a.stat), `${a.name}: ${a.stat}`);
+  // A Legendary of every base finds its four affixes.
+  for (const base of Loot.BASE_IDS) {
+    for (let seed = 1; seed < 40; seed++) assert.strictEqual(Loot.make({ id: 'Lt', base, ilvl: 30, rarity: 'legendary', seed }).loot.affixes.length, 4, `${base} #${seed}`);
+  }
+  // A rarer scanner reaches further, so it charges quicker than the starting one.
+  const scan = (rarity) => Loadout.stats({ hull: 'courier', fitted: { scanner: Loot.register({ id: `Ls${rarity}`, base: 'scanner', ilvl: 40, rarity, seed: 3 }, Loadout.EQUIPMENT) && `Ls${rarity}` } });
+  const start = Loadout.stats(Loadout.starter('courier'));
+  assert(Combat.period({ stats: scan('common') }) < Combat.period({ stats: start }), 'a better scanner gains initiative past the starting one');
+  assert(Combat.period({ stats: scan('legendary') }) < Combat.period({ stats: scan('common') }), 'rarity raises initiative');
+  assert.strictEqual(Combat.period({ stats: start }), Combat.config.turn * (1 - Combat.config.tempo), 'the starting scanner charges as before');
+  // Flat initiative and evasion affixes count in the loadout.
+  let spec, r = mulberry32(17);
+  do spec = Loot.roll(r, { level: 4, floor: 'epic', base: 'ship-computer' }); while (!Loot.make(spec).stats.initiativePlus || !Loot.make(spec).stats.evasionPlus);
+  const item = Loot.register(spec, Loadout.EQUIPMENT), l = Loadout.starter('courier');
+  const before = Loadout.stats(l);
+  l.fitted.computer = spec.id;
+  const after = Loadout.stats(l);
+  assert.strictEqual(after.initiative, before.initiative + item.stats.initiativePlus);
+  assert(Math.abs(after.evasion - (before.evasion + item.stats.evasionPlus)) < 1e-9);
+  for (const id of ['Lscommon', 'Lslegendary', spec.id]) delete Loadout.EQUIPMENT[id];
+});
+
+test('Combat.rating: more damage, more hull, more evasion or quicker turns each rate a ship higher', () => {
+  const base = Loadout.stats(Loadout.starter('courier')), r0 = Combat.rating(base);
+  assert(r0 > 0);
+  const up = (patch) => Combat.rating({ ...base, ...patch });
+  assert(up({ weapons: base.weapons.map((w) => ({ ...w, damage: w.damage * 1.2 })) }) > r0, 'damage');
+  assert(up({ hull: base.hull + 50 }) > r0, 'hull');
+  assert(up({ evasion: base.evasion + 0.05 }) > r0, 'evasion');
+  assert(up({ initiative: base.initiative + 8000 }) > r0, 'initiative');
+  assert(up({ accuracy: base.accuracy + 0.05 }) > r0, 'accuracy');
+  assert(up({ weapons: [] }) < r0, 'unarmed');
 });
 
 // ---------- Structures (rules/structures.js) ----------

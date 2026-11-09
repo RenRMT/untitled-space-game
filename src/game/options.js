@@ -110,6 +110,8 @@ export const reducedMotion = () => motion.value === 'reduce';
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
   destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20],
+  // Loot, by its rarity (game/cargo.js): the rarer, the longer it rings.
+  'loot-common': [6], 'loot-uncommon': [10], 'loot-rare': [15, 30, 15], 'loot-epic': [25, 40, 25, 40, 50], 'loot-legendary': [40, 40, 40, 40, 140],
 };
 const HIT_GAP = 0.15;
 let lastHit = 0;
@@ -120,7 +122,8 @@ function buzz(event, detail) {
     if (now - lastHit < HIT_GAP) return;
     lastHit = now;
     Feedback.vibrate(BUZZ[detail.hull ? 'hit-hull' : 'hit']);
-  } else if (BUZZ[event]) Feedback.vibrate(BUZZ[event]);
+  } else if (event === 'loot') Feedback.vibrate(BUZZ[`loot-${detail.rarity}`] || BUZZ['loot-common']);
+  else if (BUZZ[event]) Feedback.vibrate(BUZZ[event]);
 }
 
 export const ART_HINT = {

@@ -20,6 +20,7 @@ import { artStyle } from './options.js';
 import { vendor } from './vendor.js';
 import { pilotView } from './progress.js';
 import { outfitting, placeShip } from './outfitting.js';
+import { chooseReward, rewardViews } from './rewards.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
@@ -116,6 +117,7 @@ export function dock(station) {
     repairs,
     squad: programs,
     missions: { list: () => missionViews(station) },
+    rewards: { list: rewardViews, choose: chooseReward }, // gear rewards to choose (game/rewards.js)
     tab: null, // the last tab used
     news: news.splice(0), // what finished since the last dock, shown once
     artStyle: artStyle.value, // item icons; the style can't change while docked

@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Clock } from '../core/clock.js';
+import { Feedback } from '../core/feedback.js';
 import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
@@ -27,6 +28,8 @@ import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
 import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
+import { queueFit } from './quickfit.js';
+import { upgradeLine } from './upgrades.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
@@ -56,14 +59,15 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
 // loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
-// Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }).
+// Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }); rewards:
+// gear rewards still to choose ([{ key, from, options: [spec] }]: game/rewards.js).
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
-  loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
+  loot: {}, lootPity: { rare: 0, epic: 0 }, rewards: [], razed: {},
 };
 // ?dev (for testing): every station service open, even in a fresh game, without touching the save
 // (the jobs board). Combat god mode is the same switch (game/combat.js).
@@ -129,6 +133,7 @@ export function loadCargo(galaxy) {
   cargo.gear = {};
   cargo.loot = {};
   cargo.lootPity = { rare: 0, epic: 0 };
+  cargo.rewards = [];
   cargo.razed = {};
   cargo.mods = {};
   cargo.kit = {};
@@ -357,6 +362,10 @@ export function readCargo(d, galaxy = null) {
   cargo.loot = Loot.read(d.loot);
   for (const spec of Object.values(cargo.loot)) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.lootPity && typeof d.lootPity === 'object') cargo.lootPity = { rare: Math.max(0, d.lootPity.rare | 0), epic: Math.max(0, d.lootPity.epic | 0) };
+  cargo.rewards = (Array.isArray(d.rewards) ? d.rewards : []).map((w) => w && typeof w.key === 'string' && Array.isArray(w.options)
+    && { key: w.key, from: String(w.from || 'A reward'), options: w.options.map((s) => s && Loot.read({ [s.id]: s })[s.id]).filter(Boolean) })
+    .filter((w) => w && w.options.length);
+  for (const w of cargo.rewards) for (const spec of w.options) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.razed && typeof d.razed === 'object') for (const [key, t] of Object.entries(d.razed)) if (typeof key === 'string' && Number.isFinite(t)) cargo.razed[key] = t;
   // Before the squad: what its programs may use.
   cargo.gambits = Array.isArray(d.gambits) ? [...new Set(d.gambits.filter((id) => Vendor.isGambit(id)))] : [];
@@ -416,7 +425,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
-  loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
+  loot: ownedLoot(), lootPity: cargo.lootPity, rewards: cargo.rewards, razed: cargo.razed,
 }), 1000);
 // The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
 export function ownedLoot() {
@@ -425,6 +434,9 @@ export function ownedLoot() {
   for (const id of ids) if (id && cargo.loot[id]) out[id] = cargo.loot[id];
   return out;
 }
+// The classes loot is biased toward (rules/loot.js smart loot): the whole party's, yours counting
+// twice, so a squad of other classes finds gear for its ships too.
+export const lootClasses = () => [cargo.cls, cargo.cls, ...cargo.squad.filter((m) => !m.disabled).map((m) => m.cls)];
 // A piece of loot comes aboard: remade into the equipment list, kept with the save, into the spare gear.
 export function takeLoot(spec) {
   cargo.loot[spec.id] = spec;
@@ -476,18 +488,44 @@ export const repairs = {
   },
 };
 
-// A piece of loot picked up or handed over, said in its rarity's tone.
+// A piece of loot picked up or handed over, said in its rarity's tone, and whom it's an upgrade for
+// (game/upgrades.js), if anyone: that's what matters most when it drops.
 const RARITY_TONE = { common: 'info', uncommon: 'good', rare: 'good', epic: 'good', legendary: 'good' };
 export function lootNotice(item) {
   if (!item) return;
-  const R = Loot.rarityOf(item.loot.rarity);
-  notify(`${R.name} loot: ${item.name} · item level ${item.loot.ilvl} · in your spare gear`, item.loot.rarity === 'common' ? 2.5 : 4, { tone: RARITY_TONE[R.id] });
+  const R = Loot.rarityOf(item.loot.rarity), up = upgradeLine(item.loot.id);
+  const power = item.loot.power ? ` · ${Loot.powerOf(item.loot.power).name}: ${Loot.powerOf(item.loot.power).text}` : '';
+  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${power}${up ? ` · ${up}` : ' · in your spare gear'}`, Loot.RANK[R.id] >= Loot.RANK.epic ? 6 : up || R.id !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
+  Feedback.emit('loot', { rarity: R.id });
+  if (up) queueFit(item.loot.id); // offered to fit there and then, once calm (game/quickfit.js)
+}
+// Gear dropped where it floats (specs): felt by its best rarity (game/options.js BUZZ), and an Epic
+// or Legendary called out at once, before it's picked up: the moment it drops is the one to mark.
+export function lootDropped(specs) {
+  if (!specs.length) return;
+  const R = Loot.RARITIES[Math.max(...specs.map((s) => Loot.RANK[s.rarity]))];
+  Feedback.emit('loot', { rarity: R.id });
+  if (Loot.RANK[R.id] >= Loot.RANK.epic) notify(`${R.name} drop!`, 3, { tone: 'good' });
+}
+
+// Collect all (game/input.js, on a drop's menu): every drop floating within GATHER of the ship comes
+// aboard at once, as if each were dragged onto it (gear into the spare gear, goods while the hold has
+// room; what doesn't fit waits beside the ship). Not in a fight. Returns how many came aboard.
+export const GATHER = 1500; // world units
+export function gatherDrops(list) {
+  const near = list.filter((e) => (e.kind === 'item' || e.kind === 'loot') && !cargo.removed.has(e.key) && Math.hypot(ship.x - e.x, ship.y - e.y) <= GATHER);
+  for (const e of near) {
+    Object.assign(e, { x: ship.x, y: ship.y });
+    if (e.drop) Object.assign(e.drop, { x: ship.x, y: ship.y });
+  }
+  return collectItems(near);
 }
 
 // Floating items dragged onto the ship (game/input.js) are picked up: trade goods into the hold
 // while there's room, components into their own store, which never fills. A trade good that won't
 // fit is left where it is. Nothing is picked up by flying near it.
 export function collectItems(list) {
+  let n = 0;
   for (const e of list) {
     if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
     const d = Math.hypot(ship.x - e.x, ship.y - e.y);
@@ -498,12 +536,14 @@ export function collectItems(list) {
       const item = takeLoot(e.spec);
       lootNotice(item);
       saveCargo();
+      n++;
       continue;
     }
     if (e.mission) { // a mission's cargo: kept apart from the hold, for the mission
       cargo.removed.add(e.key);
       notify(`Recovered: ${e.label}`, 2.5);
       saveCargo();
+      n++;
       continue;
     }
     const component = Goods.isSalvage(e.itemKind);
@@ -517,5 +557,7 @@ export function collectItems(list) {
     else cargo.items.push({ kind: e.itemKind, label: e.label, category: 'trade' });
     notify(`Recovered: ${e.label}`, 2.5);
     saveCargo();
+    n++;
   }
+  return n;
 }
