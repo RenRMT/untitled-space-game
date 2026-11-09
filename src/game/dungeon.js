@@ -1,5 +1,8 @@
 // Dungeons: every planet's and moon's surface is a labyrinth (art/surface.js o.dungeon) cut into
-// its ground: chambers cut into solid rock, joined by winding passages, the landing spot in a
+// its ground, laid out as that ground has it (art/surface.js LAYOUTS: wide canyons through mesas
+// on desert worlds, looping ravines on terran ones, pillared ice caves, long chained lava tubes,
+// open storm mazes on gas giants, crater fields, fissures, calderas or rubble on the moons):
+// chambers joined by passages, the landing spot in a
 // chamber by its south edge and the deepest chamber (role 'deep', the most passages away) held by
 // the Warden. There are no hazards down there (dungeonSite); nodes lie about
 // the chambers and passages as on any surface, and the landing pad in the first chamber is the way
@@ -45,9 +48,9 @@ import { world } from './world.js';
 export const DUNGEON = { rooms: 16 }; // the chambers of a labyrinth with no body to scale it by
 export const isDungeon = (e) => !!e && (e.kind === 'planet' || e.kind === 'moon');
 
-// What a labyrinth is called, by the ground it's cut into (art/surface.js types).
-const DUNGEON_NAMES = { desert: 'Canyons', terran: 'Ravines', ice: 'Ice caves', lava: 'Lava tubes', gas: 'Storm maze', cavern: 'Caverns' };
-export const dungeonName = (W) => DUNGEON_NAMES[W.type] || (W.type.startsWith('moon-') ? 'Crater maze' : 'Labyrinth');
+// What a labyrinth is called: its layout's name, by the ground it's cut into (art/surface.js
+// LAYOUTS: canyons on a desert world, lava tubes on a lava one, a crater field on a grey moon...).
+export const dungeonName = (W) => W.dungeon?.name || 'Labyrinth';
 
 // No heat, day side, radiation, dust, vents or storm pockets; ordinary gravity; rock to mine.
 export const dungeonSite = (site) => ({
