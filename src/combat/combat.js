@@ -3,7 +3,7 @@
 // - Everyone keeps flying: enemies steer as in real time (attack runs, stand-offs, the leash), the
 //   player flies freely. Positioning changes the odds; it never stops the guns.
 // - Each ship has an action gauge that charges over its turn time (`turn`, a little quicker with a
-//   better scanner: initiative). Full, the ship takes its turn: every weapon within reach of its
+//   better scanner: initiative, config.tempo and tempoPlus). Full, the ship takes its turn: every weapon within reach of its
 //   target fires a volley (round(fireRate × turn time) shots). A target out of reach: the gauge
 //   holds full and the volley goes the moment it comes in reach.
 // - Hit chance: accuracy (computer) − the target's evasion (its engine: half at rest, in full from
@@ -43,6 +43,9 @@ const Combat = (() => {
     tempo: 0.15, // ... up to this share quicker (or slower) with a better (or worse) scanner
     baseInitiative: 4000, // the initiative that charges in exactly `turn` ...
     spanInitiative: 6000, // ... and this much more (or less) for the full `tempo`
+    // The starting scanner already reaches the full `tempo`; a better one (loot, rules/loot.js) gains
+    // up to `tempoPlus` more, from `plusFrom` initiative over `plusSpan` more.
+    tempoPlus: 0.1, plusFrom: 10000, plusSpan: 15000,
     firstStrike: 0.5, // the player's gauge as a fight it started begins
     heavyChance: 0.3, // an enemy's next action is a heavy shot with this chance ...
     heavyCharge: 1.8, // ... charging this many times as long ...
@@ -55,7 +58,11 @@ const Combat = (() => {
   };
 
   // A ship's turn time, by its initiative.
-  const period = (c) => config.turn * (1 - config.tempo * clamp(((c.stats.initiative || 0) - config.baseInitiative) / config.spanInitiative, -1, 1));
+  function period(c) {
+    const i = c.stats.initiative || 0;
+    return config.turn * (1 - config.tempo * clamp((i - config.baseInitiative) / config.spanInitiative, -1, 1)
+      - config.tempoPlus * clamp((i - config.plusFrom) / config.plusSpan, 0, 1));
+  }
   // How long its current gauge takes to fill: a heavy shot longer.
   const charge = (c) => period(c) * (c.intent && c.intent.kind === 'heavy' ? config.heavyCharge : 1);
   // Shots in a turn's volley: fireRate × turn time, the fraction rounded up by chance, so the

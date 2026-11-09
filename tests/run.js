@@ -4935,6 +4935,33 @@ test('loot: fitted like any gear: its stats and hull affixes count in the loadou
   delete EQ[spec.id];
 });
 
+test('loot: every affix and every rarity boost is on a stat that counts in a fight', () => {
+  // The timeline (combat/combat.js) reads damage, fire rate, range, arc, shields, speed, evasion,
+  // accuracy, initiative (the scanner's reach) and hull; lock range, lock time and mining don't count.
+  const COUNTS = new Set(['damage', 'fireRate', 'range', 'arc', 'strength', 'recharge', 'maxSpeed', 'accel', 'turnRate', 'evasion', 'sensorRange', 'pingRange', 'accuracy', 'hullPlus', 'initiativePlus', 'evasionPlus']);
+  for (const a of Loot.AFFIXES) assert(COUNTS.has(a.stat), `${a.name}: ${a.stat}`);
+  // A Legendary of every base finds its four affixes.
+  for (const base of Loot.BASE_IDS) {
+    for (let seed = 1; seed < 40; seed++) assert.strictEqual(Loot.make({ id: 'Lt', base, ilvl: 30, rarity: 'legendary', seed }).loot.affixes.length, 4, `${base} #${seed}`);
+  }
+  // A rarer scanner reaches further, so it charges quicker than the starting one.
+  const scan = (rarity) => Loadout.stats({ hull: 'courier', fitted: { scanner: Loot.register({ id: `Ls${rarity}`, base: 'scanner', ilvl: 40, rarity, seed: 3 }, Loadout.EQUIPMENT) && `Ls${rarity}` } });
+  const start = Loadout.stats(Loadout.starter('courier'));
+  assert(Combat.period({ stats: scan('common') }) < Combat.period({ stats: start }), 'a better scanner gains initiative past the starting one');
+  assert(Combat.period({ stats: scan('legendary') }) < Combat.period({ stats: scan('common') }), 'rarity raises initiative');
+  assert.strictEqual(Combat.period({ stats: start }), Combat.config.turn * (1 - Combat.config.tempo), 'the starting scanner charges as before');
+  // Flat initiative and evasion affixes count in the loadout.
+  let spec, r = mulberry32(17);
+  do spec = Loot.roll(r, { level: 4, floor: 'epic', base: 'ship-computer' }); while (!Loot.make(spec).stats.initiativePlus || !Loot.make(spec).stats.evasionPlus);
+  const item = Loot.register(spec, Loadout.EQUIPMENT), l = Loadout.starter('courier');
+  const before = Loadout.stats(l);
+  l.fitted.computer = spec.id;
+  const after = Loadout.stats(l);
+  assert.strictEqual(after.initiative, before.initiative + item.stats.initiativePlus);
+  assert(Math.abs(after.evasion - (before.evasion + item.stats.evasionPlus)) < 1e-9);
+  for (const id of ['Lscommon', 'Lslegendary', spec.id]) delete Loadout.EQUIPMENT[id];
+});
+
 // ---------- Structures (rules/structures.js) ----------
 
 test('structures: 0-3 turrets a station, more in safe space; turrets tougher than ships, stations tougher still', () => {

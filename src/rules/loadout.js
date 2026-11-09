@@ -237,10 +237,13 @@ const Loadout = (() => {
       shield: 0, shieldRecharge: 0, firepower: 0, weaponSlots: weaponSlots(loadout.hull, upgrades), weaponsFitted: 0,
       accuracy: 0, evasion: 0, initiative: 0, weapons: [], ...NO_LOCK,
     };
+    const flat = { initiative: 0, evasion: 0 };
     for (const { id, type, item } of slots(loadout, upgrades)) {
       if (!item) continue;
       const s = tuned(item.stats, bonusFor(item, upgrades, loadout.mods?.[id]));
-      if (s.hullPlus) out.hull += Math.round(s.hullPlus); // loot's flat hull affixes (rules/loot.js), on any slot
+      if (s.hullPlus) out.hull += Math.round(s.hullPlus); // loot's flat affixes (rules/loot.js): hull on any slot,
+      if (s.initiativePlus) flat.initiative += s.initiativePlus; // initiative on a computer or scanner,
+      if (s.evasionPlus) flat.evasion += s.evasionPlus; // evasion on a computer or shield
       if (type === 'engine') Object.assign(out, { maxSpeed: s.maxSpeed, accel: s.accel * handling, turnRate: s.turnRate * handling, evasion: s.evasion || 0 });
       else if (type === 'scanner') Object.assign(out, { sensorRange: s.sensorRange, pingRange: s.pingRange, initiative: s.sensorRange + s.pingRange, lockRange: s.lockRange });
       else if (type === 'computer') Object.assign(out, { miningRate: s.miningRate, accuracy: s.accuracy || 0, lockTime: s.lockTime });
@@ -257,6 +260,8 @@ const Loadout = (() => {
         out.weapons.push({ name: item.name, damage: s.damage, fireRate: s.fireRate, range: s.range, arc: s.arc, ...(s.vs ? { vs: s.vs } : {}) });
       }
     }
+    out.initiative += flat.initiative;
+    out.evasion = clamp(out.evasion + flat.evasion, ...LIMITS.evasion);
     return out;
   }
 
@@ -277,7 +282,9 @@ const Loadout = (() => {
   // One line of what a piece of equipment does, for the Ship tab.
   function summary(item) {
     const text = slotSummary(item);
-    return item.stats.hullPlus ? `${text} · +${Math.round(item.stats.hullPlus)} hull` : text;
+    const s = item.stats;
+    return [text, s.hullPlus ? `+${Math.round(s.hullPlus)} hull` : '', s.initiativePlus ? `+${Math.round(s.initiativePlus)} initiative` : '',
+      s.evasionPlus ? `+${Math.round(s.evasionPlus * 100)}% evasion` : ''].filter(Boolean).join(' · ');
   }
   function slotSummary(item) {
     const s = item.stats;

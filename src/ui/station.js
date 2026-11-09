@@ -283,6 +283,8 @@ const StationMenu = (() => {
       { code: 'AIM', label: 'Accuracy', get: (i) => i.stats.accuracy, fmt: pct, fmtDiff: pct },
       { code: 'LCK', label: 'Lock time', get: (i) => i.stats.lockTime, fmt: (v) => `${r2(v)} s`, fmtDiff: (v) => `${r2(v)}s`, dir: -1, none: Loadout.stats({ hull: 'courier', fitted: {} }).lockTime },
       { code: 'MIN', label: 'Mining', get: (i) => i.stats.miningRate, fmt: (v) => `×${r2(v)}`, fmtDiff: (v) => `${r2(v)}` },
+      { code: 'INI', label: 'Initiative', get: (i) => i.stats.initiativePlus || 0, fmt: (v) => `+${Math.round(v)}`, fmtDiff: (v) => `${Math.round(v)}` },
+      { code: 'EVA', label: 'Evasion', get: (i) => i.stats.evasionPlus || 0, fmt: (v) => `+${pct(v)}`, fmtDiff: pct },
     ],
     engine: [
       { code: 'SPD', label: 'Top speed', get: (i) => i.stats.maxSpeed, fmt: String, fmtDiff: String },
@@ -291,6 +293,7 @@ const StationMenu = (() => {
       { code: 'EVA', label: 'Evasion', get: (i) => i.stats.evasion, fmt: pct, fmtDiff: pct },
     ],
     scanner: [
+      { code: 'INI', label: 'Initiative', get: (i) => i.stats.sensorRange + i.stats.pingRange + (i.stats.initiativePlus || 0), fmt: k1, fmtDiff: k1 },
       { code: 'IDN', label: 'Identify', get: (i) => i.stats.sensorRange, fmt: k1, fmtDiff: k1 },
       { code: 'PNG', label: 'Ping', get: (i) => i.stats.pingRange, fmt: k1, fmtDiff: k1 },
       { code: 'LCK', label: 'Lock range', get: (i) => i.stats.lockRange, fmt: k1, fmtDiff: k1, none: Loadout.stats({ hull: 'courier', fitted: {} }).lockRange },

@@ -62,12 +62,17 @@ const Loot = (() => {
   const BASE_IDS = Object.keys(BASES);
   // The stats rarity raises (its power), per slot: what the gear is for.
   // [stat, weight]: the share of the rarity's power that stat gets (accuracy and speed are dear).
-  const PRIMARY = { weapon: [['damage', 1]], shield: [['strength', 1], ['recharge', 1]], scanner: [['lockRange', 1]], engine: [['maxSpeed', 0.4], ['accel', 1]], computer: [['accuracy', 0.25], ['miningRate', 1]] };
+  // Only stats that count in a fight: the scanner's reach is its initiative (combat/combat.js period),
+  // the computer's accuracy its hit chance. (Lock range and lock time count only in real time or
+  // mining, so rarity leaves them be.)
+  const PRIMARY = { weapon: [['damage', 1]], shield: [['strength', 1], ['recharge', 1]], scanner: [['sensorRange', 1], ['pingRange', 1]], engine: [['maxSpeed', 0.4], ['accel', 1]], computer: [['accuracy', 0.25]] };
   // How far a stat may go (as rules/loadout.js LIMITS).
   const LIMITS = { accuracy: [0, 0.99], evasion: [0, 0.6], lockTime: [0.2, Infinity], arc: [0, 360] };
 
   // [id, name, kind, slots ('any': every slot), stat, [lo, hi]]: a share added (lockTime: taken
-  // off), or for hullPlus flat hull points. The range is at item level 50; lower items roll less.
+  // off), or flat (FLAT: hullPlus hull points, initiativePlus initiative, evasionPlus evasion, each
+  // added to the ship's: rules/loadout.js stats). The range is at item level 50; lower items roll less.
+  // Every affix is on a stat that counts in a fight on the timeline (combat/combat.js).
   const AFFIXES = [
     ['overcharged', 'Overcharged', 'prefix', ['weapon'], 'damage', [0.06, 0.2]],
     ['rapid', 'Rapid', 'prefix', ['weapon'], 'fireRate', [0.05, 0.16]],
@@ -83,17 +88,20 @@ const Loot = (() => {
     ['surging', 'Surging', 'prefix', ['engine'], 'accel', [0.06, 0.18]],
     ['agile', 'Agile', 'prefix', ['engine'], 'turnRate', [0.05, 0.15]],
     ['elusion', 'of Elusion', 'suffix', ['engine'], 'evasion', [0.08, 0.25]],
+    ['gale', 'of the Gale', 'suffix', ['engine'], 'accel', [0.05, 0.15]],
     ['keen', 'Keen', 'prefix', ['scanner'], 'sensorRange', [0.08, 0.25]],
-    ['farsighted', 'Far-sighted', 'prefix', ['scanner'], 'lockRange', [0.06, 0.2]],
     ['echoes', 'of Echoes', 'suffix', ['scanner'], 'pingRange', [0.08, 0.25]],
+    ['sight', 'of Sight', 'suffix', ['scanner'], 'sensorRange', [0.06, 0.2]],
     ['precise', 'Precise', 'prefix', ['computer'], 'accuracy', [0.02, 0.07]],
-    ['quicklock', 'Quick-locking', 'prefix', ['computer'], 'lockTime', [0.06, 0.2]],
-    ['prospector', 'of the Prospector', 'suffix', ['computer'], 'miningRate', [0.08, 0.25]],
     ['focus', 'of Focus', 'suffix', ['computer'], 'accuracy', [0.02, 0.06]],
+    ['overclocked', 'Overclocked', 'prefix', ['computer', 'scanner'], 'initiativePlus', [1500, 6000]],
+    ['haste', 'of Haste', 'suffix', ['computer', 'scanner'], 'initiativePlus', [1200, 5000]],
+    ['evasion', 'of Evasion', 'suffix', ['computer', 'shield'], 'evasionPlus', [0.015, 0.05]],
     ['armoured', 'Armoured', 'prefix', 'any', 'hullPlus', [8, 45]],
     ['bastion', 'of the Bastion', 'suffix', 'any', 'hullPlus', [6, 36]],
   ].map(([id, name, kind, slots, stat, range]) => ({ id, name, kind, slots, stat, range }));
   const AFFIX = Object.fromEntries(AFFIXES.map((a) => [a.id, a]));
+  const FLAT = new Set(['hullPlus', 'initiativePlus', 'evasionPlus']);
   // A Legendary's own name, by base.
   const LEGENDARY = {
     laser: ['Sunspear', 'Halcyon Lance', 'Quiet Meridian'],
@@ -186,21 +194,24 @@ const Loot = (() => {
     if (B.stats.vs) stats.vs = { ...B.stats.vs };
     for (const [k, g] of Object.entries(B.grow)) stats[k] = stats[k] * (1 + g * (ilvl - 1));
     for (const [k, w] of PRIMARY[B.slot]) stats[k] = stats[k] * (1 + (R.power - 1) * w);
-    // Affixes: never two on one stat; at most two prefixes and two suffixes.
+    // Affixes: never two on one stat; two prefixes and two suffixes at most, unless the stats left
+    // are all of one kind.
     const affixes = [];
     const scale = 0.55 + 0.45 * (ilvl / MAX_ILVL);
     const pool = AFFIXES.filter((a) => a.slots === 'any' || a.slots.includes(B.slot));
     for (let n = 0; n < R.affixes; n++) {
       const kinds = { prefix: affixes.filter((a) => AFFIX[a.id].kind === 'prefix').length, suffix: affixes.filter((a) => AFFIX[a.id].kind === 'suffix').length };
-      const open = pool.filter((a) => kinds[a.kind] < 2 && !affixes.some((x) => AFFIX[x.id].stat === a.stat));
+      const fresh = pool.filter((a) => !affixes.some((x) => AFFIX[x.id].stat === a.stat));
+      const balanced = fresh.filter((a) => kinds[a.kind] < 2);
+      const open = balanced.length ? balanced : fresh; // a third of one kind rather than one affix short
       if (!open.length) break;
       const a = pick(r, open);
       const raw = (a.range[0] + (a.range[1] - a.range[0]) * r()) * scale;
-      const value = a.stat === 'hullPlus' ? Math.round(raw) : Math.round(raw * 1000) / 1000;
+      const value = a.stat === 'hullPlus' || a.stat === 'initiativePlus' ? Math.round(raw) : Math.round(raw * 1000) / 1000;
       affixes.push({ id: a.id, name: a.name, stat: a.stat, value });
     }
     for (const a of affixes) {
-      if (a.stat === 'hullPlus') stats.hullPlus = (stats.hullPlus || 0) + a.value;
+      if (FLAT.has(a.stat)) stats[a.stat] = (stats[a.stat] || 0) + a.value;
       else if (a.stat === 'lockTime') stats.lockTime *= 1 - a.value;
       else stats[a.stat] *= 1 + a.value;
     }
@@ -209,7 +220,7 @@ const Loot = (() => {
       if (k === 'vs') continue;
       const [lo, hi] = LIMITS[k] || [0, Infinity];
       const c = clamp(v, lo, hi);
-      stats[k] = ['accuracy', 'evasion', 'lockTime'].includes(k) ? Math.round(c * 1000) / 1000 : ['turnRate', 'fireRate', 'miningRate'].includes(k) ? Math.round(c * 100) / 100 : ['damage', 'recharge'].includes(k) ? Math.round(c * 10) / 10 : Math.round(c);
+      stats[k] = ['accuracy', 'evasion', 'evasionPlus', 'lockTime'].includes(k) ? Math.round(c * 1000) / 1000 : ['turnRate', 'fireRate', 'miningRate'].includes(k) ? Math.round(c * 100) / 100 : ['damage', 'recharge'].includes(k) ? Math.round(c * 10) / 10 : Math.round(c);
     }
     const prefix = affixes.find((a) => AFFIX[a.id].kind === 'prefix'), suffix = affixes.find((a) => AFFIX[a.id].kind === 'suffix');
     const legendary = R.id === 'legendary' ? LEGENDARY[spec.base][spec.seed % LEGENDARY[spec.base].length] : null;
@@ -242,9 +253,9 @@ const Loot = (() => {
   const STAT_LABEL = {
     damage: 'damage', fireRate: 'fire rate', range: 'range', arc: 'field of fire', strength: 'shield strength', recharge: 'shield recharge',
     maxSpeed: 'top speed', accel: 'acceleration', turnRate: 'turn rate', evasion: 'evasion', sensorRange: 'identify range', pingRange: 'ping range',
-    lockRange: 'lock range', accuracy: 'accuracy', lockTime: 'lock time', miningRate: 'mining', hullPlus: 'hull',
+    lockRange: 'lock range', accuracy: 'accuracy', lockTime: 'lock time', miningRate: 'mining', hullPlus: 'hull', initiativePlus: 'initiative', evasionPlus: 'evasion',
   };
-  const affixText = (a) => (a.stat === 'hullPlus' ? `+${a.value} hull` : a.stat === 'lockTime' ? `−${pct(a.value)} lock time` : `+${pct(a.value)} ${STAT_LABEL[a.stat]}`);
+  const affixText = (a) => (a.stat === 'hullPlus' ? `+${a.value} hull` : a.stat === 'initiativePlus' ? `+${a.value} initiative` : a.stat === 'evasionPlus' ? `+${pct(a.value)} evasion` : a.stat === 'lockTime' ? `−${pct(a.value)} lock time` : `+${pct(a.value)} ${STAT_LABEL[a.stat]}`);
 
   return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
 })();
