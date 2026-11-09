@@ -4981,6 +4981,22 @@ test('loot: drop tables, floors, the same drops from the same kill, bad-luck pro
   assert.deepStrictEqual(Loot.roll(mulberry32(1), { level: 2, cls: [] }).base.length > 0, true, 'an empty party is no bias');
 });
 
+test('loot: an offer is three kinds of gear to choose from, the first for the party, the same every time', () => {
+  for (let k = 0; k < 200; k++) {
+    const o = Loot.offer('warden', `w${k}`, { level: 3, seed: 2, cls: ['tank', 'tank', 'healer'] });
+    assert.strictEqual(o.length, Loot.OFFER);
+    assert.strictEqual(new Set(o.map((s) => s.base)).size, Loot.OFFER, 'each a different kind');
+    assert(o.every((s) => Loot.RANK[s.rarity] >= Loot.RANK.rare), 'the source\'s floor');
+    assert(Loot.CLASS_BIAS.tank.includes(o[0].base) || Loot.CLASS_BIAS.healer.includes(o[0].base), 'the first for a class in the party');
+    assert.strictEqual(new Set(o.map((s) => s.id)).size, Loot.OFFER);
+  }
+  assert.deepStrictEqual(Loot.offer('mission', 'j1', { level: 2, seed: 5 }), Loot.offer('mission', 'j1', { level: 2, seed: 5 }));
+  // Only the first roll counts toward bad-luck protection.
+  const pity = { rare: 0, epic: 0 };
+  Loot.offer('mission', 'j2', { level: 2, seed: 5, pity, floor: 'uncommon' });
+  assert(pity.rare <= 1 && pity.epic <= 1, JSON.stringify(pity));
+});
+
 test('loot: fitted like any gear: its stats and hull affixes count in the loadout', () => {
   const EQ = Loadout.EQUIPMENT;
   let spec, r = mulberry32(11);

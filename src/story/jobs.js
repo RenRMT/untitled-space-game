@@ -365,7 +365,7 @@ const Jobs = (() => {
     // Gear as the reward (rules/loot.js 'mission' drops), its rarity floor and luck by difficulty, at
     // the level of the hardest system the job goes to.
     const level = Math.max(1, ...job.systems.map((i) => galaxy.systems?.[i]?.level || 1));
-    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: ${{ uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
+    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: one of three, ${{ uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
     job.reward = { credits, loyalty: loyal, regard, gear };
     job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...regard].join(' · ');
     return job;

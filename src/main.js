@@ -84,9 +84,10 @@ import * as dungeon from './game/dungeon.js';
 import * as structures from './game/structures.js';
 import * as surfaceSquad from './game/surface-squad.js';
 import * as upgrades from './game/upgrades.js';
+import * as rewards from './game/rewards.js';
 
 const parts = [state, options, world, cargo, outfitting, vendor, progress, traffic, missions, jobs, docking, squad, mining, travel,
-  selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad, upgrades];
+  selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad, upgrades, rewards];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);

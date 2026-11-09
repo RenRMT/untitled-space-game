@@ -68,7 +68,9 @@ what you destroy, and push out from the safe core of your faction's space into h
   `src/game/jobs.js`): a raider patrol (Easy), a turret battery and a convoy escort with an ambush
   on the way (Normal), holding the station against waves with its turrets beside you (Normal or
   Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
-  tier, the pay and the gear rewarded. A contract handed in is posted again the next day.
+  tier, the pay and the gear rewarded: one of three pieces to choose, as a Warden's is (on the comms
+  box when flight is calm, or on the station screen: `src/game/rewards.js`). A contract handed in is
+  posted again the next day.
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and

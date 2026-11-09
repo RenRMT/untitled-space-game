@@ -328,7 +328,11 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)'), credits = game('cargo.credits');
   assert.ok(until('!__boss.alive', 60 * 20), 'the Warden destroyed');
   assert.ok(game('dungeonRun.bossDown'));
-  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear looted');
+  // Its gear: one of three to choose, each a different kind; taken, into the spare gear.
+  assert.ok(game('cargo.rewards.length === 1 && cargo.rewards[0].options.length === 3 && new Set(cargo.rewards[0].options.map((o) => o.base)).size === 3'), 'a reward to choose: three kinds of gear');
+  assert.ok(game('cargo.rewards[0].options.every((o) => Loot.RANK[o.rarity] >= Loot.RANK.rare)'), 'Rare or better, as a Warden drops');
+  game('chooseReward(cargo.rewards[0].key, 1)');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear && !game('cargo.rewards.length'), 'gear taken');
   assert.ok(game('cargo.credits') > credits, 'a bounty');
   assert.ok(!game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'its cargo paid as credits, nothing to drag aboard');
   // The way out: off the landing pad, then back onto it.
@@ -499,7 +503,11 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.ok(until('cargo.missions.status(__siege.id) === "ready"', 60), 'every wave counted (the last blows up a moment after its fatal hit)');
   const gear = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
   game('completeJob(__siege.id)');
-  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear as the reward');
+  assert.ok(game('cargo.rewards.length === 1 && cargo.rewards[0].options.length === Loot.OFFER'), 'gear as the reward: one of three to choose');
+  // Offered on the comms box once flight is calm (with a Later), and taken by an answer.
+  assert.ok(until('Comms.isOpen', 60 * 3), 'offered on the comms box');
+  game('Comms.choose(0)');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear && !game('cargo.rewards.length') && !game('Comms.isOpen'), 'taken, into the spare gear');
   // A battery: its turrets appear at its point and are counted as they go.
   game(`globalThis.__bat = cargo.board.list.find((j) => j.id.endsWith('/battery') && j.systems.length === 1); acceptJob(__bat.id, __bat.scope);
     const b = __bat.steps[0].base; placeShip(b.x + 3000, b.y); react(nearbyEntities(simTime))`);
@@ -508,6 +516,24 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'ready');
   game('completeJob(__bat.id)');
   assert.strictEqual(game('cargo.missions.status(__bat.id)'), 'done');
+  // Later: the offer goes away for a while and comes back; it waits in the save meanwhile.
+  assert.ok(until('Comms.isOpen', 60 * 3), 'offered');
+  game(`Comms.choose(Loot.OFFER)`);
+  assert.ok(!game('Comms.isOpen') && game('cargo.rewards.length') === 1, 'later: still waiting');
+  assert.ok(!until('Comms.isOpen', 60 * 5), 'not asked again at once');
+  const waiting = game('JSON.stringify(cargo.rewards)');
+  game(`for (const o of cargo.rewards[0].options) delete Loadout.EQUIPMENT[o.id]; readCargo({ loot: ownedLoot(), loadout: cargo.loadout, rewards: JSON.parse(${JSON.stringify(waiting)}) })`);
+  assert.ok(game(`JSON.stringify(cargo.rewards) === ${JSON.stringify(waiting)} && cargo.rewards[0].options.every((o) => !!Loadout.EQUIPMENT[o.id])`), 'kept with the save, its items remade');
+  // Docked: on the Missions and Ship tabs, each option with Take.
+  const before = game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)');
+  game(`placeBeside(startStation()); dock(startStation()); StationMenu.showTab('missions')`);
+  assert.ok(/Choose one/.test(onStation()), 'the reward on the Missions tab');
+  game(`StationMenu.showTab('ship')`);
+  assert.ok(/Choose one/.test(onStation()), 'and the Ship tab');
+  pressOnStation('Take');
+  assert.ok(!game('cargo.rewards.length') && game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') === before + 1, 'taken');
+  assert.ok(!/Choose one/.test(onStation()), 'gone from the screen');
+  game('launch()');
 });
 
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {

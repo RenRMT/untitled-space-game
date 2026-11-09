@@ -19,6 +19,7 @@
 //               member(id) -> { loadout, upgrades, gear, mods, android: true, canMake, fit, unfit, fitMod, removeMod } }:
 //               the ship's equipment and mods, spare gear and mods, a
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
+// rewards: { list() -> [{ key, from, options: [{ id, item, up }] }], choose(key, i) }: gear rewards to choose (game/rewards.js).
 // vendor: game/vendor.js: what the station's outfitter sells, and buying it.
 // pilot: game/progress.js pilot: the level, experience and talents, and taking them.
 // kit: { [ability id]: charges }: consumables for abilities in a fight (rules/abilities.js).
@@ -647,6 +648,7 @@ const StationMenu = (() => {
     const stats = perfStats(ship, slots, o.loadout.hull);
     // The hold isn't shown here: it's on Trade, where it's bought and sold.
     return [
+      renderRewards(),
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       pilotRow(),
@@ -836,6 +838,20 @@ const StationMenu = (() => {
   }
 
   // Missions: hand-ins first, then those in progress, then new offers; the completed folded away.
+  // Gear rewards waiting to be chosen (game/rewards.js), each a head and its options with Take:
+  // on the Missions tab (where a contract is handed in) and the Ship tab.
+  function renderRewards() {
+    const list = ctx.rewards?.list() || [];
+    if (!list.length) return null;
+    return list.map((w) => section('Reward', Kit.head(`Choose one · ${w.from}`),
+      h('div', { class: 'ui-list' }, w.options.map(({ item, up }, i) => Kit.optionRow({
+        code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
+        tag: lootTag(item), tagTone: Loot.rarityOf(item.loot.rarity).color,
+        note: [up, lootNote(item)].filter(Boolean).join(' ') || null,
+        action: Kit.button('Take', act(() => ctx.rewards.choose(w.key, i)), { kind: 'primary', aria: `Take ${item.name}` }),
+      })))));
+  }
+
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
@@ -844,6 +860,7 @@ const StationMenu = (() => {
     lead('');
     return [
       reason ? Kit.callout(reason, 'var(--warn)') : null,
+      renderRewards(),
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
       h('div', { class: 'ui-list' }, current.map(missionCard),
         done.length ? [Kit.disclosure({ label: `Completed · ${done.length}`, open: doneOpen, onToggle: () => { doneOpen = !doneOpen; refresh(); } }),

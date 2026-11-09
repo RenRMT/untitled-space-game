@@ -28,8 +28,9 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { cargo, hold, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { gainXP } from './progress.js';
+import { offerReward } from './rewards.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -499,9 +500,9 @@ export function completeJob(id) {
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
   Reputation.earn(cargo.rep, J);
-  // The gear it rewards (rules/loot.js 'mission' drops, by its difficulty).
+  // The gear it rewards, one of three to choose (rules/loot.js 'mission' offer, by its difficulty: game/rewards.js).
   const G = J.reward.gear;
-  if (G) for (const spec of Loot.drops('mission', `${id}:${log().attempt(id)}`, { level: G.level, floor: G.floor, luck: G.luck, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  if (G) offerReward(J.title, `job:${id}:${log().attempt(id)}`, Loot.offer('mission', `${id}:${log().attempt(id)}`, { level: G.level, floor: G.floor, luck: G.luck, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }));
   jobRun.built.delete(id);
   clearDefence(id);
   if (cargo.track === id) cargo.track = null;

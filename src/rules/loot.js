@@ -30,6 +30,7 @@
 //   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cap? (the highest rarity: a vendor's stock), cls? (a class, or the
 //                                    party's: a list, one picked a roll), pity?, base?, key? }
 //   Loot.drops(source, key, o) -> [spec]   o: { level, seed, cls?, pity?, luck? }: a source's drops
+//   Loot.offer(source, key, o) -> [spec]   o as drops: OFFER items of different bases, one to be chosen
 //   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { id, base, ilvl, rarity,
 //                                    affixes: [{ id, name, stat, value }], legendary?, power? } } (as Loadout.EQUIPMENT)
 //   Loot.register(spec, EQUIPMENT)  makes it and files it under its id (rules/loadout.js EQUIPMENT)
@@ -204,6 +205,22 @@ const Loot = (() => {
     return out;
   }
 
+  // A reward to choose from (a contract's, a Warden's): OFFER items from a source's table, each of a
+  // different base, the first for a class in the party (as smart loot), each rolled on its own
+  // (floor and luck as the source's). Only the first counts toward bad-luck protection. key: what
+  // it's for (the same offer every time).
+  const OFFER = 3;
+  function offer(source, key, o = {}) {
+    const S = SOURCES[source] || SOURCES.mission;
+    const r = mulberry32(hashInt(seedToInt(String(o.seed ?? 0)), seedToInt(String(key)), 0x0ff3));
+    const classes = Array.isArray(o.cls) ? o.cls : o.cls ? [o.cls] : [];
+    const cls = classes.length ? pick(r, classes) : null;
+    const bases = [];
+    if (cls && CLASS_BIAS[cls]) bases.push(pick(r, CLASS_BIAS[cls]));
+    while (bases.length < OFFER) { const b = pick(r, BASE_IDS); if (!bases.includes(b)) bases.push(b); }
+    return bases.map((base, i) => roll(r, { level: o.level, luck: S.luck * (o.luck || 1), floor: o.floor || S.floor, pity: i === 0 ? o.pity : undefined, base, key: `${key}#o${i}` }));
+  }
+
   // The item a spec makes: base stats at its item level, raised by its rarity, then its affixes.
   function make(spec) {
     const B = BASES[spec.base];
@@ -279,7 +296,7 @@ const Loot = (() => {
 
   const powerOf = (id) => Object.values(POWERS).find((p) => p.id === id) || null;
 
-  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, POWERS, powerOf, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
+  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, POWERS, powerOf, OFFER, offer, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
 })();
 
 export { Loot };

@@ -58,14 +58,15 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
 // loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
-// Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }).
+// Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }); rewards:
+// gear rewards still to choose ([{ key, from, options: [spec] }]: game/rewards.js).
 // razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
-  loot: {}, lootPity: { rare: 0, epic: 0 }, razed: {},
+  loot: {}, lootPity: { rare: 0, epic: 0 }, rewards: [], razed: {},
 };
 // ?dev (for testing): every station service open, even in a fresh game, without touching the save
 // (the jobs board). Combat god mode is the same switch (game/combat.js).
@@ -131,6 +132,7 @@ export function loadCargo(galaxy) {
   cargo.gear = {};
   cargo.loot = {};
   cargo.lootPity = { rare: 0, epic: 0 };
+  cargo.rewards = [];
   cargo.razed = {};
   cargo.mods = {};
   cargo.kit = {};
@@ -359,6 +361,10 @@ export function readCargo(d, galaxy = null) {
   cargo.loot = Loot.read(d.loot);
   for (const spec of Object.values(cargo.loot)) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.lootPity && typeof d.lootPity === 'object') cargo.lootPity = { rare: Math.max(0, d.lootPity.rare | 0), epic: Math.max(0, d.lootPity.epic | 0) };
+  cargo.rewards = (Array.isArray(d.rewards) ? d.rewards : []).map((w) => w && typeof w.key === 'string' && Array.isArray(w.options)
+    && { key: w.key, from: String(w.from || 'A reward'), options: w.options.map((s) => s && Loot.read({ [s.id]: s })[s.id]).filter(Boolean) })
+    .filter((w) => w && w.options.length);
+  for (const w of cargo.rewards) for (const spec of w.options) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.razed && typeof d.razed === 'object') for (const [key, t] of Object.entries(d.razed)) if (typeof key === 'string' && Number.isFinite(t)) cargo.razed[key] = t;
   // Before the squad: what its programs may use.
   cargo.gambits = Array.isArray(d.gambits) ? [...new Set(d.gambits.filter((id) => Vendor.isGambit(id)))] : [];
@@ -418,7 +424,7 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
-  loot: ownedLoot(), lootPity: cargo.lootPity, razed: cargo.razed,
+  loot: ownedLoot(), lootPity: cargo.lootPity, rewards: cargo.rewards, razed: cargo.razed,
 }), 1000);
 // The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
 export function ownedLoot() {

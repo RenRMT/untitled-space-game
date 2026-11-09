@@ -35,6 +35,7 @@ import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
 import { gainXP } from './progress.js';
+import { offerReward } from './rewards.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
 
@@ -180,8 +181,11 @@ export function guardianDown(g) {
   const paid = CombatCore.credits(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4))
     + (g.boss ? CombatCore.credits(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4) : 0);
   cargo.credits += paid;
-  const gear = Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity });
+  // The Warden's gear is one of three to choose (game/rewards.js); a guardian's goes straight aboard.
+  const o = { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity };
+  const gear = g.boss ? [] : Loot.drops(SOURCE[g.role] || 'sentinel', g.key, o);
   for (const spec of gear) lootNotice(takeLoot(spec));
+  if (g.boss) offerReward(`The ${g.name}`, `warden:${g.key}:${R.field >>> 0}`, Loot.offer('warden', g.key, o));
   tallyKill({ credits: g.boss ? 0 : paid, loot: gear }); // said when the fight is won (game/combat.js); the Warden's hoard with its bounty
   if (g.boss) {
     const bounty = GUARD.bounty * level;
