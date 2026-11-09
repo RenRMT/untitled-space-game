@@ -15,7 +15,7 @@
 // hold: { credits, items, capacity, free, count(kind), buy(kind, price, label), sell(kind, price) }.
 // ship: Loadout.stats() of the ship as it is (kept up to date as gear changes).
 // outfitting: { loadout, upgrades, gear, mods, canMake(id), sellPrice(id), hullPrice(id), tradeIn(), hullBlocked(id),
-//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id),
+//               fit(slot, id), unfit(slot), fitMod(slot, id), removeMod(slot, i), sell(id), buyHull(id), upgrade(id),
 //               member(id) -> { loadout, upgrades, gear, mods, android: true, canMake, fit, unfit, fitMod, removeMod } }:
 //               the ship's equipment and mods, spare gear and mods, a
 //               piece, the shipyard, and each squad member's ship (game/outfitting.js).
@@ -462,7 +462,8 @@ const StationMenu = (() => {
         return Kit.optionRow({
           code: SLOT_CODE[item.slot], name: lineName(item), tier: item.tier, vals: valuesOf(item),
           tag: [item.npc ? 'Android' : '', item.loot ? lootTag(item) : '', o.gear[id] > 1 ? `×${o.gear[id]}` : ''].filter(Boolean).join(' '),
-          tagTone: item.npc ? 'cyan' : item.loot ? Loot.rarityOf(item.loot.rarity).color : null, note: item.loot ? lootNote(item) || null : null,
+          tagTone: item.npc ? 'cyan' : item.loot ? Loot.rarityOf(item.loot.rarity).color : null,
+          note: [o.upgrade?.(id) || '', item.loot ? lootNote(item) : ''].filter(Boolean).join(' ') || null,
           action: item.npc ? h('span', { class: 'lock' }, 'Squad only') : Kit.button('Sell', act(() => o.sell(id)), { kind: 'ghost', price: o.sellPrice(id), aria: `Sell ${item.name} for ${o.sellPrice(id)} credits` }),
         });
       }))));

@@ -27,6 +27,7 @@ import { Missions } from '../story/missions.js';
 import { Galaxy } from '../world/galaxy.js';
 import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
+import { upgradeLine } from './upgrades.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
@@ -476,12 +477,13 @@ export const repairs = {
   },
 };
 
-// A piece of loot picked up or handed over, said in its rarity's tone.
+// A piece of loot picked up or handed over, said in its rarity's tone, and whom it's an upgrade for
+// (game/upgrades.js), if anyone: that's what matters most when it drops.
 const RARITY_TONE = { common: 'info', uncommon: 'good', rare: 'good', epic: 'good', legendary: 'good' };
 export function lootNotice(item) {
   if (!item) return;
-  const R = Loot.rarityOf(item.loot.rarity);
-  notify(`${R.name} loot: ${item.name} · item level ${item.loot.ilvl} · in your spare gear`, item.loot.rarity === 'common' ? 2.5 : 4, { tone: RARITY_TONE[R.id] });
+  const R = Loot.rarityOf(item.loot.rarity), up = upgradeLine(item.loot.id);
+  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${up ? ` · ${up}` : ' · in your spare gear'}`, up || item.loot.rarity !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
 }
 
 // Floating items dragged onto the ship (game/input.js) are picked up: trade goods into the hold

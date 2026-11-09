@@ -10,6 +10,7 @@ import { SolarSystem } from '../world/solar-system.js';
 import { addTo, applyShip, cargo, pilotLevel, saveCargo, shipUpgrades } from './cargo.js';
 import { stopMining } from './mining.js';
 import { memberOf, refreshWing, snapWings } from './squad.js';
+import { upgradeLine } from './upgrades.js';
 import { SHIP, autopilot, cam, debris, notify, particles, ship } from './state.js';
 import { world } from './world.js';
 
@@ -88,6 +89,7 @@ export const outfitting = {
   get mods() { return cargo.mods; },
   android: false,
   sellPrice: (id) => Math.round(Loadout.EQUIPMENT[id].price * SELL_BACK),
+  upgrade: (id) => upgradeLine(id), // whom spare gear is an upgrade for (game/upgrades.js), or ''
   tradeIn: () => Math.round(Loadout.HULLS[cargo.loadout.hull].price * SELL_BACK),
   hullPrice: (id) => Math.max(0, Loadout.HULLS[id].price - outfitting.tradeIn()),
   ...playerFit,

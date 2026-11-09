@@ -76,7 +76,9 @@ what you destroy, and push out from the safe core of your faction's space into h
   guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
   each worth a look), bad-luck protection (Rare at least after a
   long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
-  dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
+  dropped, goes into the spare gear (it takes no hold room) and fits like any gear. When it drops, and
+  over a selected drop and in the spare gear, it says whom it's an upgrade for and by how much: your
+  ship or a squad member's, by how much stronger it makes that ship in a fight (`src/game/upgrades.js`).
 - **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
   out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
   the race and for each surface's deposits). `notes/hazards.md` was their plan.

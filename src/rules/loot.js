@@ -28,7 +28,7 @@
 // its affixes the same way every time.
 //   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cap? (the highest rarity: a vendor's stock), cls?, pity?, base?, key? }
 //   Loot.drops(source, key, o) -> [spec]   o: { level, seed, cls?, pity?, luck? }: a source's drops
-//   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { base, ilvl, rarity,
+//   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { id, base, ilvl, rarity,
 //                                    affixes: [{ id, name, stat, value }], legendary? } } (as Loadout.EQUIPMENT)
 //   Loot.register(spec, EQUIPMENT)  makes it and files it under its id (rules/loadout.js EQUIPMENT)
 //   Loot.read(d) -> { [id]: spec }  a saved collection, checked
@@ -233,7 +233,7 @@ const Loot = (() => {
     const price = Math.round(((lo + (hi - lo) * frac) * R.price * (B.slot === 'weapon' ? 1.2 : 1)) / 10) * 10;
     return {
       slot: B.slot, name, line: `loot-${spec.base}`, tier, stats, price,
-      loot: { base: spec.base, ilvl, rarity: R.id, affixes, ...(legendary ? { legendary: B.name } : {}) },
+      loot: { id: spec.id, base: spec.base, ilvl, rarity: R.id, affixes, ...(legendary ? { legendary: B.name } : {}) },
     };
   }
 

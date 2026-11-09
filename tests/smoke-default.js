@@ -438,6 +438,16 @@ test('loot: a station destroyed drops gear that floats, is picked up into the sp
   game(`const d = cargo.drops.find(__mine); globalThis.__lootId = d.spec.id; placeShip(d.x, d.y); collectItems(nearbyEntities(simTime))`);
   assert.ok(game('cargo.gear[__lootId] === 1 && !!Loadout.EQUIPMENT[__lootId].loot'), 'in the spare gear, as equipment');
   assert.ok(game(`/loot/.test(toast.text)`), 'announced');
+  // Whom gear is an upgrade for: a Legendary laser far above the starting gear is one for you; the
+  // gear you fly with is none.
+  game(`globalThis.__big = Loot.roll(() => 0.5, { level: 5, floor: 'legendary', base: 'laser' }); Loot.register(__big, Loadout.EQUIPMENT)`);
+  assert.ok(game(`upgradesFor(__big.id).some((u) => u.member === null && u.gain > 0.1)`), 'an upgrade for you');
+  assert.ok(game(`/▲ \\+\\d+% for you/.test(upgradeLine(__big.id))`), game('upgradeLine(__big.id)'));
+  assert.ok(game(`upgradesFor(__big.id).find((u) => u.member === null).need > pilotLevel()`), 'not fittable yet: it asks for a higher level');
+  assert.ok(game(`Object.values(cargo.loadout.fitted).filter(Boolean).every((id) => !upgradesFor(id).some((u) => u.member === null))`), 'what is fitted is no upgrade on itself');
+  game(`takeLoot(__big); lootNotice(Loadout.EQUIPMENT[__big.id])`);
+  assert.ok(game(`/▲/.test(toast.text)`), game('toast.text'));
+  game(`delete cargo.gear[__big.id]; delete cargo.loot[__big.id]`);
   // Fitted, then saved and read back: the same item.
   game(`const slot = Loadout.slotsOf(cargo.loadout.hull).find((x) => x.type === Loadout.EQUIPMENT[__lootId].slot).id; outfitting.fit(slot, __lootId); applyShip()`);
   assert.ok(game('Object.values(cargo.loadout.fitted).includes(__lootId)'), 'fitted');

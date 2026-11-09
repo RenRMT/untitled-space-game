@@ -4974,6 +4974,18 @@ test('loot: every affix and every rarity boost is on a stat that counts in a fig
   for (const id of ['Lscommon', 'Lslegendary', spec.id]) delete Loadout.EQUIPMENT[id];
 });
 
+test('Combat.rating: more damage, more hull, more evasion or quicker turns each rate a ship higher', () => {
+  const base = Loadout.stats(Loadout.starter('courier')), r0 = Combat.rating(base);
+  assert(r0 > 0);
+  const up = (patch) => Combat.rating({ ...base, ...patch });
+  assert(up({ weapons: base.weapons.map((w) => ({ ...w, damage: w.damage * 1.2 })) }) > r0, 'damage');
+  assert(up({ hull: base.hull + 50 }) > r0, 'hull');
+  assert(up({ evasion: base.evasion + 0.05 }) > r0, 'evasion');
+  assert(up({ initiative: base.initiative + 8000 }) > r0, 'initiative');
+  assert(up({ accuracy: base.accuracy + 0.05 }) > r0, 'accuracy');
+  assert(up({ weapons: [] }) < r0, 'unarmed');
+});
+
 // ---------- Structures (rules/structures.js) ----------
 
 test('structures: 0-3 turrets a station, more in safe space; turrets tougher than ships, stations tougher still', () => {

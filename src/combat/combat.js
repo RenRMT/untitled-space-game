@@ -25,6 +25,7 @@
 // The flight view (game/combat.js) runs it as a combat mode (combat/combat-core.js says what a mode
 // offers) and draws it; this module moves the enemies and does the numbers. Deterministic for a
 // given rng.
+//   Combat.rating(stats) -> number   how strong a loadout is in a fight, to compare two by
 // ES module (`Combat`); also runs in Node (the tests).
 
 import { CombatCore } from './combat-core.js';
@@ -252,7 +253,20 @@ const Combat = (() => {
     log,
   };
 
-  return { config, period, charge, shotsPerTurn, hitChance, create, join, setFocus, step, simulate, alive, mode };
+  // How strong a ship's stats (rules/loadout.js stats) are on the timeline, as one number to compare
+  // loadouts by (a loot drop against what's fitted: game/upgrades.js): what it deals a second (its
+  // weapons against ships, by its accuracy against an average evasion), times what it takes to bring
+  // down (hull, shields and their recharge, over what its evasion lets through), times how quickly
+  // its turns come round. Only the ratio of two ratings means anything.
+  const AVERAGE_EVASION = 0.15, RECHARGE_WORTH = 6;
+  function rating(st) {
+    const hit = clamp((st.accuracy || 0) - AVERAGE_EVASION, 0.05, 0.95);
+    const offense = 0.5 + (st.weapons || []).reduce((t, w) => t + w.damage * w.fireRate * (w.vs?.ship ?? 1), 0) * hit;
+    const defense = ((st.hull || 0) + (st.shield || 0) + RECHARGE_WORTH * (st.shieldRecharge || 0)) / (1 - clamp(st.evasion || 0, 0, 0.6));
+    return (offense * defense) / period({ stats: st });
+  }
+
+  return { config, period, charge, shotsPerTurn, hitChance, rating, create, join, setFocus, step, simulate, alive, mode };
 })();
 
 export { Combat };
