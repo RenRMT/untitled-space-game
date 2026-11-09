@@ -263,7 +263,7 @@ const StationMenu = (() => {
   const lineName = (item) => (item.loot ? item.name : Loadout.LINES[item.line].name); // the name without its Mk (loot: its own name)
   // Loot (rules/loot.js): its rarity and item level as a tag, in the rarity's colour; what its affixes add.
   const lootTag = (item) => `${Loot.rarityOf(item.loot.rarity).name} · ilvl ${item.loot.ilvl}`;
-  const lootNote = (item) => [item.loot.legendary ? `Legendary ${item.loot.legendary.toLowerCase()}.` : '', ...item.loot.affixes.map((a) => `${a.name}: ${Loot.affixText(a)}.`)].filter(Boolean).join(' ');
+  const lootNote = (item) => [item.loot.legendary ? `Legendary ${item.loot.legendary.toLowerCase()}.` : '', item.loot.power ? `${Loot.powerOf(item.loot.power).name}: ${Loot.powerOf(item.loot.power).text}.` : '', ...item.loot.affixes.map((a) => `${a.name}: ${Loot.affixText(a)}.`)].filter(Boolean).join(' ');
   const deg = (r) => Math.round((r * 180) / Math.PI);
   const r2 = (v) => Math.round(v * 100) / 100;
   const pct = (v) => `${Math.round(v * 100)}%`;

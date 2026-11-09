@@ -72,7 +72,8 @@ what you destroy, and push out from the safe core of your faction's space into h
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
-  stronger stats the rarer, drop tables per source (fighters, turrets, stations, outposts, dungeon
+  stronger stats the rarer (a Legendary also has a power, a rule of the fight it bends: Breaker,
+  Overkill, Meltdown, Second wind, Foresight, Afterburn or Insight, by its base), drop tables per source (fighters, turrets, stations, outposts, dungeon
   guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
   each worth a look), bad-luck protection (Rare at least after a
   long dry run) and drops biased toward your party's classes (yours and your squad's). Loot floats in its rarity's colour where it

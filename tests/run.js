@@ -1963,6 +1963,62 @@ off('?pirates', 'a breach: shields down knock the gauge back and cancel a heavy 
   assert(hit.heavy && hit.damage === hit.hits * FOE1.weapons[0].damage * Combat.config.heavyDamage, 'heavy damage');
 });
 
+off('?pirates', 'Legendary powers bend the timeline\'s rules for whoever flies one', () => {
+  const pw = (...powers) => ({ ...COURIER_STATS(), powers });
+  // Every Legendary has a power, and fitted it's in the ship's stats.
+  for (const base of Loot.BASE_IDS) {
+    const item = Loot.make({ id: 'Lp', base, ilvl: 30, rarity: 'legendary', seed: 4 });
+    assert(Loot.powerOf(item.loot.power), `${base} has a power`);
+  }
+  const leg = Loot.register({ id: 'Lpow', base: 'laser', ilvl: 30, rarity: 'legendary', seed: 4 }, Loadout.EQUIPMENT), l = Loadout.starter('courier');
+  l.fitted['weapon-1'] = 'Lpow';
+  assert.deepStrictEqual(Loadout.stats(l).powers, [leg.loot.power]);
+  delete Loadout.EQUIPMENT.Lpow;
+  // Breaker: a breach knocks the gauge back twice as far. Afterburn: not at all.
+  const knock = (me, foe) => {
+    const p = tl('player', me, 0), e = tl('e', { ...foe, hull: 500 }, 400, { fixed: true });
+    const s = Combat.create(always, p, [e], { focus: 'e' });
+    Object.assign(e, { gauge: 0.9, shield: 1, intent: { kind: 'volley' } });
+    p.gauge = 0.999;
+    Combat.step(s, 1 / 30);
+    return 0.9 - e.gauge;
+  };
+  const plain = knock(COURIER_STATS(), FOE1);
+  assert(Math.abs(knock(pw('breaker'), FOE1) - 2 * plain) < 0.05, 'breaker');
+  assert(knock(COURIER_STATS(), { ...FOE1, powers: ['afterburn'] }) < 0.05, 'afterburn');
+  // Overkill and meltdown: more damage on a ship charging a heavy shot, or with its shields down.
+  const dealt = (me, o) => {
+    const p = tl('player', me, 0), e = tl('e', { ...FOE1, hull: 5000 }, 400, { fixed: true });
+    const s = Combat.create(always, p, [e], { focus: 'e' });
+    Object.assign(e, { gauge: 0, shield: 0, intent: { kind: o.heavy ? 'heavy' : 'volley' } });
+    p.gauge = 0.999;
+    return Combat.step(s, 1 / 30).filter((x) => x.type === 'shot' && x.from === 'player').reduce((t, x) => t + x.damage, 0);
+  };
+  const base = dealt(COURIER_STATS(), {});
+  assert(dealt(pw('overkill'), { heavy: true }) > base * 1.4 && dealt(pw('overkill'), {}) === base, 'overkill only on a heavy shot');
+  assert(dealt(pw('meltdown'), {}) > base * 1.2, 'meltdown with its shields down');
+  // Insight: more hit chance on a ship charging a heavy shot.
+  const p = tl('player', pw('insight'), 0), e = tl('e', { ...FOE1, evasion: 0.5 }, 400, { fixed: true }), w = p.stats.weapons[0];
+  e.intent = { kind: 'volley' };
+  const h0 = Combat.hitChance(p, w, e);
+  e.intent = { kind: 'heavy' };
+  assert(Combat.hitChance(p, w, e) > h0, 'insight');
+  // Foresight: a fight starts with the gauge full, even an ambush.
+  assert.strictEqual(Combat.create(always, tl('player', pw('foresight'), 0), [tl('e', FOE1, 400, { fixed: true })], {}).player.gauge, 1, 'foresight');
+  // Second wind: the first time the shields go down, half come back; the second time, a breach.
+  const q = tl('player', { ...pw('second-wind'), shield: 100 }, 0), f = tl('f', { ...FOE1, weapons: [{ name: 'Gun', damage: 500, fireRate: 1, range: 1000, arc: 360 }] }, 400, { fixed: true });
+  const s2 = Combat.create(always, q, [f], { focus: 'f' });
+  q.hull = q.stats.hull = 1e6;
+  Object.assign(f, { gauge: 0.9999, intent: { kind: 'volley' } });
+  const ev = Combat.step(s2, 1 / 30);
+  assert(ev.some((x) => x.type === 'power' && x.power === 'second-wind') && !ev.some((x) => x.type === 'breach'), 'second wind, no breach');
+  assert.strictEqual(q.shield, 50);
+  Object.assign(f, { gauge: 0.9999, intent: { kind: 'volley' } });
+  assert(Combat.step(s2, 1 / 30).some((x) => x.type === 'breach' && x.id === 'player'), 'once a fight');
+  // A power counts a little in a ship's rating.
+  assert(Combat.rating(pw('breaker')) > Combat.rating(COURIER_STATS()));
+});
+
 off('?pirates', 'the player switches to the next enemy when the focused one is destroyed', () => {
   const p = tl('player', COURIER_STATS(), 0);
   const a = tl('a', { ...FOE1, hull: 1, shield: 0, weapons: [] }, 300, { fixed: true }), b = tl('b', { ...FOE1, hull: 500, weapons: [] }, 350, { fixed: true });

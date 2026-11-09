@@ -9,7 +9,7 @@
 //   roll, the Mk the gear counts as (room for mods: rules/mods.js) and its price.
 // - Rarity (RARITIES): Common, Uncommon, Rare, Epic, Legendary, by weight. Rarer gear has stronger
 //   base stats (a Legendary as strong as a Common some nine item levels up) and more affixes (0..4);
-//   a Legendary has a name of its own.
+//   a Legendary has a name of its own and a power (POWERS: a rule of the fight it bends).
 // - Affixes (AFFIXES): prefixes and suffixes, each one stat a share better (a few: flat hull), rolled
 //   within a range that widens with the item level. An item never gets the same stat twice, and
 //   only affixes for its slot (or for any slot).
@@ -31,7 +31,7 @@
 //                                    party's: a list, one picked a roll), pity?, base?, key? }
 //   Loot.drops(source, key, o) -> [spec]   o: { level, seed, cls?, pity?, luck? }: a source's drops
 //   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { id, base, ilvl, rarity,
-//                                    affixes: [{ id, name, stat, value }], legendary? } } (as Loadout.EQUIPMENT)
+//                                    affixes: [{ id, name, stat, value }], legendary?, power? } } (as Loadout.EQUIPMENT)
 //   Loot.register(spec, EQUIPMENT)  makes it and files it under its id (rules/loadout.js EQUIPMENT)
 //   Loot.read(d) -> { [id]: spec }  a saved collection, checked
 //   Loot.affixText(a), Loot.rarityOf(id)
@@ -115,6 +115,18 @@ const Loot = (() => {
     scanner: ['All-Seeing Eye', 'Deep Listener', 'Lantern of Seven'],
     engine: ['Comet Rider', 'Long Night Drive', 'Gale of Ixion'],
     'ship-computer': ['Oracle Core', 'Cold Arithmetic', 'Mind of the Maze'],
+  };
+
+  // A Legendary's power, by base: a rule of the fight on the timeline (combat/combat.js) it bends for
+  // whoever flies it (the player or a squad member). Each is situational, so none is a must.
+  const POWERS = {
+    laser: { id: 'breaker', name: 'Breaker', text: 'taking a ship\'s shields down knocks its gauge back twice as far' },
+    'missile-launcher': { id: 'overkill', name: 'Overkill', text: '+50% damage to a ship charging a heavy shot' },
+    'plasma-cannon': { id: 'meltdown', name: 'Meltdown', text: '+25% damage to a ship whose shields are down' },
+    'shield-generator': { id: 'second-wind', name: 'Second wind', text: 'the first time your shields go down in a fight, half come back at once' },
+    scanner: { id: 'foresight', name: 'Foresight', text: 'every fight starts with your gauge full' },
+    engine: { id: 'afterburn', name: 'Afterburn', text: 'losing your shields never knocks your gauge back' },
+    'ship-computer': { id: 'insight', name: 'Insight', text: '+15% hit chance on a ship charging a heavy shot' },
   };
 
   // Credits to buy one, by Mk (rules/loadout.js PRICES), with a share between Mks by item level.
@@ -238,7 +250,7 @@ const Loot = (() => {
     const price = Math.round(((lo + (hi - lo) * frac) * R.price * (B.slot === 'weapon' ? 1.2 : 1)) / 10) * 10;
     return {
       slot: B.slot, name, line: `loot-${spec.base}`, tier, stats, price,
-      loot: { id: spec.id, base: spec.base, ilvl, rarity: R.id, affixes, ...(legendary ? { legendary: B.name } : {}) },
+      loot: { id: spec.id, base: spec.base, ilvl, rarity: R.id, affixes, ...(legendary ? { legendary: B.name, power: POWERS[spec.base].id } : {}) },
     };
   }
 
@@ -265,7 +277,9 @@ const Loot = (() => {
   };
   const affixText = (a) => (a.stat === 'hullPlus' ? `+${a.value} hull` : a.stat === 'initiativePlus' ? `+${a.value} initiative` : a.stat === 'evasionPlus' ? `+${pct(a.value)} evasion` : a.stat === 'lockTime' ? `−${pct(a.value)} lock time` : `+${pct(a.value)} ${STAT_LABEL[a.stat]}`);
 
-  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
+  const powerOf = (id) => Object.values(POWERS).find((p) => p.id === id) || null;
+
+  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, POWERS, powerOf, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
 })();
 
 export { Loot };

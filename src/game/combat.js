@@ -389,6 +389,10 @@ export function playEvents(s, events) {
       fight.fx.push({ type: 'number', delay: 0.2, t: 1.3, max: 1.3, at: ev.id, jx: 0, dy: -18, text: ev.cancelled ? 'CANCELLED' : 'BREACH', color: mine ? COLORS.hostile : ev.cancelled ? COLORS.good : COLORS.cyan, big: ev.cancelled });
       continue;
     }
+    if (ev.type === 'power') { // a Legendary's (rules/loot.js POWERS) shown where it worked
+      fight.fx.push({ type: 'number', delay: 0.2, t: 1.5, max: 1.5, at: ev.id, jx: 0, dy: -18, text: (Loot.powerOf(ev.power)?.name || ev.power).toUpperCase(), color: Loot.rarityOf('legendary').color, big: true });
+      continue;
+    }
     if (ev.type !== 'shot') continue;
     const d = ev.delay || 0, hit = d + look.after;
     if (ev.skill) fightLog(`${ev.from === 'player' ? 'You' : (s.allies || []).find((a) => a.id === ev.from)?.name || 'Enemy'}: ${Abilities.ABILITIES[ev.skill].name} · −${ev.damage}`);

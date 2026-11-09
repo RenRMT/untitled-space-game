@@ -487,7 +487,8 @@ const RARITY_TONE = { common: 'info', uncommon: 'good', rare: 'good', epic: 'goo
 export function lootNotice(item) {
   if (!item) return;
   const R = Loot.rarityOf(item.loot.rarity), up = upgradeLine(item.loot.id);
-  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${up ? ` · ${up}` : ' · in your spare gear'}`, Loot.RANK[R.id] >= Loot.RANK.epic ? 6 : up || R.id !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
+  const power = item.loot.power ? ` · ${Loot.powerOf(item.loot.power).name}: ${Loot.powerOf(item.loot.power).text}` : '';
+  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${power}${up ? ` · ${up}` : ' · in your spare gear'}`, Loot.RANK[R.id] >= Loot.RANK.epic ? 6 : up || R.id !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
   Feedback.emit('loot', { rarity: R.id });
 }
 // Gear dropped where it floats (specs): felt by its best rarity (game/options.js BUZZ), and an Epic
