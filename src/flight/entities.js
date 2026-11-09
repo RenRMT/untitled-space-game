@@ -275,9 +275,8 @@ const Entities = (() => {
       label: named,
       mark: () => ({ color: color().amber, r: 1.2 }),
     },
-    // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow; Rare
-    // and up also with a beam of light standing over it, taller and brighter the rarer, so a good
-    // drop is seen across the fight.
+    // Loot floating where it dropped (rules/loot.js), named in its rarity's colour, with a glow. (In
+    // space it's drawn as its icon, with a beam for Rare and up: game/draw-world.js drawDrop.)
     loot: {
       order: 3.6, selectable: true,
       card: (e) => ({ title: e.name, sub: 'Drag it onto the ship, or Collect all', color: e.color }),
@@ -290,18 +289,6 @@ const Entities = (() => {
         ctx.arc(x, y, e.radius * (1.3 + 0.2 * pulse), 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-        const rank = Loot.RANK[e.rarity];
-        if (rank >= Loot.RANK.rare) {
-          const up = rank - Loot.RANK.rare, h = e.radius * (7 + 4 * up), w = e.radius * (0.35 + 0.15 * up);
-          const g = ctx.createLinearGradient(x, y, x, y - h);
-          g.addColorStop(0, e.color);
-          g.addColorStop(1, 'rgba(0, 0, 0, 0)');
-          ctx.save();
-          ctx.globalAlpha *= 0.35 + 0.15 * up + 0.15 * pulse;
-          ctx.fillStyle = g;
-          ctx.fillRect(x - w / 2, y - h, w, h);
-          ctx.restore();
-        }
         asset(ctx, e, style, x, y, { angle: e.a, t });
       },
       label: (e) => [e.color, e.radius + 18],

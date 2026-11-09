@@ -53,11 +53,27 @@ const BADGE = {
   line: { bg: '#05060a', fg: '#e9eef2', border: '#3f7d82', weight: 400, cut: 0 },
   lowpoly: { bg: '#282c34', fg: '#7df9ff', foot: '#2f5b60', weight: 500, cut: 3 },
 };
-export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1, name = '', sub = '' } = {}) {
+// beam: for loot of Rare and up, 1 (Rare) to 3 (Legendary): a beam of light in its colour stands over
+// it, taller, wider and brighter the rarer, so a good drop is seen across a fight.
+export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1, name = '', sub = '', beam = 0 } = {}) {
   const s = DROP_PX, img = ItemIcons.image(kind, artStyle.value, s);
   c.save();
   c.translate(x, y);
   c.scale(1 / k, 1 / k); // screen px from here
+  if (beam > 0) {
+    const h = s * (2.5 + 1.5 * beam), w = 3 + 3 * beam, pulse = 0.5 + 0.5 * Math.sin(performance.now() / 320 + x * 0.01);
+    const g = c.createLinearGradient(0, 0, 0, -h);
+    g.addColorStop(0, color);
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    c.globalAlpha = 0.3 + 0.12 * beam + 0.15 * pulse;
+    c.fillStyle = g;
+    c.fillRect(-w / 2, -h, w, h);
+    c.globalAlpha *= 0.5;
+    c.beginPath(); // and a soft pool of it round the drop
+    c.ellipse(0, 0, s * (0.6 + 0.15 * beam), s * 0.25, 0, 0, Math.PI * 2);
+    c.fill();
+    c.globalAlpha = 1;
+  }
   if (count > 1) { // the stack: two more behind it, up and to the right
     c.globalAlpha = 0.35;
     c.drawImage(img, 6 - s / 2, -6 - s / 2, s, s);
@@ -150,7 +166,8 @@ export function drawEntities(list, t) {
     if (e.kind === 'item' || e.kind === 'loot') {
       if (underStack(e)) continue;
       const sel = selectedKey() === `${e.kind}:${e.key}`;
-      drawDrop(ctx, dropIconKind(e), rx(e.x), ry(e.y), view.zoom, dropColor(e), sel, { count: stackOf(e).length, name: e.label || e.name, sub: sel && e.kind === 'loot' ? dropUpgrade(e) : '' });
+      const beam = e.kind === 'loot' ? Math.max(0, Loot.RANK[e.rarity] - Loot.RANK.uncommon) : 0;
+      drawDrop(ctx, dropIconKind(e), rx(e.x), ry(e.y), view.zoom, dropColor(e), sel, { count: stackOf(e).length, name: e.label || e.name, sub: sel && e.kind === 'loot' ? dropUpgrade(e) : '', beam });
     }
     else KINDS[e.kind].draw(ctx, e, style, rx(e.x), ry(e.y), scene);
   }
