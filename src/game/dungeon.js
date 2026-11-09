@@ -34,7 +34,6 @@ import { engageOnSurface } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
-import { leave } from './surface-run.js';
 import { gainXP } from './progress.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
@@ -75,8 +74,8 @@ export const dungeonOpts = (size, e) => {
 // chamber by the Warden, a heavy ship that chases too, with two turrets. They wake when the ship
 // comes within SENSE of one (and every guardian within ROUSE of it with it), and are fought as in space
 // (the Combat setting's mode) with the squad (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the
-// aliens' are their own. Each landing finds them afresh. Destroyed, they leave loot lying
-// (rules/goods.js goods, CombatCore.loot) and now and then gear (rules/loot.js:
+// aliens' are their own. Each landing finds them afresh. Destroyed, they pay their cargo as credits
+// (CombatCore.credits) and now and then leave gear (rules/loot.js:
 // sentinel, raider and warden drop tables, into the spare gear); the Warden always some, Rare or
 // better, and a bounty.
 export const GUARD = { sense: 430, rouse: 700, range: 520, bounty: 450, patrol: 0.45, turn: 0.35 };
@@ -170,7 +169,7 @@ export function tickGuardians(C, dt = 0) {
   const group = living().filter((g) => !fight.ships.has(g.key) && near.some((n) => Math.hypot(n.x - g.x, n.y - g.y) <= GUARD.rouse));
   engageOnSurface(group);
 }
-// One destroyed (game/combat.js shipDestroyed): its loot on the ground, gear (its drop table) into
+// One destroyed (game/combat.js shipDestroyed): its cargo as credits, gear (its drop table) into
 // the spare gear, the Warden's bounty.
 const SOURCE = { turret: 'sentinel', raider: 'raider', warden: 'warden' };
 export function guardianDown(g) {
@@ -178,9 +177,9 @@ export function guardianDown(g) {
   g.alive = false;
   const R = dungeonRun, level = bodyLevel(R.e);
   gainXP(Progress.killXP(clamp(g.tier, 1, 5), pilotLevel()) + (g.boss ? Progress.wardenXP(level) : 0), g.boss ? `the ${g.name}` : '');
-  const drops = CombatCore.loot(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4)).map((d) => d.kind);
-  if (g.boss) drops.push(...CombatCore.loot(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4).map((d) => d.kind));
-  if (drops.length) leave(drops, g.x, g.y, `loot:${g.key}`, 30 * g.size);
+  const paid = CombatCore.credits(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4))
+    + (g.boss ? CombatCore.credits(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4) : 0);
+  if (paid) { cargo.credits += paid; if (!g.boss) notify(`+${paid} credits from its hold`, 2, { tone: 'good' }); }
   for (const spec of Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: cargo.cls, pity: cargo.lootPity })) {
     lootNotice(takeLoot(spec));
   }
@@ -188,7 +187,7 @@ export function guardianDown(g) {
     const bounty = GUARD.bounty * level;
     cargo.credits += bounty;
     R.bossDown = true;
-    notify(`The ${g.name} is destroyed · ${bounty} credits salvaged from its core`, 4, { tone: 'good' });
+    notify(`The ${g.name} is destroyed · ${bounty + paid} credits salvaged from its core and hold`, 4, { tone: 'good' });
     // And a gambit in its core: one not owned yet, up to a tier above the dungeon's level
     // (game/vendor.js; some are found only this way, further out).
     const gambit = Vendor.gambitDrop(world.galaxy.seed ^ (R.field >>> 0), `${g.key}:gambit`, level, ownedGambits());

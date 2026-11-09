@@ -327,7 +327,7 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   assert.ok(game('dungeonRun.bossDown'));
   assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') > gear, 'gear looted');
   assert.ok(game('cargo.credits') > credits, 'a bounty');
-  assert.ok(game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'loot lying on the ground');
+  assert.ok(!game('(cargo.surfaceDrops[surfaceRun.e.key] || []).some((d) => d.key.includes("loot:"))'), 'its cargo paid as credits, nothing to drag aboard');
   // The way out: off the landing pad, then back onto it.
   game('fight.s && endSurfaceFight(); cargo.hull = SHIP.hull; const W = surfaceRun.W; Object.assign(landing.craft, { x: W.start[0], y: W.start[1] - EXIT.r - EXIT.arm - 40, vx: 0, vy: 0 }); ship.targetSpeed = 0');
   browser.frames(2);

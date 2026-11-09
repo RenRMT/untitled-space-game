@@ -440,7 +440,8 @@ export function explode(x, y, r) {
   fight.fx.push({ type: 'flash', delay: 0, t: 0.5, max: 0.5, at: { x, y, radius: r } });
 }
 
-// An enemy destroyed: gone for good, with its loot floating where it was (and now and then a gambit
+// An enemy destroyed: gone for good, with its loot floating where it was, its cargo paid as credits
+// (and now and then a gambit
 // in its computer, owned at once: game/vendor.js). One of the pirates' own (a pack's)
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
@@ -459,6 +460,9 @@ export function shipDestroyed(key) {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
     cargo.drops.push(dropEntity({ key: `drop:${key}:${i}`, kind: d.kind, seed: d.seed, x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r }));
   });
+  // A pirate's cargo, as credits (nothing to drag aboard).
+  const paid = CombatCore.credits(world.galaxy.seed, key, p.role, p.tier);
+  if (paid) { cargo.credits += paid; notify(`+${paid} credits from its hold`, 2, { tone: 'good' }); }
   // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
   Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));

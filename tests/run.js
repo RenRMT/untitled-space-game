@@ -1998,24 +1998,24 @@ off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly
   assert(run.escape > 0.6, `fleeing 4: ${JSON.stringify(run)}`);
 });
 
-off('?pirates', 'pirates leave some cargo and no components; freighters spill trade goods', () => {
+off('?pirates', 'pirates pay their cargo as credits and leave nothing floating; freighters spill trade goods', () => {
   const g = systems.get(1);
-  let goods = 0;
+  let paid = 0, paidAt4 = 0, none = 0;
   for (let i = 0; i < 300; i++) {
     for (const tier of [1, 4]) {
-      const f = CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier);
-      assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), f, 'loot is not deterministic');
-      for (const d of f) {
-        assert(Goods.type(d.kind), `fighter dropped ${d.kind}`);
-        assert(!Goods.isSalvage(d.kind), 'pirates no longer drop components: nothing in the main game uses them');
-        if (tier === 1) goods++;
-      }
+      assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), [], 'a pirate leaves nothing floating');
+      const c = CombatCore.credits(g.seed, `x,y,s${i}`, 'fighter', tier);
+      assert.strictEqual(CombatCore.credits(g.seed, `x,y,s${i}`, 'fighter', tier), c, 'credits are not deterministic');
+      if (tier === 1) { paid += c; if (!c) none++; } else paidAt4 += c;
     }
     const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
     for (const d of fr) assert(Goods.type(d.kind) && !Goods.isSalvage(d.kind), `freighter dropped ${d.kind}`);
+    assert.strictEqual(CombatCore.credits(g.seed, `x,y,s${i}`, 'freighter'), 0, 'a freighter\'s cargo floats');
   }
-  assert(goods > 140 && goods < 270, `${goods} trade goods from 300 pirates`);
+  assert(none > 120 && none < 210, `${none} of 300 pirates carried nothing`);
+  assert(paid / 300 > 25 && paid / 300 < 110, `${paid / 300} credits a pirate`);
+  assert(paidAt4 > paid, 'better-armed pirates keep better cargo');
 });
 
 // ---------- Progression: security, equipment tiers, research ----------
