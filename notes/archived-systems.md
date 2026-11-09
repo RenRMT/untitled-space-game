@@ -415,3 +415,14 @@ were a factory game beside the RPG, and the idle game (`/idle/`) is that game no
 `recipes.js`, `research.js`, `lab.js`, `restoration.js`, `logistics.js`. The main game's wiring
 and screens were `src/game/lab.js`, `industry.js`, `restoration.js` and `src/ui/research-view.js`,
 `industry-view.js`: `git log -- src/game/industry.js` finds the commit that removed them.
+
+## Salvaged components as loot (November 2026)
+
+**What changed.** Pirates, freighters and dungeon guardians no longer drop salvaged components
+(`CombatCore.loot` in `src/combat/combat-core.js`), and contracts no longer pay them. Since
+research and industry left the main game nothing spent them, yet they were most of what floated
+after a fight, each one dragged onto the ship by hand. The goods catalogue keeps them for the idle
+game; old saves keep the ones they hold (`cargo.components`), and a floating one is still picked up.
+
+**To bring it back.** `git log -- src/combat/combat-core.js` finds the commit; the component lots
+were `Security.componentCount` (still in `src/world/security.js`) per pirate tier.

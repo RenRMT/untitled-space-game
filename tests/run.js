@@ -1998,9 +1998,8 @@ off('?pirates', 'the starter Courier against pirate fighters: easy alone, costly
   assert(run.escape > 0.6, `fleeing 4: ${JSON.stringify(run)}`);
 });
 
-off('?pirates', 'pirates leave more components the better armed they are, and some cargo; freighters spill trade goods', () => {
+off('?pirates', 'pirates leave some cargo and no components; freighters spill trade goods', () => {
   const g = systems.get(1);
-  const componentsAt = { 1: 0, 4: 0 };
   let goods = 0;
   for (let i = 0; i < 300; i++) {
     for (const tier of [1, 4]) {
@@ -2008,17 +2007,14 @@ off('?pirates', 'pirates leave more components the better armed they are, and so
       assert.deepStrictEqual(CombatCore.loot(g.seed, `x,y,s${i}`, 'fighter', tier), f, 'loot is not deterministic');
       for (const d of f) {
         assert(Goods.type(d.kind), `fighter dropped ${d.kind}`);
-        if (Goods.isSalvage(d.kind)) componentsAt[tier]++;
-        else if (tier === 1) goods++;
+        assert(!Goods.isSalvage(d.kind), 'pirates no longer drop components: nothing in the main game uses them');
+        if (tier === 1) goods++;
       }
     }
     const fr = CombatCore.loot(g.seed, `x,y,s${i}`, 'freighter');
     assert(fr.length >= 1);
-    for (const d of fr) assert(Goods.type(d.kind), `freighter dropped ${d.kind}`);
+    for (const d of fr) assert(Goods.type(d.kind) && !Goods.isSalvage(d.kind), `freighter dropped ${d.kind}`);
   }
-  const components = componentsAt[1];
-  assert(componentsAt[4] > components * 2.5, `Mk IV pirates: ${componentsAt[4]} components against ${components}`);
-  assert(components > 300 && components < 500, `${components} components from 300 pirates`);
   assert(goods > 140 && goods < 270, `${goods} trade goods from 300 pirates`);
 });
 

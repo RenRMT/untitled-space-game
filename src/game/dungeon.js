@@ -76,7 +76,7 @@ export const dungeonOpts = (size, e) => {
 // comes within SENSE of one (and every guardian within ROUSE of it with it), and are fought as in space
 // (the Combat setting's mode) with the squad (game/combat.js engageOnSurface). Their gear goes by the dungeon's level; the
 // aliens' are their own. Each landing finds them afresh. Destroyed, they leave loot lying
-// (rules/goods.js goods and components, CombatCore.loot) and now and then gear (rules/loot.js:
+// (rules/goods.js goods, CombatCore.loot) and now and then gear (rules/loot.js:
 // sentinel, raider and warden drop tables, into the spare gear); the Warden always some, Rare or
 // better, and a bounty.
 export const GUARD = { sense: 430, rouse: 700, range: 520, bounty: 450, patrol: 0.45, turn: 0.35 };

@@ -48,15 +48,13 @@
 // ES module (`CombatCore`); also runs in Node (the tests).
 
 import { MathUtil } from '../core/math.js';
-import { nextSeed, seeded, weightedPick } from '../core/rng.js';
+import { nextSeed, seeded } from '../core/rng.js';
 import { Abilities } from '../rules/abilities.js';
 import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
-import { Security } from '../world/security.js';
 
 const CombatCore = (() => {
   const G = Goods;
-  const Sec = Security;
   const { clamp } = MathUtil;
 
   const config = {
@@ -114,25 +112,17 @@ const CombatCore = (() => {
 
   // What a destroyed ship leaves floating: [{ kind, seed }] (rules/goods.js types). Seeded by the system
   // and the ship.
-  // - Fighters (pirates) usually drop a lot of salvaged components, sometimes two, each lot bigger
-  //   the better their own gear (world/security.js componentCount: better-armed pirates in more
-  //   dangerous space carry more), and often some of the cargo they took: trade goods, the better
-  //   of two from tier 3 up.
-  // - Freighters spill trade goods, and now and then a component.
-  // Computer components go into logic research (rules/research.js) as well as refits, so they turn up as
-  // often as hull and weapon components.
-  const SALVAGE = [['hull', 3], ['weapon', 3], ['drive', 2], ['computer', 3]];
+  // - Fighters (pirates) often drop some of the cargo they took: trade goods, the better of two from
+  //   tier 3 up.
+  // - Freighters spill trade goods.
+  // Salvaged components no longer drop in the main game: nothing there uses them since research
+  // and industry moved to the idle game.
   const GOODS = G.categories('trade');
-  const chance = { component: 0.85, second: 0.35, cargo: 0.45 };
+  const chance = { cargo: 0.45 };
   function loot(galaxySeed, key, role, tier = 1) {
     const r = seeded(galaxySeed, key, 0x1007);
     const seed = () => nextSeed(r);
     const out = [];
-    // A lot of components of one kind.
-    const component = () => {
-      const kind = G.component(weightedPick(SALVAGE, r()));
-      return Array.from({ length: Sec.componentCount(r, tier) }, () => ({ kind, seed: seed() }));
-    };
     // A trade good; well-armed pirates keep the better of two.
     const good = () => {
       const pick = () => G.pick(r, GOODS[Math.floor(r() * GOODS.length)], (t) => !t.surface);
@@ -143,12 +133,7 @@ const CombatCore = (() => {
     if (role === 'freighter') {
       const n = 1 + Math.floor(r() * 2);
       for (let i = 0; i < n; i++) out.push(good());
-      if (r() < 0.3) out.push(...component());
       return out;
-    }
-    if (r() < chance.component) {
-      out.push(...component());
-      if (r() < chance.second) out.push(...component());
     }
     if (r() < chance.cargo) for (let i = 0, n = 1 + Math.floor(r() * 2); i < n; i++) out.push(good());
     return out;

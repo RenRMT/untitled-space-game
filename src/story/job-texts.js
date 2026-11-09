@@ -13,11 +13,11 @@
 // the gear it rewards (rules/loot.js). The system and faction tables are empty for now.
 // A job is written by a function of its context (story/jobs.js places(): the system, the
 // station or situation, helpers that find points, rocks, derelicts and stations), returning
-//   { name, from?, briefing, steps, debrief, escort?, deliver?, provided?, components?, report? }
+//   { name, from?, briefing, steps, debrief, escort?, deliver?, provided?, report? }
 // or null where the system doesn't have what it needs. Steps are made with go(), fight(),
 // take(), bring(), mine() and gas() below; deliver: handed in at the station the last step docks
 // at; escort: { name, culture, from?, until? } (it joins once step `from` is done, if given, and
-// stays behind once step `until` is, if given); components: [[category, n]] paid besides credits.
+// stays behind once step `until` is, if given).
 //   STATION[type]: [[id, write(c)]] (c.st is the station, c.owner its faction)
 //   SITUATION[id]: [write(c)] (c.main: the system's main station; c.vars: its places by name; c.sit, c.hook)
 //   FACTION[id]: [{ id, where(ctx), write(c) }]: where picks the system it happens in and the

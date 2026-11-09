@@ -756,14 +756,14 @@ const StationMenu = (() => {
   }
   const face = (m, size) => (m.face ? portrait(m.face, size) : Kit.icon('face', size, { code: 'FACE' }));
 
-  // What a mission pays, compactly: the credits diamond and amount, then each item's icon (×n for
-  // more than one). Missions without such a reward (the story's) say it in words.
+  // What a mission pays, compactly: the credits diamond and amount, then each item's icon, if any (×n
+  // for more than one). Missions without such a reward (the story's) say it in words.
   function payLine(m) {
     if (!m.pays) return h('span', { class: 'txt' }, m.reward);
     const { credits, items } = m.pays;
     return h('span', { class: 'st-pays', 'aria-label': m.reward },
       credits ? Kit.credits(credits) : null,
-      items.map(({ kind, n }) => h('span', { class: 'st-pay', title: Goods.type(kind).name }, itemIcon(kind, 18), n > 1 ? h('span', { class: 'num' }, `×${n}`) : null)));
+      (items || []).map(({ kind, n }) => h('span', { class: 'st-pay', title: Goods.type(kind).name }, itemIcon(kind, 18), n > 1 ? h('span', { class: 'num' }, `×${n}`) : null)));
   }
 
   // A mission's card: who gives it, its title and state, the objective to do now, a segment per

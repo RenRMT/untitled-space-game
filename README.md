@@ -11,7 +11,7 @@ what you destroy, and push out from the safe core of your faction's space into h
   outside, 5 the aliens'), shown on the map.
 - **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
   in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  leave loot to pick up: components, goods and now and then a gambit. Fights are turn-based on a
+  leave loot to pick up: gear, goods and now and then a gambit. Fights are turn-based on a
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
