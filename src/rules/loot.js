@@ -8,13 +8,14 @@
 //   ten item levels a level, rolled within them. It sets the base stats, how strong the affixes
 //   roll, the Mk the gear counts as (room for mods: rules/mods.js) and its price.
 // - Rarity (RARITIES): Common, Uncommon, Rare, Epic, Legendary, by weight. Rarer gear has stronger
-//   base stats and more affixes (0..4); a Legendary has a name of its own.
+//   base stats (a Legendary as strong as a Common some nine item levels up) and more affixes (0..4);
+//   a Legendary has a name of its own.
 // - Affixes (AFFIXES): prefixes and suffixes, each one stat a share better (a few: flat hull), rolled
 //   within a range that widens with the item level. An item never gets the same stat twice, and
 //   only affixes for its slot (or for any slot).
 // - Drop tables (SOURCES): what drops from what. Each source has a chance to drop anything, how
-//   many rolls, a rarity floor (a station or a Warden never drops Common), and luck (more weight on
-//   the rarer tiers).
+//   many rolls, a rarity floor (Uncommon at least: Common gear is only sold; a Warden's Rare), and
+//   luck (more weight on the rarer tiers).
 // - Bad-luck protection: every roll that comes up below Rare adds to a counter (pity); at PITY.rare
 //   the next one is at least Rare, at PITY.epic at least Epic. Rare or better resets the Rare
 //   counter, Epic or better both.
@@ -40,10 +41,10 @@ import { hashInt, mulberry32, seedToInt } from '../core/rng.js';
 const Loot = (() => {
   const RARITIES = [
     { id: 'common', name: 'Common', color: '#c8ccd4', weight: 60, affixes: 0, power: 1, price: 1 },
-    { id: 'uncommon', name: 'Uncommon', color: '#5fd77a', weight: 27, affixes: 1, power: 1.05, price: 1.3 },
-    { id: 'rare', name: 'Rare', color: '#5aa8ff', weight: 10, affixes: 2, power: 1.1, price: 1.8 },
-    { id: 'epic', name: 'Epic', color: '#b97aff', weight: 2.6, affixes: 3, power: 1.16, price: 2.6 },
-    { id: 'legendary', name: 'Legendary', color: '#ffa53a', weight: 0.4, affixes: 4, power: 1.24, price: 4 },
+    { id: 'uncommon', name: 'Uncommon', color: '#5fd77a', weight: 27, affixes: 1, power: 1.07, price: 1.3 },
+    { id: 'rare', name: 'Rare', color: '#5aa8ff', weight: 10, affixes: 2, power: 1.15, price: 1.8 },
+    { id: 'epic', name: 'Epic', color: '#b97aff', weight: 2.6, affixes: 3, power: 1.25, price: 2.6 },
+    { id: 'legendary', name: 'Legendary', color: '#ffa53a', weight: 0.4, affixes: 4, power: 1.36, price: 4 },
   ];
   const RANK = Object.fromEntries(RARITIES.map((r, i) => [r.id, i]));
   const MAX_ILVL = 50;
@@ -118,14 +119,15 @@ const Loot = (() => {
   const tierOf = (ilvl) => clamp(Math.ceil(ilvl / 10), 1, 5);
 
   // Drop tables: chance (that anything drops), rolls, floor (lowest rarity), luck (the weight of
-  // Rare and up multiplied by it).
+  // Rare and up multiplied by it). Nothing destroyed drops Common: fewer drops, each worth a look
+  // (Commons are the outfitter's).
   const SOURCES = {
-    fighter: { chance: 0.08, rolls: 1, floor: 'common', luck: 1 },
-    turret: { chance: 0.35, rolls: 1, floor: 'common', luck: 1.3 },
+    fighter: { chance: 0.1, rolls: 1, floor: 'uncommon', luck: 1 },
+    turret: { chance: 0.35, rolls: 1, floor: 'uncommon', luck: 1.3 },
     station: { chance: 1, rolls: 2, floor: 'uncommon', luck: 2 },
     outpost: { chance: 1, rolls: 2, floor: 'uncommon', luck: 1.6 },
-    sentinel: { chance: 0.18, rolls: 1, floor: 'common', luck: 1.2 },
-    raider: { chance: 0.12, rolls: 1, floor: 'common', luck: 1.1 },
+    sentinel: { chance: 0.18, rolls: 1, floor: 'uncommon', luck: 1.2 },
+    raider: { chance: 0.15, rolls: 1, floor: 'uncommon', luck: 1.1 },
     warden: { chance: 1, rolls: 1, floor: 'rare', luck: 2.5 },
     elite: { chance: 1, rolls: 2, floor: 'rare', luck: 2.2 }, // a named pirate ace (game/traffic.js)
     mission: { chance: 1, rolls: 1, floor: 'uncommon', luck: 1.5 },

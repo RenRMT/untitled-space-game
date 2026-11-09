@@ -73,7 +73,8 @@ what you destroy, and push out from the safe core of your faction's space into h
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
   stronger stats the rarer, drop tables per source (fighters, turrets, stations, outposts, dungeon
-  guardians, the Warden, missions) with rarity floors, bad-luck protection (Rare at least after a
+  guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
+  each worth a look), bad-luck protection (Rare at least after a
   long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
   dropped, goes into the spare gear (it takes no hold room) and fits like any gear.
 - **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken

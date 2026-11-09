@@ -4935,6 +4935,17 @@ test('loot: fitted like any gear: its stats and hull affixes count in the loadou
   delete EQ[spec.id];
 });
 
+test('loot: fewer, better drops: nothing destroyed drops Common, and rarity is worth item levels', () => {
+  for (const [source, S] of Object.entries(Loot.SOURCES)) assert(Loot.RANK[S.floor] >= Loot.RANK.uncommon, `${source} drops Common`);
+  for (const D of Object.values(Jobs.DIFFICULTY)) assert(Loot.RANK[D.floor] >= Loot.RANK.uncommon, `${D.label} contracts pay Common gear`);
+  // A Legendary's rarity alone is worth some eight item levels of a weapon's damage.
+  const power = (rarity) => Loot.RARITIES[Loot.RANK[rarity]].power;
+  const grow = Loot.BASES.laser.grow.damage;
+  assert(power('legendary') >= (1 + grow * 17) / (1 + grow * 9), `Legendary power ${power('legendary')}`);
+  const dmg = (rarity, ilvl) => Loot.make({ id: 'Lx', base: 'laser', ilvl, rarity, seed: 1 }).stats.damage;
+  assert(dmg('rare', 10) > dmg('uncommon', 10) && dmg('uncommon', 10) > dmg('common', 10));
+});
+
 test('loot: every affix and every rarity boost is on a stat that counts in a fight', () => {
   // The timeline (combat/combat.js) reads damage, fire rate, range, arc, shields, speed, evasion,
   // accuracy, initiative (the scanner's reach) and hull; lock range, lock time and mining don't count.

@@ -66,7 +66,7 @@ const Jobs = (() => {
   };
   // Difficulty: tier steps up on the hostiles, pay, and the reward's rarity floor and luck.
   const DIFFICULTY = {
-    easy: { label: 'Easy', up: 0, pay: 1, floor: 'common', luck: 1 },
+    easy: { label: 'Easy', up: 0, pay: 1, floor: 'uncommon', luck: 1 },
     normal: { label: 'Normal', up: 0, pay: 1.25, floor: 'uncommon', luck: 1.2 },
     hard: { label: 'Hard', up: 1, pay: 1.6, floor: 'uncommon', luck: 1.6 },
     elite: { label: 'Elite', up: 2, pay: 2.2, floor: 'rare', luck: 2.2 },
@@ -365,7 +365,7 @@ const Jobs = (() => {
     // Gear as the reward (rules/loot.js 'mission' drops), its rarity floor and luck by difficulty, at
     // the level of the hardest system the job goes to.
     const level = Math.max(1, ...job.systems.map((i) => galaxy.systems?.[i]?.level || 1));
-    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: ${{ common: 'any', uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
+    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: ${{ uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
     job.reward = { credits, loyalty: loyal, regard, gear };
     job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...regard].join(' · ');
     return job;
