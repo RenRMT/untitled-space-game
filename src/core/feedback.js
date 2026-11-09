@@ -13,6 +13,7 @@
 //     'targeted'    an enemy began locking on the player
 //     'destroyed'   the player's ship is lost
 //     'won'         a fight won
+//     'loot'        gear dropped or came aboard ({ rarity: rules/loot.js RARITIES id })
 //     'mined'       an asteroid broken up or a gas pocket used up
 //     'docked', 'launched'
 //     'done'        research or production finished

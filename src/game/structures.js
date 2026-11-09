@@ -25,7 +25,8 @@ import { Loot } from '../rules/loot.js';
 import { Reputation } from '../rules/reputation.js';
 import { Structures } from '../rules/structures.js';
 import { Factions } from '../world/factions.js';
-import { cargo, dropEntity, lootClasses, pilotLevel, saveCargo } from './cargo.js';
+import { cargo, dropEntity, lootClasses, lootDropped, pilotLevel, saveCargo } from './cargo.js';
+import { tallyKill } from './combat.js';
 import { gainXP } from './progress.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -213,6 +214,8 @@ export function structureDestroyed(e, { friendly = false } = {}) {
     const a = (i / Math.max(1, specs.length)) * TAU + Math.random(), r = fightRadius(e) + 40 + Math.random() * 60;
     cargo.drops.push(dropEntity({ key: `loot:${e.key}:${Clock.now().toString(36)}:${i}`, loot: spec, seed: spec.seed, x: e.x + Math.cos(a) * r, y: e.y + Math.sin(a) * r }));
   });
+  lootDropped(specs);
+  tallyKill({ loot: specs }); // said when the fight is won (game/combat.js)
   if (e.kind !== 'turret') notify(`${e.name} destroyed${faction ? ` · ${factionName(owner)} will rebuild it` : ''}`, 3.5, { tone: 'good' });
   saveCargo();
 }

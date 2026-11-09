@@ -304,6 +304,9 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
   game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
   assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
   assert.strictEqual(game('fight.result'), 'won');
+  globalThis.__Messages = Messages;
+  assert.ok(until('__Messages.log.some((l) => /^Victory · \\d+ destroyed · .+/.test(l.text))', 60 * 5), `what the fight brought in, once the wrecks blow up: ${Messages.log.map((l) => l.text).join(' | ')}`);
+  assert.strictEqual(game('fight.tally'), null, 'the tally starts again with the next fight');
   assert.ok(until(`cargo.drops.some((d) => d.key.startsWith('drop:' + __foe.key)) || cargo.removed.has(__foe.key)`, 30), 'destroyed, its loot floating');
 });
 

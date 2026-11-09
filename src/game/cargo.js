@@ -3,6 +3,7 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Clock } from '../core/clock.js';
+import { Feedback } from '../core/feedback.js';
 import { Save } from '../core/save.js';
 import { Params, Store } from '../core/store.js';
 import { Entities } from '../flight/entities.js';
@@ -486,7 +487,16 @@ const RARITY_TONE = { common: 'info', uncommon: 'good', rare: 'good', epic: 'goo
 export function lootNotice(item) {
   if (!item) return;
   const R = Loot.rarityOf(item.loot.rarity), up = upgradeLine(item.loot.id);
-  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${up ? ` · ${up}` : ' · in your spare gear'}`, up || item.loot.rarity !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
+  notify(`${R.name} loot: ${item.name} · ilvl ${item.loot.ilvl}${up ? ` · ${up}` : ' · in your spare gear'}`, Loot.RANK[R.id] >= Loot.RANK.epic ? 6 : up || R.id !== 'common' ? 4 : 2.5, { tone: up ? 'good' : RARITY_TONE[R.id] });
+  Feedback.emit('loot', { rarity: R.id });
+}
+// Gear dropped where it floats (specs): felt by its best rarity (game/options.js BUZZ), and an Epic
+// or Legendary called out at once, before it's picked up: the moment it drops is the one to mark.
+export function lootDropped(specs) {
+  if (!specs.length) return;
+  const R = Loot.RARITIES[Math.max(...specs.map((s) => Loot.RANK[s.rarity]))];
+  Feedback.emit('loot', { rarity: R.id });
+  if (Loot.RANK[R.id] >= Loot.RANK.epic) notify(`${R.name} drop!`, 3, { tone: 'good' });
 }
 
 // Floating items dragged onto the ship (game/input.js) are picked up: trade goods into the hold

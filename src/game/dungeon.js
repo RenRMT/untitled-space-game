@@ -30,7 +30,7 @@ import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
 import { Vendor } from '../rules/vendor.js';
 import { cargo, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
-import { engageOnSurface } from './combat.js';
+import { engageOnSurface, tallyKill } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
@@ -179,10 +179,10 @@ export function guardianDown(g) {
   gainXP(Progress.killXP(clamp(g.tier, 1, 5), pilotLevel()) + (g.boss ? Progress.wardenXP(level) : 0), g.boss ? `the ${g.name}` : '');
   const paid = CombatCore.credits(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4))
     + (g.boss ? CombatCore.credits(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4) : 0);
-  if (paid) { cargo.credits += paid; if (!g.boss) notify(`+${paid} credits from its hold`, 2, { tone: 'good' }); }
-  for (const spec of Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity })) {
-    lootNotice(takeLoot(spec));
-  }
+  cargo.credits += paid;
+  const gear = Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity });
+  for (const spec of gear) lootNotice(takeLoot(spec));
+  tallyKill({ credits: g.boss ? 0 : paid, loot: gear }); // said when the fight is won (game/combat.js); the Warden's hoard with its bounty
   if (g.boss) {
     const bounty = GUARD.bounty * level;
     cargo.credits += bounty;
