@@ -35,9 +35,11 @@
 //   site: [i0, j0, i1, j1], the landing site's corners in tiles, ringed by a natural rim: cliffs (or
 //     storm fronts) with gaps to fly through, or open sea on worlds with a sea. W.site.leave: how far
 //     past the edge the player has left the site.
-//   dungeon: { area: [i0, j0, i1, j1], rooms } instead of a site: a labyrinth of chambers and passages
-//     cut into solid high ground (on the 'cavern' surface, game/dungeon.js); W.dungeon then holds its
-//     rooms ({ x, y, r, role: 'start' | 'chamber' | 'deep', hops }) and links. W.site is unset.
+//   dungeon: { area: [i0, j0, i1, j1], rooms, layout } instead of a site: a labyrinth of chambers and
+//     passages (game/dungeon.js), laid out as the surface type has it (LAYOUTS, layoutOf(type): wide
+//     canyons through mesas, looping ravines, pillared ice caves, chained lava tubes, storm mazes,
+//     crater fields...); W.dungeon then holds its rooms ({ x, y, r, role: 'start' | 'chamber' |
+//     'deep', hops }), links, layout and name. W.site is unset.
 //   ArtSurface.sample(type, kind)  // 3×3 world showing one asset in its centre tile (asset sheets);
 //     kind: a | b | c | plateau | edge | outer | inner | saddle | small0.. | hole0.. | tall0..
 //   ArtSurface.project(w, x, y, z, style), tiltOf(style), padOf(style), heightAt(w, x, y), shadowShift(z),
@@ -457,61 +459,170 @@ const ArtSurface = (() => {
       if (bi.sea) { G[i][j] = 0; G2[i][j] = 0; C[i][j] = 0; } else C[i][j] = gapN(i, j) > gapAt ? 0 : 1;
     }
   }
-  // A labyrinth instead of a landing site (o.dungeon: { area: [i0, j0, i1, j1] in corners, rooms }):
-  // solid high ground everywhere, with chambers carved out of it (rough ellipses), the first round the
-  // landing spot by the area's south edge (W.start moves there), joined by winding passages two or
-  // three corners wide: a spanning tree of the nearest links, and a few more for loops.
-  // W.dungeon: { area, rooms: [{ x, y, r, role, hops }] (surface units; role 'start' | 'chamber' |
-  // 'deep': the one most passages from the start, for a boss one day), links: [[a, b]] }.
+  // How a body's labyrinth is laid out, by the ground it's cut into (o.dungeon.layout, or the
+  // surface type's: LAYOUT_OF). Each one:
+  //   rx, ry: [min, max] a chamber's half-widths (corners); long: chambers stretched along one axis
+  //   gap: rock left between chambers; rooms: × the chambers asked for
+  //   width: [min, max] a passage's width (corners); path: 'walk' (a grid walk, side: its chance
+  //     of a step aside) | 'curve' (smooth, through kinks points bend × its length aside) | 'jag'
+  //     (straight cracks between kinks)
+  //   loops: chance each chamber is joined to a nearest one it isn't yet; spurs: dead ends per
+  //     chamber; chain: chambers strung one after another (a few branches), not the nearest links
+  //   open: { cover, scale }: open ground from the start, cover of it rock (outcrops, mesas, storm
+  //     fronts; noise of that scale), instead of solid rock; rims: chambers ringed by a raised rim
+  //     (craters, eye walls) the passages break through; pillars: rock columns per chamber
+  const LAYOUTS = {
+    caverns: { name: 'Caverns', rx: [3, 7], ry: [3, 6.5], gap: 5, width: [2, 3], path: 'walk', side: 0.18, loops: 0.3 },
+    canyons: { name: 'Canyons', rx: [5, 9.5], ry: [2.5, 4], long: true, gap: 4, width: [4, 6], path: 'curve', kinks: 2, bend: 0.22, loops: 0.35, open: { cover: 0.42, scale: 0.13 }, rooms: 0.85 },
+    ravines: { name: 'Ravines', rx: [3, 5.5], ry: [3, 5], gap: 5, width: [3, 4], path: 'curve', kinks: 2, bend: 0.25, loops: 0.65, spurs: 0.6 },
+    ice: { name: 'Ice caves', rx: [5.5, 8.5], ry: [5, 7.5], gap: 3, width: [2, 3], path: 'curve', kinks: 1, bend: 0.3, loops: 0.25, pillars: [2, 5], rooms: 0.9 },
+    tubes: { name: 'Lava tubes', rx: [2.5, 4], ry: [2.5, 4], gap: 6, width: [3, 4], path: 'curve', kinks: 3, bend: 0.3, chain: true, loops: 0.1 },
+    storm: { name: 'Storm maze', rx: [4.5, 7], ry: [4.5, 7], gap: 6, width: [5, 7], path: 'curve', kinks: 2, bend: 0.3, loops: 0.5, open: { cover: 0.36, scale: 0.19 }, rims: true },
+    craters: { name: 'Crater field', rx: [3.5, 6.5], ry: [3.5, 6.5], round: true, gap: 4, width: [4, 5], path: 'curve', kinks: 1, bend: 0.2, loops: 0.45, open: { cover: 0.22, scale: 0.15 }, rims: true },
+    rubble: { name: 'Rubble maze', rx: [3, 5], ry: [3, 5], round: true, gap: 4, width: [3, 4], path: 'walk', side: 0.3, loops: 0.5, open: { cover: 0.5, scale: 0.27 }, rims: true },
+    mesas: { name: 'Scarplands', rx: [4, 7], ry: [3, 5.5], long: true, gap: 4, width: [3, 5], path: 'jag', kinks: 2, bend: 0.15, loops: 0.4, open: { cover: 0.4, scale: 0.09 }, spurs: 0.3 },
+    fissures: { name: 'Ice fissures', rx: [2.5, 4.5], ry: [2.5, 4.5], gap: 5, width: [2, 3], path: 'jag', kinks: 3, bend: 0.12, loops: 0.4, spurs: 0.8 },
+    calderas: { name: 'Calderas', rx: [5, 7.5], ry: [5, 7.5], round: true, gap: 3, width: [3, 4], path: 'curve', kinks: 2, bend: 0.35, loops: 0.2, rims: true, pillars: [1, 3], open: { cover: 0.3, scale: 0.12 }, rooms: 0.75 },
+  };
+  const LAYOUT_OF = {
+    desert: 'canyons', terran: 'ravines', ice: 'ice', lava: 'tubes', gas: 'storm', cavern: 'caverns',
+    'moon-grey': 'craters', 'moon-ice': 'fissures', 'moon-sulfur': 'calderas', 'moon-rust': 'mesas', 'moon-dark': 'rubble',
+  };
+  const layoutOf = (type) => LAYOUT_OF[type] || (type.startsWith('moon-') ? 'craters' : 'caverns');
+  // A labyrinth instead of a landing site (o.dungeon: { area: [i0, j0, i1, j1] in corners, rooms, layout }):
+  // chambers (rough ellipses) cut out of solid high ground, or out of open ground strewn with rock,
+  // as the layout has it; the first round the landing spot by the area's south edge (W.start moves
+  // there), joined by passages: a spanning tree of the nearest links (or a chain), and a few more
+  // for loops. Passages are cut last, so every chamber can be reached whatever the layout put up.
+  // W.dungeon: { area, layout, name, rooms: [{ x, y, r, role, hops }] (surface units; role 'start' |
+  // 'chamber' | 'deep': the one most passages from the start, for the Warden), links: [[a, b]] }.
   function* dungeon(W, o) {
     const { C, seed } = W, [a0, b0, a1, b1] = o.area, cx = W.w >> 1, cy = b1 - 7; // the landing chamber: by the south edge
+    const key = o.layout && LAYOUTS[o.layout] ? o.layout : layoutOf(W.type), L = LAYOUTS[key];
     let n = 0;
-    const rnd = () => hash(n++, 0xd0, seed + 91);
+    const rnd = () => hash(n++, 0xd0, seed + 91), span = ([a, b]) => a + rnd() * (b - a);
+    const inArea = (i, j) => i >= a0 && j >= b0 && i <= a1 && j <= b1;
+    // The ground: solid rock, or open with outcrops (only within the area: solid rock round it).
     for (let i = 0; i <= W.w; i++) for (let j = 0; j <= W.h; j++) C[i][j] = 1;
+    if (L.open) {
+      const v = (i, j) => fbm(i * L.open.scale + 70, j * L.open.scale + 30, seed + 95), vals = [];
+      for (let i = a0; i <= a1; i++) for (let j = b0; j <= b1; j++) vals.push(v(i, j));
+      vals.sort((p, q) => p - q);
+      const th = vals[Math.floor((1 - L.open.cover) * (vals.length - 1))];
+      for (let i = a0; i <= a1; i++) for (let j = b0; j <= b1; j++) C[i][j] = v(i, j) >= th ? 1 : 0;
+    }
+    yield;
+    const want = Math.max(9, Math.round((o.rooms || 14) * (L.rooms || 1))), pad = L.rims ? 5 : 3;
     const rooms = [{ x: cx, y: cy, rx: 4.5, ry: 4 }];
-    for (let k = 0; rooms.length < (o.rooms || 14) && k < 600; k++) {
-      const rx = 3 + rnd() * 4, ry = 3 + rnd() * 3.5;
-      const x = a0 + rx + 3 + rnd() * (a1 - a0 - 2 * rx - 6), y = b0 + ry + 3 + rnd() * (b1 - b0 - 2 * ry - 6);
-      if (rooms.some((r) => Math.abs(r.x - x) < r.rx + rx + 5 && Math.abs(r.y - y) < r.ry + ry + 5)) continue;
+    for (let k = 0; rooms.length < want && k < 900; k++) {
+      let rx = span(L.rx), ry = L.round ? rx * (0.85 + rnd() * 0.3) : span(L.ry);
+      if (L.long && rnd() < 0.5) [rx, ry] = [ry, rx];
+      const x = a0 + rx + pad + rnd() * (a1 - a0 - 2 * rx - 2 * pad), y = b0 + ry + pad + rnd() * (b1 - b0 - 2 * ry - 2 * pad);
+      if (rooms.some((r) => Math.abs(r.x - x) < r.rx + rx + L.gap && Math.abs(r.y - y) < r.ry + ry + L.gap)) continue;
       rooms.push({ x, y, rx, ry });
     }
     yield;
     const d2 = (a, b) => (rooms[a].x - rooms[b].x) ** 2 + (rooms[a].y - rooms[b].y) ** 2;
-    const links = [], tree = [0];
-    while (tree.length < rooms.length) {
-      let best = null;
-      for (const a of tree) for (let b = 0; b < rooms.length; b++) if (!tree.includes(b) && (!best || d2(a, b) < best.d)) best = { a, b, d: d2(a, b) };
-      tree.push(best.b);
-      links.push([best.a, best.b]);
+    const links = [];
+    if (L.chain) {
+      // One after another, from the landing chamber: each to the nearest left over from the last,
+      // now and then from an earlier one (a side branch).
+      const used = [0];
+      while (used.length < rooms.length) {
+        const from = rnd() < 0.2 && used.length > 2 ? used[Math.floor(rnd() * (used.length - 1))] : used[used.length - 1];
+        let best = -1;
+        for (let b = 0; b < rooms.length; b++) if (!used.includes(b) && (best < 0 || d2(from, b) < d2(from, best))) best = b;
+        used.push(best);
+        links.push([from, best]);
+      }
+    } else {
+      const tree = [0];
+      while (tree.length < rooms.length) {
+        let best = null;
+        for (const a of tree) for (let b = 0; b < rooms.length; b++) if (!tree.includes(b) && (!best || d2(a, b) < best.d)) best = { a, b, d: d2(a, b) };
+        tree.push(best.b);
+        links.push([best.a, best.b]);
+      }
     }
     // Loops: each room's nearest neighbour it isn't joined to, now and then.
     const linked = (a, b) => links.some(([p, q]) => (p === a && q === b) || (p === b && q === a));
     for (let a = 0; a < rooms.length; a++) {
-      if (rnd() > 0.3) continue;
+      if (rnd() > L.loops) continue;
       const b = rooms.map((_, k) => k).filter((k) => k !== a && !linked(a, k)).sort((p, q) => d2(a, p) - d2(a, q))[0];
       if (b !== undefined) links.push([a, b]);
     }
-    const dig = (i, j) => { if (i >= 2 && j >= 2 && i <= W.w - 2 && j <= W.h - 2) C[i][j] = 0; };
-    for (const r of rooms) {
-      for (let i = Math.floor(r.x - r.rx - 2); i <= Math.ceil(r.x + r.rx + 2); i++) for (let j = Math.floor(r.y - r.ry - 2); j <= Math.ceil(r.y + r.ry + 2); j++) {
-        const e = ((i - r.x) / r.rx) ** 2 + ((j - r.y) / r.ry) ** 2;
-        if (e < 1 + 0.6 * (fbm(i * 0.35, j * 0.35, seed + 93) - 0.5)) dig(i, j);
+    const set = (i, j, v) => { if (i >= 2 && j >= 2 && i <= W.w - 2 && j <= W.h - 2) C[i][j] = v; };
+    const dig = (i, j) => set(i, j, 0);
+    const brush = (x, y, r) => {
+      for (let i = Math.floor(x - r); i <= Math.ceil(x + r); i++) for (let j = Math.floor(y - r); j <= Math.ceil(y + r); j++) {
+        if ((i - x) ** 2 + (j - y) ** 2 <= r * r + 0.25 && inArea(i, j)) dig(i, j);
+      }
+    };
+    const ell = (r, i, j) => ((i - r.x) / r.rx) ** 2 + ((j - r.y) / r.ry) ** 2;
+    const box = (r, m, f) => { for (let i = Math.floor(r.x - r.rx - m); i <= Math.ceil(r.x + r.rx + m); i++) for (let j = Math.floor(r.y - r.ry - m); j <= Math.ceil(r.y + r.ry + m); j++) f(i, j); };
+    // Rims first (all of them, so no rim crosses a chamber already cut), then the chambers.
+    if (L.rims) for (const r of rooms) box(r, 4, (i, j) => { const e = Math.sqrt(ell(r, i, j)) + 0.25 * (fbm(i * 0.4, j * 0.4, seed + 97) - 0.5); if (e > 1.12 && e < 1.45 && inArea(i, j)) set(i, j, 1); });
+    for (const r of rooms) box(r, 2, (i, j) => { if (ell(r, i, j) < 1 + 0.6 * (fbm(i * 0.35, j * 0.35, seed + 93) - 0.5)) dig(i, j); });
+    // Pillars: a column of rock standing in a chamber, clear of its middle (not the landing one's).
+    if (L.pillars) for (const r of rooms.slice(1)) {
+      const k = Math.floor(span([L.pillars[0], L.pillars[1] + 1]));
+      for (let p = 0; p < k; p++) {
+        const a = rnd() * TAU, d = 0.4 + rnd() * 0.3, i = Math.round(r.x + Math.cos(a) * r.rx * d), j = Math.round(r.y + Math.sin(a) * r.ry * d);
+        set(i, j, 1);
+        if (rnd() < 0.5) set(i + 1, j, 1);
       }
     }
     yield;
-    // A passage: a walk from room to room, mostly toward the end, now and then a step aside.
-    for (const [a, b] of links) {
-      const wd = rnd() < 0.5 ? 2 : 3, ex = Math.round(rooms[b].x), ey = Math.round(rooms[b].y);
-      let x = Math.round(rooms[a].x), y = Math.round(rooms[a].y);
-      for (let step = 0; step < 2000 && (x !== ex || y !== ey); step++) {
-        const dx = ex - x, dy = ey - y, side = rnd() < 0.18;
-        if (rnd() < Math.abs(dx) / (Math.abs(dx) + Math.abs(dy))) { if (side && dy) y += rnd() < 0.5 ? 1 : -1; else x += Math.sign(dx); }
-        else if (side && dx) x += rnd() < 0.5 ? 1 : -1;
-        else y += Math.sign(dy);
-        x = clamp(x, a0, a1); y = clamp(y, b0, b1);
-        for (let u = 0; u < wd; u++) for (let v = 0; v < wd; v++) dig(x + u - 1, y + v - 1);
+    // A passage from (x0, y0) to (x1, y1), as the layout cuts them.
+    const cut = (x0, y0, x1, y1, wd) => {
+      if (L.path === 'walk') {
+        const ex = Math.round(x1), ey = Math.round(y1), r = wd / 2;
+        let x = Math.round(x0), y = Math.round(y0);
+        for (let step = 0; step < 2000 && (x !== ex || y !== ey); step++) {
+          const dx = ex - x, dy = ey - y, side = rnd() < L.side;
+          if (rnd() < Math.abs(dx) / (Math.abs(dx) + Math.abs(dy))) { if (side && dy) y += rnd() < 0.5 ? 1 : -1; else x += Math.sign(dx); }
+          else if (side && dx) x += rnd() < 0.5 ? 1 : -1;
+          else y += Math.sign(dy);
+          x = clamp(x, a0, a1); y = clamp(y, b0, b1);
+          brush(x + 0.5 - (wd % 2) * 0.5, y + 0.5 - (wd % 2) * 0.5, r);
+        }
+        return;
       }
+      // Through kinks, each pushed aside: a smooth curve through them, or straight cracks.
+      const len = Math.hypot(x1 - x0, y1 - y0) || 1, nx = -(y1 - y0) / len, ny = (x1 - x0) / len, pts = [[x0, y0]];
+      for (let k = 1; k <= L.kinks; k++) {
+        const t = k / (L.kinks + 1), off = (rnd() - 0.5) * 2 * L.bend * len;
+        pts.push([clamp(x0 + (x1 - x0) * t + nx * off, a0 + 2, a1 - 2), clamp(y0 + (y1 - y0) * t + ny * off, b0 + 2, b1 - 2)]);
+      }
+      pts.push([x1, y1]);
+      const wob = rnd() * 100;
+      for (let s = 0; s < pts.length - 1; s++) {
+        const p0 = pts[Math.max(0, s - 1)], p1 = pts[s], p2 = pts[s + 1], p3 = pts[Math.min(pts.length - 1, s + 2)];
+        const steps = Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * 3) + 1;
+        for (let q = 0; q <= steps; q++) {
+          const t = q / steps;
+          let x, y;
+          if (L.path === 'jag') { x = lerp(p1[0], p2[0], t); y = lerp(p1[1], p2[1], t); }
+          else { // Catmull-Rom
+            const t2 = t * t, t3 = t2 * t, cr = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+            x = cr(p0[0], p1[0], p2[0], p3[0]); y = cr(p0[1], p1[1], p2[1], p3[1]);
+          }
+          brush(x, y, (wd / 2) * (0.8 + 0.45 * fbm((s + t) * 1.7, wob, seed + 99)));
+        }
+      }
+    };
+    for (const [a, b] of links) {
+      cut(rooms[a].x, rooms[a].y, rooms[b].x, rooms[b].y, Math.round(span([L.width[0], L.width[1] + 0.99])));
       yield;
+    }
+    // Spurs: dead ends off a chamber, going nowhere (but somewhere to look).
+    if (L.spurs) for (const r of rooms) {
+      let k = L.spurs;
+      while (rnd() < k) {
+        k -= 1;
+        const a = rnd() * TAU, d = 7 + rnd() * 8;
+        cut(r.x, r.y, clamp(r.x + Math.cos(a) * (r.rx + d), a0 + 3, a1 - 3), clamp(r.y + Math.sin(a) * (r.ry + d), b0 + 3, b1 - 3), L.width[0]);
+      }
     }
     // How many passages from the start each room is; the furthest (the largest of them) is the deep one.
     const hops = rooms.map(() => Infinity), queue = [0];
@@ -526,7 +637,7 @@ const ArtSurface = (() => {
     const deep = rooms.reduce((best, r, k) => (hops[k] > hops[best] || (hops[k] === hops[best] && r.rx * r.ry > rooms[best].rx * rooms[best].ry) ? k : best), 0);
     W.start = [cx * T, cy * T];
     W.dungeon = {
-      area: o.area, links,
+      area: o.area, links, layout: key, name: L.name,
       rooms: rooms.map((r, k) => ({ x: r.x * T, y: r.y * T, r: Math.min(r.rx, r.ry) * T, role: k === 0 ? 'start' : k === deep ? 'deep' : 'chamber', hops: hops[k] })),
     };
   }
@@ -1343,7 +1454,7 @@ const ArtSurface = (() => {
     return !propsNear(W, x, y).some((p) => Math.hypot(x - p.x, y - p.y) < p.r + r);
   }
 
-  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, open, propsNear, propsAll, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
+  return { T, FLY, PAD, BIOMES: B, TYPES, SURFACE_OF, MOON_SURFACES, moonSurface, LAYOUTS, layoutOf, generate, generateSteps, sample, build, draw, drawLive, render, renderRegion, renderRegionSteps, farImage, farBuilder, overlay, blocked, open, propsNear, propsAll, siteDist, project, tiltOf, padOf, heightAt, shadowShift };
 })();
 
 export { ArtSurface };
