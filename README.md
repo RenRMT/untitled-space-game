@@ -173,6 +173,25 @@ at most one station round a planet or moon, idle ships round a station, planet o
 belts, wrecks in graveyards at Lagrange points). For now the start system is a star, one planet, a
 station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/4x.md` is the plan.
 
+Redshift, the sim, is a fifth page, `/sim/` (`sim/index.html`, code in `src/sim/`, `notes/sim.md` the
+plan): a portrait sim/strategy game in which a black hole is swallowing the galaxy and the player stays
+a system ahead of it. Each star system (a condensed take on the idle game's map) has bodies with
+minerals and volatiles to build stations round (mining rigs, gas siphons, trade hubs, research labs,
+defense platforms, each with ships and Mk upgrades), cultures to keep content (the Wedge want
+security, the Block credits, the Shard science; the Drifters revolt where security is short, the
+aliens come with gifts and curses), and a jump gate to build at its edge. The horizon meter fills
+cycle by cycle, slowing time past half and stopping everything at 100%; the gate overcharges faster
+the nearer it gets, so when to jump is the choice. Each jump offers three systems (near, mid, far;
+their resources and hazards differ), leaves everything built behind, and banks Insight for the
+Archive's permanent upgrades; systems left behind stay on the Chart, frozen. Story mode brings in a
+culture a system (Androids, Wedge, Block, Shard, Drifters, aliens, then the last jump); endless has
+them all at once. Requests come from the cultures' people as portrait bubbles over the map, and it
+shows every kind of the repo's procedural art. `npm run sim:play` plays runs with a scripted player
+(`tools/sim-play.js`, `--mode=story`, `--systems=`, `--runs=`); `?fresh` forgets the run in progress,
+`?seed=` picks a new run's seed and `?style=line|lowpoly` the art style. It installs as its own app
+(`sim/manifest.webmanifest`, icons `assets/sim-icon*`) and plays offline (`sim/sw.js`, its list
+written by `npm run sim:sw`).
+
 ## Code layout
 
 `index.html` loads `src/main.js`. Each layer imports only from the layers below it:
@@ -182,6 +201,7 @@ station round it and a ship, with no hazards. `?seed=` picks the galaxy. `notes/
 | `src/main.js` | the entry point: wires up the flight view, generates the galaxy, starts the frame loop |
 | `src/game/` | the flight view, one module per part: shared state, input, docking, mining, the squad, combat (mining sessions run on it too), collisions, consumables used from the HUD (`field.js`), missions, landing on planets and moons (`landing.js`) and what there is to do down there (`surface-run.js`: deposits and what lies about; `dungeon.js`: the labyrinth, its guardians and Warden), HUD, the frame loop |
 | `src/race/` | the race (`race/index.html`), beside `src/game/`: the track (`track.js`), sliding along walls (`contact.js`), the controls, the run and its drawing, the menus (`menu.js`, `menu.css`: the UI kit's classes, linked as CSS); it imports `src/core`, `src/art`, `src/flight` and `src/rules`, never `src/game` or `src/ui` (ESLint checks) |
+| `src/sim/` | Redshift (`sim/index.html`, `notes/sim.md`): its tables (`config.js`), a system from a seed (`world.js`), the rules cycle by cycle (`rules.js`), requests, Drifters, aliens and hazards (`events.js`), the story (`story.js`), people (`people.js`), the map and the hole's effects (`map.js`), sheets and full screens (`sheets.js`, `screens.js`), portraits and thumbnails (`faces.js`), the page (`main.js`, `sim.css`); it imports `src/core`, `src/art`, `src/world` and the UI kit, never `src/game`, `src/flight` or `src/ui` beyond the kit (ESLint checks) |
 | `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
 | `src/story/` | the mission log (`missions.js`) and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
@@ -237,7 +257,7 @@ Each file starts with a comment saying what it does and, for modules other parts
 ## Tests and tools
 
 ```sh
-npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node
+npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node; tests/sim.js: Redshift's rules
 npm run lint   # ESLint (eslint.config.js)
 npm run perf   # tests/perf.js: frame cost in Chromium as a phone would run it (needs Playwright)
 npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: its systems, gates and deep-space sites (--svg file draws it)
@@ -254,4 +274,4 @@ latest: the hazards); `combat-alternatives.md` records the combat designs consid
 records how squad programs and logic research work, and the plan for abilities; `industry.md` is the
 plan for crafting, production orders and ship research, phase by phase; `factions.md` is the faction
 overview (the factions, their standings and the story beats); `galaxy.md` is how the galaxy is
-grown (its shape, systems, gates and deep space) and how the factions were placed in it; `race.md` is the plan for the race (`/race/`), phase by phase; `4x.md` is the plan for the 4X game (`/4x/`).
+grown (its shape, systems, gates and deep space) and how the factions were placed in it; `race.md` is the plan for the race (`/race/`), phase by phase; `4x.md` is the plan for the 4X game (`/4x/`); `sim.md` is the plan for Redshift (`/sim/`).

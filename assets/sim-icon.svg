@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Redshift's app icon (sim/manifest.webmanifest): the black hole's lensed rings pressing in from
+       the top, a small system below it reddening, and the gate's ring at its edge, the way out. Kept
+       inside the middle 80% so it can be masked to any shape. Also the source of the PNG icons
+       (sim-icon-180/192/512.png, rendered from this file). -->
+  <rect width="512" height="512" fill="#05060a"/>
+  <!-- The hole: its shadow and lensed rings, above. -->
+  <g fill="none" stroke-linecap="round">
+    <circle cx="256" cy="40" r="250" stroke="#7a4ac8" stroke-width="10" opacity="0.35"/>
+    <circle cx="256" cy="40" r="196" stroke="#c08aff" stroke-width="12" opacity="0.6"/>
+    <circle cx="256" cy="40" r="146" stroke="#f0e4ff" stroke-width="10" opacity="0.85"/>
+  </g>
+  <circle cx="256" cy="40" r="112" fill="#000"/>
+  <!-- The system below: orbits round a reddened star. -->
+  <g fill="none" stroke="#ffb35c" stroke-width="5" opacity="0.4">
+    <circle cx="232" cy="356" r="62"/>
+    <circle cx="232" cy="356" r="104"/>
+  </g>
+  <circle cx="232" cy="356" r="40" fill="#ff5a3c" opacity="0.22"/>
+  <circle cx="232" cy="356" r="24" fill="#ffb08a"/>
+  <circle cx="296" cy="308" r="13" fill="#05060a" stroke="#e6ecf2" stroke-width="7"/>
+  <circle cx="170" cy="438" r="10" fill="#05060a" stroke="#e6ecf2" stroke-width="6"/>
+  <!-- The gate at the edge: the way out. -->
+  <g transform="translate(386 404)">
+    <circle r="40" fill="#7df9ff" opacity="0.18"/>
+    <circle r="30" fill="none" stroke="#7df9ff" stroke-width="10"/>
+    <circle r="12" fill="#b9fcff"/>
+  </g>
+</svg>

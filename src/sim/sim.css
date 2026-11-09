@@ -1,0 +1,221 @@
+/* Redshift's page (sim/index.html), over the UI kit (src/ui/kit.css, and kit-line.css or
+   kit-lowpoly.css by html[data-ui]): the system on a full-screen canvas; a header with the clock,
+   the resources, the horizon meter and the advisor's line; the kit's icon tab bar along the bottom;
+   sheets between them over the map; portrait bubbles on the map; full screens for the title, the
+   jump and a lost system. Laid out for a phone held upright; wider screens keep a phone's width. */
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--hud); font: 15px/1.4 var(--sans); overflow: hidden; }
+#map { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; user-select: none; -webkit-user-select: none; }
+.num { font-family: var(--mono); }
+
+/* ---------- The header ---------- */
+.sim-head {
+  position: fixed; z-index: 3; top: 0; left: 50%; transform: translateX(-50%); width: min(560px, 100%); box-sizing: border-box;
+  padding: calc(env(safe-area-inset-top, 0px) + 8px) 12px 4px; display: flex; flex-direction: column; gap: 6px;
+  background: linear-gradient(var(--bg) 78%, transparent);
+}
+.sim-head .row { display: flex; align-items: center; gap: 8px; }
+.sim-head .culture { width: 3px; align-self: stretch; background: var(--cyan); }
+.sim-head .id { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#sys-name { font: 700 17px/1.15 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#sys-sub { font: 400 11px/1.3 var(--mono); color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sim-clock { display: flex; gap: 2px; }
+.sim-clock button { min-width: 34px; height: 32px; padding: 0 6px; background: transparent; border: 1px solid var(--line-strong); color: var(--dim); font: 500 12px var(--mono); cursor: pointer; }
+.sim-clock button[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
+.sim-menu { width: 36px; height: 32px; font-size: 18px; }
+
+/* Resources: icon, amount and rate. */
+.sim-res { gap: 4px; }
+.sim-res .chip { flex: 1; min-width: 0; display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 5px; box-sizing: border-box; border: 1px solid var(--line); background: rgba(5, 6, 10, 0.7); }
+.sim-res .chip img, .sim-res .chip .ui-icon { width: 18px; height: 18px; flex: none; }
+.sim-res .chip .v { font: 500 12px/1 var(--mono); color: var(--bright); white-space: nowrap; }
+.sim-res .chip .d { font: 400 9px/1 var(--mono); color: var(--dim); white-space: nowrap; }
+.sim-res .chip .d.up { color: var(--good); }
+.sim-res .chip .d.down { color: var(--hostile); }
+.sim-res .chip .vals { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sim-res .chip.short { border-color: var(--warn); }
+
+/* The horizon meter: the hole's pull, with marks where time slows (50%), badly (75%), nearly stops (90%). */
+.sim-horizon { display: flex; flex-direction: column; gap: 3px; }
+.sim-horizon .lbl { display: flex; align-items: baseline; gap: 8px; white-space: nowrap; font: 700 10px/1 var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.sim-horizon .lbl .num { font: 500 12px/1 var(--mono); letter-spacing: 0; color: var(--bright); }
+.sim-horizon #h-note { font: 400 10px/1 var(--mono); letter-spacing: 0; text-transform: none; }
+.sim-horizon .gate { margin-left: auto; font: 400 10px/1 var(--mono); letter-spacing: 0; text-transform: none; color: var(--cyan); }
+.sim-horizon .bar { position: relative; height: 10px; border: 1px solid var(--line-strong); background: #07080d; overflow: hidden; }
+.sim-horizon .bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: linear-gradient(90deg, #3a1c4a, #8a2a5a 50%, #ff5a3c 80%, #ffd27a); transition: width 0.4s linear; }
+.sim-horizon .bar b { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(238, 241, 255, 0.35); }
+.sim-horizon[data-level="2"] .lbl > span:first-child { color: var(--warn); }
+.sim-horizon[data-level="3"] .lbl > span:first-child { color: var(--hostile); animation: sim-blink 1s steps(2) infinite; }
+@keyframes sim-blink { 50% { opacity: 0.4; } }
+
+/* The advisor's line: an android's face and the next thing to do. */
+.sim-advisor { display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; color: var(--cyan); font: 400 12px/1.25 var(--mono); }
+.sim-advisor img { width: 28px; height: 28px; flex: none; border: 1px solid var(--line-strong); background: #0b0e14; }
+.sim-advisor span { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.sim-advisor:empty, .sim-advisor[hidden] { display: none; }
+
+/* ---------- The tab bar and sheets ---------- */
+.sim-nav { position: fixed; z-index: 6; bottom: 0; left: 50%; transform: translateX(-50%); width: min(560px, 100%); box-sizing: border-box; }
+.sim-nav .ui-tab .ui-icon { position: relative; }
+.sim-nav .ui-tab .ui-icon .dot { position: absolute; top: -2px; right: -4px; width: 7px; height: 7px; border-radius: 50%; background: var(--new); }
+#sheets .ui-scrim { background: transparent; pointer-events: none; }
+#sheets .ui-sheet { bottom: var(--nav-h, 70px); max-height: 52vh; max-height: 52dvh; padding-bottom: 0; }
+#sheets .ui-sheet.tall { height: auto; max-height: calc(100dvh - var(--nav-h, 70px) - 150px); }
+.sim-acts { display: flex; gap: 6px; flex-wrap: wrap; }
+.sim-acts .ui-btn { min-height: 40px; padding: 0 12px; }
+.sim-acts .ui-btn.lg { flex: 1; min-height: 48px; }
+.sim-pips { display: inline-flex; gap: 2px; vertical-align: middle; margin-left: 4px; }
+.sim-pips i { width: 7px; height: 7px; border: 1px solid currentColor; transform: rotate(45deg); }
+.sim-pips i.on { background: currentColor; }
+.sim-yield { display: flex; gap: 14px; flex-wrap: wrap; font: 400 13px var(--mono); }
+.sim-yield > span { display: inline-flex; align-items: center; gap: 4px; }
+.ui-opt img.icon { flex: none; width: 40px; height: 40px; }
+.sim-face { flex: none; display: block; background: #0b0e14; border: 1px solid var(--line-strong); }
+.sim-art { display: block; margin: 0 auto; }
+.sim-row { display: flex; align-items: center; gap: 10px; }
+.sim-row .grow { flex: 1; min-width: 0; }
+.sim-note { margin: 0; font-size: 13px; line-height: 1.4; color: var(--dim); }
+.sim-trait { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--tone, var(--new)); }
+.sim-trait b { display: block; color: var(--bright); font-size: 14px; }
+
+/* The build tray: station cards in a row that scrolls sideways. */
+.sim-tray { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scroll-snap-type: x mandatory; }
+.sim-card {
+  flex: none; width: 112px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px;
+  border: 1px solid var(--line-strong); background: var(--s1); color: var(--hud); cursor: pointer; font: inherit; text-align: center;
+}
+.sim-card > img { width: 64px; height: 64px; }
+.sim-card .sim-cost { justify-content: center; }
+.sim-card .n { font: 700 12px/1.15 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); }
+.sim-card .c { font: 400 10px/1.3 var(--mono); color: var(--dim); }
+.sim-card[aria-pressed="true"] { border-color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan); }
+.sim-card:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- Bubbles over the map ---------- */
+#bubbles { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+.sim-bubble {
+  position: absolute; transform: translate(-50%, -100%); pointer-events: auto; cursor: pointer; padding: 0; border: 0; background: none;
+  display: flex; flex-direction: column; align-items: center; animation: sim-bob 2.4s ease-in-out infinite;
+}
+.sim-bubble img { width: 38px; height: 38px; border: 2px solid var(--tone, var(--cyan)); background: #0b0e14; border-radius: 50%; }
+.sim-bubble::after { content: ''; width: 0; height: 0; border: 6px solid transparent; border-top-color: var(--tone, var(--cyan)); }
+.sim-bubble .mark { position: absolute; top: -4px; right: -6px; min-width: 16px; height: 16px; padding: 0 3px; box-sizing: border-box; border-radius: 8px; background: var(--tone, var(--cyan)); color: var(--bg); font: 700 11px/16px var(--mono); }
+@keyframes sim-bob { 50% { translate: 0 -4px; } }
+@media (prefers-reduced-motion: reduce) { .sim-bubble { animation: none; } }
+
+/* ---------- Full screens ---------- */
+.sim-screen {
+  position: fixed; inset: 0; z-index: 10; overflow-y: auto; background: rgba(5, 6, 10, 0.93);
+  display: flex; flex-direction: column; align-items: center;
+}
+.sim-screen[hidden] { display: none; }
+.sim-screen .inner { width: min(520px, 100%); box-sizing: border-box; padding: calc(env(safe-area-inset-top, 0px) + 28px) 18px 32px; display: flex; flex-direction: column; gap: 14px; }
+.sim-title { margin: 0; font: 700 44px/1 var(--sans); letter-spacing: 0.18em; text-transform: uppercase; color: var(--bright); text-align: center; }
+.sim-title span { color: #ff6a4a; }
+.sim-tag { margin: 0; text-align: center; color: var(--dim); font-size: 14px; }
+.sim-hero { display: block; margin: 0 auto; width: 220px; height: 220px; }
+.sim-modes { display: flex; flex-direction: column; gap: 10px; }
+.sim-mode { display: flex; gap: 12px; align-items: center; width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid var(--line-strong); background: var(--s1); color: var(--hud); cursor: pointer; text-align: left; font: inherit; }
+.sim-mode:hover { border-color: var(--cyan); }
+.sim-mode b { display: block; font: 700 16px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
+.sim-mode small { display: block; color: var(--dim); font-size: 13px; }
+.sim-mode img { width: 56px; height: 56px; flex: none; }
+
+/* Destinations at the jump. */
+.sim-dest { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line-strong); background: var(--s1); }
+.sim-dest .top { display: flex; gap: 12px; align-items: center; }
+.sim-dest img { width: 64px; height: 64px; flex: none; }
+.sim-dest h3 { margin: 0; font: 700 17px/1.15 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
+.sim-dest .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 400 12px var(--mono); color: var(--dim); }
+.sim-dest .facts b { color: var(--bright); font-weight: 500; }
+.sim-dest .hz { display: flex; gap: 10px; align-items: center; font-size: 13px; color: var(--warn); }
+.sim-dest .hz img { width: 40px; height: 40px; }
+
+.sim-toast {
+  position: fixed; z-index: 8; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 150px); transform: translateX(-50%);
+  width: min(380px, calc(100% - 32px)); box-sizing: border-box; padding: 10px 14px; display: flex; gap: 10px; align-items: center;
+  background: var(--bg); border: 1px solid var(--tone, var(--cyan)); border-left-width: 3px; animation: sim-in 0.3s ease-out;
+}
+.sim-toast[hidden] { display: none; }
+.sim-toast img { width: 36px; height: 36px; flex: none; }
+.sim-toast .k { font: 400 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--tone, var(--cyan)); }
+.sim-toast .t { font-size: 14px; color: var(--bright); }
+@keyframes sim-in { from { opacity: 0; transform: translate(-50%, -8px); } }
+
+/* Costs and rates: a resource's icon and its amount. */
+.sim-ri { display: inline-block; vertical-align: middle; flex: none; }
+.sim-cost .sim-ri, .sim-rate .sim-ri, .sim-dest .sim-ri, .sim-yield .sim-ri { width: 14px; height: 14px; }
+.sim-ri.cr { position: relative; }
+.sim-ri.cr i { position: absolute; inset: 25%; background: var(--cyan); transform: rotate(45deg); }
+.sim-res .chip .sim-ri.cr { width: 18px; height: 18px; }
+.sim-cost, .sim-rate { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; font: 500 12px/1.3 var(--mono); color: var(--hud); }
+.sim-cost > span, .sim-rate > span { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.sim-cost .short { color: var(--hostile); }
+.sim-rate .up { color: var(--good); }
+.sim-rate .down { color: var(--warn); }
+.sim-rate .dim { color: var(--dim); }
+.sim-notes { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; font: 400 11px/1.3 var(--mono); color: var(--dim); }
+.sim-notes .up { color: var(--good); }
+.sim-notes .down { color: var(--hostile); }
+
+/* Ship slots: a ship's art, or a button to commission one. */
+.sim-slots { display: flex; gap: 6px; flex-wrap: wrap; }
+.sim-slot {
+  width: 96px; min-height: 92px; box-sizing: border-box; padding: 6px 4px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 1px dashed var(--line-strong); background: transparent; color: var(--hud); font: 400 11px/1.2 var(--sans); text-align: center; cursor: pointer;
+}
+.sim-slot.full { border-style: solid; border-color: var(--line); background: var(--s1); cursor: default; }
+.sim-slot b { font: 700 18px/1 var(--mono); color: var(--cyan); }
+.sim-slot:disabled { opacity: 0.5; cursor: default; }
+.sim-slot .sim-cost { font-size: 10px; gap: 1px 4px; justify-content: center; }
+
+/* A culture's row: its leader, approval and wants. */
+.sim-culture { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--tone); }
+.sim-culture b { font: 700 15px/1.2 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--bright); }
+.sim-culture .aside { margin-left: auto; font-size: 13px; color: var(--bright); }
+.sim-culture .grow { display: flex; flex-direction: column; gap: 4px; }
+.sim-stage { flex: 1; text-align: center; font: 700 11px/1.3 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.sim-stage.done { color: var(--good); }
+.sim-summary { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line-strong); background: var(--s1); }
+.sim-summary .row { display: flex; justify-content: space-between; font: 400 13px var(--mono); }
+.sim-summary .row b { color: var(--bright); font-weight: 500; }
+.sim-big { margin: 0; text-align: center; font: 700 26px/1.15 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bright); }
+.sim-sub { margin: 0; text-align: center; color: var(--dim); font-size: 14px; }
+
+/* A request in the Cultures sheet; an offer waiting on an answer is a button. */
+.sim-culture b.req { font: 600 14px/1.25 var(--sans); letter-spacing: 0.02em; text-transform: none; }
+.sim-ask { width: 100%; box-sizing: border-box; background: var(--s1); color: var(--hud); text-align: left; cursor: pointer; font: inherit; }
+
+/* An offer's answers: a button each, its cost under it. */
+.sim-answers { display: flex; gap: 6px; }
+.sim-answer { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.sim-answer .ui-btn { padding: 0 8px; }
+
+/* The Archive: Insight to spend, and each upgrade's levels. */
+.sim-insight { display: flex; align-items: center; justify-content: center; gap: 10px; font: 700 15px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); }
+.sim-insight .num { font: 600 28px var(--mono); color: var(--new); letter-spacing: 0; }
+.sim-lv { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; }
+.sim-lv i { width: 14px; height: 6px; border: 1px solid var(--new); }
+.sim-lv i.on { background: var(--new); }
+.sim-lv b { margin-left: 6px; font: 600 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--good); }
+.sim-mode-ic { width: 56px; height: 56px; flex: none; display: grid; place-items: center; color: var(--new); }
+
+/* Looking at a past system: a banner over the frozen map. */
+.sim-past {
+  position: fixed; z-index: 7; top: 0; left: 50%; transform: translateX(-50%); width: min(560px, 100%); box-sizing: border-box;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) 14px 12px; display: flex; align-items: center; gap: 12px;
+  background: linear-gradient(rgba(30, 4, 8, 0.95) 70%, transparent);
+}
+.sim-past[hidden] { display: none; }
+.sim-past .grow { flex: 1; min-width: 0; }
+.sim-past b { display: block; font: 700 17px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: #ffb0a0; }
+.sim-past span { font: 400 12px var(--mono); color: #c08080; }
+body.past #bar, body.past #nav, body.past #bubbles { display: none; }
+
+/* A story chapter's opening. */
+.sim-kicker { margin: 0; text-align: center; font: 400 11px var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); }
+.sim-sysname { display: block; font: 700 15px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
+
+/* A body's surface survey: a strip of its ground. */
+.sim-survey { position: relative; margin: 0; border: 1px solid var(--line); overflow: hidden; }
+.sim-survey img { display: block; width: 100%; aspect-ratio: 8 / 3; object-fit: cover; }
+.sim-survey figcaption { position: absolute; left: 6px; bottom: 4px; font: 400 10px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--bright); text-shadow: 0 1px 2px #000; }

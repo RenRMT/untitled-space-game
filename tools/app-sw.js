@@ -1,8 +1,8 @@
 // An installable page's offline file list: every file <app>/index.html loads (its stylesheets and
 // their fonts, its module and everything that imports, the manifest and its icons), written into
 // <app>/sw.js between its `precache` markers, so the installed page starts without a network. The
-// apps are the race (race/) and the idle game (idle/).
-// `npm run race:sw` or `npm run idle:sw` (node tools/app-sw.js <app>) after adding or removing a file
+// apps are the race (race/), the idle game (idle/) and Redshift (sim/).
+// `npm run race:sw`, `npm run idle:sw` or `npm run sim:sw` (node tools/app-sw.js <app>) after adding or removing a file
 // that page loads; tests/run.js fails while a list is out of date.
 //
 //   appFiles(app) -> ['./', '../src/race/main.js', ...]   paths relative to <app>/, sorted
@@ -16,7 +16,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const APPS = ['race', 'idle'];
+const APPS = ['race', 'idle', 'sim'];
 const MARK = /(\/\/ precache:start\n)[\s\S]*?(\n\/\/ precache:end)/;
 
 // What a file refers to, as paths relative to it: by its kind.
