@@ -32,8 +32,9 @@ import { Progress } from '../rules/progress.js';
 import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
 import { Vendor } from '../rules/vendor.js';
-import { cargo, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { engageOnSurface, tallyKill } from './combat.js';
+import { leaveLoot } from './surface-run.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
@@ -173,10 +174,10 @@ export function tickGuardians(C, dt = 0) {
   const group = living().filter((g) => !fight.ships.has(g.key) && near.some((n) => Math.hypot(n.x - g.x, n.y - g.y) <= GUARD.rouse));
   engageOnSurface(group);
 }
-// One destroyed (game/combat.js shipDestroyed): its cargo as credits, gear (its drop table) into
-// the spare gear, the Warden's bounty.
+// One destroyed (game/combat.js shipDestroyed, at its wreck { x, y }): its cargo as credits, gear
+// (its drop table) lying where it went down to drag aboard, the Warden's bounty.
 const SOURCE = { turret: 'sentinel', raider: 'raider', warden: 'warden' };
-export function guardianDown(g) {
+export function guardianDown(g, at = g) {
   if (!g.alive) return;
   g.alive = false;
   const R = dungeonRun, level = bodyLevel(R.e);
@@ -184,10 +185,10 @@ export function guardianDown(g) {
   const paid = CombatCore.credits(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4))
     + (g.boss ? CombatCore.credits(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4) : 0);
   cargo.credits += paid;
-  // The Warden's gear is one of three to choose (game/rewards.js); a guardian's goes straight aboard.
+  // The Warden's gear is one of three to choose (game/rewards.js); a guardian's lies where it went down.
   const o = { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity };
   const gear = g.boss ? [] : Loot.drops(SOURCE[g.role] || 'sentinel', g.key, o);
-  for (const spec of gear) lootNotice(takeLoot(spec));
+  leaveLoot(gear, at.x, at.y, `loot:${g.key}:${Date.now().toString(36)}`);
   if (g.boss) offerReward(`The ${g.name}`, `warden:${g.key}:${R.field >>> 0}`, Loot.offer('warden', g.key, o));
   tallyKill({ credits: g.boss ? 0 : paid, loot: gear }); // said when the fight is won (game/combat.js); the Warden's hoard with its bounty
   if (g.boss) {

@@ -5,8 +5,8 @@
 //   body's goods, seeded afresh on every landing. A tap selects one, and its context menu's Mine (or
 //   E) sets the tools on it: the same timed action as an asteroid in space (game/mining.js extract).
 //   The tools never pick one on their own. Broken up, a node leaves what it held lying beside it.
-// - What lies on the surface (cargo.surfaceDrops): a node's goods, loot, and the hold of a ship lost
-//   there, drawn as their icons. A tap selects one; dragged onto the ship (game/input.js), it's
+// - What lies on the surface (cargo.surfaceDrops): a node's goods, a guardian's gear (leaveLoot), and
+//   the hold of a ship lost there, drawn as their icons. A tap selects one; dragged onto the ship (game/input.js), it's
 //   picked up. Nothing is picked up by flying near it.
 // - The scan before landing: what a planet's or moon's card says of its surface (siteScan).
 // Flight time runs on while landed, so the system moves on.
@@ -21,16 +21,17 @@ import { Format } from '../core/format.js';
 import { COLORS } from '../core/theme.js';
 import { ContextCard } from '../ui/context.js';
 import { Goods } from '../rules/goods.js';
+import { Loot } from '../rules/loot.js';
 import { Hazards } from '../rules/hazards.js';
 import { Mining } from '../rules/mining.js';
-import { addTo, cargo, hold, saveCargo } from './cargo.js';
+import { addTo, cargo, hold, lootDropped, lootNotice, saveCargo, takeLoot } from './cargo.js';
 import { drawFight, drawFightOverlay, endSurfaceFight, tickFight, tickShield } from './combat.js';
 import { landing, landedZoom, takeOff } from './landing.js';
 import { REACH, chips, drawRing, endExtraction, extract, mine, mineReach, tickMining } from './mining.js';
 import { landSquad, liftSquad, tickSurfaceSquad } from './surface-squad.js';
 import { bodyLevel, dungeonLines, dungeonRun, dungeonSite, enterDungeon, tickDungeon, tickGuardians } from './dungeon.js';
 import { trackShields } from './screen-fx.js';
-import { DROP_PX, STACK_PX, dropColor, drawDrop, stackDrops } from './draw-world.js';
+import { DROP_PX, STACK_PX, dropColor, dropUpgrade, drawDrop, stackDrops } from './draw-world.js';
 import { menuRadius, selectionMark } from './selection.js';
 import { SHIP, TAU, ctx, debris, notify } from './state.js';
 import { skipTime } from './update.js';
@@ -52,6 +53,14 @@ export function bodySite(e) {
   return dungeonSite(Hazards.surface(e.kind, e.body.type, e.body.seed, moon ? G.planets[moon.parent]?.type : undefined));
 }
 const goodName = (kind) => Goods.type(kind)?.name || kind;
+// What lies on the surface: goods ({ kind }) or gear ({ loot: a rules/loot.js spec }), drawn as the
+// same thing floating in space is (game/draw-world.js), gear in its rarity's colour.
+const gearNames = new WeakMap(); // spec -> its name, made once (it's drawn every frame)
+const gearName = (spec) => gearNames.get(spec) ?? (gearNames.set(spec, Loot.make(spec)?.name || spec.base), gearNames.get(spec));
+const dropName = (it) => (it.loot ? gearName(it.loot) : goodName(it.kind));
+const dropIcon = (it) => (it.loot ? it.loot.base : it.kind);
+const dropTint = (it) => (it.loot ? Loot.rarityOf(it.loot.rarity).color : dropColor(it));
+const dropBeam = (it) => (it.loot ? Math.max(0, Loot.RANK[it.loot.rarity] - Loot.RANK.uncommon) : 0);
 // A good's colour (rules/goods.js), or as light as `light` at least (to stand out on dark ground).
 const goodColor = (kind, light = 0) => { const c = Goods.type(kind)?.color || [0, 0, 0.7]; return `hsl(${c[0]}, ${Math.round(c[1] * 100)}%, ${Math.round(Math.max(light, c[2]) * 100)}%)`; };
 
@@ -142,6 +151,14 @@ export const onCraft = (x, y) => Math.hypot(x - landing.craft.x, y - landing.cra
 export function dropOnCraft(it) {
   const list = surfaceRun.e && cargo.surfaceDrops[surfaceRun.e.key], i = list ? list.indexOf(it) : -1;
   if (i < 0) return false;
+  if (it.loot) { // gear: into the spare gear, which takes no hold room
+    list.splice(i, 1);
+    lootNotice(takeLoot(it.loot));
+    if (surfaceSel.it === it) selectOnSurface(null);
+    if (!list.length) delete cargo.surfaceDrops[surfaceRun.e.key];
+    saveCargo();
+    return true;
+  }
   const component = Goods.isSalvage(it.kind);
   if (!component && cargo.items.length >= SHIP.cargo) { notify('Hold full', 2.5, { tone: 'warn' }); return false; }
   list.splice(i, 1);
@@ -179,7 +196,7 @@ export function mineState(d) {
 }
 function selCard(x) {
   const n = isDeposit(x) ? 1 : surfaceStackOf(x).length; // a stack: how many
-  if (!isDeposit(x)) return { title: n > 1 ? `${goodName(x.kind)} ×${n}` : goodName(x.kind), subtitle: 'Drag it onto the ship to pick it up', color: COLORS.amber, actions: [] };
+  if (!isDeposit(x)) return { title: n > 1 ? `${dropName(x)} ×${n}` : dropName(x), subtitle: 'Drag it onto the ship to pick it up', color: x.loot ? dropTint(x) : COLORS.amber, actions: [] };
   return { title: x.name, subtitle: `${goodName(x.good)} · ${Format.dist(Math.max(0, gapTo(x)))}`, tag: x.rich ? 'Rich' : '', color: x.color, actions: [mineState(x)] };
 }
 // Still there? (A node worked out, a drop picked up: the selection goes.)
@@ -202,6 +219,17 @@ export function leave(kinds, x, y, tag, spread = 30) {
     list.push({ key: `${tag}:${n}`, kind, x: Math.round(x + Math.cos(a) * r), y: Math.round(y + Math.sin(a) * r) });
   });
   return list.slice(-kinds.length);
+}
+// Leave gear lying round (x, y) (specs: rules/loot.js), keyed by tag: picked up as goods are, by
+// dragging it onto the ship, and felt as it drops (lootDropped).
+export function leaveLoot(specs, x, y, tag, spread = 30) {
+  if (!specs.length) return;
+  const list = (cargo.surfaceDrops[surfaceRun.e.key] ||= []);
+  specs.forEach((spec, n) => {
+    const a = (n / specs.length) * TAU + Math.random() * 0.5, r = spread * (0.5 + Math.random() * 0.5);
+    list.push({ key: `${tag}:${n}`, loot: spec, x: Math.round(x + Math.cos(a) * r), y: Math.round(y + Math.sin(a) * r) });
+  });
+  lootDropped(specs);
 }
 
 // ---------- Deposits ----------
@@ -275,12 +303,13 @@ export function drawSurfaceRun(v, zoom, dpr, time) {
     if (p) drawDeposit(d, p, v.ct, time);
   }
   const drops = cargo.surfaceDrops[surfaceRun.e.key] || [];
-  surfaceStacks = stackDrops(drops, (it) => it.kind, STACK_PX / zoom); // the same goods lying together: one stack
+  surfaceStacks = stackDrops(drops, (it) => (it.loot ? null : it.kind), STACK_PX / zoom); // the same goods lying together: one stack (each piece of gear its own)
   for (const it of drops) { // as their icons (game/draw-world.js)
     const st = surfaceStackOf(it);
     if (st[0] !== it) continue; // under the top of its stack
     const p = at(it.x, it.y);
-    if (p) drawDrop(ctx, it.kind, p[0], p[1], zoom, dropColor(it), surfaceSel.it === it, { count: st.length, name: goodName(it.kind) });
+    const sel = surfaceSel.it === it;
+    if (p) drawDrop(ctx, dropIcon(it), p[0], p[1], zoom, dropTint(it), sel, { count: st.length, name: dropName(it), sub: sel && it.loot ? dropUpgrade({ spec: it.loot }) : '', beam: dropBeam(it) });
   }
   for (const b of debris) {
     const p = at(b.x, b.y, 4);

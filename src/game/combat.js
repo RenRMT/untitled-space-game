@@ -36,7 +36,7 @@ import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
 import { gainXP } from './progress.js';
-import { eliteDown, orderPatrols, patrolDown, patrolSpecs, trafficShip } from './traffic.js';
+import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
@@ -450,7 +450,7 @@ export function explode(x, y, r) {
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); settleTally(); return; } // a dungeon's (game/dungeon.js)
+  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian, p); settleTally(); return; } // a dungeon's (game/dungeon.js)
   if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); settleTally(); return; } // a station, turret or outpost (game/structures.js)
   const was = world.scene.get(key), elite = trafficShip(key)?.elite ? trafficShip(key) : null;
   if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
@@ -458,7 +458,8 @@ export function shipDestroyed(key) {
   fight.dying.delete(key);
   if (!p) { settleTally(); saveCargo(); return; }
   explode(p.x, p.y, p.radius);
-  if (elite) eliteDown(elite); // a named ace (game/traffic.js): its bounty, loot and gambit
+  if (elite) eliteDown(elite, p); // a named ace (game/traffic.js): its bounty, loot and gambit
+  raiderDown(key, p); // a raid's last: where its gear will float (game/traffic.js)
   gainXP(Progress.killXP(p.tier || 1, pilotLevel())); // experience (game/progress.js), the squad's too
   CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;

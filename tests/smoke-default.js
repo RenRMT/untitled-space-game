@@ -199,8 +199,11 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
   assert.ok(game('traffic.sys === __si && !!traffic.elite'), 'an elite');
   assert.match(game('traffic.elite.name'), /^[A-Z][a-z]+ /);
   assert.ok(game('isHostile(traffic.elite) && traffic.elite.stats.hull > Loadout.stats(Loadout.npc("fighter", traffic.elite.tier)).hull * 2'), 'hostile, and tough');
-  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; eliteDown(traffic.elite)');
-  assert.ok(game('cargo.credits > __cr && Object.keys(cargo.gear).length > __gear'), 'a bounty and loot');
+  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; globalThis.__at = { x: traffic.elite.x, y: traffic.elite.y }; eliteDown(traffic.elite)');
+  assert.ok(game('cargo.credits > __cr'), 'a bounty');
+  // Its loot floats where it went down, to drag aboard, not straight into the spare gear.
+  assert.ok(game('Object.keys(cargo.gear).length === __gear'), 'nothing aboard yet');
+  assert.ok(game('cargo.drops.some((e) => e.kind === "loot" && e.key.startsWith("loot:elite:") && Math.hypot(e.x - __at.x, e.y - __at.y) < 100)'), 'its loot floating at the wreck');
   assert.ok(game('!traffic.elite && cargo.world.elites[__si].at > Clock.now()'), 'gone until it respawns');
   game('tickTraffic()');
   assert.ok(game('!traffic.elite'), 'not straight back');
@@ -211,6 +214,7 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
   assert.ok(game('traffic.raid.ships.every((e) => isHostile(e))'));
   game('globalThis.__cr = cargo.credits; for (const k of traffic.raid.keys) cargo.removed.add(k); tickTraffic()');
   assert.ok(game('!traffic.raid && cargo.credits > __cr'), 'the bounty');
+  assert.ok(game('cargo.drops.some((e) => e.kind === "loot" && e.key.startsWith("loot:raid:"))'), 'its gear floating, to drag aboard');
   assert.match(Messages.log.map((l) => l.text).join('|'), /is safe · [\d,]+ cr bounty/);
   // Saved: the timers.
   game('saveCargoNow(); loadCargo(world.galaxy)');
@@ -319,6 +323,18 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   assert.strictEqual(game('surfaceRun.W.type'), 'desert', 'cut into the desert world\'s own ground');
   assert.ok(!game('Object.keys(landing).includes("button")') && !browser.document.getElementById('takeoff-btn').listeners.click, 'no Take off button');
   assert.ok(game('dungeonRun.guards.filter((g) => g.boss).length === 1 && dungeonRun.guards.length > 3'), 'guardians and one Warden');
+  // A guardian's gear lies where it went down, drawn as its icon, and comes aboard only when dragged
+  // onto the ship, as goods lying there do; it survives a save.
+  game(`globalThis.__sd = () => (cargo.surfaceDrops[surfaceRun.e.key] || []).filter((d) => d.loot);
+    globalThis.__gear0 = Object.values(cargo.gear).reduce((a, b) => a + b, 0);
+    for (const g of dungeonRun.guards) if (!g.boss && !__sd().length) guardianDown(g, { x: g.x + 7, y: g.y });`);
+  assert.ok(game('__sd().length > 0'), 'a guardian\'s gear lying on the ground');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0) === __gear0'), 'not straight into the spare gear');
+  assert.ok(game('__sd().every((d) => surfaceStackOf(d).length === 1)'), 'each piece on its own');
+  game(`const d = __sd()[0]; globalThis.__lid = d.loot.id; readCargo({ surfaceDrops: JSON.parse(JSON.stringify(cargo.surfaceDrops)), loot: ownedLoot(), loadout: cargo.loadout })`);
+  assert.ok(game('__sd().some((d) => d.loot.id === __lid)'), 'survives a save');
+  game('dropOnCraft(__sd().find((d) => d.loot.id === __lid))');
+  assert.ok(game('cargo.gear[__lid] === 1 && !__sd().some((d) => d.loot.id === __lid)'), 'dragged aboard: into the spare gear');
   // Straight to the Warden (god mode for the test: the hull doesn't matter here).
   game(`globalThis.__boss = dungeonRun.guards.find((g) => g.boss); fight.s && endSurfaceFight();
     for (const g of dungeonRun.guards) if (!g.boss) g.alive = false;
