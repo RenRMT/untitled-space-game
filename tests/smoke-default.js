@@ -367,6 +367,31 @@ test('drops: drawn as their icons; dragged onto the ship, picked up', () => {
   assert.ok(!game(`cargo.drops.some((d) => d.key === 'drop:smoke:drag')`) && game(`cargo.items.some((it) => it.kind === 'iron')`), 'picked up');
 });
 
+test('drops: Collect all brings every drop near the ship aboard, not in a fight', () => {
+  game(`fight.grace = 1e9; cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
+    globalThis.__spec = Loot.roll(() => 0.3, { level: 1, floor: 'uncommon', key: 'gather' });
+    cargo.drops.push(dropEntity({ key: 'drop:smoke:g1', kind: 'iron', seed: 3, x: ship.x + 300, y: ship.y }),
+      dropEntity({ key: 'drop:smoke:g2', kind: 'iron', seed: 4, x: ship.x - 600, y: ship.y + 200 }),
+      dropEntity({ key: 'loot:smoke:g3', loot: __spec, seed: __spec.seed, x: ship.x, y: ship.y + 900 }),
+      dropEntity({ key: 'drop:smoke:far', kind: 'iron', seed: 5, x: ship.x + GATHER + 800, y: ship.y }))`);
+  browser.frames(1);
+  game(`select(cargo.drops.find((d) => d.key === 'drop:smoke:g1'))`);
+  browser.frames(1);
+  assert.ok(game(`describe(selected.e).actions.some((a) => a.id === 'gather' && a.enabled)`), 'Collect all on its menu');
+  game(`act(selected.e, 'gather')`);
+  assert.ok(game(`!cargo.drops.some((d) => /smoke:g[123]/.test(d.key))`), 'every drop in reach aboard');
+  assert.strictEqual(game(`cargo.items.filter((it) => it.kind === 'iron').length`), 2, 'the goods in the hold');
+  assert.ok(game('cargo.gear[__spec.id] === 1'), 'the gear in the spare gear');
+  assert.ok(game(`cargo.drops.some((d) => d.key === 'drop:smoke:far')`), 'one out of reach stays');
+  assert.ok(Messages.log.some((l) => l.text === 'Collected 3'), 'said once');
+  // Not in a fight.
+  game(`select(cargo.drops.find((d) => d.key === 'drop:smoke:far')); fight.wreckT = 1`);
+  assert.ok(game(`!actions.state('gather', selected.e).ok`), 'not in a fight');
+  game('fight.wreckT = 0');
+  assert.match(game(`actions.state('gather', selected.e).label`), /out of reach/, 'a drop out of reach says so; the ship never flies to it');
+  game(`cargo.drops.splice(cargo.drops.findIndex((d) => d.key === 'drop:smoke:far'), 1); delete cargo.gear[__spec.id]; cargo.items = []; select(null)`);
+});
+
 test('drops: the same thing lying together is one stack, named when selected, picked up whole', () => {
   game(`cargo.items = []; placeShip(ship.x, ship.y); ship.targetSpeed = 0;
     for (const [i, kind] of ['iron', 'iron', 'iron', 'silicates'].entries()) cargo.drops.push(dropEntity({ key: 'drop:smoke:st' + i, kind, seed: 10 + i, x: ship.x + 400 + i * 3, y: ship.y }))`);

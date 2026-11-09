@@ -460,7 +460,7 @@ test('drops are never pulled in nor picked up by flying near: a tap selects one,
   assert.strictEqual(game('cargo.items.length'), 0, 'nor picked up');
   game(`select(frameList.find((e) => e.key === 'drop:smoke:pull'))`);
   assert.match(game('describe(selected.e).subtitle'), /Drag it onto the ship/);
-  assert.strictEqual(game('describe(selected.e).actions.length'), 0, 'no buttons: not even Approach');
+  assert.deepStrictEqual(game('describe(selected.e).actions.map((a) => a.id)'), ['gather'], 'only Collect all: not even Approach');
   game('select(null)');
   assert.ok(dragOntoShip('drop:smoke:pull'), 'dragged onto the ship, picked up');
   assert.strictEqual(game('cargo.items.length'), 1);

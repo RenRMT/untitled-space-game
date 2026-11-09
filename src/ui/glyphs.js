@@ -33,6 +33,7 @@ const Glyphs = (() => {
     ENG: '<path d="M12 2.5c3.5 4 5.5 7 5.5 10.5a5.5 5.5 0 0 1-11 0c0-2 .8-3.6 2-5 .2 2 1 3.2 2.5 3.6C10.5 8 10.5 5.5 12 2.5z"/>',
     SCN: '<path d="M12 12l6-6"/><path d="M4.9 19.1a10 10 0 1 1 14.2 0"/><path d="M8.5 15.5a5 5 0 1 1 7 0"/>',
     SPD: '<path d="M4.5 6l6 6-6 6M12 6l6 6-6 6"/>',
+    gather: '<path d="M4 4l5 5M20 4l-5 5M4 20l5-5M20 20l-5-5"/><circle cx="12" cy="12" r="3"/>', // collect all: drops drawn in to a point
     INI: '<path d="M19.5 13a7.5 7.5 0 1 1-7.5-7.5"/><path d="M12 13l3.5-3.5"/><path d="M16 2.5l-2 4h4l-2 4"/>', // initiative: a gauge, a quick tick
     TRN: '<path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 3.5v4.5H15"/>',
     EVA: '<path d="M4 20c7 0 4-14 11-14h5"/><path d="M17 3l3 3-3 3"/><path d="M3 9h4M3 13h3"/>',

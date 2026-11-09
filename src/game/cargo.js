@@ -506,10 +506,24 @@ export function lootDropped(specs) {
   if (Loot.RANK[R.id] >= Loot.RANK.epic) notify(`${R.name} drop!`, 3, { tone: 'good' });
 }
 
+// Collect all (game/input.js, on a drop's menu): every drop floating within GATHER of the ship comes
+// aboard at once, as if each were dragged onto it (gear into the spare gear, goods while the hold has
+// room; what doesn't fit waits beside the ship). Not in a fight. Returns how many came aboard.
+export const GATHER = 1500; // world units
+export function gatherDrops(list) {
+  const near = list.filter((e) => (e.kind === 'item' || e.kind === 'loot') && !cargo.removed.has(e.key) && Math.hypot(ship.x - e.x, ship.y - e.y) <= GATHER);
+  for (const e of near) {
+    Object.assign(e, { x: ship.x, y: ship.y });
+    if (e.drop) Object.assign(e.drop, { x: ship.x, y: ship.y });
+  }
+  return collectItems(near);
+}
+
 // Floating items dragged onto the ship (game/input.js) are picked up: trade goods into the hold
 // while there's room, components into their own store, which never fills. A trade good that won't
 // fit is left where it is. Nothing is picked up by flying near it.
 export function collectItems(list) {
+  let n = 0;
   for (const e of list) {
     if ((e.kind !== 'item' && e.kind !== 'loot') || cargo.removed.has(e.key)) continue;
     const d = Math.hypot(ship.x - e.x, ship.y - e.y);
@@ -520,12 +534,14 @@ export function collectItems(list) {
       const item = takeLoot(e.spec);
       lootNotice(item);
       saveCargo();
+      n++;
       continue;
     }
     if (e.mission) { // a mission's cargo: kept apart from the hold, for the mission
       cargo.removed.add(e.key);
       notify(`Recovered: ${e.label}`, 2.5);
       saveCargo();
+      n++;
       continue;
     }
     const component = Goods.isSalvage(e.itemKind);
@@ -539,5 +555,7 @@ export function collectItems(list) {
     else cargo.items.push({ kind: e.itemKind, label: e.label, category: 'trade' });
     notify(`Recovered: ${e.label}`, 2.5);
     saveCargo();
+    n++;
   }
+  return n;
 }

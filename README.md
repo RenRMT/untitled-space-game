@@ -90,8 +90,9 @@ Mining is an action you start: select a rock (or, on a surface, a deposit) and p
 Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
 (`src/game/mining.js`). The tools never pick a rock on their own, nor go on to the next, and a big
 asteroid's shards are each mined the same way. Fly off and the work stops. Drops (in space and on a
-surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship is
-the only way to pick it up: nothing is pulled in or picked up by flying near it. The drag joypad
+surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship picks
+it up. In space a drop's menu also has Collect all (G), outside a fight: every drop within reach of
+the ship comes aboard at once. Nothing is pulled in or picked up by flying near it. The drag joypad
 shows under the finger in space and on a surface alike, and the map, settings, factions and
 context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
 its landing pad: fly off it and back onto it to take off.

@@ -9,10 +9,10 @@ import { focusOn, foeAt, foeMarkerAt } from './combat.js';
 import { actions } from './docking.js';
 import { moveMode } from './options.js';
 import { act, frameList, hitRadius, pickAt, screenToWorld, select } from './selection.js';
-import { cargo, collectItems } from './cargo.js';
+import { GATHER, cargo, collectItems, gatherDrops } from './cargo.js';
 import { worldToScreen } from './hud.js';
 import { stackOf, underStack } from './draw-world.js';
-import { SHIP, autopilot, canvas, fight, flyingFight, inFight, ship, view } from './state.js';
+import { SHIP, autopilot, canvas, fight, flyingFight, inFight, notify, ship, view } from './state.js';
 import { landing, onSurface, surfaceAt } from './landing.js';
 import { depositAt, dropOnCraft, onCraft, selectOnSurface, surfaceDropAt, surfaceStackOf } from './surface-run.js';
 import { warp } from './warp.js';
@@ -153,6 +153,15 @@ export function endDrag(e) {
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
+  // Collect all: on any drop's menu, every drop near the ship aboard at once (game/cargo.js
+  // gatherDrops); dragging one still works. Not in a fight, nor while a lost ship waits for its tow;
+  // a drop out of reach says so (the ship never flies to a drop).
+  actions.add({
+    id: 'gather', kind: ['item', 'loot'], verb: 'Collect all', key: 'g', range: () => Infinity,
+    allowed: (e) => (inFight() || fight.wrecked ? { ok: false, reason: 'Not in a fight' }
+      : Math.hypot(e.x - ship.x, e.y - ship.y) > GATHER ? { ok: false, reason: 'Collect all · out of reach' } : { ok: true }),
+    run: () => { const n = gatherDrops(frameList); if (n > 1) notify(`Collected ${n}`, 2.5, { tone: 'good' }); select(null); },
+  });
   canvas.addEventListener('pointerdown', (e) => {
     if (drag.active || (e.pointerType === 'mouse' && e.button !== 0)) return;
     canvas.setPointerCapture(e.pointerId);

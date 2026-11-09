@@ -3411,7 +3411,7 @@ test('every icon code the UI uses has a line icon', () => {
   const codes = new Set([...src.matchAll(/code: '([A-Z+]{1,4})'/g)].map((m) => m[1]));
   for (const a of Abilities.LIST) codes.add(a.code);
   for (const c of ['SCN', 'ENG', 'CPU', 'SYS', 'CMB', 'TAC', 'MNT', 'RCP', 'LAB', 'MOD', 'ORE', 'VOL', 'RCY', 'FAB', 'BEN', 'SHY', 'tab-trade', 'tab-ship', 'tab-outfitter', 'tab-squad', 'tab-missions', 'LOG', 'OUT', 'hold', 'hull', 'face', 'android', 'open',
-    'dock', 'mine', 'collect', 'jump', 'attack', 'approach', 'cancel-approach',
+    'dock', 'mine', 'collect', 'gather', 'jump', 'attack', 'approach', 'cancel-approach',
     'HLD', 'HUL', 'SHD']) codes.add(c); // the last row: the HUD's status icons (game/hud.js)
   const missing = [...codes].filter((c) => !Glyphs.has(c));
   assert.deepStrictEqual(missing, [], 'codes with no icon');
