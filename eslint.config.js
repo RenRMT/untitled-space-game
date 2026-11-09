@@ -39,7 +39,7 @@ export default [
   },
   {
     // The race's and the idle game's service workers: a worker's globals, not a page's.
-    files: ['race/sw.js', 'idle/sw.js'],
+    files: ['race/sw.js', 'idle/sw.js', 'sim/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
   },
   {

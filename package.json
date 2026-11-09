@@ -14,7 +14,8 @@
     "race:sw": "node tools/app-sw.js race",
     "idle:sw": "node tools/app-sw.js idle",
     "idle:sim": "node tools/idle-sim.js",
-    "sim:play": "node tools/sim-play.js"
+    "sim:play": "node tools/sim-play.js",
+    "sim:sw": "node tools/app-sw.js sim"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

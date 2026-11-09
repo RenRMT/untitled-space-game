@@ -75,7 +75,10 @@ function openTab(id) {
   if (id !== 'build') buildType = null;
   selected = null;
   if (id === 'system') { map.focus(null); sheets.show(null, ctx()); }
-  else sheets.show({ kind: id }, ctx());
+  else {
+    map.focus(id === 'gate' ? R.world(state).gate : null);
+    sheets.show({ kind: id }, ctx());
+  }
   tabs();
 }
 function tabs() {

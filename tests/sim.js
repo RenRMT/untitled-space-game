@@ -8,6 +8,7 @@ import { SimEvents } from '../src/sim/events.js';
 import { SimRules as R } from '../src/sim/rules.js';
 import { SimStory } from '../src/sim/story.js';
 import { SimWorld } from '../src/sim/world.js';
+import * as AppSw from '../tools/app-sw.js';
 
 let failed = 0;
 function test(name, fn) {
@@ -266,6 +267,14 @@ test('events run on the rules without error over a long game', () => {
     if (i % 25 === 0) { const b = free(s)[0]; if (b) for (const t of C.STATION_ORDER) if (R.build(s, m, b.key, t)) break; }
   }
   assert.ok(Number.isFinite(s.res.m) && Number.isFinite(s.res.cr));
+});
+
+test('the installed sim keeps every file it loads (sim/sw.js)', () => {
+  const files = AppSw.appFiles('sim');
+  for (const f of ['./', 'manifest.webmanifest', '../src/sim/main.js', '../src/sim/sim.css', '../src/ui/kit-lowpoly.css', '../src/art/surface.js', '../assets/sim-icon-512.png']) assert.ok(files.includes(f), f);
+  assert.ok(!files.some((f) => f.includes('/game/') || f.endsWith('sw.js')), 'nothing of the game, and not the worker itself');
+  const { current, wanted } = AppSw.check('sim');
+  assert.strictEqual(current, wanted, 'sim/sw.js: the file list is out of date: npm run sim:sw');
 });
 
 if (failed) { console.log(`${failed} failed`); process.exit(1); }

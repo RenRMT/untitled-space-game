@@ -134,3 +134,37 @@ everywhere: the advisor, requests, the culture screen, events, station crews.
 
 `tests/sim.js` checks the rules in Node; `npm run sim:play` plays systems with a scripted player and
 prints when the gate is ready and when it jumps.
+
+## As built (phases 1–7)
+
+All of the above is in. What each phase added is in its commit; the numbers as they stand:
+
+- **The clock.** A cycle is a second at 1× (2× and 4× to hurry, a pause). A system lasts 560 (near),
+  700 (mid) or 860 (far) cycles from an empty meter, 28 fewer for every system reached in endless
+  (14 in the story), never under 380. Near systems start the meter at 18%, mid at 8%, far at 0.
+- **The economy.** The Ark makes a little of everything (1.2 credits a cycle) so nothing stalls for
+  good. A rig or siphon makes 0.35 a pip a cycle; a hub trades 0.3 minerals and 0.3 volatiles for
+  1.8 credits (half again beside a rig); a lab turns 0.25 volatiles into 0.6 science; a platform
+  gives 3 security. Each ship adds half (a patrol adds 2 security), Mk II ×1.6 and Mk III ×2.2.
+- **The gate.** Frame (120 minerals, 40 credits), ring (100 minerals, 80 volatiles), core (120
+  volatiles, 100 credits), 22% dearer for every system reached (11% in the story). Overcharge
+  gains 0.002 a cycle plus 0.006 × the meter²; a full charge makes every choice 20% longer-lived and
+  start 10% lower, and is worth 4 Insight.
+- **Insight.** One per 40 science, plus the overcharge, finds (ruins), requests that pay it and the
+  Shard's boon. The Archive's nine upgrades cost 143 in all.
+
+`npm run sim:play` with its scripted player (no Archive bought, jumping at 60% charge or 88%),
+three seeds each:
+
+| | Gate done | Jumped at | Lost |
+| --- | --- | --- | --- |
+| Endless, systems 1–3 | 26–59% | 53–77% | — |
+| Endless, systems 4–8 | 29–94% | 59–94% | most runs end between the 6th and 8th system |
+| Story, chapters 1–7 | 18–71% | 45–87% | none: all three seeds win |
+
+So a fair player has the gate around half the meter, and the time from there to the jump is theirs
+to spend; endless runs end by the 6th to 8th system until the Archive is built up.
+
+Left for later: sound (the game's Feedback events are emitted for it), a tutorial that points at
+the buttons themselves (the advisor's line says what to do next, and the story's openings explain
+each culture), and more kinds of request.

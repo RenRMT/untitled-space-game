@@ -6,8 +6,11 @@
   <meta name="theme-color" content="#05060a">
   <title>Redshift</title>
   <!-- Redshift, the sim (notes/sim.md): outrun a black hole one star system at a time. In the game's
-       UI kit, Line or Low-poly (Settings). -->
-  <link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+       UI kit, Line or Low-poly (Settings). It installs as its own app (manifest.webmanifest) and plays
+       offline once opened (sw.js, its file list written by `npm run sim:sw`). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="../assets/sim-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="../assets/sim-icon-180.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Redshift">
   <link rel="stylesheet" href="../src/ui/kit.css">
@@ -46,5 +49,8 @@
   <!-- A past system on the Chart, frozen in time: its name and the way back. -->
   <div id="past" class="ui sim-past" hidden></div>
   <script type="module" src="../src/sim/main.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  </script>
 </body>
 </html>
