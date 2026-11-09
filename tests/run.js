@@ -4917,6 +4917,12 @@ test('loot: drop tables, floors, the same drops from the same kill, bad-luck pro
   // A DPS finds more weapons than a Tank does.
   const weapons = (cls) => { const q = mulberry32(5); let n = 0; for (let i = 0; i < 2000; i++) if (Loot.BASES[Loot.roll(q, { level: 2, cls }).base].slot === 'weapon') n++; return n; };
   assert(weapons('dps') > weapons('tank') * 1.3, 'class bias');
+  // A party's classes: a DPS pilot with two Healers finds more shields than a DPS alone, and still
+  // more weapons than the Healers alone would.
+  const shields = (cls) => { const q = mulberry32(6); let n = 0; for (let i = 0; i < 3000; i++) if (Loot.roll(q, { level: 2, cls }).base === 'shield-generator') n++; return n; };
+  assert(shields(['dps', 'dps', 'healer', 'healer']) > shields('dps') * 1.15, 'the squad\'s classes count');
+  assert(weapons(['dps', 'dps', 'healer', 'healer']) > weapons('healer'), 'the pilot\'s still counts most');
+  assert.deepStrictEqual(Loot.roll(mulberry32(1), { level: 2, cls: [] }).base.length > 0, true, 'an empty party is no bias');
 });
 
 test('loot: fitted like any gear: its stats and hull affixes count in the loadout', () => {

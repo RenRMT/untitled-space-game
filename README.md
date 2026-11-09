@@ -75,7 +75,7 @@ what you destroy, and push out from the safe core of your faction's space into h
   stronger stats the rarer, drop tables per source (fighters, turrets, stations, outposts, dungeon
   guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
   each worth a look), bad-luck protection (Rare at least after a
-  long dry run) and drops biased toward your class. Loot floats in its rarity's colour where it
+  long dry run) and drops biased toward your party's classes (yours and your squad's). Loot floats in its rarity's colour where it
   dropped, goes into the spare gear (it takes no hold room) and fits like any gear. When it drops, and
   over a selected drop and in the spare gear, it says whom it's an upgrade for and by how much: your
   ship or a squad member's, by how much stronger it makes that ship in a fight (`src/game/upgrades.js`).

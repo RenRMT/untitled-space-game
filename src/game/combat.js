@@ -24,7 +24,7 @@ import { SystemMap } from '../ui/map.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
 import { Factions } from '../world/factions.js';
-import { addTo, cargo, dropEntity, pilotLevel, saveCargo } from './cargo.js';
+import { addTo, cargo, dropEntity, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { actions, docked } from './docking.js';
 import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
@@ -464,7 +464,7 @@ export function shipDestroyed(key) {
   const paid = CombatCore.credits(world.galaxy.seed, key, p.role, p.tier);
   if (paid) { cargo.credits += paid; notify(`+${paid} credits from its hold`, 2, { tone: 'good' }); }
   // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
-  Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: cargo.cls, pity: cargo.lootPity }).forEach((spec, i) => {
+  Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }).forEach((spec, i) => {
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
   // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned

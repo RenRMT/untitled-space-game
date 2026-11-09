@@ -19,14 +19,16 @@
 // - Bad-luck protection: every roll that comes up below Rare adds to a counter (pity); at PITY.rare
 //   the next one is at least Rare, at PITY.epic at least Epic. Rare or better resets the Rare
 //   counter, Epic or better both.
-// - Smart loot: a share of rolls (SMART) picks a base for the player's class (CLASS_BIAS: a Tank
-//   finds more shields and engines, a DPS weapons, a Healer computers and shields).
+// - Smart loot: a share of rolls (SMART) picks a base for a class in the party (CLASS_BIAS: a Tank
+//   finds more shields and engines, a DPS weapons, a Healer computers and shields): the player's,
+//   or a squad member's (game/cargo.js lootClasses).
 // - Duplicate-proof: a drop's id comes from what dropped it and its roll, so the same kill always
 //   gives the same item and a reload can't duplicate it.
 //
 // An item is saved as its spec { id, base, ilvl, rarity, seed } and remade from it: the seed rolls
 // its affixes the same way every time.
-//   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cap? (the highest rarity: a vendor's stock), cls?, pity?, base?, key? }
+//   Loot.roll(rng, o) -> spec       o: { level, luck?, floor?, cap? (the highest rarity: a vendor's stock), cls? (a class, or the
+//                                    party's: a list, one picked a roll), pity?, base?, key? }
 //   Loot.drops(source, key, o) -> [spec]   o: { level, seed, cls?, pity?, luck? }: a source's drops
 //   Loot.make(spec) -> equipment    { slot, name, line, tier, stats, price, loot: { id, base, ilvl, rarity,
 //                                    affixes: [{ id, name, stat, value }], legendary? } } (as Loadout.EQUIPMENT)
@@ -170,8 +172,11 @@ const Loot = (() => {
       pity.rare = k >= RANK.rare ? 0 : (pity.rare || 0) + 1;
       pity.epic = k >= RANK.epic ? 0 : (pity.epic || 0) + 1;
     }
-    const smart = o.cls && CLASS_BIAS[o.cls] && r() < SMART;
-    const base = BASES[o.base] ? o.base : smart ? pick(r, CLASS_BIAS[o.cls]) : pick(r, BASE_IDS);
+    // Smart loot for one of the party's classes (a list: one picked at random, so a squad member's
+    // class gets its share).
+    const cls = Array.isArray(o.cls) ? (o.cls.length ? pick(r, o.cls) : null) : o.cls;
+    const smart = cls && CLASS_BIAS[cls] && r() < SMART;
+    const base = BASES[o.base] ? o.base : smart ? pick(r, CLASS_BIAS[cls]) : pick(r, BASE_IDS);
     const seed = Math.floor(r() * 4294967295) >>> 0;
     return { id: `L${(o.key !== undefined ? hashInt(seedToInt(String(o.key)), seed, 0x1007) : seed).toString(36)}${ilvl.toString(36)}`, base, ilvl, rarity, seed };
   }

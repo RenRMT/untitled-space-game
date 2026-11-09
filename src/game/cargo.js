@@ -426,6 +426,9 @@ export function ownedLoot() {
   for (const id of ids) if (id && cargo.loot[id]) out[id] = cargo.loot[id];
   return out;
 }
+// The classes loot is biased toward (rules/loot.js smart loot): the whole party's, yours counting
+// twice, so a squad of other classes finds gear for its ships too.
+export const lootClasses = () => [cargo.cls, cargo.cls, ...cargo.squad.filter((m) => !m.disabled).map((m) => m.cls)];
 // A piece of loot comes aboard: remade into the equipment list, kept with the save, into the spare gear.
 export function takeLoot(spec) {
   cargo.loot[spec.id] = spec;

@@ -29,7 +29,7 @@ import { Progress } from '../rules/progress.js';
 import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
 import { Vendor } from '../rules/vendor.js';
-import { cargo, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
 import { engageOnSurface } from './combat.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
@@ -180,7 +180,7 @@ export function guardianDown(g) {
   const paid = CombatCore.credits(world.galaxy.seed ^ (R.field >>> 0), g.key, 'fighter', clamp(g.tier, 1, 4))
     + (g.boss ? CombatCore.credits(world.galaxy.seed, `${g.key}:hoard`, 'fighter', 4) : 0);
   if (paid) { cargo.credits += paid; if (!g.boss) notify(`+${paid} credits from its hold`, 2, { tone: 'good' }); }
-  for (const spec of Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: cargo.cls, pity: cargo.lootPity })) {
+  for (const spec of Loot.drops(SOURCE[g.role] || 'sentinel', g.key, { level: clamp(level + (g.boss ? 1 : 0), 1, 5), seed: world.galaxy.seed ^ (R.field >>> 0), cls: lootClasses(), pity: cargo.lootPity })) {
     lootNotice(takeLoot(spec));
   }
   if (g.boss) {
