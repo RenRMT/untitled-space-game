@@ -74,7 +74,7 @@ const keyOf = (id, i, k) => `j:${id}:${log().attempt(id)}:${i}.${k}`;
 const stepId = (i) => `s${i}`;
 // Where a job is handed in: the station its last step delivers to, or where it was accepted.
 export const handInKey = (J) => J.handIn || log().at(J.id);
-const stationByKey = (key) => world.scene.stations.find((s) => s.key === key) || null;
+const stationByKey = (key) => world.scene.byKey.get(key) || null; // (the objective is worked out every frame: the scene's index, not a search)
 
 // A job's hostile ship, circling (cx, cy).
 function hostile(J, i, k, p, cx, cy, w = J.steps[i].wave) {

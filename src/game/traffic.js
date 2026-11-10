@@ -131,7 +131,7 @@ function buildElite(si) {
 
 // ---------- Each step ----------
 
-const byKey = (key) => world.scene.stations.find((st) => st.key === key);
+const byKey = (key) => world.scene.byKey.get(key) || null; // a station, by its key (every frame, for every ship: the scene's index, not a search)
 function place(e, t) {
   const fought = fight.s && (fight.s.allies || []).find((c) => c.id === e.key);
   if (fought && Number.isFinite(fought.x)) { Object.assign(e, { x: fought.x, y: fought.y, a: fought.angle, thrust: fought.thrust || 0.5 }); return; }

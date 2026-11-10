@@ -19,7 +19,7 @@ import { isRazed } from './structures.js';
 export function arriveAt(dest) {
   if (dest.kind === 'station') placeBeside(world.scene.stations[dest.id]);
   else if (dest.kind === 'gate') placeBeside(world.scene.gates[dest.id]);
-  else if (dest.kind === 'planet') placeBeside(world.scene.entities.find((e) => (e.kind === 'planet' || e.kind === 'moon') && e.name === dest.id));
+  else if (dest.kind === 'planet') placeBeside(world.scene.byKey.get(dest.id)); // planets and moons are keyed by name (flight/scene.js)
   else if (dest.kind === 'contact') {
     const c = world.galaxy.contacts.find((x) => x.id === dest.id);
     dropNearContact(c, Math.atan2(c.y - ship.y, c.x - ship.x));
