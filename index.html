@@ -489,6 +489,16 @@
     border: 0; background: rgba(2, 3, 6, 0.72); color: var(--bright); cursor: pointer; touch-action: manipulation; font-family: var(--sans);
   }
   #resume[hidden] { display: none; }
+  /* Frames that keep failing (game/loop.js): what broke, a reload and the save as a file. */
+  #crash {
+    position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    padding: 24px; text-align: center; background: rgba(2, 3, 6, 0.9); color: var(--bright); font-family: var(--sans);
+  }
+  #crash[hidden] { display: none; }
+  #crash .t { font: 700 calc(24px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
+  #crash .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); max-width: 32ch; }
+  #crash .m { font-size: calc(12px * var(--ui-scale)); color: var(--hud); opacity: 0.8; max-width: 100%; overflow-wrap: anywhere; }
+  #crash .row { display: flex; gap: 10px; }
   #resume .t { font: 700 calc(26px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
   #resume .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); }
   /* Someone talking on the comms during flight: the box covers the bottom of the screen and the
@@ -609,6 +619,12 @@
 <div id="comms" role="region" aria-label="Comms" aria-live="polite" hidden></div>
 <!-- Back from another app mid-fight: paused until tapped (game/loop.js). -->
 <button id="resume" type="button" hidden><span class="t">Paused</span><span class="s">Tap to resume the fight</span></button>
+<div id="crash" role="alertdialog" aria-modal="true" aria-labelledby="crash-title" hidden>
+  <span class="t" id="crash-title">Something broke</span>
+  <span class="s">The game has stopped. Your progress up to the last save is kept.</span>
+  <code class="m"></code>
+  <span class="row"><button class="btn reload" type="button">Reload</button><button class="btn export" type="button">Export save</button></span>
+</div>
 
 <div id="station" class="ui" role="dialog" aria-modal="true" aria-labelledby="st-name" hidden>
   <header class="st-head">

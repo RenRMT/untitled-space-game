@@ -8,7 +8,9 @@
 //   Store.set(key, value), Store.remove(key)
 //   Store.getJSON(key, fallback), Store.setJSON(key, value)
 //   Store.choice(key, options, fallback) a saved choice among options; ?key= overrides it
-//   Store.dump() -> { key: value }, Store.load(data) -> ok   everything saved, for a backup file
+//   Store.dump(own?) -> { key: value }, Store.load(data, own?) -> ok   what's saved, for a backup file;
+//                                        own(key): only the keys it holds for (other pages on this
+//                                        site keep theirs), every key without it
 //   Store.persist()                      ask the browser not to clear saved data under storage pressure
 // ES module (`Params`, `Store`); also runs in Node, where nothing is saved.
 
@@ -68,17 +70,18 @@ const Store = (() => {
     const saved = get(key);
     return options.includes(saved) ? saved : fallback;
   }
-  // Everything saved, as { key: string }, for a backup file; and putting a backup back, replacing
-  // what's there. load() returns whether it could write.
-  function dump() {
+  // What's saved, as { key: string }, for a backup file; and putting a backup back, replacing
+  // what's there. With own(key), only those keys are read, removed and written: the other games on
+  // this site (idle., race., sim.) keep their saves. load() returns whether it could write.
+  function dump(own = () => true) {
     const out = {};
-    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); out[k] = localStorage.getItem(k); } } catch (e) { /* storage unavailable */ }
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (own(k)) out[k] = localStorage.getItem(k); } } catch (e) { /* storage unavailable */ }
     return out;
   }
-  function load(data) {
+  function load(data, own = () => true) {
     try {
-      localStorage.clear();
-      for (const [k, v] of Object.entries(data)) if (typeof v === 'string') localStorage.setItem(k, v);
+      for (const k of Object.keys(dump(own))) localStorage.removeItem(k);
+      for (const [k, v] of Object.entries(data)) if (typeof v === 'string' && own(k)) localStorage.setItem(k, v);
       return true;
     } catch (e) {
       return false;

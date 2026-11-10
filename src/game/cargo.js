@@ -73,6 +73,7 @@ export const cargo = {
 };
 // ?dev (for testing): every station service open, even in a fresh game, without touching the save
 // (the jobs board). Combat god mode is the same switch (game/combat.js).
+export const BAD = ':bad'; // the key suffix a damaged save is set aside under (loadCargo)
 export const PICKUP_RANGE = 40; // world units beyond the item's own size
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
 // Drops are held still at the three-quarter turn their icons are drawn at (art/icons.js), so what
@@ -160,10 +161,19 @@ export function loadCargo(galaxy) {
   cargo.hull = Infinity; // full, once applyShip knows the maximum
   cargo.surfaceDrops = {}; // body key -> [{ key, kind, x, y }]: what's left lying on its surface
   if (Params.has('fresh')) Store.remove(cargo.key);
-  const d = Store.getJSON(cargo.key);
+  // A damaged save (not JSON, or one that can't be read through): what was read before the error
+  // is kept, and the save as it was is set aside under `<key>:bad` before the next write replaces it.
+  const raw = Store.get(cargo.key);
+  let d = null, damaged = false;
+  try { d = raw === null ? null : JSON.parse(raw); } catch (e) { damaged = true; }
+  if (d && typeof d !== 'object') { d = null; damaged = true; }
   try {
     if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS), galaxy);
-  } catch (e) { /* a damaged save: keep what was read before the error */ }
+  } catch (e) { damaged = true; }
+  if (damaged) {
+    Store.set(`${cargo.key}${BAD}`, raw);
+    notify('The saved game was damaged: what could be read was kept', 6, { tone: 'warn' });
+  }
   // A new game starts with the story's first chapter taken, from the station it starts beside: its
   // objective is on the HUD from the first frame (notes/review.md).
   if (!d) {
@@ -443,7 +453,9 @@ export function readCargo(d, galaxy = null) {
 // Cargo is saved a second after the first change (core/save.js), so a burst of changes (Sell all)
 // is one write; and when the page is hidden or closed, or another galaxy loads. Storage
 // unavailable: cargo lasts for this session only (core/store.js).
-export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
+// A write the browser refuses (storage full, or blocked) is said once, so the player can export a copy.
+export const saveState = { failed: false };
+export const cargoSave = Save.debounced(() => wrote(Store.setJSON(cargo.key, {
   version: CARGO_MIGRATIONS.length,
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
@@ -451,7 +463,12 @@ export const cargoSave = Save.debounced(() => Store.setJSON(cargo.key, {
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
   loot: ownedLoot(), lootPity: cargo.lootPity, rewards: cargo.rewards, razed: cargo.razed,
-}), 1000);
+})), 1000);
+function wrote(ok) {
+  if (ok) { saveState.failed = false; return; }
+  if (!saveState.failed) notify('Could not save here: export a copy from Settings', 6, { tone: 'warn' });
+  saveState.failed = true;
+}
 // The loot specs still owned: fitted (the ship's or a squad member's), spare, or floating.
 export function ownedLoot() {
   const ids = new Set([...Object.keys(cargo.gear), ...Object.values(cargo.loadout.fitted), ...cargo.squad.flatMap((m) => Object.values(m.loadout?.fitted || {}))]);

@@ -1189,6 +1189,14 @@ test('a save exported to a file comes back in, and nothing else does', () => {
   assert.strictEqual(game(`readBackup('not json')`), null, 'not a damaged one');
   assert.ok(Store.load(data));
   assert.deepStrictEqual(Store.dump(), data, 'written back whole');
+  // The other games on the same site keep their saves: not in the file, not touched coming back.
+  Store.set('idle.save', 'theirs');
+  assert.ok(!('idle.save' in Store.dump(game('ownKey'))), 'another game\'s save is left out');
+  assert.strictEqual(game(`readBackup(${JSON.stringify(JSON.stringify({ game: 'untitled-space-game', data: { ...data, 'race.career': 'old' } }))})`)['race.career'], undefined, 'and not read from an older file');
+  assert.ok(Store.load(data, game('ownKey')));
+  assert.strictEqual(Store.get('idle.save'), 'theirs', 'nor rolled back');
+  assert.deepStrictEqual(Store.dump(game('ownKey')), data);
+  Store.remove('idle.save');
 });
 
 test('in Cruise a tap on empty space keeps your speed; a double-tap stops', () => {
@@ -1622,6 +1630,45 @@ test('planets, moons and stations go round with flight; a ship parked by a stati
   assert.strictEqual(game('world.orbitT'), game('__t'), 'docking stops the orbit clock');
   game('launch()');
   assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
+});
+
+test('one bad frame is passed over; frames that keep failing stop the game behind a notice', () => {
+  const say = console.error;
+  console.error = () => {};
+  try {
+    game(`perfStats.onFrame = () => { perfStats.onFrame = null; throw new Error('once'); }`);
+    browser.frames(3);
+    assert.ok(!game('crash.stopped'), 'the loop goes on after one');
+    assert.strictEqual(game('crash.n'), 0, 'and a good frame clears the count');
+    game(`perfStats.onFrame = () => { throw new Error('every frame'); }`);
+    browser.frames(game('CRASH_LIMIT') + 2);
+    assert.ok(game('crash.stopped'), 'stopped');
+    assert.strictEqual(document.getElementById('crash').hidden, false, 'behind the notice');
+    assert.strictEqual(game('crash.error.message'), 'every frame');
+    const t = game('simTime');
+    browser.frames(5);
+    assert.strictEqual(game('simTime'), t, 'no more frames run');
+  } finally {
+    console.error = say;
+    document.getElementById('crash').hidden = true;
+    game('perfStats.onFrame = null; crash.stopped = false; crash.n = 0; requestAnimationFrame(frame)');
+  }
+  browser.frames(2);
+  assert.ok(!game('crash.stopped'), 'and the game runs again for the tests after');
+});
+
+test('a damaged save is set aside before a new game is written over it', () => {
+  game('saveAll()');
+  const key = game('cargo.key'), good = Store.get(key), torn = good.slice(0, Math.floor(good.length / 2));
+  Store.set(key, torn);
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(Store.get(`${key}:bad`), torn, 'kept as it was');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /saved game was damaged/, 'and said');
+  game('cargoSave.flush()');
+  Store.set(key, good);
+  Store.remove(`${key}:bad`);
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(Store.get(`${key}:bad`), null, 'a sound save sets nothing aside');
 });
 
 test('nothing was drawn at a non-finite position', () => {

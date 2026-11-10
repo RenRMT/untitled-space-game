@@ -82,13 +82,16 @@ export function saveAll() {
   saveCargoNow();
 }
 
-// A backup of everything saved (every galaxy's cargo and charts, and the settings) as a file to
+// A backup of everything this game saved (every galaxy's cargo and charts, and the settings) as a file to
 // keep, and putting one back. The browser's own storage can be cleared (Safari does after a week
 // without a visit), so this is the player's way to keep a game safe or move it to another device.
 export const BACKUP_TAG = 'untitled-space-game';
+// This game's saved keys: all but the other games' on the same site (theirs start with their name
+// and a dot), so putting a backup back never rolls their saves back with it.
+export const ownKey = (k) => !/^(idle|race|sim|4x)\./.test(k);
 export function exportSave() {
   saveAll();
-  const text = JSON.stringify({ game: BACKUP_TAG, saved: new Date().toISOString(), data: Store.dump() });
+  const text = JSON.stringify({ game: BACKUP_TAG, saved: new Date().toISOString(), data: Store.dump(ownKey) });
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -104,7 +107,7 @@ export function readBackup(text) {
   try {
     const d = JSON.parse(text);
     if (!d || d.game !== BACKUP_TAG || !d.data || typeof d.data !== 'object') return null;
-    return Object.fromEntries(Object.entries(d.data).filter(([, v]) => typeof v === 'string'));
+    return Object.fromEntries(Object.entries(d.data).filter(([k, v]) => typeof v === 'string' && ownKey(k)));
   } catch (e) {
     return null;
   }
@@ -121,7 +124,7 @@ export function importSave() {
       if (!data) { notify('That file is not a saved game', 3, { tone: 'warn' }); return; }
       if (!window.confirm('Replace the game in this browser with the one in the file? The current game will be lost unless you exported it.')) return;
       keep = false;
-      if (!Store.load(data)) { keep = true; notify('Could not write the save here', 3, { tone: 'warn' }); return; }
+      if (!Store.load(data, ownKey)) { keep = true; notify('Could not write the save here', 3, { tone: 'warn' }); return; }
       location.reload();
     });
   });
