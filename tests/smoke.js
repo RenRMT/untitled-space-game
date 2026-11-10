@@ -1126,7 +1126,7 @@ test('progress: a kill gives experience, a level up makes the ship stronger, a t
   game(`gainXP(Progress.toNext(1) + Progress.toNext(2) + Progress.toNext(3) - 1)`);
   assert.strictEqual(game('pilotLevel()'), 3);
   assert.ok(game('SHIP.hull') > hull, 'sturdier at level 3');
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Level 3 · a talent point to spend/);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Level 3 · talent point/);
   assert.ok(game(`cargo.squad.every((m) => m.disabled || m.xp > 0)`), 'the squad learns too');
   // A destroyed enemy: experience by its tier.
   const xp = game('cargo.pilot.xp');

@@ -728,9 +728,10 @@ export function skillButtons(s) {
   return Classes.skills(SHIP.cls).map((id, i) => {
     const a = Abilities.ABILITIES[id], t = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === playerTarget(s, id));
     const cd = Math.max(0, (s.player.cooldowns?.[id] ?? -Infinity) - s.t), busy = s.player.casting?.id === id;
+    const locked = !Abilities.unlocked(id, s.player.stats.level);
     return {
       id: `ability:${id}`, code: a.code, label: `${a.name} (${i + 1})`, skill: true, key: String(i + 1),
-      badge: busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : a.short || a.name.split(' ')[0], cooling: cd > 0 ? cd / a.cooldown : 0, busy,
+      badge: locked ? `Lv ${a.level}` : busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : a.name.split(' ')[0], cooling: cd > 0 ? cd / a.cooldown : 0, busy,
       enabled: !!t && Abilities.ready(s.player, id, t, s.t),
     };
   });

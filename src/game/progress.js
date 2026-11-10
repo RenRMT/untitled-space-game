@@ -13,10 +13,13 @@
 // Part of the flight view; src/main.js starts it.
 
 import { Feedback } from '../core/feedback.js';
+import { Abilities } from '../rules/abilities.js';
+import { Classes } from '../rules/classes.js';
+import { Loadout } from '../rules/loadout.js';
 import { Progress } from '../rules/progress.js';
 import { applyShip, cargo, pilotLevel, saveCargo } from './cargo.js';
 import { memberOf, refreshWing } from './squad.js';
-import { fight, notify } from './state.js';
+import { fight, notify, showBanner } from './state.js';
 
 export const levelFor = (id) => (id ? Progress.of(memberOf(id)?.xp || 0).level : pilotLevel());
 
@@ -31,6 +34,19 @@ export function memberXP(m, n) {
   }
 }
 
+// What the levels from `before` up to `after` gave, a few words each: a class skill, a talent point,
+// program memory, a hull now in reach.
+export function gains(before, after, cls) {
+  const out = [];
+  for (const id of Classes.skills(cls)) { const a = Abilities.ABILITIES[id]; if (a.level > before && a.level <= after) out.push(`New skill: ${a.name}`); }
+  const pts = Progress.points(after) - Progress.points(before);
+  if (pts > 0) out.push(pts > 1 ? `${pts} talent points` : 'Talent point');
+  if (Progress.lineBonus(after) > Progress.lineBonus(before)) out.push('Program memory +1');
+  for (const [hull, lv] of Object.entries(Progress.HULL_LEVEL)) if (lv > before && lv <= after && Loadout.HULLS[hull]) out.push(`${Loadout.HULLS[hull].name} hull`);
+  if (!out.length) out.push('Hull, shields and guns up');
+  return out;
+}
+
 export function gainXP(n, why = '') {
   n = Math.round(n);
   if (n <= 0) return;
@@ -40,7 +56,8 @@ export function gainXP(n, why = '') {
   if (after > before) {
     applyShip(); // stronger at once (a higher maximum raises the hull points with it)
     const pts = Progress.points(after) - Progress.points(before);
-    notify(`Level ${after}${pts > 0 ? ' · a talent point to spend (Ship tab, docked)' : ''}`, 4, { tone: 'good', priority: 2 });
+    showBanner(`LEVEL ${after}`, gains(before, after, cargo.cls).join(' · '), 'good', 4);
+    notify(`Level ${after}${pts > 0 ? ' · talent point (Ship tab)' : ''}`, 4, { tone: 'good', priority: 2 });
     Feedback.emit('won');
   } else if (why) notify(`+${n} XP · ${why}`, 1.5);
   // The squad learns alongside: those in the fight (or, outside one, everyone flying).

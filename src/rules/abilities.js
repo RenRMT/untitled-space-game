@@ -36,6 +36,7 @@
 //   Abilities.ABILITIES[id]   { id, name, code, on: 'friend' | 'enemy', cooldown (s), price, note, ... }
 //   Abilities.LIST                         the consumables (not the skills)
 //   Abilities.SKILLS                       the class skills; Abilities.skillsOf(cls) -> their ids
+//   Abilities.unlocked(id, level) -> bool  a skill's level reached (ABILITIES[id].level: 1, 2 or 4)
 //   Abilities.ready(user, id, target, now) -> bool   off cooldown, and worth using on that target now
 //   Abilities.resolve(s, now) -> [events]  activations that are done land (a fight state s: player,
 //                                          allies, enemies): { type: 'ability', from, to, ability,
@@ -82,6 +83,12 @@ const Abilities = (() => {
   const FIELD = LIST.filter((a) => a.field);
   const SKILLS = ALL.filter((a) => a.skill);
   const skillsOf = (cls) => SKILLS.filter((a) => a.cls === cls).map((a) => a.id);
+  // A class's skills open one at a time: its first from the start, the second at level 2, the third
+  // at level 4 (`level` on each), so a level gives something new to do and a first fight has one
+  // button to learn. A ship with no level (stats.level) has them all.
+  const SKILL_LEVELS = [1, 2, 4];
+  for (const cls of new Set(SKILLS.map((a) => a.cls))) skillsOf(cls).forEach((id, i) => { ABILITIES[id].level = SKILL_LEVELS[i] || 1; });
+  const unlocked = (id, level) => !ABILITIES[id]?.level || level === undefined || level === null || level >= ABILITIES[id].level;
   const casting = (c) => c?.casting || null;
 
   const statusOf = (c, id, now) => (c.status || []).find((x) => x.id === id && x.until > now);
@@ -94,6 +101,7 @@ const Abilities = (() => {
     if (!a || !user || !target || user.hull <= 0 || target.hull <= 0) return false;
     if ((user.cooldowns?.[id] ?? -Infinity) > now) return false;
     if (a.skill) {
+      if (!unlocked(id, user.stats?.level)) return false;
       if (user.casting) return false; // one activation at a time
       switch (id) {
         case 'taunt': case 'fortify': case 'overload': return !has(user, id, now);
@@ -230,7 +238,7 @@ const Abilities = (() => {
     return ev;
   }
 
-  return { ABILITIES, LIST, FIELD, SKILLS, skillsOf, casting, ready, use, resolve, tick, disabled, has, fieldReady, fieldUse };
+  return { ABILITIES, LIST, FIELD, SKILLS, SKILL_LEVELS, skillsOf, unlocked, casting, ready, use, resolve, tick, disabled, has, fieldReady, fieldUse };
 })();
 
 export { Abilities };
