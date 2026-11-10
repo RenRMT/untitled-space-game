@@ -693,7 +693,7 @@ const StationMenu = (() => {
     if (!L) return null;
     const ms = L.milestones(), done = ms.filter((m) => m.done).length;
     return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showLog() },
-      Kit.icon('LOG', 28, { code: 'LOG' }),
+      Kit.icon('XP', 28, { code: 'XP' }),
       h('span', { class: 'main' },
         h('span', { class: 'title' }, L.title ? `Pilot's log · ${L.title}` : 'Pilot\'s log'),
         Kit.meter(done / Math.max(1, ms.length), { thin: true, color: 'var(--good)' }),
@@ -703,12 +703,12 @@ const StationMenu = (() => {
   function logSheet() {
     const L = ctx.pilot.log, ms = L.milestones();
     return {
-      title: 'Pilot\'s log', code: 'LOG', sub: L.title ? `Flying as ${L.title}` : 'What this game has done so far',
+      title: 'Pilot\'s log', code: 'XP', sub: L.title ? `Flying as ${L.title}` : 'What this game has done so far',
       body: [
         h('dl', { class: 'ui-log' }, L.rows().map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
         Kit.head('Milestones', `${ms.filter((m) => m.done).length} of ${ms.length}`),
         h('div', { class: 'ui-list' }, ms.map((m) => Kit.optionRow({
-          code: 'LOG', name: m.name, sub: m.what, current: m.done,
+          code: 'XP', name: m.name, sub: m.what, current: m.done,
           tag: m.done ? 'Reached' : `${m.credits.toLocaleString('en-US')} cr`, tagTone: m.done ? 'good' : null,
         }))),
       ],
@@ -764,6 +764,17 @@ const StationMenu = (() => {
       code: 'MOD', name: m.mod.name, sub: `${Loadout.SLOT_TYPES[m.mod.slot] || m.mod.slot} · ${m.mod.note}`, tag: m.count ? `Spare ×${m.count}` : '', tagTone: 'good',
       action: Kit.button('Buy', act(() => v.buyMod(m.id)), { price: m.price, disabled: ctx.hold.credits < m.price, aria: `Buy a ${m.mod.name}` }),
     }));
+    // The workshop: spare loot gear, each with what rolling its affixes anew or refining it a rarity
+    // costs in salvaged components (which have no other use) and credits.
+    const W = v.workshop ? v.workshop() : null, SALV = { weapon: 'WPN', hull: 'HUL', computer: 'CPU', drive: 'DRV' };
+    const job = (w, kind, label) => (w[kind] ? Kit.button(`${label} · ${w[kind].n} ${SALV[w[kind].salvage]}`, act(() => v.rework(w.id, kind)), {
+      price: w[kind].credits, disabled: !w[kind].ok, title: w[kind].why || undefined, aria: `${label} ${w.item.name} for ${w[kind].n} components and ${w[kind].credits} credits`,
+    }) : null);
+    const workRows = W ? W.items.map((w) => Kit.optionRow({
+      code: SLOT_CODE[w.item.slot], name: lineName(w.item), tier: w.item.tier, tag: lootTag(w.item), tagTone: Loot.rarityOf(w.item.loot.rarity).color,
+      sub: w.item.loot.affixes.map(Loot.affixText).join(' · ') || 'No affixes',
+      action: h('span', { class: 'ui-acts' }, job(w, 'reroll', 'Reroll'), job(w, 'promote', 'Refine')),
+    })) : [];
     const kitRows = kit.map((k) => Kit.optionRow({
       code: k.ability.code, name: k.ability.name, sub: k.ability.note, tag: k.count ? `×${k.count} aboard` : '', tagTone: 'good',
       action: Kit.button('Buy', act(() => v.buyKit(k.id)), { price: k.price, disabled: ctx.hold.credits < k.price, aria: `Buy ${k.ability.name}` }),
@@ -773,6 +784,9 @@ const StationMenu = (() => {
       section('Gambits', Kit.head('Gambits', h('span', { class: 'aside' }, `${gambits.filter((g) => g.owned).length}/${gambits.length} owned`)), h('div', { class: 'ui-list' }, gambitRows)),
       section('Gear', Kit.head('Gear', h('span', { class: 'aside' }, 'today\'s stock')), h('div', { class: 'ui-list' }, gearRows)),
       modRows.length ? section('Mods', fold('shop-mods', `Mods · ${modRows.length}`, h('div', { class: 'ui-list' }, modRows))) : null,
+      W ? section('Workshop', Kit.head('Workshop', h('span', { class: 'aside' }, `salvage: ${Object.entries(W.stock).map(([cat, n]) => `${n} ${SALV[cat]}`).join(' · ')}`)),
+        info('Salvaged components are spent here on spare gear you found: Reroll rolls a piece\'s affixes anew; Refine makes it one rarity better (never Legendary), with one more affix, all rolled anew. Unfit a piece to work on it.'),
+        workRows.length ? h('div', { class: 'ui-list' }, workRows) : h('p', { class: 'ui-empty' }, 'No spare loot gear to work on.')) : null,
       section('Consumables', Kit.head('Consumables', h('span', { class: 'aside' }, 'used from the HUD, or in a fight')), h('div', { class: 'ui-list' }, kitRows)),
     ];
   }

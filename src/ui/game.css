@@ -571,3 +571,6 @@ body.landing #context, body.landing #factions-btn, body.landing #map-btn { displ
 .ui-log { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0 0 18px; font-size: calc(14px * var(--ui-scale)); }
 .ui-log dt { color: var(--hud); }
 .ui-log dd { margin: 0; text-align: right; font-family: var(--sans); font-variant-numeric: tabular-nums; color: var(--bright); }
+
+/* The workshop's two jobs on one piece (ui/station.js): one button over the other. */
+.ui-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }

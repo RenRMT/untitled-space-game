@@ -4346,6 +4346,33 @@ test('Sound: silent until the player has touched the page, never made while off,
   }
 });
 
+test('Loot workshop: a reroll keeps the piece and changes its affixes; a refine is one rarity better, never Legendary', () => {
+  const spec = { id: 'Labc1e', base: 'laser', ilvl: 14, rarity: 'rare', seed: 123456 };
+  const item = Loot.make(spec), again = Loot.reroll(spec), made = Loot.make(again);
+  assert(again.id !== spec.id && /^L[0-9a-z]+$/.test(again.id), 'a new id, of the saved form');
+  assert.deepStrictEqual([again.base, again.ilvl, again.rarity], ['laser', 14, 'rare'], 'the same piece');
+  assert.strictEqual(made.loot.affixes.length, 2, 'as many affixes');
+  assert.notDeepStrictEqual(made.loot.affixes, item.loot.affixes, 'rolled anew');
+  assert.deepStrictEqual(Loot.reroll(spec), again, 'the same every time: reloading can\'t fish for a roll');
+  assert.notDeepStrictEqual(Loot.reroll(again), again, 'and again from there');
+  assert.deepStrictEqual(Loot.read({ [again.id]: again })[again.id], again, 'it saves and reads back');
+  assert.strictEqual(Loot.reroll({ ...spec, rarity: 'common' }), null, 'nothing to reroll on a Common');
+  const up = Loot.promote(spec);
+  assert.strictEqual(up.rarity, 'epic');
+  assert.strictEqual(Loot.make(up).loot.affixes.length, 3, 'one more affix');
+  assert(Loot.make(up).stats.damage > item.stats.damage, 'and stronger');
+  assert.strictEqual(Loot.promote(up), null, 'never into Legendary');
+  assert.strictEqual(Loot.promote({ ...spec, rarity: 'legendary' }), null);
+  // Costs: components of the slot's kind by the Mk, and credits; refining costs more of both.
+  const rr = Loot.workCost(spec, 'reroll'), pr = Loot.workCost(spec, 'promote');
+  assert.deepStrictEqual([rr.salvage, rr.n], ['weapon', 2], 'a Mk II gun: two weapon components');
+  assert(pr.n > rr.n && pr.credits > rr.credits);
+  assert.strictEqual(Loot.workCost({ ...spec, base: 'engine' }, 'reroll').salvage, 'drive');
+  assert.strictEqual(Loot.workCost({ ...spec, base: 'shield-generator' }, 'reroll').salvage, 'hull');
+  assert.strictEqual(Loot.workCost(up, 'promote'), null);
+  for (const slot of new Set(Object.values(Loot.BASES).map((B) => B.slot))) assert(Goods.CATEGORIES[Loot.SALVAGE[slot]]?.group === 'salvage', slot);
+});
+
 test('PilotLog: counts read back checked, milestones due once each, the grandest one reached the title', () => {
   const c = { level: 1, systems: 1, allSystems: 40, surveyed: 0, allSites: 12, elites: 0, chapters: 0, allChapters: 7 };
   const s = PilotLog.empty();

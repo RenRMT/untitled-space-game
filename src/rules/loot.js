@@ -36,6 +36,8 @@
 //   Loot.register(spec, EQUIPMENT)  makes it and files it under its id (rules/loadout.js EQUIPMENT)
 //   Loot.read(d) -> { [id]: spec }  a saved collection, checked
 //   Loot.affixText(a), Loot.rarityOf(id)
+//   Loot.reroll(spec), Loot.promote(spec) -> spec | null   the workshop: affixes anew, or a rarity better
+//   Loot.workCost(spec, 'reroll' | 'promote') -> { salvage, n, credits } | null
 // ES module (`Loot`); also runs in Node (the tests).
 
 import { clamp } from '../core/math.js';
@@ -296,7 +298,28 @@ const Loot = (() => {
 
   const powerOf = (id) => Object.values(POWERS).find((p) => p.id === id) || null;
 
-  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, POWERS, powerOf, OFFER, offer, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf };
+  // ---------- The workshop (game/vendor.js) ----------
+  // A piece worked over with salvaged components: its affixes rolled anew (reroll), or made one
+  // rarity better (promote: never into Legendary, which is only found; its affixes are rolled anew
+  // too, one more of them). Either gives a new spec, with a new id, in place of the old one.
+  // SALVAGE: the kind of component a slot's gear takes (rules/goods.js salvage categories).
+  const SALVAGE = { weapon: 'weapon', shield: 'hull', engine: 'drive', scanner: 'computer', computer: 'computer' };
+  const reworked = (spec, seed, rarity) => ({ id: `L${hashInt(seed, spec.ilvl, 0x77 + RANK[rarity]).toString(36)}${spec.ilvl.toString(36)}`, base: spec.base, ilvl: spec.ilvl, rarity, seed });
+  const reroll = (spec) => (rarityOf(spec.rarity).affixes > 0 && BASES[spec.base] ? reworked(spec, hashInt(spec.seed >>> 0, spec.ilvl, 0x5eed), spec.rarity) : null);
+  function promote(spec) {
+    const next = RARITIES[(RANK[spec.rarity] ?? 0) + 1];
+    return next && next.id !== 'legendary' && BASES[spec.base] ? reworked(spec, spec.seed >>> 0, next.id) : null;
+  }
+  // What a job costs: { salvage (the category), n (components), credits }, or null if it can't be done.
+  function workCost(spec, job) {
+    const out = job === 'promote' ? promote(spec) : job === 'reroll' ? reroll(spec) : null, item = out && make(spec);
+    if (!item) return null;
+    const round = (v) => Math.max(10, Math.round(v / 10) * 10);
+    if (job === 'reroll') return { salvage: SALVAGE[item.slot], n: item.tier, credits: round(item.price * 0.15) };
+    return { salvage: SALVAGE[item.slot], n: item.tier * (RANK[spec.rarity] + 2), credits: round(make(out).price * 0.5) };
+  }
+
+  return { RARITIES, RANK, BASES, BASE_IDS, AFFIXES, POWERS, powerOf, OFFER, offer, SOURCES, PITY, SMART, CLASS_BIAS, MAX_ILVL, rarityOf, rollRarity, roll, drops, make, register, read, affixText, tierOf, SALVAGE, reroll, promote, workCost };
 })();
 
 export { Loot };

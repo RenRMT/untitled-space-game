@@ -1632,6 +1632,30 @@ test('planets, moons and stations go round with flight; a ship parked by a stati
   assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
 });
 
+test('the workshop: salvaged components and credits reroll a spare piece, or refine it a rarity', () => {
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`globalThis.__spec = { id: 'Lworkshop1', base: 'laser', ilvl: 14, rarity: 'rare', seed: 4242 }; takeLoot(__spec); cargo.credits = 50000; cargo.components['weapon-components'] = 1`);
+  game(`StationMenu.showTab('outfitter')`);
+  assert.match(onStation(), /Workshopsalvage: [^W]*1 WPN/, 'the section, with the components held');
+  assert.strictEqual(game(`vendor.rework('Lworkshop1', 'reroll')`), false, 'not with one component: a Mk II gun takes two');
+  game(`cargo.components['weapon-components'] = 12`);
+  const cost = game(`Loot.workCost(__spec, 'reroll')`), next = game('Loot.reroll(__spec)');
+  assert.strictEqual(game(`vendor.rework('Lworkshop1', 'reroll')`), true);
+  assert.strictEqual(game('cargo.credits'), 50000 - cost.credits);
+  assert.strictEqual(game(`cargo.components['weapon-components']`), 12 - cost.n);
+  assert.ok(!game(`cargo.gear['Lworkshop1']`) && game(`cargo.gear['${next.id}']`) === 1, 'the piece replaced by the new one');
+  assert.ok(!game(`'Lworkshop1' in ownedLoot()`), 'the old one no longer saved');
+  assert.strictEqual(game(`vendor.rework('${next.id}', 'promote')`), true);
+  const up = game(`Loot.promote(${JSON.stringify(next)})`);
+  assert.strictEqual(game(`Loadout.EQUIPMENT['${up.id}'].loot.rarity`), 'epic');
+  assert.strictEqual(game(`vendor.rework('${up.id}', 'promote')`), false, 'an Epic can\'t be refined');
+  game(`StationMenu.showTab('outfitter')`);
+  assert.match(onStation(), /Epic · ilvl 14/);
+  game(`addTo(cargo.gear, '${up.id}', -1); launch()`);
+  browser.frames(2);
+});
+
 test('the pilot\'s log counts what happens, pays a milestone once, and shows on the Ship tab', () => {
   game('cargo.stats.kills = 0; cargo.stats.done = cargo.stats.done.filter((id) => id !== "first-blood")');
   const credits = game('cargo.credits'), t = game('cargo.stats.seconds');
