@@ -399,14 +399,15 @@ export function drawHud() {
   const locAlpha = clamp((LOCATION_TIME - (now - shownLocation.at)) / 0.8, 0, 1);
   if (locAlpha > 0) {
     const security = Security.LEVELS[r.security]; // how dangerous it is here (world/security.js)
-    lines.push([`${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · SECURITY ${security.label.toUpperCase()}`, security.color, locAlpha]);
+    // Wrapped like the rest, so on a narrow screen it stays clear of the minimap beside it.
+    for (const t of wrap(`${r.system ? `${r.system.name.toUpperCase()} SYSTEM` : 'DEEP SPACE'} · SECURITY ${security.label.toUpperCase()}`, room)) lines.push([t, security.color, locAlpha]);
     if (r.nebula) lines.push([`${r.nebula.name} · sensors dampened`, r.nebula.color, locAlpha]);
   }
   const obj = here.objective;
   if (obj) for (const t of wrap(`◇ ${obj.text}`, room)) lines.push([t, COLORS.amber, 1]);
   if (!interacted) {
     const pulse = 0.75 + 0.25 * Math.sin(now * 2.5);
-    for (const tip of CONTROLS[moveMode.value]) for (const t of wrap(tip, room)) lines.push([t, COLORS.hud, pulse]);
+    for (const t of wrap(CONTROLS[moveMode.value].join(' · '), room)) lines.push([t, COLORS.hud, pulse]); // run together: fewer lines
   }
   let y = pad + I.t + lh - 4;
   if (lines.length) {

@@ -142,6 +142,7 @@ const FILES = [
   'src/ui/context.js',
   'src/ui/factions.js',
   'src/ui/field-bar.js',
+  'src/ui/game.css',
   'src/ui/glyphs.js',
   'src/ui/kit-line.css',
   'src/ui/kit-lowpoly.css',
