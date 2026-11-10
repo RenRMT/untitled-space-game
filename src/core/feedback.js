@@ -1,12 +1,12 @@
 // Feedback: game events the player should feel or hear, named once and sent from where they happen,
-// so what answers them (vibration now, sound later) is wired in one place instead of in every system.
+// so what answers them (vibration: game/options.js; sound: core/audio.js) is wired in one place instead of in every system.
 // Listeners get (event, detail); nothing listening is fine.
 //
 //   Feedback.emit(event, detail?)   events:
 //     'hit'         the player's ship is hit, or knocked in a collision ({ hull: true when it reached the hull })
 //     'bump'        a collision too gentle to do harm
-//     'dash'        the ship dashed (game/dash.js)
-//     'hazard'      a hazard warning: a meter filling, a flare coming, fuel low (game/hazards.js)
+//     'hazard'      the hull cracked a stage further (game/screen-fx.js)
+//     'skill'       the player used a skill in a fight
 //     'shields-down' the player's shields just failed
 //     'low-hull'    the hull fell below a third
 //     'locked'      the player's guns locked on
@@ -16,7 +16,6 @@
 //     'loot'        gear dropped or came aboard ({ rarity: rules/loot.js RARITIES id })
 //     'mined'       an asteroid broken up or a gas pocket used up
 //     'docked', 'launched'
-//     'done'        research or production finished
 //   Feedback.on(fn) -> off()        listen to every event: fn(event, detail)
 //
 //   Feedback.vibrate(pattern)       the Vibration API where there is one (Android browsers; not
