@@ -699,5 +699,8 @@
 <!-- The game is ES modules: src/main.js imports the rest (layer by layer: core, world, rules, art,
      flight, combat, story, ui). Modules need the page served over http, not opened as a file. -->
 <script type="module" src="src/main.js"></script>
+<script>
+  if ('serviceWorker' in navigator) addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+</script>
 </body>
 </html>

@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "perf": "node tests/perf.js",
     "galaxy": "node tools/galaxy.js",
+    "sw": "node tools/app-sw.js game",
     "tracks": "node tools/race-tracks.js",
     "tracks:sheet": "node tools/race-tracks-sheet.js",
     "rivals": "node tools/race-rivals.js",

@@ -4296,6 +4296,14 @@ test('race career: the build reaches the run (dash, drift, walls, hull), and the
   assert(ramA > 0);
 });
 
+test('the game offline: sw.js keeps every file the main game loads (npm run sw), and nothing of the other games', () => {
+  const files = AppSw.appFiles('game');
+  for (const f of ['./', 'manifest.webmanifest', 'src/main.js', 'src/game/loop.js', 'src/ui/kit-line.css', 'src/ui/kit-lowpoly.css', 'assets/icon-512.png', 'assets/fonts/b612-latin-400-normal.woff2']) assert(files.includes(f), f);
+  assert(!files.some((f) => /^src\/(race|idle|sim|4x)\//.test(f) || /^(race|idle|sim|4x)\//.test(f) || f.endsWith('sw.js')), 'nothing of the other games, and not the worker itself');
+  const { current, wanted } = AppSw.check('game');
+  assert.strictEqual(current, wanted, 'sw.js: the file list is out of date: npm run sw');
+});
+
 test('race offline: race/sw.js keeps every file the race loads (npm run race:sw), the manifest and its icons among them', () => {
   const files = AppSw.appFiles('race');
   for (const f of ['./', 'manifest.webmanifest', '../src/race/main.js', '../src/ui/kit-lowpoly.css', '../assets/fonts/chakra-petch-latin-500-normal.woff2', '../assets/race-icon-512.png']) assert(files.includes(f), f);
