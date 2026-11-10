@@ -1,5 +1,5 @@
 // Feedback: game events the player should feel or hear, named once and sent from where they happen,
-// so what answers them (vibration: game/options.js; sound: core/audio.js) is wired in one place instead of in every system.
+// so what answers them (vibration: game/options.js; sound: core/sound.js) is wired in one place instead of in every system.
 // Listeners get (event, detail); nothing listening is fine.
 //
 //   Feedback.emit(event, detail?)   events:

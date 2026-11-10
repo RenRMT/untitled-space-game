@@ -72,6 +72,7 @@ import { Storm } from '../src/race/storm.js';
 import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
 import * as AppSw from '../tools/app-sw.js';
+import { Sound } from '../src/core/sound.js';
 import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
 import { IdleSave } from '../src/idle/save.js';
@@ -4294,6 +4295,54 @@ test('race career: the build reaches the run (dash, drift, walls, hull), and the
   const shock = Career.tune(['chassis.1a', 'chassis.2b']), [, mounted] = knock(run(), run({ ...cfg, career: shock }));
   assert(mounted < stockB, 'shock mounts: knocked less');
   assert(ramA > 0);
+});
+
+test('Sound: silent until the player has touched the page, never made while off, a voice for every event that buzzes', () => {
+  // A stand-in audio context that counts what is made on it.
+  const made = { contexts: 0, tones: 0, noises: 0 };
+  const param = () => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime() {} });
+  const node = (extra = {}) => ({ connect() {}, start() {}, stop() {}, ...extra });
+  class FakeAudio {
+    constructor() { made.contexts++; this.state = 'suspended'; this.currentTime = 0; this.sampleRate = 8000; this.destination = {}; }
+    resume() { this.state = 'running'; return Promise.resolve(); }
+    suspend() { this.state = 'suspended'; return Promise.resolve(); }
+    createGain() { return node({ gain: param() }); }
+    createOscillator() { made.tones++; return node({ frequency: param(), type: 'sine' }); }
+    createBiquadFilter() { return node({ frequency: param(), Q: param(), type: 'lowpass' }); }
+    createBuffer(ch, n) { const d = new Float32Array(n); return { getChannelData: () => d }; }
+    createBufferSource() { made.noises++; return node({ buffer: null }); }
+  }
+  assert.strictEqual(Sound.available, false, 'none in Node');
+  assert.strictEqual(Sound.play('hit'), false);
+  Sound.use(FakeAudio);
+  try {
+    Sound.setVolume(0.5);
+    assert.strictEqual(Sound.play('hit'), false, 'nothing before a touch');
+    assert.strictEqual(made.contexts, 0, 'and no audio context made');
+    Sound.unlock();
+    assert.strictEqual(made.contexts, 1);
+    assert.strictEqual(Sound.play('hit'), true);
+    assert(made.tones === 1 && made.noises === 1, 'a hit: a thump and a burst of noise');
+    assert.strictEqual(Sound.play('hit'), false, 'a second hit in the same instant is the same sound');
+    assert.strictEqual(Sound.play('no-such-event'), false);
+    const before = made.tones;
+    assert.strictEqual(Sound.play('loot', { rarity: 'legendary' }), true);
+    assert.strictEqual(made.tones - before, 5, 'a legendary rings five notes');
+    Sound.setVolume(0);
+    assert.strictEqual(Sound.play('won'), false, 'off: nothing');
+    Sound.use(FakeAudio);
+    Sound.setVolume(0);
+    Sound.unlock();
+    assert.strictEqual(made.contexts, 1, 'off from the start: no context even after a touch');
+    Sound.setVolume(0.8);
+    assert.strictEqual(made.contexts, 2, 'turned on after a touch: made then');
+    // Every event the game sends has a voice (the same list the vibration answers: game/options.js).
+    for (const ev of ['hit', 'bump', 'hazard', 'skill', 'shields-down', 'low-hull', 'locked', 'targeted', 'destroyed', 'won', 'mined', 'docked', 'launched']) assert(Sound.VOICES[ev], ev);
+    for (const r of ['common', 'uncommon', 'rare', 'epic', 'legendary']) assert(Sound.VOICES[`loot-${r}`], r);
+  } finally {
+    Sound.use(null);
+    Sound.setVolume(0);
+  }
 });
 
 test('the game offline: sw.js keeps every file the main game loads (npm run sw), and nothing of the other games', () => {

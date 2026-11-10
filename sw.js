@@ -62,6 +62,7 @@ const FILES = [
   'src/core/math.js',
   'src/core/rng.js',
   'src/core/save.js',
+  'src/core/sound.js',
   'src/core/store.js',
   'src/core/theme.js',
   'src/flight/collide.js',
