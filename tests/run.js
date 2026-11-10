@@ -73,6 +73,7 @@ import { Lab } from '../src/rules/lab.js';
 import { View as RaceView } from '../src/race/view.js';
 import * as AppSw from '../tools/app-sw.js';
 import { Sound } from '../src/core/sound.js';
+import { PilotLog } from '../src/rules/log.js';
 import { Config as IdleConfig } from '../src/idle/config.js';
 import { IdleRules } from '../src/idle/rules.js';
 import { IdleSave } from '../src/idle/save.js';
@@ -4343,6 +4344,32 @@ test('Sound: silent until the player has touched the page, never made while off,
     Sound.use(null);
     Sound.setVolume(0);
   }
+});
+
+test('PilotLog: counts read back checked, milestones due once each, the grandest one reached the title', () => {
+  const c = { level: 1, systems: 1, allSystems: 40, surveyed: 0, allSites: 12, elites: 0, chapters: 0, allChapters: 7 };
+  const s = PilotLog.empty();
+  assert.deepStrictEqual(PilotLog.due(s, c), [], 'a new game has reached none');
+  assert.strictEqual(PilotLog.title(s), null);
+  s.kills = 1;
+  assert.deepStrictEqual(PilotLog.due(s, c).map((M) => M.id), ['first-blood']);
+  s.done.push('first-blood');
+  assert.deepStrictEqual(PilotLog.due(s, c), [], 'paid once');
+  assert.strictEqual(PilotLog.title(s), 'Blooded');
+  // Those read from the rest of the game: level, systems, sites, elites, the story.
+  assert.deepStrictEqual(PilotLog.due(s, { ...c, level: 15, elites: 1, surveyed: 5, systems: 10 }).map((M) => M.id), ['bounty', 'traveller', 'surveyor', 'veteran']);
+  assert.deepStrictEqual(PilotLog.due(s, { ...c, chapters: 7 }).map((M) => M.id), ['core-breaker']);
+  assert.deepStrictEqual(PilotLog.due(s, { ...c, allSystems: 1 }), [], 'the showcase alone has nowhere to travel');
+  s.done.push('veteran', 'bounty');
+  assert.strictEqual(PilotLog.title(s), 'Veteran', 'the grandest reached, whatever the order');
+  // A save: only what makes sense is kept.
+  assert.deepStrictEqual(PilotLog.read({ kills: 12.7, wardens: -3, raids: 'x', seconds: 90.5, done: ['first-blood', 'nope', 'first-blood'], extra: 1 }),
+    { kills: 12, wardens: 0, raids: 0, contracts: 0, losses: 0, seconds: 90.5, done: ['first-blood'] });
+  assert.deepStrictEqual(PilotLog.read(null), PilotLog.empty());
+  assert.strictEqual(PilotLog.time(59), '0 min');
+  assert.strictEqual(PilotLog.time(3 * 3600 + 12 * 60 + 5), '3 h 12 min');
+  const ids = PilotLog.MILESTONES.map((M) => M.id);
+  assert.strictEqual(new Set(ids).size, ids.length, 'ids are unique');
 });
 
 test('the game offline: sw.js keeps every file the main game loads (npm run sw), and nothing of the other games', () => {

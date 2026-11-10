@@ -34,7 +34,7 @@ import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
-import { gainXP } from './progress.js';
+import { gainXP, record } from './progress.js';
 import { tip } from './tips.js';
 import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
 import { grantGambit, ownedGambits } from './vendor.js';
@@ -498,6 +498,7 @@ export function shipDestroyed(key) {
 export function playerDestroyed() {
   explode(ship.x, ship.y, SHIP.radius * 2);
   Feedback.emit('destroyed');
+  record('losses');
   const tag = Date.now().toString(36);
   cargo.items.forEach((it, i) => {
     const a = Math.random() * TAU, r = 30 + Math.random() * 90;
@@ -545,6 +546,7 @@ export function towHome() {
 export function tallyKill({ credits = 0, loot = [] } = {}) {
   const t = fight.tally || (fight.tally = { kills: 0, credits: 0, loot: {} });
   t.kills++;
+  record('kills');
   t.credits += credits;
   for (const spec of loot) t.loot[spec.rarity] = (t.loot[spec.rarity] || 0) + 1;
 }

@@ -29,7 +29,7 @@ import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
 import { cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
-import { gainXP } from './progress.js';
+import { gainXP, record } from './progress.js';
 import { offerReward } from './rewards.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
@@ -494,6 +494,7 @@ export function completeJob(id) {
     }
   }
   log().complete(id);
+  record('contracts');
   if (J.tier === 'station') cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.level || J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;

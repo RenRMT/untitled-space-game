@@ -15,7 +15,7 @@ import { DeepSpace } from '../world/deep-space.js';
 import { cargo, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { gainXP } from './progress.js';
+import { checkMilestones, gainXP } from './progress.js';
 import { offerReward } from './rewards.js';
 import { fight, inFight, notify, ship, showBanner } from './state.js';
 import { warp } from './warp.js';
@@ -45,6 +45,7 @@ function find(site) {
   notify(`${R.what}.`, 5, { tone: 'good' });
   Feedback.emit('won');
   gainXP(R.xp);
+  checkMilestones(); // the surveys' (rules/log.js)
   if (R.gear) offerReward(site.name, `site:${site.id}`, Loot.offer('mission', `site:${site.id}`, { ...R.gear, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }));
   saveCargo();
 }

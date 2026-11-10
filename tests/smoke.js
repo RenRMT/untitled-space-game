@@ -1632,6 +1632,32 @@ test('planets, moons and stations go round with flight; a ship parked by a stati
   assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
 });
 
+test('the pilot\'s log counts what happens, pays a milestone once, and shows on the Ship tab', () => {
+  game('cargo.stats.kills = 0; cargo.stats.done = cargo.stats.done.filter((id) => id !== "first-blood")');
+  const credits = game('cargo.credits'), t = game('cargo.stats.seconds');
+  game('record("kills")');
+  assert.strictEqual(game('cargo.stats.kills'), 1);
+  assert.strictEqual(game('cargo.credits'), credits + 200, 'the first kill pays its milestone');
+  assert.ok(game('cargo.stats.done.includes("first-blood")'));
+  game('record("kills")');
+  assert.strictEqual(game('cargo.credits'), credits + 200, 'once');
+  game('record("no-such-count")');
+  browser.frames(30);
+  assert.ok(game('cargo.stats.seconds') > t, 'time flown runs with flight');
+  game('saveAll()');
+  assert.strictEqual(JSON.parse(Store.get(game('cargo.key'))).stats.kills, 2, 'saved with the game');
+  assert.strictEqual(game('logContext().allChapters'), 7, 'the story\'s chapters counted from the board');
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Pilot's log · Blooded\d+ of 17 milestones/, 'the row carries the name flown under');
+  pressOnStation(/^Pilot's log/);
+  assert.match(onStation(), /Hostiles destroyed2/);
+  assert.match(onStation(), /BloodedReachedDestroy a hostile/);
+  game('launch()');
+  browser.frames(2);
+});
+
 test('Settings lists the other games saved here, and opens one; the galaxy played is the one opened next time', () => {
   assert.strictEqual(Store.get('seed'), String(game('world.galaxy.seed')), 'the galaxy being played is remembered');
   game('cargo.credits += 1; saveAll()');

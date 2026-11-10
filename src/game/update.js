@@ -10,6 +10,7 @@ import { updateRegion } from './draw-world.js';
 import { steady } from './input.js';
 import { trackShields } from './screen-fx.js';
 import { tickTraffic } from './traffic.js';
+import { cargo } from './cargo.js';
 import { docked } from './docking.js';
 import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
@@ -53,6 +54,7 @@ function carry() {
 
 export function update(dt) {
   simTime += dt;
+  cargo.stats.seconds += dt; // the pilot's log: time flown (saved with the next change)
   tickOrbits(dt);
   if (!landing.on && !warp.on && !inFight()) carry(); // (a fight holds its ships where it has them)
   tickAutopilot();

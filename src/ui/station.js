@@ -75,6 +75,7 @@ const StationMenu = (() => {
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let openYard = false; // the shipyard's sheet is open
   let openTalents = false; // the pilot's talents sheet is open
+  let openLog = false; // the pilot's log sheet is open
   let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
@@ -658,6 +659,7 @@ const StationMenu = (() => {
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       pilotRow(),
+      logRow(),
       ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class', ctx.pilot?.level) : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
@@ -683,6 +685,34 @@ const StationMenu = (() => {
           p.left > 0 ? `${p.left} talent point${p.left === 1 ? '' : 's'} to spend` : `${p.talents.length} talent${p.talents.length === 1 ? '' : 's'}`].join(' · '))),
       p.left > 0 ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, `+${p.left}`) : null,
       h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  // The pilot's log (rules/log.js, game/progress.js): a row that says how far its milestones have
+  // come, and opens the sheet with what the game has counted and every milestone.
+  function logRow() {
+    const L = ctx.pilot?.log;
+    if (!L) return null;
+    const ms = L.milestones(), done = ms.filter((m) => m.done).length;
+    return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showLog() },
+      Kit.icon('LOG', 28, { code: 'LOG' }),
+      h('span', { class: 'main' },
+        h('span', { class: 'title' }, L.title ? `Pilot's log · ${L.title}` : 'Pilot\'s log'),
+        Kit.meter(done / Math.max(1, ms.length), { thin: true, color: 'var(--good)' }),
+        h('span', { class: 'foot' }, `${done} of ${ms.length} milestones`)),
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  function logSheet() {
+    const L = ctx.pilot.log, ms = L.milestones();
+    return {
+      title: 'Pilot\'s log', code: 'LOG', sub: L.title ? `Flying as ${L.title}` : 'What this game has done so far',
+      body: [
+        h('dl', { class: 'ui-log' }, L.rows().map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+        Kit.head('Milestones', `${ms.filter((m) => m.done).length} of ${ms.length}`),
+        h('div', { class: 'ui-list' }, ms.map((m) => Kit.optionRow({
+          code: 'LOG', name: m.name, sub: m.what, current: m.done,
+          tag: m.done ? 'Reached' : `${m.credits.toLocaleString('en-US')} cr`, tagTone: m.done ? 'good' : null,
+        }))),
+      ],
+    };
   }
   // Talents: what your class can take, each opening at a level, a point each; then forgetting them
   // all for credits.
@@ -1067,16 +1097,16 @@ const StationMenu = (() => {
 
   function sheetOptions() {
     return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet()
-      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openNews ? newsSheet() : null;
+      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openLog && ctx.pilot?.log ? logSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = false; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = openLog = false; refresh(); } });
   }
   function closeSheet() {
     openSlot = openMission = openLine = openNews = null;
-    openYard = openTalents = false;
+    openYard = openTalents = openLog = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
@@ -1095,6 +1125,7 @@ const StationMenu = (() => {
   }
   function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
   function showTalents() { closeSheet(); openTalents = true; refresh(); openSheet(); }
+  function showLog() { closeSheet(); openLog = true; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;

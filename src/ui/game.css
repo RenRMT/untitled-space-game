@@ -566,3 +566,8 @@ body.landing #context, body.landing #factions-btn, body.landing #map-btn { displ
 /* Sums (the kit's .ui-cr, and the dock's own balance) in the text face with figures of one width: a
    mono face gives the thousands' comma a whole cell, and 7,450 reads as two numbers. */
 .ui-cr, #st-credits { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+
+/* The pilot's log (ui/station.js logSheet): what's counted, a label and its number a row. */
+.ui-log { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0 0 18px; font-size: calc(14px * var(--ui-scale)); }
+.ui-log dt { color: var(--hud); }
+.ui-log dd { margin: 0; text-align: right; font-family: var(--sans); font-variant-numeric: tabular-nums; color: var(--bright); }

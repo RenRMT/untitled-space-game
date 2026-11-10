@@ -18,7 +18,7 @@ import { drag } from './input.js';
 import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
 import { vendor } from './vendor.js';
-import { pilotView } from './progress.js';
+import { checkMilestones, pilotView } from './progress.js';
 import { outfitting, placeShip } from './outfitting.js';
 import { chooseReward, rewardViews } from './rewards.js';
 import { select } from './selection.js';
@@ -91,6 +91,7 @@ export function dock(station) {
   docked = { station };
   // A lost ship is towed back to the last station it docked at.
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
+  checkMilestones(); // the pilot's log: systems visited, and anything else reached since (before the news is read)
   missionDocked(station);
   repairSquad();
   saveCargo();

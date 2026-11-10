@@ -198,6 +198,11 @@ const CARGO_MIGRATIONS = [
     d.pilot = { xp: fromGear(d.loadout), talents: [] };
     for (const m of Array.isArray(d.squad) ? d.squad : []) if (m && typeof m === 'object') m.xp = fromGear(m.loadout);
   },
+  // 24. The pilot's log (rules/log.js): nothing counted yet. What it reads from the rest of the save
+  //     (level, systems, sites, elites, chapters) a game under way already has.
+  (d) => {
+    if (!d.stats || typeof d.stats !== 'object') d.stats = {};
+  },
 ];
 // The stock a save from before stations kept their own had (migration 20): the waystation's.
 const HOME_STOCK = '*home';

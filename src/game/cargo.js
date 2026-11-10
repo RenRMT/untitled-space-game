@@ -15,6 +15,7 @@ import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
 import { Reputation } from '../rules/reputation.js';
 import { Research } from '../rules/research.js';
+import { PilotLog } from '../rules/log.js';
 import { Progress } from '../rules/progress.js';
 import { Squad } from '../rules/squad.js';
 import { Vendor } from '../rules/vendor.js';
@@ -68,6 +69,7 @@ export const cargo = {
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
   loot: {}, lootPity: { rare: 0, epic: 0 }, rewards: [], razed: {},
+  stats: PilotLog.empty(), // the pilot's log (rules/log.js, game/progress.js): counts, and the milestones paid
 };
 // ?dev (for testing): every station service open, even in a fresh game, without touching the save
 // (the jobs board). Combat god mode is the same switch (game/combat.js).
@@ -145,6 +147,7 @@ export function loadCargo(galaxy) {
   cargo.lootPity = { rare: 0, epic: 0 };
   cargo.rewards = [];
   cargo.razed = {};
+  cargo.stats = PilotLog.empty();
   cargo.mods = {};
   cargo.kit = {};
   cargo.gambits = [];
@@ -201,6 +204,7 @@ export const logicLines = () => Squad.lineLimit(Research.lineBonus(cargo.gambits
 // The parts of a save (in the current form), each checked.
 export function readCargo(d, galaxy = null) {
   // Loot gear first: the loadouts (the ship's and the squad's) and the spare gear name it.
+  cargo.stats = PilotLog.read(d.stats);
   cargo.loot = Loot.read(d.loot);
   for (const spec of Object.values(cargo.loot)) Loot.register(spec, Loadout.EQUIPMENT);
   if (d.lootPity && typeof d.lootPity === 'object') cargo.lootPity = { rare: Math.max(0, d.lootPity.rare | 0), epic: Math.max(0, d.lootPity.epic | 0) };
@@ -277,7 +281,7 @@ export const cargoSave = Save.debounced(() => wrote(Store.setJSON(cargo.key, {
   surfaceDrops: cargo.surfaceDrops,
   cls: cargo.cls, loadout: cargo.loadout, gear: cargo.gear, mods: cargo.mods, kit: cargo.kit, gambits: cargo.gambits, shop: cargo.shop, pilot: cargo.pilot, world: cargo.world, squad: cargo.squad,
   market: cargo.market, rep: cargo.rep, missions: cargo.missions.save(), track: cargo.track,
-  loot: ownedLoot(), lootPity: cargo.lootPity, rewards: cargo.rewards, razed: cargo.razed,
+  loot: ownedLoot(), lootPity: cargo.lootPity, rewards: cargo.rewards, razed: cargo.razed, stats: cargo.stats,
 })), 1000);
 function wrote(ok) {
   if (ok) { saveState.failed = false; return; }

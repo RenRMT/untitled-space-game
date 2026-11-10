@@ -120,6 +120,7 @@ const FILES = [
   'src/rules/knowledge.js',
   'src/rules/lab.js',
   'src/rules/loadout.js',
+  'src/rules/log.js',
   'src/rules/logic.js',
   'src/rules/logistics.js',
   'src/rules/loot.js',

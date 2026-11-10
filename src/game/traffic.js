@@ -35,7 +35,7 @@ import { cargo, lootClasses, pilotLevel, saveCargo, scatterLoot } from './cargo.
 import { explode } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { gainXP } from './progress.js';
+import { checkMilestones, gainXP, record } from './progress.js';
 import { isRazed, structureHostile } from './structures.js';
 import { fight, notify, ship } from './state.js';
 import { simTime } from './update.js';
@@ -199,6 +199,7 @@ function tickRaid(si) {
 }
 function raidWon(raid) {
   traffic.raid = null;
+  record('raids');
   const bounty = 300 * raid.level * raid.keys.length;
   cargo.credits += bounty;
   notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good' });
@@ -266,5 +267,6 @@ export function eliteDown(e, at = e) {
   scatterLoot(Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `elite:${e.key}`);
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());
   if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
+  checkMilestones(); // the elites' (rules/log.js)
   saveCargo();
 }
