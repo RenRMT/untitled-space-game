@@ -29,6 +29,7 @@ import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Progress } from '../rules/progress.js';
+import { Survey } from '../rules/survey.js';
 import { Vendor } from '../rules/vendor.js';
 import { Factions } from '../world/factions.js';
 import { cargo, lootClasses, pilotLevel, saveCargo, scatterLoot } from './cargo.js';
@@ -231,9 +232,27 @@ function raidWon(raid) {
 
 // ---------- In a fight ----------
 
-// What there is to draw and fight: the traffic, the elite and a raid's ships still flying.
+// A deep-space site's guardian (game/sites.js): a named elite, a tier above what the pilot's level
+// counts as, that holds one of the richest sites until it's destroyed, once (its key stays in
+// cargo.removed). Made beside `at` when first asked for; null once beaten.
+export const guardKey = (site) => `siteguard:${site.id}`;
+export function siteGuard(site, at) {
+  const key = guardKey(site);
+  if (cargo.removed.has(key)) { if (traffic.guard?.key === key) traffic.guard = null; return null; }
+  if (traffic.guard?.key === key) return traffic.guard;
+  const r = mulberry32(hashInt(seedToInt(String(world.galaxy.seed)), site.id, 0x6a2d));
+  const tier = Math.min(5, Survey.level(pilotLevel()) + 1), seed = Math.floor(r() * 1e9);
+  const art = ArtBlueprints.create('fighter-heavy', world.cultures.pirates, seed);
+  const name = `${pilotName(r)} ${EPITHETS[Math.floor(r() * EPITHETS.length)]}`;
+  const e = Entities.fighter({ key, art, x: at.x + 700, y: at.y - 500, orbit: 600, speed: 60, a0: r() * 6.28, tier });
+  traffic.guard = Object.assign(e, { name, crew: `Holds ${site.name} · tier ${tier}`, stats: npcStats('fighter', tier, ELITE), faction: 'drifter', siteGuard: site.id });
+  return traffic.guard;
+}
+
+// What there is to draw and fight: the traffic, the elite, a site's guardian and a raid's ships still flying.
 export function trafficThings() {
   const out = traffic.ships.slice();
+  if (traffic.guard && !cargo.removed.has(traffic.guard.key)) out.push(traffic.guard);
   if (traffic.elite && !cargo.removed.has(traffic.elite.key)) out.push(traffic.elite);
   if (traffic.raid) for (const e of traffic.raid.ships) if (!cargo.removed.has(e.key)) out.push(e);
   return out;

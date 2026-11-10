@@ -608,7 +608,8 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
 
 test('deep space: a site\'s find is made by flying close and holding there, once, and is kept in the save', () => {
   game(`if (docked) launch(); fight.grace = 0;
-    globalThis.__site = world.galaxy.sites.find((s) => Survey.FINDS[s.kind].gear && !s.path && !world.galaxy.stations.some((st) => st.site === s.id));
+    globalThis.__alone = (s) => !world.galaxy.sites.some((o) => o !== s && Survey.has(o) && Math.hypot(o.x - s.x, o.y - s.y) < Survey.range(o) + Survey.range(s) + 4000);
+    globalThis.__site = world.galaxy.sites.find((s) => Survey.FINDS[s.kind].gear && !Survey.guarded(s) && __alone(s) && !s.path && !world.galaxy.stations.some((st) => st.site === s.id));
     globalThis.__before = { credits: cargo.credits, xp: cargo.pilot.xp, rewards: cargo.rewards.length };
     ship.x = cam.x = __site.x + Survey.range(__site) + 3000; ship.y = cam.y = __site.y; ship.vx = ship.vy = 0; ship.targetSpeed = 0;`);
   browser.frames(60);
@@ -625,6 +626,35 @@ test('deep space: a site\'s find is made by flying close and holding there, once
   game('saveCargoNow(); loadCargo(world.galaxy)');
   assert.ok(game('surveyed(__site)'), 'kept in the save');
   game('chooseReward("site:" + __site.id, 0)');
+});
+
+test('the richest sites are held: a named guardian comes in, no scan until it is destroyed, then the find', () => {
+  game(`fight.grace = 1e9; select(null); Clock.now = () => Date.now();
+    globalThis.__held = world.galaxy.sites.find((s) => Survey.guarded(s) && __alone(s) && !s.path && !surveyed(s)) || world.galaxy.sites.find((s) => Survey.guarded(s) && !s.path && !surveyed(s));
+    ship.x = cam.x = __held.x + Survey.range(__held) - 300; ship.y = cam.y = __held.y; ship.vx = ship.vy = 0; ship.targetSpeed = 0;`);
+  assert.ok(game('!!__held'), 'a guarded site in the galaxy');
+  assert.ok(!game(`Survey.guarded(__site)`), 'the plain finds are not');
+  browser.frames(45);
+  assert.ok(game('held(__held)'), 'held');
+  const g = game(`({ key: traffic.guard.key, name: traffic.guard.name, tier: traffic.guard.tier, near: Math.hypot(traffic.guard.x - ship.x, traffic.guard.y - ship.y) < 3000 })`);
+  assert.ok(g.key === `siteguard:${game('__held.id')}` && g.name && g.near, 'its guardian is there, by name');
+  assert.ok(game(`trafficThings().some((e) => e.key === '${g.key}')`), 'among what there is to fight');
+  assert.match(Messages.log.map((l) => l.text).join('|'), new RegExp(`is held · destroy ${g.name} to scan it`));
+  browser.frames(60 * 6);
+  assert.ok(game('!scanning() && !surveyed(__held)'), 'no scan while it flies, however long');
+  // Fought like any hostile, and destroyed for good.
+  game('fight.grace = 0; react(nearbyEntities(simTime)); engage(traffic.guard)');
+  assert.ok(game('!!fight.s && fight.s.enemies.length >= 1'), 'it fights');
+  game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
+  assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
+  assert.strictEqual(game('fight.result'), 'won');
+  assert.ok(until(`cargo.removed.has('${g.key}')`, 60 * 10), 'the guardian destroyed, once its wreck has blown up');
+  game('fight.grace = 1e9');
+  assert.ok(until('!!scanning()', 90), 'beaten: the scan starts');
+  assert.ok(until('surveyed(__held)', 600), 'and the find is made');
+  assert.ok(!game(`trafficThings().some((e) => e.key === '${g.key}')`), 'the guardian is gone');
+  assert.strictEqual(game('siteGuard(__held, ship)'), null, 'for good');
+  game(`chooseReward('site:' + __held.id, 0)`);
 });
 
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {
