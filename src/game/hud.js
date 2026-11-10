@@ -313,24 +313,43 @@ export let hudBottom = 0;
 export const LOCATION_TIME = 5;
 const shownLocation = { key: '', at: -Infinity };
 
+// The same lines are laid out every frame (the objective, the control hints, the log), and
+// measuring text is the slow part, so each result is kept by its text, width and font. The cache
+// is small and is emptied when it fills, rather than tracking what is still shown.
+const laidOut = new Map();
+function layout(kind, text, width, make) {
+  const key = `${kind}|${ctx.font}|${Math.round(width)}|${text}`;
+  let out = laidOut.get(key);
+  if (out === undefined) {
+    if (laidOut.size >= 200) laidOut.clear();
+    out = make();
+    laidOut.set(key, out);
+  }
+  return out;
+}
+
 // Text cut to fit a width, in the current font, ending in '…' if it had to be.
 function fit(text, width) {
-  if (ctx.measureText(text).width <= width) return text;
-  let n = text.length;
-  while (n > 1 && ctx.measureText(`${text.slice(0, n).trimEnd()}…`).width > width) n--;
-  return `${text.slice(0, n).trimEnd()}…`;
+  return layout('fit', text, width, () => {
+    if (ctx.measureText(text).width <= width) return text;
+    let n = text.length;
+    while (n > 1 && ctx.measureText(`${text.slice(0, n).trimEnd()}…`).width > width) n--;
+    return `${text.slice(0, n).trimEnd()}…`;
+  });
 }
 
 // Text wrapped to a width, in the current font: lines.
 function wrap(text, width) {
-  const words = text.split(' '), lines = [];
-  let line = '';
-  for (const w of words) {
-    const next = line ? `${line} ${w}` : w;
-    if (line && ctx.measureText(next).width > width) { lines.push(line); line = w; } else line = next;
-  }
-  if (line) lines.push(line);
-  return lines;
+  return layout('wrap', text, width, () => {
+    const words = text.split(' '), lines = [];
+    let line = '';
+    for (const w of words) {
+      const next = line ? `${line} ${w}` : w;
+      if (line && ctx.measureText(next).width > width) { lines.push(line); line = w; } else line = next;
+    }
+    if (line) lines.push(line);
+    return lines;
+  });
 }
 
 // The HUD: top left, where you are (for a moment) and the mission's next step, with the flight
