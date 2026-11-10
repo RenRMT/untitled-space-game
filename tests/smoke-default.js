@@ -495,10 +495,10 @@ test('turrets: round the stations; a friendly one warns before a fight, then its
   assert.ok(game('isRazed(__t.key) && !nearbyEntities(simTime).includes(__t)'), 'gone until it is rebuilt');
   assert.ok(game(`__t.hostile === false || structureHostile(__st)`), 'the provoked station stays hostile');
   game('endSurfaceFight(); fight.s = null; fight.result = null; setMode("in-combat", false); fight.grace = 30');
-  // Rebuilt after its time.
-  game('Clock.now = ((n) => () => n + 3 * 3600 * 1000)(Date.now())');
+  // Rebuilt once the ship has been to another system (no clock runs).
+  game('globalThis.__region = here.region; here.region = { ...here.region, system: { ...here.region.system, index: here.region.system.index + 1 } }');
   assert.ok(game('!isRazed(__t.key)'), 'rebuilt');
-  game('Clock.now = () => Date.now()');
+  game('here.region = __region');
 });
 
 test('loot: a station destroyed drops gear that floats, is picked up into the spare gear, and survives a save', () => {

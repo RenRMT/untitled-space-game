@@ -29,7 +29,7 @@ import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
 import { surfaceWalls } from './surface-squad.js';
 import { guardianDown } from './dungeon.js';
-import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
+import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureHostile, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
 import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
@@ -1108,7 +1108,7 @@ export function init() {
   // Hostile ships can be attacked; any ship can be approached (and followed).
   actions.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => isHostile(e), range: () => CombatCore.config.engageRange, run: (e) => engage(e) });
   // Every man-made thing can be attacked (game/structures.js): a station, its turrets, an outpost.
-  actions.add({ id: 'attack-structure', kind: ['station', 'turret', 'outpost'], verb: 'Attack', when: (e) => isStructure(e) && !e.razed, range: () => CombatCore.config.engageRange, run: (e) => attackStructure(e) });
+  actions.add({ id: 'attack-structure', kind: ['station', 'turret', 'outpost'], verb: 'Attack', when: (e) => isStructure(e) && !e.razed, last: (e) => !structureHostile(e), range: () => CombatCore.config.engageRange, run: (e) => attackStructure(e) });
   setEngage(engageStructures);
   CombatPanel.onButton = (id) => {
     if (fight.s && id.startsWith('ability:')) { const a = id.slice(8); useAbility(fight.s, fight.s.player, a, playerTarget(fight.s, a)); }

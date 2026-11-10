@@ -89,13 +89,17 @@ nothing to grow into, and three skills at once is a lot to learn in a first figh
 - Trade is the first tab, though it is the least part of the loop. Missions comes first.
 
 ### 6. Things that don't serve the loop (cut)
-- **Attack as the first action on a friendly station.** One slip of the thumb starts a war with
-  the home faction. Attack is offered only on what is hostile, or already being fought.
+- **Attack as the first action on a friendly station.** It sat under the thumb, ahead of Dock. The
+  freedom to attack anything stays (it warns first), but on anything that isn't hostile Attack is
+  now the last action offered.
 - **Rebuild timers in real minutes** (20 and 90). A clock that runs while the game is closed is an
-  idle-game pattern. A wreck is rebuilt the next time its system is entered.
-- **`?combat=realtime`.** One combat mode; the flag goes.
-- **Deep-space sites that hold nothing.** They stay as scenery on the galaxy map, but are not
-  offered as places to travel to until they hold something.
+  idle-game pattern. A wreck is rebuilt once the ship has been to another system.
+- **`?combat=realtime`.** One combat mode; the flag goes (the engine stays, under the timeline).
+- **Tools.** Weapon slots were still called tools, and the output stat spoke of rock and gas. They
+  are guns now.
+
+Looked at and kept: the deep-space sites. The README says flying to one finds nothing, but the
+known ones have observatories to dock at, and they give the galaxy map its shape.
 
 ### 7. Smaller faults
 - The map's bottom bar runs under the HUD buttons ("Reset view" is half hidden).
@@ -109,7 +113,7 @@ station screens; the cuts; the map and the documents.
 - Talents that change how a class plays (most are still a share of a stat).
 - A fourth skill per class at a high level.
 - Contracts that are not fights (Freelancer's were criticised for sameness).
-- Something in each deep-space site.
+- Something to find at each deep-space site beyond its observatory.
 
 ## Sources
 - Onboarding: [Apple, Onboarding for games](https://developer.apple.com/app-store/onboarding-for-games/),

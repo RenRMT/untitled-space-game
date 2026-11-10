@@ -62,7 +62,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
 // Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }); rewards:
 // gear rewards still to choose ([{ key, from, options: [spec] }]: game/rewards.js).
-// razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
+// razed: stations and turrets destroyed ({ [key]: their system's index + 1 }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
