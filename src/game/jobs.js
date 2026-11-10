@@ -28,8 +28,8 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
-import { gainXP } from './progress.js';
+import { addNews, cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
+import { gainXP, record } from './progress.js';
 import { offerReward } from './rewards.js';
 import { engage } from './combat.js';
 import { docked } from './docking.js';
@@ -391,6 +391,11 @@ export const waitingChapter = () => cargo.board?.list.find((J) => J.tier === 'st
   && (!J.requires || log().status(J.requires) === 'done') && J.level && pilotLevel() < J.level) || null;
 // Contracts (station jobs) are offered again the day after they're handed in (cargo.world.daily:
 // { [id]: the day it was done }).
+// The story told: every chapter handed in (the job after it, which repeats, isn't one).
+export function storyDone() {
+  const chapters = cargo.board ? cargo.board.list.filter((J) => J.chapter) : [];
+  return chapters.length > 0 && chapters.every((J) => log().status(J.id) === 'done');
+}
 export function reopenDaily() {
   const today = Vendor.day(Clock.now());
   for (const [id, day] of Object.entries(cargo.world.daily)) {
@@ -494,7 +499,8 @@ export function completeJob(id) {
     }
   }
   log().complete(id);
-  if (J.tier === 'station') cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
+  record('contracts');
+  if (J.tier === 'station' || J.repeat) cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.level || J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
   Reputation.earn(cargo.rep, J);
@@ -507,6 +513,30 @@ export function completeJob(id) {
   saveCargo();
 }
 const clearDefence = (id) => { for (const k of [...jobRun.defend.keys()]) if (k.startsWith(`${id}:`)) jobRun.defend.delete(k); };
+// Contracts that need you there fail when your ship is lost while they're under way: a station being
+// defended, once a wave has come in; a ship being escorted, once it's with you. Failed, a contract
+// is back on the board with its progress gone, and whoever asked thinks a little less of you (half
+// of what handing it in earns). The story's chapters don't fail: they wait.
+export const FAIL_REGARD = -2;
+export function failOnLoss() {
+  const failed = [];
+  for (const id of activeJobs()) {
+    const J = jobOf(id), L = log();
+    if (J.tier === 'story') continue;
+    const defending = J.steps.some((s, i) => s.type === 'defend' && !L.done(id, stepId(i)) && !!jobRun.defend.get(`${id}:${i}`)?.ships);
+    const escorting = !!J.escort && !!jobRun.built.get(id)?.escort;
+    if (!(defending || escorting) || !L.abandon(id)) continue;
+    jobRun.built.delete(id);
+    clearDefence(id);
+    if (cargo.track === id) cargo.track = null;
+    if (J.faction) Reputation.change(cargo.rep, J.faction, FAIL_REGARD);
+    notify(`Contract failed: ${J.title} · ${defending ? 'the station stood alone' : 'the convoy went on without you'}`, 5, { tone: 'hostile' });
+    addNews(`Contract failed · ${J.title}`, 'missions');
+    failed.push(id);
+  }
+  if (failed.length) saveCargo();
+  return failed;
+}
 export function abandonJob(id) {
   if (!log().abandon(id)) return;
   jobRun.built.delete(id);

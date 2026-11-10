@@ -11,12 +11,17 @@
 //   vendor.gear() -> [{ i, spec, item, need (the level it asks for), price, sold }]          vendor.kit() -> [{ id, ability, price, count }]
 //   vendor.mods() -> [{ id, mod, price, count }] (none where mods aren't sold)
 //   vendor.buyGambit(id), vendor.buyGear(i), vendor.buyKit(id), vendor.buyMod(id) -> true if bought
+//   vendor.workshop() -> { stock: { [salvage category]: components held }, items: [{ id, item, count,
+//                         reroll, promote: { salvage, n, credits, ok, why } | null }] }: the spare loot gear,
+//                         and what working each over would cost (rules/loot.js)
+//   vendor.rework(id, 'reroll' | 'promote') -> true if done: the piece replaced by the new one
 //   ownedGambits() -> Set of package ids (the free ones among them)
 //   grantGambit(id) -> true if it was new (a dungeon's drop: game/dungeon.js)
 // Part of the flight view; src/main.js starts it.
 
 import { Clock } from '../core/clock.js';
 import { Abilities } from '../rules/abilities.js';
+import { Goods } from '../rules/goods.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
@@ -89,6 +94,34 @@ export const vendor = {
     if (!here || !Vendor.sellsMods(here.type) || !Mods.MODS[id] || cargo.credits < Vendor.MOD_PRICE) return false;
     cargo.credits -= Vendor.MOD_PRICE;
     addTo(cargo.mods, id);
+    saveCargo();
+    return true;
+  },
+  // The workshop: salvaged components (cargo.components), which nothing else uses, spent with
+  // credits on a spare piece of loot gear.
+  workshop() {
+    const stock = Object.fromEntries(Goods.categories('salvage').map((cat) => [cat, cargo.components[Goods.component(cat)] || 0]));
+    const job = (spec, kind) => {
+      const c = Loot.workCost(spec, kind);
+      if (!c) return null;
+      const why = stock[c.salvage] < c.n ? `Needs ${c.n} ${Goods.CATEGORIES[c.salvage].label.toLowerCase()}` : cargo.credits < c.credits ? 'Not enough credits' : '';
+      return { ...c, ok: !why, why };
+    };
+    const items = Object.keys(cargo.gear).filter((id) => cargo.loot[id] && Loadout.EQUIPMENT[id]).map((id) => ({
+      id, item: { id, ...Loadout.EQUIPMENT[id] }, count: cargo.gear[id], reroll: job(cargo.loot[id], 'reroll'), promote: job(cargo.loot[id], 'promote'),
+    })).filter((x) => x.reroll || x.promote);
+    return { stock, items };
+  },
+  rework(id, kind) {
+    const spec = cargo.loot[id];
+    if (!here || !spec || !(cargo.gear[id] > 0)) return false;
+    const c = Loot.workCost(spec, kind), next = c && (kind === 'promote' ? Loot.promote(spec) : Loot.reroll(spec)), comp = c && Goods.component(c.salvage);
+    if (!next || cargo.loot[next.id] || (cargo.components[comp] || 0) < c.n || cargo.credits < c.credits) return false;
+    cargo.credits -= c.credits;
+    addTo(cargo.components, comp, -c.n);
+    addTo(cargo.gear, id, -1);
+    const item = takeLoot(next);
+    notify(`${kind === 'promote' ? 'Refined' : 'Rerolled'}: ${item.name} · in your spare gear`, 2.5, { tone: 'good' });
     saveCargo();
     return true;
   },

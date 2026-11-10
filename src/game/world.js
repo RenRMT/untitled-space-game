@@ -17,7 +17,10 @@ import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
 import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
-import { cargo, loadCargo, saveCargoNow } from './cargo.js';
+import { Progress } from '../rules/progress.js';
+import { eliteOf } from './traffic.js';
+import { BAD, applyShip, cargo, loadCargo, saveCargoNow } from './cargo.js';
+import { storyDone } from './jobs.js';
 import { endTalk, showGates } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
 import { SHIP, notify, ship } from './state.js';
@@ -34,12 +37,16 @@ export function tickOrbits(dt) {
 }
 
 // The galaxy is generated from SYSTEM_CONFIG (world/system-config.js); a ?seed= URL parameter
-// overrides its seed, and the map's Reroll asks for a new one. ?pirates brings the pirates back
+// overrides its seed, and Settings' New game asks for a new one. ?pirates brings the pirates back
 // (they're switched off: world/galaxy.js), for the fights still in the game.
+// With neither, the galaxy last played (saved as 'seed'): an installed game starts at ./, with no
+// parameters, and must open on the game it was closed in.
+const asSeed = (text) => (/^\d+$/.test(text) ? Number(text) : text);
 export function initialSeed() {
   const param = Params.get('seed');
-  if (param === null || param === '') return SYSTEM_CONFIG.seed;
-  return /^\d+$/.test(param) ? Number(param) : param;
+  if (param !== null && param !== '') return asSeed(param);
+  const saved = Store.get('seed');
+  return saved ? asSeed(saved) : SYSTEM_CONFIG.seed;
 }
 const PIRATES = { pirates: { density: 0.5, lawlessAmbushes: [1, 2], nebulaAmbushes: true } };
 const config = () => (Params.has('pirates') ? { ...SYSTEM_CONFIG, galaxy: { ...SYSTEM_CONFIG.galaxy, system: { ...SYSTEM_CONFIG.galaxy.system, ...PIRATES } } } : SYSTEM_CONFIG);
@@ -49,6 +56,7 @@ export function loadGalaxy(galaxy) {
   if (world.knowledge) world.knowledge.save(); // keep the old galaxy's charts before switching
   SystemMap.galaxy = galaxy;
   world.galaxy = galaxy;
+  Store.set('seed', String(galaxy.seed)); // the game to open next time (initialSeed)
   world.cultures = ArtCulture.forGalaxy(galaxy);
   world.scene = Scene.create(galaxy, world.cultures);
   world.orbitT = Clock.now() / 1000;
@@ -66,6 +74,8 @@ export function loadGalaxy(galaxy) {
   // (rules/reputation.js passage).
   world.travel = Travel.create(galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: (c) => ambushCleared(c) || Reputation.passage(cargo.rep) });
   SystemMap.trip = world.travel;
+  // A charted system's card names its elite and the bounty on it (game/traffic.js).
+  SystemMap.wanted = (sys) => { const E = eliteOf(sys.index); return E ? (E.due ? `Wanted: ${E.name} · gone to ground` : `Wanted: ${E.name} · ${E.bounty.toLocaleString('en-US')} cr`) : null; };
   Art.clearCache();
   ArtBodies.clearCache();
   showGates();
@@ -82,13 +92,16 @@ export function saveAll() {
   saveCargoNow();
 }
 
-// A backup of everything saved (every galaxy's cargo and charts, and the settings) as a file to
+// A backup of everything this game saved (every galaxy's cargo and charts, and the settings) as a file to
 // keep, and putting one back. The browser's own storage can be cleared (Safari does after a week
 // without a visit), so this is the player's way to keep a game safe or move it to another device.
 export const BACKUP_TAG = 'untitled-space-game';
+// This game's saved keys: all but the other games' on the same site (theirs start with their name
+// and a dot), so putting a backup back never rolls their saves back with it.
+export const ownKey = (k) => !/^(idle|race|sim|4x)\./.test(k);
 export function exportSave() {
   saveAll();
-  const text = JSON.stringify({ game: BACKUP_TAG, saved: new Date().toISOString(), data: Store.dump() });
+  const text = JSON.stringify({ game: BACKUP_TAG, saved: new Date().toISOString(), data: Store.dump(ownKey) });
   const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = document.createElement('a');
   a.href = url;
@@ -104,7 +117,7 @@ export function readBackup(text) {
   try {
     const d = JSON.parse(text);
     if (!d || d.game !== BACKUP_TAG || !d.data || typeof d.data !== 'object') return null;
-    return Object.fromEntries(Object.entries(d.data).filter(([, v]) => typeof v === 'string'));
+    return Object.fromEntries(Object.entries(d.data).filter(([k, v]) => typeof v === 'string' && ownKey(k)));
   } catch (e) {
     return null;
   }
@@ -121,22 +134,72 @@ export function importSave() {
       if (!data) { notify('That file is not a saved game', 3, { tone: 'warn' }); return; }
       if (!window.confirm('Replace the game in this browser with the one in the file? The current game will be lost unless you exported it.')) return;
       keep = false;
-      if (!Store.load(data)) { keep = true; notify('Could not write the save here', 3, { tone: 'warn' }); return; }
+      if (!Store.load(data, ownKey)) { keep = true; notify('Could not write the save here', 3, { tone: 'warn' }); return; }
       location.reload();
     });
   });
   input.click();
 }
 
+// The games saved in this browser, other than the one being played: one per galaxy, each with the
+// seed that grows its galaxy again ([{ seed, xp, credits, savedAt }], the latest first). A save from
+// before seeds were kept can't be opened from here (its galaxy still opens by its ?seed=).
+export const MAX_GAMES = 3;
+export const SAME_PILOT = 'Take this pilot to a new galaxy? Level, talents and gambits go along; the ship, its gear, the squad and the credits stay with this game, which stays saved.';
+export function savedGames() {
+  const games = [];
+  for (const [key, text] of Object.entries(Store.dump((k) => k.startsWith('cargo:') && !k.endsWith(BAD)))) {
+    if (key === cargo.key) continue;
+    try {
+      const d = JSON.parse(text);
+      if (d && (typeof d.seed === 'number' || typeof d.seed === 'string') && d.seed !== '') {
+        games.push({ seed: d.seed, xp: Math.max(0, Math.floor(d.pilot?.xp) || 0), credits: Number.isFinite(d.credits) ? d.credits : 0, savedAt: Number.isFinite(d.savedAt) ? d.savedAt : 0 });
+      }
+    } catch (e) { /* a damaged save: not listed */ }
+  }
+  return games.sort((a, b) => b.savedAt - a.savedAt);
+}
+export const gameLabel = (g) => `Level ${Progress.of(g.xp).level} · ${Math.floor(g.credits).toLocaleString('en-US')} cr · galaxy ${g.seed}`;
+export function openGame(seed) {
+  saveAll();
+  Params.set('seed', seed);
+  newGalaxy(seed);
+}
+export function newGame() {
+  if (!window.confirm('Start a new game in a new galaxy? This game stays saved: Settings lists it under Games.')) return;
+  let seed;
+  do seed = 1 + Math.floor(Math.random() * 999999); while (seed === world.galaxy.seed || savedGames().some((g) => g.seed === seed));
+  openGame(seed);
+}
+// Once the story is told: a new galaxy for the same pilot. The level, talents, class, gambits and
+// the log go along; the ship, its gear, the squad and the credits stay with the game left behind
+// (which stays saved, like any other).
+export function samePilotGame() {
+  const carry = JSON.parse(JSON.stringify({ pilot: cargo.pilot, cls: cargo.cls, gambits: cargo.gambits, stats: cargo.stats }));
+  let seed;
+  do seed = 1 + Math.floor(Math.random() * 999999); while (seed === world.galaxy.seed || savedGames().some((g) => g.seed === seed));
+  openGame(seed);
+  Object.assign(cargo, carry);
+  applyShip();
+  cargo.hull = SHIP.hull;
+  saveCargoNow();
+  notify(`A new galaxy · level ${Progress.of(cargo.pilot.xp).level}, your talents and gambits with you`, 6, { tone: 'good' });
+}
+
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
+  // Games: a new one (asked first: it leaves this one, which stays saved), and the others saved here
+  // to go back to, the latest first.
   Settings.add({
-    id: 'galaxy', label: 'Galaxy',
-    action: {
-      label: 'Re-roll',
-      hint: 'Generate a new galaxy from a random seed.',
-      run: () => { const seed = 1 + Math.floor(Math.random() * 999999); Params.set('seed', seed); newGalaxy(seed); },
+    id: 'games', label: 'Games', stacked: true,
+    get actions() {
+      return [
+        { label: 'New game', hint: 'A new galaxy and a new pilot. This game stays saved, and is listed here to come back to.', run: newGame },
+        ...(storyDone() ? [{ label: 'New galaxy, same pilot', hint: 'With the story told: a new galaxy with this pilot\'s level, talents and gambits. The ship, gear and credits stay behind.', run: () => { if (window.confirm(SAME_PILOT)) samePilotGame(); } }] : []),
+        ...savedGames().slice(0, MAX_GAMES).map((g) => ({ label: gameLabel(g), run: () => openGame(g.seed) })),
+      ];
     },
+    note: () => `This game: ${gameLabel({ seed: world.galaxy.seed, xp: cargo.pilot.xp, credits: cargo.credits })}.`,
     locked: () => (world.travel && world.travel.active ? 'Not during map travel.' : null),
   });
   Settings.add({

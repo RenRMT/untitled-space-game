@@ -37,7 +37,7 @@ import { leaveLoot } from './surface-run.js';
 import { SURFACE_ACCEL, SURFACE_SPEED, takeOff } from './landing.js';
 import { artStyle } from './options.js';
 import { clamp, ctx, fight, notify } from './state.js';
-import { gainXP } from './progress.js';
+import { gainXP, record } from './progress.js';
 import { offerReward } from './rewards.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { world } from './world.js';
@@ -194,6 +194,7 @@ export function guardianDown(g, at = g) {
     const bounty = GUARD.bounty * level;
     cargo.credits += bounty;
     R.bossDown = true;
+    record('wardens');
     notify(`The ${g.name} is destroyed · ${bounty + paid} credits salvaged from its core and hold`, 4, { tone: 'good' });
     // And a gambit in its core: one not owned yet, up to a tier above the dungeon's level
     // (game/vendor.js; some are found only this way, further out).

@@ -75,6 +75,7 @@ const StationMenu = (() => {
   let openLine = null; // the program line whose sheet is open: { id (member), i, draft }
   let openYard = false; // the shipyard's sheet is open
   let openTalents = false; // the pilot's talents sheet is open
+  let openLog = false; // the pilot's log sheet is open
   let openNews = null; // what finished since the last dock ([{ text, tab }]), its sheet open
   let sheet = null; // the open sheet (Kit.sheet)
   let openOption = null, openStat = null, openHull = null, openKit = null; // expanded rows, chips, tiles
@@ -615,6 +616,7 @@ const StationMenu = (() => {
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
       classPicker(m.cls, (id) => ctx.squad.setClass(m.id, id), `${m.name}'s class`, Progress.of(m.xp || 0).level),
+      memberPerks(m),
       canOutfit ? schematic(slots) : null,
       canOutfit ? performance(perfStats(st, slots, m.hull)) : null,
       section('Program',
@@ -637,6 +639,15 @@ const StationMenu = (() => {
       Kit.statChips(chips, openStat, (id) => { openStat = id; refresh(); }));
   }
   // Hiring a wingman: an android ship of the class picked, while there's room in the squad.
+  // A squad member's perks: its class's (rules/progress.js), learned at their levels, with no points to spend.
+  function memberPerks(m) {
+    const level = Progress.of(m.xp || 0).level, perks = Progress.perksOf(m.cls);
+    if (!perks.length) return null;
+    return h('div', { class: 'ui-list' }, perks.map((t) => Kit.optionRow({
+      code: 'XP', name: t.name, sub: t.note, current: level >= t.level, locked: level < t.level, lockLabel: null,
+      tag: level >= t.level ? 'Learned' : `Level ${t.level}`, tagTone: level >= t.level ? 'good' : null,
+    })));
+  }
   function recruitRow() {
     const sq = ctx.squad, n = sq.members.length;
     if (n >= sq.maxSize) return section('Squad', titleRow('Squad', `${n}/${sq.maxSize}`));
@@ -658,6 +669,7 @@ const StationMenu = (() => {
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       pilotRow(),
+      logRow(),
       ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class', ctx.pilot?.level) : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
@@ -683,6 +695,34 @@ const StationMenu = (() => {
           p.left > 0 ? `${p.left} talent point${p.left === 1 ? '' : 's'} to spend` : `${p.talents.length} talent${p.talents.length === 1 ? '' : 's'}`].join(' · '))),
       p.left > 0 ? h('span', { class: 'ui-tag', style: { '--tone': 'var(--good)' } }, `+${p.left}`) : null,
       h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  // The pilot's log (rules/log.js, game/progress.js): a row that says how far its milestones have
+  // come, and opens the sheet with what the game has counted and every milestone.
+  function logRow() {
+    const L = ctx.pilot?.log;
+    if (!L) return null;
+    const ms = L.milestones(), done = ms.filter((m) => m.done).length;
+    return h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', onclick: () => showLog() },
+      Kit.icon('XP', 28, { code: 'XP' }),
+      h('span', { class: 'main' },
+        h('span', { class: 'title' }, L.title ? `Pilot's log · ${L.title}` : 'Pilot\'s log'),
+        Kit.meter(done / Math.max(1, ms.length), { thin: true, color: 'var(--good)' }),
+        h('span', { class: 'foot' }, `${done} of ${ms.length} milestones`)),
+      h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
+  }
+  function logSheet() {
+    const L = ctx.pilot.log, ms = L.milestones();
+    return {
+      title: 'Pilot\'s log', code: 'XP', sub: L.title ? `Flying as ${L.title}` : 'What this game has done so far',
+      body: [
+        h('dl', { class: 'ui-log' }, L.rows().map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+        Kit.head('Milestones', `${ms.filter((m) => m.done).length} of ${ms.length}`),
+        h('div', { class: 'ui-list' }, ms.map((m) => Kit.optionRow({
+          code: 'XP', name: m.name, sub: m.what, current: m.done,
+          tag: m.done ? 'Reached' : `${m.credits.toLocaleString('en-US')} cr`, tagTone: m.done ? 'good' : null,
+        }))),
+      ],
+    };
   }
   // Talents: what your class can take, each opening at a level, a point each; then forgetting them
   // all for credits.
@@ -734,6 +774,17 @@ const StationMenu = (() => {
       code: 'MOD', name: m.mod.name, sub: `${Loadout.SLOT_TYPES[m.mod.slot] || m.mod.slot} · ${m.mod.note}`, tag: m.count ? `Spare ×${m.count}` : '', tagTone: 'good',
       action: Kit.button('Buy', act(() => v.buyMod(m.id)), { price: m.price, disabled: ctx.hold.credits < m.price, aria: `Buy a ${m.mod.name}` }),
     }));
+    // The workshop: spare loot gear, each with what rolling its affixes anew or refining it a rarity
+    // costs in salvaged components (which have no other use) and credits.
+    const W = v.workshop ? v.workshop() : null, SALV = { weapon: 'WPN', hull: 'HUL', computer: 'CPU', drive: 'DRV' };
+    const job = (w, kind, label) => (w[kind] ? Kit.button(`${label} · ${w[kind].n} ${SALV[w[kind].salvage]}`, act(() => v.rework(w.id, kind)), {
+      price: w[kind].credits, disabled: !w[kind].ok, title: w[kind].why || undefined, aria: `${label} ${w.item.name} for ${w[kind].n} components and ${w[kind].credits} credits`,
+    }) : null);
+    const workRows = W ? W.items.map((w) => Kit.optionRow({
+      code: SLOT_CODE[w.item.slot], name: lineName(w.item), tier: w.item.tier, tag: lootTag(w.item), tagTone: Loot.rarityOf(w.item.loot.rarity).color,
+      sub: w.item.loot.affixes.map(Loot.affixText).join(' · ') || 'No affixes',
+      action: h('span', { class: 'ui-acts' }, job(w, 'reroll', 'Reroll'), job(w, 'promote', 'Refine')),
+    })) : [];
     const kitRows = kit.map((k) => Kit.optionRow({
       code: k.ability.code, name: k.ability.name, sub: k.ability.note, tag: k.count ? `×${k.count} aboard` : '', tagTone: 'good',
       action: Kit.button('Buy', act(() => v.buyKit(k.id)), { price: k.price, disabled: ctx.hold.credits < k.price, aria: `Buy ${k.ability.name}` }),
@@ -743,6 +794,9 @@ const StationMenu = (() => {
       section('Gambits', Kit.head('Gambits', h('span', { class: 'aside' }, `${gambits.filter((g) => g.owned).length}/${gambits.length} owned`)), h('div', { class: 'ui-list' }, gambitRows)),
       section('Gear', Kit.head('Gear', h('span', { class: 'aside' }, 'today\'s stock')), h('div', { class: 'ui-list' }, gearRows)),
       modRows.length ? section('Mods', fold('shop-mods', `Mods · ${modRows.length}`, h('div', { class: 'ui-list' }, modRows))) : null,
+      W ? section('Workshop', Kit.head('Workshop', h('span', { class: 'aside' }, `salvage: ${Object.entries(W.stock).map(([cat, n]) => `${n} ${SALV[cat]}`).join(' · ')}`)),
+        info('Salvaged components are spent here on spare gear you found: Reroll rolls a piece\'s affixes anew; Refine makes it one rarity better (never Legendary), with one more affix, all rolled anew. Unfit a piece to work on it.'),
+        workRows.length ? h('div', { class: 'ui-list' }, workRows) : h('p', { class: 'ui-empty' }, 'No spare loot gear to work on.')) : null,
       section('Consumables', Kit.head('Consumables', h('span', { class: 'aside' }, 'used from the HUD, or in a fight')), h('div', { class: 'ui-list' }, kitRows)),
     ];
   }
@@ -858,6 +912,27 @@ const StationMenu = (() => {
       })))));
   }
 
+  // Wanted: the named elite of every system the pilot has been to (game/traffic.js), with the bounty
+  // on it: something to fly out for when the board is done. Folded away until asked for.
+  function wantedList() {
+    const list = ctx.missions.wanted ? ctx.missions.wanted() : [];
+    if (!list.length) return null;
+    const at = list.filter((w) => !w.due).length;
+    return section('Wanted', fold('wanted', `Wanted · ${at} at large`, h('div', { class: 'ui-list' }, list.map((w) => Kit.optionRow({
+      code: 'WPN', name: w.name, sub: `Tier ${w.tier} elite · ${w.where} · level ${w.level}`, locked: !!w.due, lockLabel: null,
+      tag: w.due ? 'Gone to ground' : `${w.bounty.toLocaleString('en-US')} cr`, tagTone: w.due ? null : 'warn',
+    })))));
+  }
+  // With every chapter handed in: what's left to do here, and the way on to a new galaxy with the
+  // same pilot (game/world.js samePilotGame). Folded, so it doesn't stand over the board for good.
+  function epilogue() {
+    if (!ctx.missions.storyDone || !ctx.missions.storyDone()) return null;
+    return section('Epilogue', fold('epilogue', 'The story is told', [
+      h('p', { class: 'ui-note' }, 'You flew all the way in. This galaxy stays open: its contracts, the wanted, the sites not yet surveyed, and the core, where they ask again every day.'),
+      h('p', { class: 'ui-note' }, 'Or take this pilot to a galaxy no one has charted. Level, talents and gambits go along; the ship, its gear, the squad and the credits stay here.'),
+      Kit.button('New galaxy, same pilot', () => ctx.missions.samePilot(), { wide: true, kind: 'ghost', aria: 'Start a new galaxy with this pilot' }),
+    ]));
+  }
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
@@ -868,6 +943,8 @@ const StationMenu = (() => {
       reason ? Kit.callout(reason, 'var(--warn)') : null,
       renderRewards(),
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
+      wantedList(),
+      epilogue(),
       h('div', { class: 'ui-list' }, current.map(missionCard),
         done.length ? [Kit.disclosure({ label: `Completed · ${done.length}`, open: doneOpen, onToggle: () => { doneOpen = !doneOpen; refresh(); } }),
           doneOpen ? done.map(doneCard) : null] : null),
@@ -1067,16 +1144,16 @@ const StationMenu = (() => {
 
   function sheetOptions() {
     return openSlot ? slotSheet(openSlot) : openMission ? missionSheet(openMission) : openLine ? lineSheet()
-      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openNews ? newsSheet() : null;
+      : openYard && ctx.shipyard ? yardSheet() : openTalents && ctx.pilot ? talentSheet() : openLog && ctx.pilot?.log ? logSheet() : openNews ? newsSheet() : null;
   }
   function openSheet() {
     const o = sheetOptions();
     if (!o) { closeSheet(); return; }
-    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = false; refresh(); } });
+    sheet = Kit.sheet({ ...o, host: layer, onClose: () => { sheet = null; openSlot = openMission = openLine = openNews = null; openYard = openTalents = openLog = false; refresh(); } });
   }
   function closeSheet() {
     openSlot = openMission = openLine = openNews = null;
-    openYard = openTalents = false;
+    openYard = openTalents = openLog = false;
     if (sheet) { const s = sheet; sheet = null; s.close(true); }
   }
   function showSlot(id) { closeSheet(); openSlot = id; openOption = null; refresh(); openSheet(); }
@@ -1095,6 +1172,7 @@ const StationMenu = (() => {
   }
   function showYard() { closeSheet(); openYard = true; openHull = null; refresh(); openSheet(); }
   function showTalents() { closeSheet(); openTalents = true; refresh(); openSheet(); }
+  function showLog() { closeSheet(); openLog = true; refresh(); openSheet(); }
   function showLine(id, i) {
     const m = ctx.squad && ctx.squad.members.find((x) => x.id === id);
     if (!m) return;

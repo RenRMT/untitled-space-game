@@ -1,0 +1,576 @@
+/* The main game's screen layouts (index.html), on top of the UI kit (kit.css and each art style's
+   kit, loaded before this). */
+/* Screen layouts on top of the UI kit (src/ui/kit.css), which holds the tokens: --bg, --s1, --line,
+   --cyan, --sans, --mono, ... */
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; overscroll-behavior: none; }
+body { font-family: var(--sans); -webkit-text-size-adjust: 100%; }
+button { -webkit-tap-highlight-color: transparent; }
+canvas {
+  display: block; width: 100vw; height: 100vh; height: 100dvh;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+#game { cursor: crosshair; }
+#map-canvas { cursor: grab; }
+
+/* The plain button of the flight view, the map and the dialogs: a kit button (.ui-btn) on a
+   panel background, so it reads over space. */
+.btn {
+  min-height: 40px; box-sizing: border-box; padding: 0 12px;
+  font: 700 13px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--hud); background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  cursor: pointer; touch-action: manipulation;
+}
+.btn:hover, .btn:focus-visible { border-color: var(--cyan); color: var(--cyan); outline: none; }
+.btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.btn[aria-pressed="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
+
+/* Factions, map and settings: icon buttons side by side in the bottom-right corner, level with the speed
+   bar and clear of the panels above it; a full touch target each (--hit, ui/kit.css). */
+.icon-btn {
+  position: absolute; z-index: 4; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  width: var(--hit); height: var(--hit); min-height: 0; padding: 0; display: grid; place-items: center;
+}
+.icon-btn[aria-expanded="true"] { border-color: var(--cyan); color: var(--cyan); }
+.icon-btn svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+#factions-btn { right: calc(12px + 2 * (var(--hit) + 8px) + env(safe-area-inset-right, 0px)); }
+#map-btn { right: calc(12px + var(--hit) + 8px + env(safe-area-inset-right, 0px)); }
+#settings-btn { right: calc(12px + env(safe-area-inset-right, 0px)); }
+.btn:disabled { opacity: 0.4; cursor: default; border-color: var(--line); color: var(--hud); }
+
+#map-overlay { position: fixed; inset: 0; z-index: 2; background: var(--bg); font: 14px var(--sans); color: var(--hud); }
+#map-overlay[hidden] { display: none; }
+#map-overlay .bar {
+  position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; pointer-events: none;
+}
+#map-overlay .bar > * { pointer-events: auto; }
+#map-overlay .top { top: 0; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
+/* The bottom bar stops short of the factions, map and settings buttons, which stay above the map. */
+#map-overlay .bottom {
+  bottom: 0; flex-wrap: wrap; gap: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-right: calc(12px + var(--hit) * 3 + 16px + 12px + env(safe-area-inset-right, 0px));
+  background: linear-gradient(rgba(5, 6, 10, 0), var(--bg));
+}
+#map-overlay .bottom .spacer { flex: 1; pointer-events: none; }
+#map-overlay .btn { min-height: var(--hit); }
+#map-title { font: 700 15px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#map-view { flex: none; gap: 0; }
+#map-view .btn { flex: none; padding: 0 12px; }
+#map-view .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+#map-view .btn:last-child { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left: none; }
+#map-investigate { border-color: var(--cyan); color: var(--cyan); }
+
+/* Selection callout (ui/callout.js): the selected thing's name and details above it, its
+   actions below, moved into place by transforms. Only the buttons take taps. */
+.callout { position: absolute; left: 0; top: 0; pointer-events: none; }
+.callout[hidden] { display: none; }
+.co-above, .co-below { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+.co-above { gap: 1px; padding: 3px 7px; background: rgba(5, 6, 10, 0.72); border-radius: var(--r-md); }
+.co-below { flex-direction: row; gap: 6px; }
+.co-below .btn { pointer-events: auto; min-height: var(--hit); }
+.co-below .btn.primary:not(:disabled) { border-color: var(--cyan); color: var(--cyan); }
+.co-name { font: 600 14px var(--sans); color: var(--bright); }
+.co-meta { font: 12px var(--mono); color: var(--dim); }
+#map-overlay [hidden] { display: none !important; }
+#map-prompt {
+  position: absolute; left: 50%; bottom: calc(80px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  width: min(340px, calc(100vw - 24px)); box-sizing: border-box; padding: 12px;
+  background: var(--s1); border: 1px solid var(--line); border-left: 3px solid var(--cyan); border-radius: var(--r-lg);
+  display: flex; flex-direction: column; gap: 10px; font-size: 15px; color: var(--bright);
+}
+#map-prompt .actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+@media (max-width: 560px) {
+  #map-overlay .btn { padding: 0 9px; font-size: 12px; letter-spacing: 0.08em; }
+  #map-title { flex: 1 1 0; }
+}
+
+/* Panels above the speed bar: in a fight, the combat panel. The coloured left edge is each
+   panel's own. */
+.panel {
+  position: absolute; left: 50%; bottom: calc(60px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  box-sizing: border-box; padding: 10px 10px 10px 12px;
+  background: var(--panel); border: 1px solid var(--line); border-left-width: 3px; border-radius: var(--r-lg);
+  font: 14px var(--sans); color: var(--hud);
+}
+.panel[hidden] { display: none; }
+
+/* Context menu (ui/context.js): tap a station, asteroid or ship and what you can do there shows
+   as round icon buttons fanned out below it. Nothing shows above it: what it is stays in the
+   page for screen readers only. Docked, the flight controls go away. */
+#context { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 1; }
+#context[hidden] { display: none; }
+.cx-info {
+  position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; pointer-events: none;
+}
+.cx-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cx-title { flex: 1; min-width: 0; color: var(--bright); font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-tag { font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); white-space: nowrap; }
+.cx-tag.hostile { color: var(--hostile); }
+.cx-tag.good { color: var(--good); }
+.cx-tag.warn { color: var(--warn); }
+.cx-head.more { cursor: pointer; }
+.cx-detail { font: 12px var(--mono); color: var(--hud); margin-top: 1px; white-space: nowrap; }
+.cx-detail[hidden] { display: none; }
+/* Drawn 28 px, but a full touch target: the button overhangs the card by its margins. */
+.cx-close {
+  width: var(--hit); height: var(--hit); flex: none; display: grid; place-items: center;
+  font: 400 20px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; margin: -12px -10px -12px -8px;
+  cursor: pointer; touch-action: manipulation;
+}
+.cx-close:hover, .cx-close:focus-visible { color: var(--cyan); outline: none; }
+.cx-sub { font: 12px var(--mono); color: var(--dim); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cx-state { font: 12px var(--mono); color: var(--warn); margin-top: 1px; white-space: nowrap; }
+.cx-state[hidden] { display: none; }
+.cx-actions { position: absolute; left: 0; top: 0; }
+.cx-act {
+  position: absolute; left: 0; top: 0; width: var(--hit); height: var(--hit); padding: 0; display: grid; place-items: center;
+  border: 1px solid var(--cyan); border-radius: 50%; background: var(--panel); color: var(--cyan);
+  cursor: pointer; touch-action: manipulation; pointer-events: auto;
+}
+.cx-act svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.cx-act:hover { background: #0f1a24; }
+/* An action's name under its button, for its first few uses (ui/context.js). */
+.cx-lbl {
+  position: absolute; top: calc(100% + 3px); left: 50%; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font: 700 11px/1 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan);
+  padding: 2px 4px; background: rgba(5, 6, 10, 0.72); border-radius: var(--r-sm);
+}
+.cx-act:disabled .cx-lbl { color: var(--dim); }
+.cx-act:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.cx-act:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+/* A running action (mining) fills a ring round its button. */
+.cx-act.busy:disabled {
+  border-color: transparent; color: var(--busy);
+  background: radial-gradient(closest-side, var(--panel) calc(100% - 3px), transparent calc(100% - 2px)),
+    conic-gradient(var(--busy) var(--progress, 0%), var(--line) var(--progress, 0%));
+}
+body.docked #factions-btn, body.docked #map-btn, body.docked #settings-btn, body.docked #context { display: none; }
+
+/* Combat bar: replaces the context menu during a fight. Only the skills and the kit's
+   consumables; the fight itself is drawn round the ships (game/combat.js). */
+#combat { left: 12px; right: 12px; margin: 0 auto; transform: none; width: fit-content; max-width: calc(100vw - 24px); padding: 8px 10px; border-left-color: var(--hostile); display: grid; gap: 8px; }
+#combat[hidden] { display: none; }
+/* The party's frames: your ship's first and widest, then the squad's. Shields over hull. */
+.cb-party { display: flex; gap: 8px; align-items: flex-end; }
+.cb-party:empty { display: none; }
+.cb-frame { flex: 1 1 0; min-width: 44px; display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font: 700 10px/1 var(--mono); letter-spacing: 0.08em; color: var(--dim); }
+.cb-frame.you { flex: 2.2 1 0; color: var(--hud); }
+.cb-frame .bars { display: grid; gap: 2px; }
+.cb-frame .bars span { display: block; height: 4px; background: rgba(255, 255, 255, 0.12); }
+.cb-frame .bars .hul { height: 8px; }
+.cb-frame .bars i { display: block; height: 100%; width: 100%; transition: width 0.15s linear; }
+.cb-frame .shd i { background: var(--shd, var(--cyan)); }
+.cb-frame .hul i { background: var(--good); }
+.cb-frame.low .hul i { background: var(--hostile); }
+.cb-frame.down { opacity: 0.35; }
+.cb-frame .num { grid-column: 2; font-weight: 400; color: var(--dim); min-height: 10px; }
+.cb-frame:not(.you) .num { display: none; }
+/* A button per skill and consumable: its icon over its name, cooldown or charges left. A skill's
+   is thumb-sized; while it cools, a shade drains off it from the top. */
+.cb-abil { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
+.cb-ab {
+  position: relative; overflow: hidden;
+  min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border: 1px solid var(--good); border-radius: 6px; background: transparent; color: var(--good); cursor: pointer; touch-action: manipulation;
+}
+.cb-ab.skill { width: 64px; height: 62px; padding: 4px 2px; }
+.cb-ab::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: var(--cool, 0%); background: rgba(0, 0, 0, 0.55); pointer-events: none; }
+.cb-ab.busy { border-style: dashed; }
+.cb-ab .n { position: relative; font: 700 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--hud); white-space: nowrap; }
+.cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+.cb-ab:disabled .n { color: var(--dim); }
+.cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+/* The rest of the interface (map, settings, factions, context menu, consumables) stays up in a
+   fight: the panel keeps clear of the consumables' column on the right. */
+/* Consumables in the field (ui/field-bar.js): a column of buttons up the right-hand side, above the
+   corner buttons, each its icon over the charges left. */
+#field {
+  position: absolute; z-index: 3; right: calc(12px + env(safe-area-inset-right, 0px));
+  bottom: calc(12px + var(--hit) + 12px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column-reverse; flex-wrap: wrap-reverse; gap: 6px; /* a short screen: a second column, to the left */
+  max-height: calc(100dvh - 2 * var(--hit) - 200px);
+}
+#field[hidden] { display: none; }
+.fb-ab {
+  width: var(--hit); min-height: var(--hit); padding: 4px 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border: 1px solid var(--good); border-radius: 6px; background: var(--panel); color: var(--good); cursor: pointer; touch-action: manipulation;
+}
+.fb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
+.fb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+.fb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+body.docked #field, body.warping #field, body.talking #field { display: none; }
+
+/* Station screen: header, the tab's content, then the icon tab bar and Launch in thumb reach.
+   Sheets (#st-layer) slide up over it. */
+#station {
+  --culture: var(--dim);
+  position: fixed; inset: 0; z-index: 2; background: var(--bg); color: var(--hud);
+  font: 15px/1.4 var(--sans); display: flex; flex-direction: column; align-items: center;
+  padding-top: env(safe-area-inset-top, 0px);
+  animation: st-in 0.22s ease-out;
+}
+#station[hidden] { display: none; }
+@keyframes st-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #station { animation: none; } }
+#station > .st-head, #station > #st-body, #station > #st-note, #station > .ui-nav { width: min(560px, 100%); box-sizing: border-box; }
+
+.st-head { flex: none; display: flex; align-items: center; gap: 12px; padding: 22px 16px 12px; border-bottom: 1px solid var(--line-soft); }
+.st-head .culture { width: 3px; align-self: stretch; background: var(--culture); border-radius: 2px; }
+.st-head .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+#st-name { font-size: 19px; font-weight: 600; line-height: 1.15; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#st-sub { font-size: 13px; color: var(--dim); letter-spacing: 0.04em; }
+.st-credits {
+  flex: none; display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 16px; background: var(--s1);
+}
+.st-credits i { width: 7px; height: 7px; background: var(--cyan); transform: rotate(45deg); }
+#st-credits { font: 500 14px var(--mono); color: var(--cyan); white-space: nowrap; }
+
+#st-body {
+  flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 24px;
+  display: flex; flex-direction: column; gap: 18px;
+}
+#st-body > * { flex: none; }
+#st-body > .ui-schematic { margin: -4px auto -6px; }
+.st-title { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: -8px; }
+/* A tab's first line: its count (left) and, once its explanations have folded away, ⓘ (right). */
+.st-lead { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin: -6px 0 -10px; font-size: 12px; color: var(--dim); }
+.st-lead .num { font-size: 12px; }
+.st-info { width: 36px; height: 36px; margin: -6px -8px -6px auto; font-size: 18px; }
+.st-info[aria-expanded="true"] { color: var(--cyan); }
+.st-holdn { font-size: 12px; color: var(--hud); white-space: nowrap; }
+.st-holdbar .ui-btn { min-height: 36px; padding: 0 10px; font-size: 12px; }
+.st-holdbar .ui-btn:disabled { opacity: 0.4; } /* greyed out: nothing in the hold for it */
+.ui-btn { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; } /* held down to repeat */
+/* A wingman's last fight (Squad tab): a step per line switch, its time, what it did, its hull. */
+.st-steps { display: flex; flex-direction: column; border: 1px solid var(--line-soft); border-radius: var(--r-lg); overflow: hidden; }
+.st-step { display: grid; grid-template-columns: 40px minmax(0, 1fr) 40px; gap: 8px; align-items: baseline; min-height: 40px; box-sizing: border-box; padding: 9px 10px;
+  background: none; border: 0; border-top: 1px solid var(--line-soft); color: var(--hud); font: 14px/1.35 var(--sans); text-align: left; }
+.st-step:first-child { border-top: 0; }
+button.st-step { cursor: pointer; } button.st-step:hover { background: var(--cyan-tint); }
+.st-step .t, .st-step .hull { font-size: 12px; color: var(--dim); }
+.st-step .hull { text-align: right; }
+.st-step .on { color: var(--hostile); }
+.st-step.bad { color: var(--hostile); }
+.st-member .ui-btn { min-height: 40px; }
+.st-test { display: flex; flex-direction: column; gap: 2px; min-height: 44px; box-sizing: border-box; padding: 8px 10px; background: none; border: 0;
+  border-top: 1px solid var(--line-soft); color: var(--hud); font: 14px/1.3 var(--sans); text-align: left; }
+.st-test:first-child { border-top: 0; }
+button.st-test { cursor: pointer; } button.st-test:hover { background: var(--cyan-tint); }
+.st-test .name { font-size: 13px; color: var(--dim); }
+.st-test .res { color: var(--bright); }
+.st-test .res.idle { color: var(--dim); }
+.st-title .aside { font-size: 12px; font-weight: 400; color: var(--dim); white-space: nowrap; }
+.st-sec { display: flex; flex-direction: column; gap: 8px; }
+.st-gap { margin-top: 6px; }
+.st-foot-note { text-align: center; font-size: 13px; }
+#st-note { flex: none; margin: 0; padding: 8px 16px 0; font-size: 14px; color: var(--warn); text-align: right; }
+#st-note[hidden] { display: none; }
+.st-nav { flex: none; }
+#st-launch { min-width: 96px; padding: 0 14px; }
+#station .icon { display: block; flex: none; } /* item icons: sized by their width/height attributes */
+
+/* The hull and its repair, in one row. */
+.st-hull { display: flex; align-items: center; gap: 10px; min-height: var(--hit); }
+.st-hull .gauge { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.st-hull .top { display: flex; justify-content: space-between; align-items: baseline; }
+.st-hull .top .ui-label { font-size: 12px; font-weight: 600; letter-spacing: 0.1em; }
+.st-hull .top .num { font-size: 12px; color: var(--hud); }
+.st-hull .ui-tag { font-size: 13px; padding: 0 6px; }
+
+/* The switcher: on the Ship tab, stepping between your ship and the squad's. */
+.st-switch {
+  display: flex; align-items: center; gap: 8px; margin-bottom: -6px; overflow: hidden;
+  border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--s1);
+}
+.st-switch-btn {
+  flex: none; width: var(--hit); height: var(--hit); display: grid; place-items: center; padding: 0;
+  border: 0; background: transparent; color: var(--cyan); font: 400 28px/1 var(--sans); cursor: pointer;
+}
+.st-switch-btn:hover { background: var(--cyan-tint); }
+.st-switch-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.st-switch .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px 0; }
+.st-switch .who { font: 600 14px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.st-switch .who .num { font: 400 12px var(--mono); letter-spacing: 0; color: var(--dim); }
+.st-switch .dots { display: flex; gap: 2px; }
+.st-switch .dot { width: 12px; height: 10px; display: grid; place-items: center; } /* where you are among the ships; the arrows step */
+.st-switch .dot::after { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--line-strong); }
+.st-switch .dot[aria-current="true"]::after { background: var(--cyan); }
+
+/* The ship outline behind the slot buttons, with leader lines from each slot to its place on it. */
+.st-outline, .st-outline svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.st-outline .leaders { stroke: var(--line); stroke-dasharray: 3 3; fill: none; }
+.st-outline .anchors { fill: var(--line-strong); }
+.st-outline .hull { fill: var(--cyan-tint); fill-opacity: 0.5; stroke: var(--cyan); stroke-opacity: 0.55; stroke-width: 1.25; stroke-linejoin: round; }
+.st-outline .spine { stroke: var(--cyan); stroke-opacity: 0.2; }
+
+/* Trade: the hold's fill, then a row per good: icon (with how many you hold), name, where the
+   price sits, Buy and Sell. */
+.st-holdbar { display: flex; align-items: center; gap: 10px; margin-top: -8px; }
+.st-item { position: relative; width: 40px; height: 40px; flex: none; display: grid; place-items: center; }
+.st-item .n { position: absolute; top: -4px; right: -6px; padding: 0 3px; font-size: 11px; color: var(--bright); background: var(--s2); border-radius: 3px; }
+.st-deal { flex: none; display: flex; gap: 6px; }
+.st-deal .ui-btn, .st-deal .lock { min-width: 72px; }
+@media (max-width: 380px) { .st-deal .ui-btn, .st-deal .lock { min-width: 64px; padding: 0 6px; } }
+.st-gauge { position: relative; display: block; height: 3px; margin: 7px 4px 3px; max-width: 160px; background: var(--line); border-radius: 2px; }
+.st-gauge .mark { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: var(--hud); }
+.st-gauge .mark.cheap { background: var(--good); }
+.st-gauge .mark.dear { background: var(--warn); }
+
+/* A mission's reward on its card: the credits diamond and amount, then item icons (×n). */
+.st-pays { display: inline-flex; align-items: center; gap: 10px; min-width: 0; color: var(--hud); }
+.st-pay { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; }
+.st-pay .icon { margin: -2px 0; }
+.st-also { display: block; margin-top: 2px; font-size: 13px; color: var(--dim); }
+/* A mission's briefing, straight on its sheet: who says it, then every line. */
+.st-brief { display: flex; flex-direction: column; gap: 8px; }
+.st-brief .from { display: flex; align-items: center; gap: 10px; }
+.st-brief .from .ui-label { color: var(--culture, var(--cyan)); }
+.st-brief p { margin: 0; font-size: 15px; line-height: 1.45; color: var(--bright); overflow-wrap: anywhere; }
+.st-brief strong { color: var(--culture, var(--cyan)); font-weight: 600; }
+.src { font-size: 12px; }
+
+/* Squad: each member's hull and program; the line editor's fields and conditions. */
+.st-member { display: flex; align-items: center; gap: 10px; }
+.st-member .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.st-member .line { display: flex; gap: 8px; align-items: baseline; }
+.st-member .name { font-size: 17px; font-weight: 600; color: var(--bright); }
+.st-member .sub { font-size: 13px; color: var(--dim); }
+.st-field { display: flex; flex-direction: column; gap: 6px; }
+.st-clause { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 2px solid var(--line); }
+.st-clause-head { display: flex; justify-content: space-between; align-items: center; }
+.st-line-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.st-line-tools .ui-btn { flex: 1 1 0; min-width: 0; padding: 0 8px; }
+
+/* Settings: a dialog over the flight view (which keeps drawing behind it, so art style changes
+   show right away). One group per option: a row of choices and a line about the selected one. */
+#settings, #factions {
+  position: fixed; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center;
+  /* clear of the map and settings buttons in the bottom-right corner, which stay above it */
+  padding: 16px 16px calc(12px + var(--hit) + 12px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; background: rgba(2, 3, 6, 0.66);
+  font: 15px/1.4 var(--sans); color: var(--hud);
+}
+#settings[hidden], #factions[hidden] { display: none; }
+.set-panel {
+  width: min(420px, 100%); max-height: 100%; overflow-y: auto; box-sizing: border-box;
+  background: var(--s1); border: 1px solid var(--line); border-radius: var(--r-lg); padding: 8px 16px 16px;
+}
+.set-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 4px; }
+#settings-title, #factions-title { font: 700 22px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--bright); }
+.set-close {
+  width: var(--hit); height: var(--hit); display: grid; place-items: center; margin-right: -10px;
+  font: 400 24px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0;
+  cursor: pointer; touch-action: manipulation;
+}
+.set-close:hover, .set-close:focus-visible { color: var(--cyan); outline: none; }
+/* ⓘ: the explanations (each option's hint, the panel's notes) are hidden until it's on. */
+.set-info {
+  width: var(--hit); height: var(--hit); display: grid; place-items: center; margin-left: auto;
+  font: 400 18px/1 var(--sans); color: var(--dim); background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation;
+}
+.set-info:hover, .set-info:focus-visible, .set-info[aria-expanded="true"] { color: var(--cyan); outline: none; }
+.set-group { padding: 12px 0 4px; border-top: 1px solid var(--line-soft); margin-top: 8px; }
+.set-group:first-child { border-top: 0; margin-top: 0; }
+.set-label { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--dim); }
+.set-label kbd {
+  font: 500 10px var(--mono); letter-spacing: 0; color: var(--dim); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px;
+}
+@media (hover: none) { .set-label kbd { display: none; } } /* keyboard shortcuts mean nothing on touch */
+.seg { display: flex; gap: 6px; }
+.seg .btn { flex: 1 1 0; min-width: 0; min-height: var(--hit); padding: 0 4px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: transparent; }
+.seg.stacked { flex-direction: column; }
+.seg.stacked .btn { flex: 0 0 auto; text-transform: none; letter-spacing: 0.02em; }
+.seg .btn[aria-checked="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
+.seg .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.set-hint { margin: 8px 0 0; font-size: 14px; color: var(--hud); }
+/* A folding heading for a group of options (Accessibility, Help). */
+.set-fold {
+  display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: var(--hit); margin-top: 8px; padding: 0;
+  background: none; border: 0; border-top: 1px solid var(--line-soft); color: var(--dim); cursor: pointer;
+  font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase;
+}
+.set-fold[aria-expanded="true"] { color: var(--bright); }
+.set-fold:hover, .set-fold:focus-visible { color: var(--cyan); outline: none; }
+.set-fold + .set-group { border-top: 0; margin-top: 0; }
+.set-note { margin: 4px 0 0; color: var(--dim); font-size: 13px; }
+.set-note.locked { color: var(--warn); }
+
+/* Factions: a row per faction (its colour, name, regard and where it sits from hostile to
+   devoted), unfolding to what it stands for and its allies and enemies as chips. */
+.fac-list { display: flex; flex-direction: column; margin-top: 12px; border-top: 1px solid var(--line-soft); }
+.fac-item { border-bottom: 1px solid var(--line-soft); }
+.fac-row {
+  display: grid; grid-template-columns: 12px 1fr auto 14px; grid-template-areas: "sw name tier chev" ". bar bar .";
+  align-items: center; column-gap: 10px; row-gap: 6px; width: 100%; min-height: var(--hit); padding: 10px 0;
+  background: none; border: 0; color: var(--bright); font: 600 15px var(--sans); text-align: left; cursor: pointer; touch-action: manipulation;
+}
+.fac-row:hover .name, .fac-row:focus-visible .name { color: var(--cyan); }
+.fac-row:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.fac-row .swatch { grid-area: sw; width: 12px; height: 12px; border-radius: 3px; background: var(--fc); }
+.fac-row .name { grid-area: name; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fac-row .tier { grid-area: tier; font: 700 11px var(--sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.fac-row .tier .num { font: 500 12px var(--mono); letter-spacing: 0; }
+.fac-row .chev { grid-area: chev; color: var(--dim); font-size: 12px; }
+.fac-meter { grid-area: bar; position: relative; height: 4px; background: var(--line); border-radius: 2px; }
+.fac-meter::after { content: ''; position: absolute; left: 50%; top: -3px; width: 1px; height: 10px; background: var(--line-strong); }
+.fac-meter .fill { position: absolute; top: 0; bottom: 0; border-radius: 2px; }
+.fac-more { padding: 0 0 14px 22px; }
+.fac-line { margin: 0 0 10px; font-size: 14px; color: var(--hud); }
+.fac-line .set-label, .fac-rel .set-label { margin-bottom: 4px; }
+.fac-rel { margin-top: 10px; }
+.fac-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.fac-chip {
+  min-height: 32px; padding: 0 10px; border: 1px solid var(--fc); border-radius: 16px; background: none;
+  color: var(--bright); font: 500 13px var(--sans); cursor: pointer; touch-action: manipulation;
+}
+.fac-chip:hover, .fac-chip:focus-visible { background: var(--s2); outline: none; }
+.fac-none { font-size: 14px; color: var(--dim); }
+
+/* Comms box: a message from someone in space, with their portrait; tap to go on, or answer.
+   A hint (.hint) doesn't wait: taps pass through it to space. */
+#comms {
+  --from: #4fd8ff;
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 1;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px)); width: min(560px, calc(100vw - 24px));
+  font: 15px/1.4 var(--sans); color: var(--hud); animation: cm-in 0.2s ease-out;
+}
+#comms[hidden] { display: none; }
+@keyframes cm-in { from { opacity: 0; transform: translate(-50%, 8px); } }
+@media (prefers-reduced-motion: reduce) { #comms { animation: none; } }
+.cm-box {
+  display: flex; gap: 12px; align-items: flex-start; padding: 12px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--from); border-radius: var(--r-lg);
+}
+#comms.ask .cm-box { cursor: default; }
+#comms.hint { bottom: calc(46px + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+#comms.hint .cm-box { cursor: default; border-left-color: var(--cyan); }
+#comms.hint .cm-from { color: var(--cyan); }
+.cm-face { flex: none; width: 72px; height: 72px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.cm-face[hidden] { display: none; }
+.cm-main { flex: 1; min-width: 0; }
+.cm-head { display: flex; align-items: center; gap: 8px; }
+.cm-from { flex: 1; min-width: 0; font: 700 11px var(--sans); letter-spacing: 0.14em; text-transform: uppercase; color: var(--from); }
+.cm-text { margin: 4px 0 0; color: var(--bright); overflow-wrap: anywhere; }
+.cm-text strong { color: var(--from); font-weight: 600; }
+.cm-more { margin-top: 6px; text-align: right; font: 700 11px var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); }
+.cm-more[hidden], .cm-choices[hidden] { display: none; }
+.cm-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 6px; margin-top: 10px; }
+.cm-choice { min-height: var(--hit); border-color: var(--cyan); color: var(--cyan); background: transparent; padding: 8px 6px; white-space: normal; line-height: 1.2; }
+.cm-choice:hover { background: var(--cyan-tint); }
+.cm-choice.with-face { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 6px; }
+.cm-choice-face { width: 64px; height: 64px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+#resume {
+  position: fixed; inset: 0; z-index: 7; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  border: 0; background: rgba(2, 3, 6, 0.72); color: var(--bright); cursor: pointer; touch-action: manipulation; font-family: var(--sans);
+}
+#resume[hidden] { display: none; }
+/* Frames that keep failing (game/loop.js): what broke, a reload and the save as a file. */
+#crash {
+  position: fixed; inset: 0; z-index: 9; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  padding: 24px; text-align: center; background: rgba(2, 3, 6, 0.9); color: var(--bright); font-family: var(--sans);
+}
+#crash[hidden] { display: none; }
+#crash .t { font: 700 calc(24px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
+#crash .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); max-width: 32ch; }
+#crash .m { font-size: calc(12px * var(--ui-scale)); color: var(--hud); opacity: 0.8; max-width: 100%; overflow-wrap: anywhere; }
+#crash .row { display: flex; gap: 10px; }
+#resume .t { font: 700 calc(26px * var(--ui-scale)) var(--sans); letter-spacing: 0.14em; text-transform: uppercase; }
+#resume .s { font-size: calc(15px * var(--ui-scale)); color: var(--hud); }
+/* Someone talking on the comms during flight: the box covers the bottom of the screen and the
+   corner buttons on a narrow screen; the context menu waits until they're done. */
+body.talking #context, body.talking #factions-btn, body.talking #map-btn, body.talking #settings-btn { display: none; }
+body.warping #context, body.warping #factions-btn, body.warping #map-btn, body.warping #settings-btn { display: none; } /* a gate jump (game/warp.js) */
+/* Landing on a planet and taking off (game/landing.js): no context menu, map or factions. On the
+   surface: those back, the context menu for a node or a drop tapped (game/surface-run.js). The
+   way out is on the ground: the dungeon's landing pad. */
+body.landing #context, body.landing #factions-btn, body.landing #map-btn { display: none; }
+
+/* Text size (Settings > Accessibility): the DOM panels are zoomed by --ui-scale (1, 1.15, 1.3; set
+   on <html> by game/options.js). A zoomed element's own lengths are zoomed too, so positions and
+   sizes measured against the screen are divided by the scale to stay where they were. */
+:root { --ui-scale: 1; }
+#station { zoom: var(--ui-scale); inset: 0 auto auto 0; width: calc(100vw / var(--ui-scale)); height: calc(100dvh / var(--ui-scale)); }
+#station .ui-sheet { left: calc(50vw / var(--ui-scale)); width: min(560px, calc(100vw / var(--ui-scale))); max-height: calc(80dvh / var(--ui-scale)); }
+#station .ui-sheet.tall { height: calc(88dvh / var(--ui-scale)); }
+#station .ui-scrim { inset: 0 auto auto 0; width: calc(100vw / var(--ui-scale)); height: calc(100dvh / var(--ui-scale)); }
+.set-panel { zoom: var(--ui-scale); width: min(420px, calc((100vw - 32px) / var(--ui-scale))); max-height: calc((100dvh - 40px - var(--hit) * var(--ui-scale) - env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+#comms { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); width: min(560px, calc((100vw - 24px) / var(--ui-scale)));
+  bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+#comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+.panel { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((60px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+#combat { max-width: calc((100vw - 24px) / var(--ui-scale)); }
+.icon-btn { zoom: var(--ui-scale); bottom: calc((12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+#factions-btn { right: calc((12px + 2 * (var(--hit) * var(--ui-scale) + 8px) + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
+#map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
+#settings-btn { right: calc((12px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
+#context { zoom: var(--ui-scale); }
+#field { zoom: var(--ui-scale); right: calc((12px + env(safe-area-inset-right, 0px)) / var(--ui-scale));
+  bottom: calc((12px + var(--hit) * var(--ui-scale) + 12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
+#map-overlay .bar { zoom: var(--ui-scale); right: auto; width: calc(100vw / var(--ui-scale)); box-sizing: border-box; }
+#map-overlay .bottom { bottom: 0; }
+#map-prompt { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((80px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); width: min(340px, calc((100vw - 24px) / var(--ui-scale))); }
+
+/* Wide screens (960 px and up): the station is two columns, the list on the left and the open
+   sheet beside it as a detail pane (not over it), so tapping another row swaps the detail. The
+   sheet isn't modal there (ui/kit.js), and nothing dims the list. */
+@media (min-width: 960px) {
+  #station > .st-head, #station > #st-body, #station > #st-note, #station > .ui-nav { width: min(1080px, 100%); }
+  #st-body > :not(.ui-schematic) { width: 100%; max-width: 600px; margin-left: auto; margin-right: auto; box-sizing: border-box; }
+  body.sheet-open #st-body > :not(.ui-schematic) { margin-left: 0; }
+  body.sheet-open #st-body > .ui-schematic { margin-left: 121px; } /* centred in the 600 px column */
+  body.sheet-open #st-body { padding-right: 460px; }
+  #station .ui-scrim { display: none; }
+  #station .ui-sheet, #station .ui-sheet.tall {
+    left: auto; right: calc(max(16px, (100vw - 1080px) / 2 + 16px) / var(--ui-scale)); transform: none;
+    top: calc(86px / var(--ui-scale)); bottom: calc((84px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale));
+    width: 428px; height: auto; max-height: none; border: 1px solid var(--line); border-radius: var(--r-lg); padding-bottom: 0; animation: none;
+  }
+  #station .ui-sheet .grab { display: none; }
+}
+.ui-sheet.dragging { transition: none; }
+
+/* A phone on its side: little height, so the header and the tab bar slim down and the content
+   gets the room; the notch's side stays clear. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #station { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); box-sizing: border-box; }
+  .st-head { padding: 8px 16px 6px; }
+  #st-name { font-size: 16px; }
+  #st-sub { display: none; }
+  .st-credits { height: 28px; }
+  #st-body { padding-top: 10px; gap: 12px; }
+  .ui-nav { padding-top: 4px; padding-bottom: calc(4px + env(safe-area-inset-bottom, 0px)); }
+  .ui-tab { height: 44px; }
+  #st-launch.lg { min-height: 44px; }
+  #station .ui-sheet { max-height: calc(94dvh / var(--ui-scale)); }
+  #station .ui-sheet.tall { height: calc(94dvh / var(--ui-scale)); }
+}
+
+/* Larger text on a narrow phone: the tab names drop their capitals and spacing, and Launch
+   narrows, so all five names still fit. */
+@media (max-width: 480px) {
+  :root:not([data-textsize="100"]) .ui-tab .lbl { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+  :root:not([data-textsize="100"]) #st-launch { min-width: 0; padding: 0 8px; letter-spacing: 0.04em; }
+  :root:not([data-textsize="100"]) .ui-nav { gap: 6px; padding-left: 8px; padding-right: 8px; }
+}
+
+/* Colour-safe palette (Settings > Accessibility): hostile magenta, good pale yellow, so the two are
+   told apart without red and green (core/theme.js swaps the canvas colours to match). */
+:root[data-palette="safe"] { --hostile: #ff4fd8; --good: #f4f0a0; --warn: #ff9a3d; }
+
+/* Reduced motion (Settings, or the system's own setting by default): nothing slides or animates. */
+:root[data-motion="reduce"] *, :root[data-motion="reduce"] *::before, :root[data-motion="reduce"] *::after { animation: none !important; transition: none !important; }
+
+/* Sums (the kit's .ui-cr, and the dock's own balance) in the text face with figures of one width: a
+   mono face gives the thousands' comma a whole cell, and 7,450 reads as two numbers. */
+.ui-cr, #st-credits { font-family: var(--sans); font-variant-numeric: tabular-nums; }
+
+/* The pilot's log (ui/station.js logSheet): what's counted, a label and its number a row. */
+.ui-log { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0 0 18px; font-size: calc(14px * var(--ui-scale)); }
+.ui-log dt { color: var(--hud); }
+.ui-log dd { margin: 0; text-align: right; font-family: var(--sans); font-variant-numeric: tabular-nums; color: var(--bright); }
+
+/* The workshop's two jobs on one piece (ui/station.js): one button over the other. */
+.ui-acts { display: flex; flex-direction: column; gap: 6px; flex: none; }

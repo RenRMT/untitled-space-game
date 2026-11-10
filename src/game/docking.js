@@ -18,14 +18,16 @@ import { drag } from './input.js';
 import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
 import { vendor } from './vendor.js';
-import { pilotView } from './progress.js';
+import { checkMilestones, pilotView } from './progress.js';
+import { wanted } from './traffic.js';
 import { outfitting, placeShip } from './outfitting.js';
 import { chooseReward, rewardViews } from './rewards.js';
 import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
 import { startWarp, warp } from './warp.js';
-import { world } from './world.js';
+import { SAME_PILOT, samePilotGame, world } from './world.js';
+import { storyDone } from './jobs.js';
 import { dockBlock } from './structures.js';
 
 // ---------- Docking: stop near a station, dock, trade, launch ----------
@@ -91,6 +93,7 @@ export function dock(station) {
   docked = { station };
   // A lost ship is towed back to the last station it docked at.
   cargo.home = { x: station.x, y: station.y, radius: station.radius, name: station.name };
+  checkMilestones(); // the pilot's log: systems visited, and anything else reached since (before the news is read)
   missionDocked(station);
   repairSquad();
   saveCargo();
@@ -116,7 +119,11 @@ export function dock(station) {
     shipyard: station.market.type === 'capital', // hulls: at a capital's shipyard
     repairs,
     squad: programs,
-    missions: { list: () => missionViews(station) },
+    missions: {
+      list: () => missionViews(station), wanted,
+      // With the story told: the way on (ui/station.js epilogue).
+      storyDone, samePilot: () => { if (!window.confirm(SAME_PILOT)) return false; launch(); samePilotGame(); return true; },
+    },
     rewards: { list: rewardViews, choose: chooseReward }, // gear rewards to choose (game/rewards.js)
     tab: null, // the last tab used
     news: news.splice(0), // what finished since the last dock, shown once

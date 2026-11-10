@@ -8,10 +8,10 @@
 //   game/         the flight view: state, input, missions and jobs, combat, squad, HUD, the frame loop
 //   ui/           the DOM panels and the map
 //   story/        the mission log and the galaxy's jobs
-//   combat/       combat rules: round-based and real time
+//   combat/       combat rules: the timeline, and the real-time engine under it
 //   flight/       things in space: entities, the scene, flying, map travel
 //   art/          procedural art in two styles (Line, Low-poly)
-//   rules/        items, markets, ships, refits, research, the squad, fog of war
+//   rules/        items, markets, ships, loot, classes and skills, levels, the squad, fog of war
 //   world/        galaxy generation
 //   core/         maths, randomness, saved data, display, colours
 
@@ -21,20 +21,13 @@ import { ArtBodies } from './art/bodies.js';
 import { Combat } from './combat/combat.js';
 import { Economy } from './rules/economy.js';
 import { Goods } from './rules/goods.js';
-import { Hazards } from './rules/hazards.js';
 import { Knowledge } from './rules/knowledge.js';
 import { Loadout } from './rules/loadout.js';
 import { Loot } from './rules/loot.js';
 import { Structures } from './rules/structures.js';
-import { Logistics } from './rules/logistics.js';
 import { Logic } from './rules/logic.js';
 import { Mining } from './rules/mining.js';
-import { HullMods } from './rules/hullmods.js';
-import { Industry } from './rules/industry.js';
-import { Recipes } from './rules/recipes.js';
 import { Reputation } from './rules/reputation.js';
-import { Research } from './rules/research.js';
-import { Restoration } from './rules/restoration.js';
 import { Clock } from './core/clock.js';
 import { Progress } from './rules/progress.js';
 import { Squad } from './rules/squad.js';
@@ -98,8 +91,8 @@ requestAnimationFrame(loop.frame);
 // For the tests (tests/smoke.js, tests/perf.js), which play the game and check it from outside:
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
-  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout, Loot, Structures,
-  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor, Progress, Survey,
+  Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Jobs, Knowledge, Loadout, Loot, Structures,
+  Logic, Mining, Missions, Reputation, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor, Progress, Survey,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

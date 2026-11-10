@@ -73,6 +73,7 @@ const SystemMap = (() => {
   let onJump = null;
   let knowledge = null; // fog of war; null shows everything
   let surveyed = null; // (site) -> bool | null: its find made (game/sites.js); null: nothing to find there
+  let wanted = null; // (system) -> a line about its elite and the bounty on it, or null (game/traffic.js)
   let objective = null; // the mission's next step: { x, y, label, station (id) | null }, or null
   const OBJECTIVE_COLOR = Theme.color.amber;
   let marker = null; // the player's marker: { x, y, name (null for a point) }, or null
@@ -907,8 +908,9 @@ const SystemMap = (() => {
       : watched && { text: `In orbit round ${watched.name}`, color: SITES[watched.kind].color };
     const find = site && surveyed ? surveyed(site) : null;
     const findLine = find === null ? null : find ? { text: 'Surveyed', color: 'var(--good)' } : { text: 'Not surveyed: fly close to scan it', color: 'var(--warn)' };
+    const bounty = sys && wanted ? wanted(sys) : null;
     callout.show({
-      lines: [name && { text: name, kind: 'name' }, kindLine, findLine, holder && { text: `${sys.region.label} · ${holder.name}${sys.level ? ` · level ${sys.level}` : ''}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
+      lines: [name && { text: name, kind: 'name' }, kindLine, findLine, bounty && { text: bounty, color: 'var(--hostile)' }, holder && { text: `${sys.region.label} · ${holder.name}${sys.level ? ` · level ${sys.level}` : ''}`, color: holder.color }, { text: `Security: ${sec.label}`, color: sec.color },
         ...(mode === 'galaxy' ? galaxyLines(at) : [])].filter(Boolean),
       actions: [
         mode === 'galaxy'
@@ -1116,6 +1118,7 @@ const SystemMap = (() => {
     set onJump(fn) { onJump = fn; updateCallout(); },
     set knowledge(k) { knowledge = k; updateCallout(); requestDraw(); },
     set surveyed(f) { surveyed = f; },
+    set wanted(f) { wanted = f; },
     set access(a) { access = a; updateCallout(); requestDraw(); },
     // The mission's objective to mark ({ x, y, label, station }), or null; redrawn only when it changes.
     set objective(o) {

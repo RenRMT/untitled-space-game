@@ -1,4 +1,4 @@
-// The flight view's settings (art style, movement; ui/settings.js shows them), the combat mode, the hull
+// The flight view's settings (art style, movement, sound; ui/settings.js shows them), the combat mode, the hull
 // art per ship class, the Settings button and the keyboard shortcuts.
 // Part of the flight view; src/main.js starts it.
 
@@ -8,6 +8,7 @@ import { Art } from '../art/render.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Combat } from '../combat/combat.js';
 import { Feedback } from '../core/feedback.js';
+import { Sound } from '../core/sound.js';
 import { Store } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { FactionsMenu } from '../ui/factions.js';
@@ -81,6 +82,10 @@ export const palette = setting('palette', PALETTES, 'standard', () => applyAcces
 const prefersReduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 export const MOTIONS = ['full', 'reduce'];
 export const motion = setting('motion', MOTIONS, prefersReduced ? 'reduce' : 'full', () => applyAccess());
+// Sound (core/sound.js): off, low or full. Its voices answer the same events as the vibration.
+export const SOUNDS = ['off', 'low', 'full'];
+export const SOUND_VOLUME = { off: 0, low: 0.35, full: 0.8 };
+export const sound = setting('sound', SOUNDS, 'low', (v) => Sound.setVolume(SOUND_VOLUME[v]));
 export const HAPTICS = ['on', 'off'];
 export const haptics = setting('haptics', HAPTICS, 'on');
 // The security levels' colours in each palette (world/security.js), lawless to high.
@@ -108,7 +113,7 @@ export const reducedMotion = () => motion.value === 'reduce';
 // one long rattle.
 export const BUZZ = {
   hit: [12], 'hit-hull': [30], 'shields-down': [30, 40, 30], 'low-hull': [70, 50, 70], locked: [8], targeted: [15, 35, 15],
-  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20],
+  destroyed: [180], won: [15, 40, 15], mined: [12], docked: [10], launched: [10], bump: [6], hazard: [20, 60, 20], skill: [8],
   // Loot, by its rarity (game/cargo.js): the rarer, the longer it rings.
   'loot-common': [6], 'loot-uncommon': [10], 'loot-rare': [15, 30, 15], 'loot-epic': [25, 40, 25, 40, 50], 'loot-legendary': [40, 40, 40, 40, 140],
 };
@@ -174,6 +179,17 @@ export function init() {
     ],
     get: () => moveMode.value, set: (v) => moveMode.set(v),
   });
+  if (Sound.available) {
+    Settings.add({
+      id: 'sound', label: 'Sound',
+      choices: [
+        { value: 'off', label: 'Off', hint: 'No sound.' },
+        { value: 'low', label: 'Low', hint: 'Quiet effects: hits, skills, loot, docking.' },
+        { value: 'full', label: 'Full', hint: 'The same effects, louder.' },
+      ],
+      get: () => sound.value, set: (v) => { sound.set(v); Sound.unlock(); Sound.play('locked'); },
+    });
+  }
   Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',
     note: () => CONTROLS[moveMode.value].join(' · '),
@@ -211,6 +227,10 @@ export function init() {
     });
   }
   Feedback.on(buzz);
+  // Sound: a page may only make it once the player has touched it, so the first tap or key wakes it.
+  Sound.setVolume(SOUND_VOLUME[sound.value]);
+  Feedback.on((event, detail) => { Sound.play(event, detail); });
+  for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, () => Sound.unlock(), { passive: true });
   applyAccess();
   // The factions, map and settings buttons stay above all three (index.html): a second tap closes
   // what the first opened, and each one swaps the others' menus for its own.

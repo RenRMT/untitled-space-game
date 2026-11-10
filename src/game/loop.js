@@ -1,5 +1,5 @@
 // The frame loop: react (what follows from where things are) and render each frame, paused
-// behind the settings menu; and the performance overlay (?perf or ?dev, P).
+// behind the settings menu, and stopped behind a notice if frames keep failing; and the performance overlay (?perf or ?dev, P).
 // Part of the flight view; src/main.js starts it.
 
 import { ArtBodies } from '../art/bodies.js';
@@ -25,7 +25,7 @@ import { nearbyEntities, tickTravel } from './travel.js';
 import { simTime, update } from './update.js';
 import { drawLanding, drawLandingOverlay, landing, onSurface, surfacePerf, tickLanding } from './landing.js';
 import { drawWarpOverlay, drawWarpWorld, warp } from './warp.js';
-import { world } from './world.js';
+import { exportSave, world } from './world.js';
 import { tickStructures } from './structures.js';
 
 // ---------- Main loop ----------
@@ -178,9 +178,38 @@ function resumePlay() {
   last = performance.now();
 }
 
+// A frame that throws would otherwise end the loop for good, with a frozen picture and no word.
+// One bad frame is logged and the next is tried; CRASH_LIMIT in a row stop the loop behind a
+// screen that says what broke and offers a reload and the save as a file (game/world.js).
+export const CRASH_LIMIT = 3;
+export const crash = { n: 0, stopped: false, error: null };
+function crashed(e) {
+  crash.n++;
+  crash.error = e;
+  if (typeof console !== 'undefined') console.error(e);
+  if (crash.n < CRASH_LIMIT) return;
+  crash.stopped = true;
+  const el = document.getElementById('crash');
+  if (!el) return;
+  const msg = el.querySelector('.m');
+  if (msg) msg.textContent = String((e && e.message) || e).slice(0, 200);
+  el.hidden = false;
+}
+export function frame(now) {
+  if (crash.stopped) return;
+  try {
+    step(now);
+    crash.n = 0;
+  } catch (e) {
+    crashed(e);
+    last = now;
+  }
+  if (!crash.stopped) requestAnimationFrame(frame);
+}
+
 export let last = performance.now();
 let logShown = -1; // the event log's version last drawn: a paused frame redraws when it changes
-export function frame(now) {
+function step(now) {
   const dt = Math.min((now - last) / 1000, 0.05);
   const gap = now - last;
   last = now;
@@ -210,7 +239,6 @@ export function frame(now) {
     }
   }
   updateFieldBar(); // the consumables on the HUD (game/field.js)
-  requestAnimationFrame(frame);
 }
 
 // Wiring, run once every module has loaded (src/main.js).
@@ -220,4 +248,9 @@ export function init() {
   });
   const el = document.getElementById('resume');
   el.addEventListener('click', resumePlay);
+  const stop = document.getElementById('crash');
+  if (stop) {
+    stop.querySelector('.reload')?.addEventListener('click', () => location.reload());
+    stop.querySelector('.export')?.addEventListener('click', () => { try { exportSave(); } catch (e) { /* the save itself is what broke */ } });
+  }
 }

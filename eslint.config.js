@@ -38,8 +38,9 @@ export default [
     rules: { 'no-restricted-imports': ['error', { patterns: [{ group: ['**/game/*', '**/flight/*', '**/ui/*', '!**/ui/kit.js', '!**/ui/ui.js', '!**/ui/glyphs.js'], message: 'src/sim imports src/core, art, world, rules and the UI kit only (notes/sim.md).' }] }] },
   },
   {
-    // The race's and the idle game's service workers: a worker's globals, not a page's.
-    files: ['race/sw.js', 'idle/sw.js', 'sim/sw.js'],
+    // The service workers (the main game's, the race's, the idle game's, Redshift's): a worker's
+    // globals, not a page's.
+    files: ['sw.js', 'race/sw.js', 'idle/sw.js', 'sim/sw.js'],
     languageOptions: { ecmaVersion: 2023, sourceType: 'script', globals: globals.serviceworker },
   },
   {

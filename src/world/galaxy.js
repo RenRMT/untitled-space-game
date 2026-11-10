@@ -66,7 +66,8 @@ const Galaxy = (() => {
       fields: { count: [1, 1], rocks: [70, 90], spread: [2000, 2400] },
       nebulae: { count: [1, 1], r: [4500, 6000] },
       stations: { capital: true, major: true, minor: [1, 1], miningCamps: [1, 1], yard: true, transport: true },
-      // No pirates: the game is about gathering under hazards now (notes/hazards.md), not fighting.
+      // No pirates in the showcase's own params: each system's come from `hostiles` below (generate),
+      // and ?pirates (game/world.js) switches the showcase's on for the tests.
       pirates: { density: 0, lawlessAmbushes: [0, 0], nebulaAmbushes: false },
     },
     // The station cultures (SolarSystem.CULTURES ids) by station type; the waystation is android.

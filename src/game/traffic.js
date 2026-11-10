@@ -29,13 +29,14 @@ import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Progress } from '../rules/progress.js';
+import { Survey } from '../rules/survey.js';
 import { Vendor } from '../rules/vendor.js';
 import { Factions } from '../world/factions.js';
 import { cargo, lootClasses, pilotLevel, saveCargo, scatterLoot } from './cargo.js';
 import { explode } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { gainXP } from './progress.js';
+import { checkMilestones, gainXP, record } from './progress.js';
 import { isRazed, structureHostile } from './structures.js';
 import { fight, notify, ship } from './state.js';
 import { simTime } from './update.js';
@@ -113,20 +114,39 @@ function build(si, block) {
 }
 
 // The system's elite, if one is due: near one of its packs, a tier above them.
+// Who a system's elite is (its n-th: another after each one brought down), without building it:
+// { n, pack, tier, seed, name, a0, bounty, due (ms: when it shows, 0 if it's out there now) }, or
+// null where there is none (level 1 space, or no packs to ride with).
+export const eliteBounty = (si) => 1500 * levelOf(si);
+export function eliteOf(si) {
+  const level = levelOf(si);
+  if (level < 2) return null;
+  const rec = cargo.world.elites[si] || { n: 0, at: 0 };
+  const packs = world.galaxy.packs.filter((k) => k.system === si);
+  if (!packs.length) return null;
+  const r = mulberry32(hashInt(seedToInt(String(world.galaxy.seed)), si, 0xe11e + rec.n));
+  const pack = packs[Math.floor(r() * packs.length)], tier = Math.min(5, (pack.tier || level) + 1), seed = Math.floor(r() * 1e9);
+  const name = `${pilotName(r)} ${EPITHETS[Math.floor(r() * EPITHETS.length)]}`;
+  return { n: rec.n, pack, tier, seed, name, a0: r() * 6.28, bounty: eliteBounty(si), due: Clock.now() < rec.at ? rec.at : 0 };
+}
+// The wanted list: the elite of every system the pilot has been to, the nearest levels first:
+// [{ system (index), where (its name), level, name, tier, bounty, due }].
+export function wanted() {
+  const G = world.galaxy, K = world.knowledge;
+  return G.systems.map((sys, si) => {
+    const E = K && K.visited(si) ? eliteOf(si) : null;
+    return E && { system: si, where: sys.name, level: levelOf(si), name: E.name, tier: E.tier, bounty: E.bounty, due: E.due };
+  }).filter(Boolean).sort((a, b) => a.level - b.level || a.system - b.system);
+}
 function buildElite(si) {
   traffic.elite = null;
-  const level = levelOf(si);
-  if (level < 2) return;
-  const rec = (cargo.world.elites[si] ||= { n: 0, at: 0 });
-  if (Clock.now() < rec.at) return;
-  const packs = world.galaxy.packs.filter((k) => k.system === si);
-  if (!packs.length) return;
-  const r = mulberry32(hashInt(seedToInt(String(world.galaxy.seed)), si, 0xe11e + rec.n));
-  const k = packs[Math.floor(r() * packs.length)], tier = Math.min(5, (k.tier || level) + 1), seed = Math.floor(r() * 1e9);
-  const art = ArtBlueprints.create('fighter-heavy', k.faction === 'alien' ? world.cultures.alien || world.cultures.pirates : world.cultures.pirates, seed);
-  const name = `${pilotName(r)} ${EPITHETS[Math.floor(r() * EPITHETS.length)]}`;
-  const e = Entities.fighter({ key: `elite:${si}:${rec.n}`, art, x: k.x + 900, y: k.y - 600, orbit: 700, speed: 60, a0: r() * 6.28, tier });
-  traffic.elite = Object.assign(e, { name, crew: `Elite · tier ${tier} · a bounty on its head`, elite: true, stats: npcStats('fighter', tier, ELITE), faction: k.faction || 'drifter' });
+  const E = eliteOf(si);
+  if (!E || E.due) return;
+  cargo.world.elites[si] ||= { n: 0, at: 0 };
+  const k = E.pack, tier = E.tier;
+  const art = ArtBlueprints.create('fighter-heavy', k.faction === 'alien' ? world.cultures.alien || world.cultures.pirates : world.cultures.pirates, E.seed);
+  const e = Entities.fighter({ key: `elite:${si}:${E.n}`, art, x: k.x + 900, y: k.y - 600, orbit: 700, speed: 60, a0: E.a0, tier });
+  traffic.elite = Object.assign(e, { name: E.name, crew: `Elite · tier ${tier} · a bounty on its head`, elite: true, stats: npcStats('fighter', tier, ELITE), faction: k.faction || 'drifter' });
 }
 
 // ---------- Each step ----------
@@ -199,6 +219,7 @@ function tickRaid(si) {
 }
 function raidWon(raid) {
   traffic.raid = null;
+  record('raids');
   const bounty = 300 * raid.level * raid.keys.length;
   cargo.credits += bounty;
   notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good' });
@@ -211,9 +232,27 @@ function raidWon(raid) {
 
 // ---------- In a fight ----------
 
-// What there is to draw and fight: the traffic, the elite and a raid's ships still flying.
+// A deep-space site's guardian (game/sites.js): a named elite, a tier above what the pilot's level
+// counts as, that holds one of the richest sites until it's destroyed, once (its key stays in
+// cargo.removed). Made beside `at` when first asked for; null once beaten.
+export const guardKey = (site) => `siteguard:${site.id}`;
+export function siteGuard(site, at) {
+  const key = guardKey(site);
+  if (cargo.removed.has(key)) { if (traffic.guard?.key === key) traffic.guard = null; return null; }
+  if (traffic.guard?.key === key) return traffic.guard;
+  const r = mulberry32(hashInt(seedToInt(String(world.galaxy.seed)), site.id, 0x6a2d));
+  const tier = Math.min(5, Survey.level(pilotLevel()) + 1), seed = Math.floor(r() * 1e9);
+  const art = ArtBlueprints.create('fighter-heavy', world.cultures.pirates, seed);
+  const name = `${pilotName(r)} ${EPITHETS[Math.floor(r() * EPITHETS.length)]}`;
+  const e = Entities.fighter({ key, art, x: at.x + 700, y: at.y - 500, orbit: 600, speed: 60, a0: r() * 6.28, tier });
+  traffic.guard = Object.assign(e, { name, crew: `Holds ${site.name} · tier ${tier}`, stats: npcStats('fighter', tier, ELITE), faction: 'drifter', siteGuard: site.id });
+  return traffic.guard;
+}
+
+// What there is to draw and fight: the traffic, the elite, a site's guardian and a raid's ships still flying.
 export function trafficThings() {
   const out = traffic.ships.slice();
+  if (traffic.guard && !cargo.removed.has(traffic.guard.key)) out.push(traffic.guard);
   if (traffic.elite && !cargo.removed.has(traffic.elite.key)) out.push(traffic.elite);
   if (traffic.raid) for (const e of traffic.raid.ships) if (!cargo.removed.has(e.key)) out.push(e);
   return out;
@@ -259,12 +298,13 @@ export function eliteDown(e, at = e) {
   rec.n++;
   rec.at = Clock.now() + ELITE_RESPAWN;
   traffic.elite = null;
-  const bounty = 1500 * levelOf(si);
+  const bounty = eliteBounty(si);
   cargo.credits += bounty;
   notify(`${e.name} destroyed · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good' });
   gainXP(Progress.wardenXP(levelOf(si)) / 2, '');
   scatterLoot(Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `elite:${e.key}`);
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());
   if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
+  checkMilestones(); // the elites' (rules/log.js)
   saveCargo();
 }

@@ -6,6 +6,7 @@
 //   tickSites(dt)              each frame of flight
 //   surveyed(site) -> bool
 //   scanning() -> { site, k: 0..1 } | null   the scan under way
+//   held(site) -> bool         a guarded site whose guardian still flies: no scan until it's destroyed
 // Part of the flight view.
 
 import { Feedback } from '../core/feedback.js';
@@ -15,15 +16,19 @@ import { DeepSpace } from '../world/deep-space.js';
 import { cargo, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { gainXP } from './progress.js';
+import { checkMilestones, gainXP } from './progress.js';
 import { offerReward } from './rewards.js';
 import { fight, inFight, notify, ship, showBanner } from './state.js';
 import { warp } from './warp.js';
+import { guardKey, siteGuard } from './traffic.js';
 import { world } from './world.js';
 
-const scan = { site: null, t: 0, look: 0 };
+const scan = { site: null, t: 0, look: 0, held: false };
+// A guarded site (rules/survey.js) is held until its guardian is destroyed (game/traffic.js siteGuard,
+// which brings it in beside the ship the first time it's asked for).
+export const held = (site) => Survey.guarded(site) && !cargo.removed.has(guardKey(site)) && !!siteGuard(site, ship);
 export const surveyed = (site) => cargo.world.surveyed.includes(site.id);
-export const scanning = () => (scan.site ? { site: scan.site, k: Math.min(1, scan.t / Survey.TIME) } : null);
+export const scanning = () => (scan.site && !scan.held ? { site: scan.site, k: Math.min(1, scan.t / Survey.TIME) } : null);
 
 // The unsurveyed site the ship is in range of (the nearest, if several overlap), or null.
 function inRange() {
@@ -45,6 +50,7 @@ function find(site) {
   notify(`${R.what}.`, 5, { tone: 'good' });
   Feedback.emit('won');
   gainXP(R.xp);
+  checkMilestones(); // the surveys' (rules/log.js)
   if (R.gear) offerReward(site.name, `site:${site.id}`, Loot.offer('mission', `site:${site.id}`, { ...R.gear, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }));
   saveCargo();
 }
@@ -59,10 +65,15 @@ export function tickSites(dt) {
     if (s !== scan.site) {
       scan.site = s;
       scan.t = 0;
-      if (s) notify(`Scanning ${s.name}… hold here`, Survey.TIME);
+      scan.held = !!s && held(s);
+      if (s) notify(scan.held ? `${s.name} is held · destroy ${siteGuard(s, ship).name} to scan it` : `Scanning ${s.name}… hold here`, Survey.TIME, { tone: scan.held ? 'hostile' : 'info' });
+    } else if (s && scan.held && !held(s)) {
+      scan.held = false; // its guardian beaten: the scan starts
+      scan.t = 0;
+      notify(`Scanning ${s.name}… hold here`, Survey.TIME);
     }
   }
-  if (!scan.site) return;
+  if (!scan.site || scan.held) return;
   scan.t += dt;
   if (scan.t >= Survey.TIME) { const s = scan.site; scan.site = null; scan.t = 0; find(s); }
 }

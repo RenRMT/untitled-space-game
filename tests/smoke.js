@@ -1189,6 +1189,14 @@ test('a save exported to a file comes back in, and nothing else does', () => {
   assert.strictEqual(game(`readBackup('not json')`), null, 'not a damaged one');
   assert.ok(Store.load(data));
   assert.deepStrictEqual(Store.dump(), data, 'written back whole');
+  // The other games on the same site keep their saves: not in the file, not touched coming back.
+  Store.set('idle.save', 'theirs');
+  assert.ok(!('idle.save' in Store.dump(game('ownKey'))), 'another game\'s save is left out');
+  assert.strictEqual(game(`readBackup(${JSON.stringify(JSON.stringify({ game: 'untitled-space-game', data: { ...data, 'race.career': 'old' } }))})`)['race.career'], undefined, 'and not read from an older file');
+  assert.ok(Store.load(data, game('ownKey')));
+  assert.strictEqual(Store.get('idle.save'), 'theirs', 'nor rolled back');
+  assert.deepStrictEqual(Store.dump(game('ownKey')), data);
+  Store.remove('idle.save');
 });
 
 test('in Cruise a tap on empty space keeps your speed; a double-tap stops', () => {
@@ -1273,8 +1281,8 @@ test('docked: what finished since the last dock, Sell all, and a program tried o
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
-  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'Re-roll');
-  assert.ok(reroll && !reroll.disabled, 'Re-roll is in the menu');
+  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'New game');
+  assert.ok(reroll && !reroll.disabled, 'New game is in the menu');
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
@@ -1622,6 +1630,143 @@ test('planets, moons and stations go round with flight; a ship parked by a stati
   assert.strictEqual(game('world.orbitT'), game('__t'), 'docking stops the orbit clock');
   game('launch()');
   assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
+});
+
+test('the workshop: salvaged components and credits reroll a spare piece, or refine it a rarity', () => {
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`globalThis.__spec = { id: 'Lworkshop1', base: 'laser', ilvl: 14, rarity: 'rare', seed: 4242 }; takeLoot(__spec); cargo.credits = 50000; cargo.components['weapon-components'] = 1`);
+  game(`StationMenu.showTab('outfitter')`);
+  assert.match(onStation(), /Workshopsalvage: [^W]*1 WPN/, 'the section, with the components held');
+  assert.strictEqual(game(`vendor.rework('Lworkshop1', 'reroll')`), false, 'not with one component: a Mk II gun takes two');
+  game(`cargo.components['weapon-components'] = 12`);
+  const cost = game(`Loot.workCost(__spec, 'reroll')`), next = game('Loot.reroll(__spec)');
+  assert.strictEqual(game(`vendor.rework('Lworkshop1', 'reroll')`), true);
+  assert.strictEqual(game('cargo.credits'), 50000 - cost.credits);
+  assert.strictEqual(game(`cargo.components['weapon-components']`), 12 - cost.n);
+  assert.ok(!game(`cargo.gear['Lworkshop1']`) && game(`cargo.gear['${next.id}']`) === 1, 'the piece replaced by the new one');
+  assert.ok(!game(`'Lworkshop1' in ownedLoot()`), 'the old one no longer saved');
+  assert.strictEqual(game(`vendor.rework('${next.id}', 'promote')`), true);
+  const up = game(`Loot.promote(${JSON.stringify(next)})`);
+  assert.strictEqual(game(`Loadout.EQUIPMENT['${up.id}'].loot.rarity`), 'epic');
+  assert.strictEqual(game(`vendor.rework('${up.id}', 'promote')`), false, 'an Epic can\'t be refined');
+  game(`StationMenu.showTab('outfitter')`);
+  assert.match(onStation(), /Epic · ilvl 14/);
+  game(`addTo(cargo.gear, '${up.id}', -1); launch()`);
+  browser.frames(2);
+});
+
+test('the pilot\'s log counts what happens, pays a milestone once, and shows on the Ship tab', () => {
+  game('cargo.stats.kills = 0; cargo.stats.done = cargo.stats.done.filter((id) => id !== "first-blood")');
+  const credits = game('cargo.credits'), t = game('cargo.stats.seconds');
+  game('record("kills")');
+  assert.strictEqual(game('cargo.stats.kills'), 1);
+  assert.strictEqual(game('cargo.credits'), credits + 200, 'the first kill pays its milestone');
+  assert.ok(game('cargo.stats.done.includes("first-blood")'));
+  game('record("kills")');
+  assert.strictEqual(game('cargo.credits'), credits + 200, 'once');
+  game('record("no-such-count")');
+  browser.frames(30);
+  assert.ok(game('cargo.stats.seconds') > t, 'time flown runs with flight');
+  game('saveAll()');
+  assert.strictEqual(JSON.parse(Store.get(game('cargo.key'))).stats.kills, 2, 'saved with the game');
+  assert.strictEqual(game('logContext().allChapters'), 7, 'the story\'s chapters counted from the board');
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`StationMenu.showTab('ship')`);
+  assert.match(onStation(), /Pilot's log · Blooded\d+ of 17 milestones/, 'the row carries the name flown under');
+  pressOnStation(/^Pilot's log/);
+  assert.match(onStation(), /Hostiles destroyed2/);
+  assert.match(onStation(), /BloodedReachedDestroy a hostile/);
+  game('launch()');
+  browser.frames(2);
+});
+
+test('the wanted list: the elite of every system visited, its bounty, and gone to ground once brought down', () => {
+  const si = game('world.galaxy.systems.findIndex((s, i) => s.level >= 2 && eliteOf(i))');
+  assert.ok(si > 0, 'a system out from the start has an elite');
+  assert.strictEqual(game('eliteOf(world.galaxy.stations[world.galaxy.startStation].system)'), null, 'none where the game starts');
+  assert.ok(!game('wanted()').some((w) => w.system === si) || game(`world.knowledge.visited(${si})`), 'not listed before the system is visited');
+  game(`world.knowledge.visit(${si})`);
+  const w = game('wanted()').find((x) => x.system === si);
+  assert.ok(w && w.bounty === 1500 * w.level && !w.due, 'listed, at large, with its bounty');
+  assert.strictEqual(w.name, game(`eliteOf(${si}).name`));
+  assert.match(game(`SystemMap.wanted ? 'set' : 'unset'`), /set/);
+  const kept = game(`JSON.stringify(cargo.world.elites[${si}] || null)`);
+  game(`cargo.world.elites[${si}] = { n: (cargo.world.elites[${si}]?.n || 0) + 1, at: Clock.now() + 60000 }`);
+  const next = game('wanted()').find((x) => x.system === si);
+  assert.ok(next.due > 0, 'brought down: the next one has gone to ground for a while');
+  assert.notStrictEqual(next.name, w.name, 'and is someone else');
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`StationMenu.showTab('missions')`);
+  assert.match(onStation(), /Wanted · \d+ at large/);
+  pressOnStation(/^Wanted · /);
+  assert.match(onStation(), new RegExp(`${next.name}Gone to ground`));
+  pressOnStation(/^Wanted · /);
+  game(`{ const k = ${kept}; if (k) cargo.world.elites[${si}] = k; else delete cargo.world.elites[${si}]; } launch()`);
+  browser.frames(2);
+});
+
+test('Settings lists the other games saved here, and opens one; the galaxy played is the one opened next time', () => {
+  assert.strictEqual(Store.get('seed'), String(game('world.galaxy.seed')), 'the galaxy being played is remembered');
+  game('cargo.credits += 1; saveAll()');
+  const here = game('world.galaxy.seed'), credits = game('cargo.credits'), before = game('savedGames().length');
+  assert.ok(!game('savedGames()').some((g) => g.seed === here), 'the game being played is not among the others');
+  game('openGame(424242)');
+  assert.strictEqual(game('world.galaxy.seed'), 424242);
+  assert.strictEqual(Store.get('seed'), '424242', 'and it is the one to open next time');
+  assert.strictEqual(game('cargo.pilot.xp'), 0, 'a new pilot there');
+  const listed = game('savedGames()').find((g) => g.seed === here);
+  assert.ok(listed && listed.credits === credits && listed.savedAt > 0, 'the game left is listed, with what it had');
+  assert.match(game('gameLabel(savedGames()[0])'), /^Level \d+ · [\d,]+ cr · galaxy /);
+  game('Settings.open()');
+  const rows = allOf(browser.document.getElementById('settings').querySelector('.set-body')).filter((el) => el.tagName === 'BUTTON').map(textOf);
+  assert.ok(rows.includes(game('gameLabel(savedGames()[0])')), 'as a button in Settings');
+  game('Settings.close()');
+  game(`openGame(${JSON.stringify(here)})`);
+  assert.strictEqual(game('cargo.credits'), credits, 'back in the first game, as it was left');
+  assert.strictEqual(game('savedGames().length'), before + 1, 'the new one saved beside it');
+  browser.frames(2);
+});
+
+test('one bad frame is passed over; frames that keep failing stop the game behind a notice', () => {
+  const say = console.error;
+  console.error = () => {};
+  try {
+    game(`perfStats.onFrame = () => { perfStats.onFrame = null; throw new Error('once'); }`);
+    browser.frames(3);
+    assert.ok(!game('crash.stopped'), 'the loop goes on after one');
+    assert.strictEqual(game('crash.n'), 0, 'and a good frame clears the count');
+    game(`perfStats.onFrame = () => { throw new Error('every frame'); }`);
+    browser.frames(game('CRASH_LIMIT') + 2);
+    assert.ok(game('crash.stopped'), 'stopped');
+    assert.strictEqual(document.getElementById('crash').hidden, false, 'behind the notice');
+    assert.strictEqual(game('crash.error.message'), 'every frame');
+    const t = game('simTime');
+    browser.frames(5);
+    assert.strictEqual(game('simTime'), t, 'no more frames run');
+  } finally {
+    console.error = say;
+    document.getElementById('crash').hidden = true;
+    game('perfStats.onFrame = null; crash.stopped = false; crash.n = 0; requestAnimationFrame(frame)');
+  }
+  browser.frames(2);
+  assert.ok(!game('crash.stopped'), 'and the game runs again for the tests after');
+});
+
+test('a damaged save is set aside before a new game is written over it', () => {
+  game('saveAll()');
+  const key = game('cargo.key'), good = Store.get(key), torn = good.slice(0, Math.floor(good.length / 2));
+  Store.set(key, torn);
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(Store.get(`${key}:bad`), torn, 'kept as it was');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /saved game was damaged/, 'and said');
+  game('cargoSave.flush()');
+  Store.set(key, good);
+  Store.remove(`${key}:bad`);
+  game('loadCargo(world.galaxy)');
+  assert.strictEqual(Store.get(`${key}:bad`), null, 'a sound save sets nothing aside');
 });
 
 test('nothing was drawn at a non-finite position', () => {

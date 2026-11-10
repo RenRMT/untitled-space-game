@@ -10,14 +10,20 @@
 //                                     talents (taken), list() -> [{ ...talent, taken, ok, why }], take(id),
 //                                     respec() (credits), respecPrice }
 //   levelFor(id | null) -> level      the pilot's (null) or a squad member's (its id)
+//   record(count, n?)                 the pilot's log (rules/log.js): a kill, a Warden, a contract ... counted,
+//                                     and any milestone that reaches paid (checkMilestones)
+//   logView                           the station menu's view of the log: { title, rows, milestones }
 // Part of the flight view; src/main.js starts it.
 
 import { Feedback } from '../core/feedback.js';
 import { Abilities } from '../rules/abilities.js';
 import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
+import { Survey } from '../rules/survey.js';
+import { PilotLog } from '../rules/log.js';
 import { Progress } from '../rules/progress.js';
-import { applyShip, cargo, pilotLevel, saveCargo } from './cargo.js';
+import { addNews, applyShip, cargo, pilotLevel, saveCargo } from './cargo.js';
+import { world } from './world.js';
 import { memberOf, refreshWing } from './squad.js';
 import { fight, notify, showBanner } from './state.js';
 
@@ -30,7 +36,8 @@ export function memberXP(m, n) {
   const after = Progress.of(m.xp).level;
   if (after > before) {
     refreshWing(m); // its stats follow its level
-    notify(`${m.name} reached level ${after}`, 3, { tone: 'good' });
+    const learned = Progress.perksOf(m.cls).filter((t) => t.level > before && t.level <= after).map((t) => t.name);
+    notify(`${m.name} reached level ${after}${learned.length ? ` · learned ${learned.join(', ')}` : ''}`, 3, { tone: 'good' });
   }
 }
 
@@ -59,12 +66,65 @@ export function gainXP(n, why = '') {
     showBanner(`LEVEL ${after}`, gains(before, after, cargo.cls).join(' · '), 'good', 4);
     notify(`Level ${after}${pts > 0 ? ' · talent point (Ship tab)' : ''}`, 4, { tone: 'good' });
     Feedback.emit('won');
+    checkMilestones(); // those a level reaches
   } else if (why) notify(`+${n} XP · ${why}`, 1.5);
   // The squad learns alongside: those in the fight (or, outside one, everyone flying).
   const ids = fight.s ? new Set((fight.s.allies || []).map((a) => a.id)) : null;
   for (const m of cargo.squad) if (!m.disabled && (!ids || ids.has(m.id))) memberXP(m, n);
   saveCargo();
 }
+
+// ---------- The pilot's log (rules/log.js) ----------
+
+// What the log reads from the rest of the game rather than counts itself.
+export function logContext() {
+  const G = world.galaxy, K = world.knowledge, story = cargo.board ? cargo.board.list.filter((J) => J.chapter) : []; // (not the job after the story, which repeats)
+  return {
+    level: pilotLevel(),
+    systems: G && K ? G.systems.filter((_, i) => K.visited(i)).length : 0, allSystems: G ? G.systems.length : 0,
+    surveyed: cargo.world.surveyed.length, allSites: G ? (G.sites || []).filter((s) => Survey.has(s)).length : 0,
+    elites: Object.values(cargo.world.elites).reduce((n, e) => n + (e.n || 0), 0),
+    chapters: story.filter((J) => cargo.missions.status(J.id) === 'done').length, allChapters: story.length,
+  };
+}
+// Milestones met and not yet paid: paid now, said, and on the next dock's news.
+export function checkMilestones() {
+  const due = PilotLog.due(cargo.stats, logContext());
+  for (const M of due) {
+    cargo.stats.done.push(M.id);
+    cargo.credits += M.credits;
+    notify(`Milestone: ${M.name} · +${M.credits.toLocaleString('en-US')} credits`, 4, { tone: 'good' });
+    addNews(`Milestone · ${M.name}`, 'ship');
+  }
+  if (due.length) { Feedback.emit('won'); saveCargo(); }
+  return due.length;
+}
+export function record(count, n = 1) {
+  if (!PilotLog.COUNTS.includes(count)) return;
+  cargo.stats[count] += n;
+  checkMilestones();
+  saveCargo();
+}
+export const logView = {
+  get title() { return PilotLog.title(cargo.stats); },
+  // The counts, as [label, value] rows.
+  rows() {
+    const s = cargo.stats, c = logContext(), n = (v) => v.toLocaleString('en-US');
+    return [
+      ['Time flown', PilotLog.time(s.seconds)],
+      ['Hostiles destroyed', n(s.kills)],
+      ['Named elites brought down', n(c.elites)],
+      ['Wardens destroyed', n(s.wardens)],
+      ['Raids beaten off', n(s.raids)],
+      ['Contracts handed in', n(s.contracts)],
+      ['Story chapters', `${c.chapters} of ${c.allChapters}`],
+      ['Systems visited', `${c.systems} of ${c.allSystems}`],
+      ['Sites surveyed', `${c.surveyed} of ${c.allSites}`],
+      ['Ships lost', n(s.losses)],
+    ];
+  },
+  milestones: () => PilotLog.MILESTONES.map((M) => ({ id: M.id, name: M.name, what: M.what, credits: M.credits, done: cargo.stats.done.includes(M.id) })),
+};
 
 export const pilotView = {
   get level() { return pilotLevel(); },
@@ -76,6 +136,7 @@ export const pilotView = {
   get left() { return Progress.points(pilotLevel()) - cargo.pilot.talents.length; },
   get talents() { return cargo.pilot.talents; },
   get respecPrice() { return Progress.RESPEC(pilotLevel()); },
+  log: logView,
   list() {
     const o = { level: pilotLevel(), cls: cargo.cls, talents: cargo.pilot.talents };
     return Progress.talentsFor(cargo.cls).map((t) => ({ ...t, taken: o.talents.includes(t.id), ...Progress.canTake(t.id, o) }));

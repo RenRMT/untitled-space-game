@@ -226,7 +226,7 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
 test('the main story: chapter 1 at any station from the start; the next waits for its level; a contract is posted again the next day', () => {
   if (game('!!docked')) game('launch()');
   game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; dock(startStation()); StationMenu.showTab('missions')`);
-  const ch = game(`cargo.board.list.filter((j) => j.tier === 'story').map((j) => j.id)`);
+  const ch = game(`cargo.board.list.filter((j) => j.chapter).map((j) => j.id)`);
   assert.strictEqual(ch.length, 7, 'seven chapters');
   assert.match(onStation(), /Chapter 1: Papers in order/, 'chapter 1, offered here');
   assert.doesNotMatch(onStation(), /Chapter 2/, 'not chapter 2 yet');
@@ -608,7 +608,8 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
 
 test('deep space: a site\'s find is made by flying close and holding there, once, and is kept in the save', () => {
   game(`if (docked) launch(); fight.grace = 0;
-    globalThis.__site = world.galaxy.sites.find((s) => Survey.FINDS[s.kind].gear && !s.path && !world.galaxy.stations.some((st) => st.site === s.id));
+    globalThis.__alone = (s) => !world.galaxy.sites.some((o) => o !== s && Survey.has(o) && Math.hypot(o.x - s.x, o.y - s.y) < Survey.range(o) + Survey.range(s) + 4000);
+    globalThis.__site = world.galaxy.sites.find((s) => Survey.FINDS[s.kind].gear && !Survey.guarded(s) && __alone(s) && !s.path && !world.galaxy.stations.some((st) => st.site === s.id));
     globalThis.__before = { credits: cargo.credits, xp: cargo.pilot.xp, rewards: cargo.rewards.length };
     ship.x = cam.x = __site.x + Survey.range(__site) + 3000; ship.y = cam.y = __site.y; ship.vx = ship.vy = 0; ship.targetSpeed = 0;`);
   browser.frames(60);
@@ -627,6 +628,35 @@ test('deep space: a site\'s find is made by flying close and holding there, once
   game('chooseReward("site:" + __site.id, 0)');
 });
 
+test('the richest sites are held: a named guardian comes in, no scan until it is destroyed, then the find', () => {
+  game(`fight.grace = 1e9; select(null); Clock.now = () => Date.now();
+    globalThis.__held = world.galaxy.sites.find((s) => Survey.guarded(s) && __alone(s) && !s.path && !surveyed(s)) || world.galaxy.sites.find((s) => Survey.guarded(s) && !s.path && !surveyed(s));
+    ship.x = cam.x = __held.x + Survey.range(__held) - 300; ship.y = cam.y = __held.y; ship.vx = ship.vy = 0; ship.targetSpeed = 0;`);
+  assert.ok(game('!!__held'), 'a guarded site in the galaxy');
+  assert.ok(!game(`Survey.guarded(__site)`), 'the plain finds are not');
+  browser.frames(45);
+  assert.ok(game('held(__held)'), 'held');
+  const g = game(`({ key: traffic.guard.key, name: traffic.guard.name, tier: traffic.guard.tier, near: Math.hypot(traffic.guard.x - ship.x, traffic.guard.y - ship.y) < 3000 })`);
+  assert.ok(g.key === `siteguard:${game('__held.id')}` && g.name && g.near, 'its guardian is there, by name');
+  assert.ok(game(`trafficThings().some((e) => e.key === '${g.key}')`), 'among what there is to fight');
+  assert.match(Messages.log.map((l) => l.text).join('|'), new RegExp(`is held · destroy ${g.name} to scan it`));
+  browser.frames(60 * 6);
+  assert.ok(game('!scanning() && !surveyed(__held)'), 'no scan while it flies, however long');
+  // Fought like any hostile, and destroyed for good.
+  game('fight.grace = 0; react(nearbyEntities(simTime)); engage(traffic.guard)');
+  assert.ok(game('!!fight.s && fight.s.enemies.length >= 1'), 'it fights');
+  game('fight.s.player.invulnerable = true; for (const e of fight.s.enemies) { e.hull = Math.min(e.hull, 3); e.shield = 0; }');
+  assert.ok(until('!fight.s', 60 * 90), 'the fight is over');
+  assert.strictEqual(game('fight.result'), 'won');
+  assert.ok(until(`cargo.removed.has('${g.key}')`, 60 * 10), 'the guardian destroyed, once its wreck has blown up');
+  game('fight.grace = 1e9');
+  assert.ok(until('!!scanning()', 90), 'beaten: the scan starts');
+  assert.ok(until('surveyed(__held)', 600), 'and the find is made');
+  assert.ok(!game(`trafficThings().some((e) => e.key === '${g.key}')`), 'the guardian is gone');
+  assert.strictEqual(game('siteGuard(__held, ship)'), null, 'for good');
+  game(`chooseReward('site:' + __held.id, 0)`);
+});
+
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {
   const r = game(`(() => {
     const g = world.galaxy, f = (i) => g.systems[i].faction;
@@ -636,6 +666,75 @@ test('the galaxy: three territories joined inside by gates, one link between eac
   assert.deepStrictEqual(r.factions, ['alien', 'android', 'block', 'drifter', 'shard', 'wedge']);
   assert.strictEqual(r.cross, 3);
   assert.strictEqual(r.outsideGated, false);
+});
+
+test('a contract that needs you there fails when the ship is lost: back on the board, a little regard gone; the story waits', () => {
+  if (game('!!docked')) game('launch()');
+  const pick = game(`(() => {
+    const J = cargo.board.list.find((j) => j.tier === 'station' && j.steps.some((s) => s.type === 'defend') && cargo.missions.status(j.id) === 'offered');
+    const other = cargo.board.list.find((j) => j.tier === 'station' && !j.escort && !j.steps.some((s) => s.type === 'defend') && cargo.missions.status(j.id) === 'offered');
+    return J && other && { id: J.id, scope: J.scope, faction: J.faction, i: J.steps.findIndex((s) => s.type === 'defend'), other: other.id, otherScope: other.scope };
+  })()`);
+  assert.ok(pick, 'a defence contract and a plain one somewhere in the galaxy');
+  game(`cargo.missions.accept('${pick.id}', '${pick.scope}'); cargo.missions.accept('${pick.other}', '${pick.otherScope}')`);
+  assert.deepStrictEqual(game('failOnLoss()'), [], 'nothing fails before its waves have come');
+  const regard = game(`Reputation.regard(cargo.rep, '${pick.faction}')`);
+  game(`jobRun.defend.set('${pick.id}:${pick.i}', { ships: [{ key: 'none' }], wait: 0, n: cargo.missions.attempt('${pick.id}') })`);
+  assert.deepStrictEqual(game('failOnLoss()'), [pick.id], 'the defence fails; the plain contract does not');
+  assert.strictEqual(game(`cargo.missions.status('${pick.id}')`), 'offered', 'back on the board');
+  assert.strictEqual(game(`cargo.missions.status('${pick.other}')`), 'active');
+  assert.strictEqual(game(`Reputation.regard(cargo.rep, '${pick.faction}')`), regard + game('FAIL_REGARD'), 'a little regard gone');
+  assert.ok(!game(`jobRun.defend.has('${pick.id}:${pick.i}')`), 'its waves cleared away');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Contract failed: /);
+  // A story chapter with a defence in it waits, whatever happens.
+  const ch = game(`(() => { const J = cargo.board.list.find((j) => j.chapter && j.steps.some((s) => s.type === 'defend')); return J && { id: J.id, i: J.steps.findIndex((s) => s.type === 'defend'), was: cargo.missions.status(J.id) }; })()`);
+  if (ch && ch.was === 'offered') {
+    game(`cargo.missions.accept('${ch.id}', startStation().key); jobRun.defend.set('${ch.id}:${ch.i}', { ships: [{ key: 'none' }], wait: 0, n: 1 })`);
+    assert.deepStrictEqual(game('failOnLoss()'), []);
+    game(`cargo.missions.abandon('${ch.id}'); jobRun.defend.delete('${ch.id}:${ch.i}')`);
+  }
+  game(`cargo.missions.abandon('${pick.other}'); Reputation.change(cargo.rep, '${pick.faction}', -FAIL_REGARD)`);
+});
+
+test('the story told: an epilogue on Missions, a job at the core that repeats, and a new galaxy for the same pilot', () => {
+  if (game('!!docked')) game('launch()');
+  const seed = game('world.galaxy.seed');
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; cargo.pilot.xp = 0; for (let k = 1; k < 24; k++) cargo.pilot.xp += Progress.toNext(k); applyShip()`);
+  assert.ok(!game('storyDone()'), 'not yet');
+  const after = game(`cargo.board.list.find((j) => j.repeat).id`);
+  assert.ok(!game(`available(jobOf('${after}'))`), 'the job after the story waits for it');
+  game(`for (const J of cargo.board.list.filter((j) => j.chapter)) { if (cargo.missions.status(J.id) === 'offered') cargo.missions.accept(J.id, startStation().key); cargo.missions.finish(J.id); }`);
+  assert.ok(game('storyDone()'));
+  assert.strictEqual(game('logContext().chapters'), 7);
+  assert.ok(game('checkMilestones() >= 1 && cargo.stats.done.includes("core-breaker")'), 'a milestone for it');
+  game(`fight.grace = 1e9; placeBeside(startStation()); dock(startStation()); StationMenu.showTab('missions')`);
+  browser.frames(2);
+  assert.ok(game('!!docked'), 'docked');
+  assert.match(onStation(), /The story is told/, 'the epilogue is on the Missions tab');
+  assert.match(onStation(), /Core incursion/, 'and the job at the core is offered');
+  // Handed in, it is posted again the next day.
+  game(`cargo.missions.accept('${after}', startStation().key); for (const o of jobOf('${after}').objectives) cargo.missions.set('${after}', o.id, o.need || 1)`);
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'ready', 'its fight won');
+  game(`completeJob('${after}')`);
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'done');
+  assert.strictEqual(game(`cargo.world.daily['${after}']`), game('Vendor.day(__T)'), 'marked for tomorrow');
+  game('__T += 24 * 3600 * 1000; jobViews(startStation())');
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'offered', 'asked again the next day');
+  assert.ok(game('storyDone()'), 'the story stays told');
+  // A new galaxy for the same pilot: level, talents, class, gambits and the log go; the rest stays.
+  game(`launch(); cargo.credits = 77777; cargo.gambits = [...new Set([...cargo.gambits, Vendor.gambits(5).find((id) => !Vendor.FREE.includes(id))])]; saveAll()`);
+  const level = game('pilotLevel()'), gambits = game('cargo.gambits.slice()'), done = game('cargo.stats.done.slice()');
+  game('samePilotGame()');
+  assert.notStrictEqual(game('world.galaxy.seed'), seed, 'another galaxy');
+  assert.strictEqual(game('pilotLevel()'), level, 'the level goes along');
+  assert.deepStrictEqual(game('cargo.gambits'), gambits, 'and the gambits');
+  assert.deepStrictEqual(game('cargo.stats.done'), done, 'and the log, so no milestone pays twice');
+  assert.notStrictEqual(game('cargo.credits'), 77777, 'the credits stay behind');
+  assert.ok(!game('storyDone()') && game(`cargo.missions.status(cargo.board.list.find((j) => j.chapter === 1).id) === 'active'`), 'the story starts over, chapter 1 taken');
+  assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a whole ship');
+  assert.ok(game('savedGames()').some((g) => g.seed === seed && g.credits === 77777), 'the game left is saved, as it was');
+  game(`saveAll(); Clock.now = () => Date.now(); openGame(${JSON.stringify(seed)})`);
+  browser.frames(2);
 });
 
 test('nothing was drawn at a non-finite position', () => {

@@ -7,6 +7,7 @@
 //   Survey.FINDS[kind]              { what (a line: what was found), k (worth), gear? ({ floor, luck }) }
 //   Survey.TIME                     seconds of scanning
 //   Survey.has(site) -> bool        there's something to find there
+//   Survey.guarded(site) -> bool    its find is held by a guardian (game/sites.js): the kinds with Rare gear
 //   Survey.range(site) -> units     how close to its centre the ship has to be
 //   Survey.level(pilotLevel) -> 1..5   the system level its rewards count as
 //   Survey.reward(site, pilotLevel) -> { what, credits, xp, gear: { level, floor, luck } | null }
@@ -42,6 +43,8 @@ const Survey = (() => {
   };
   const TIME = 4;
   const has = (site) => !!(site && FINDS[site.kind]);
+  // The richest finds (Rare gear at least) are held: a guardian has to be beaten before the scan.
+  const guarded = (site) => has(site) && FINDS[site.kind].gear?.floor === 'rare';
   // Inside half its reach, and never a pinpoint or a day's flying across.
   const range = (site) => Math.max(2500, Math.min(20000, (site.r || 0) * 0.5));
   const level = (pilotLevel) => Math.max(1, Math.min(5, Math.ceil((pilotLevel || 1) / 6)));
@@ -56,7 +59,7 @@ const Survey = (() => {
       gear: F.gear ? { level: L, ...F.gear } : null,
     };
   }
-  return { FINDS, TIME, has, range, level, reward };
+  return { FINDS, TIME, has, guarded, range, level, reward };
 })();
 
 export { Survey };
