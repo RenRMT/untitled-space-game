@@ -6,7 +6,8 @@
 //   Settings.add({ id, label, shortcut?, choices: [{ value, label, hint }], get(), set(value),
 //                  note?, locked?() -> reason string | null })
 //   Settings.add({ id, label, action: { label, hint?, run(), stay? }, note?, locked?() })
-//   Settings.add({ id, label, actions: [{ label, hint?, run(), stay? }, ...], note?, locked?() })
+//   Settings.add({ id, label, actions: [{ label, hint?, run(), stay? }, ...], note?, locked?(), stacked? })
+//     actions may be a getter, read each time the panel draws; stacked: one button a row
 //     note: a string, or a function asked each time the panel draws
 //   group: a name ('Accessibility'): the option sits under that folding heading, after the rest
 //   Settings.open(), Settings.close(), Settings.isOpen
@@ -43,7 +44,7 @@ const Settings = (() => {
     const hint = list.map((a) => a.hint).filter(Boolean).join(' ');
     return h('section', { class: 'set-group' },
       h('div', { class: 'set-label' }, h('span', { id: labelId }, o.label)),
-      h('div', { class: 'seg' }, list.map((a) => h('button', {
+      h('div', { class: o.stacked ? 'seg stacked' : 'seg' }, list.map((a) => h('button', {
         class: 'btn', type: 'button', 'aria-describedby': labelId, disabled: !!locked, 'data-option': o.id, onclick: run(a),
       }, a.label))),
       hint && explain ? h('p', { class: 'set-hint' }, hint) : null,

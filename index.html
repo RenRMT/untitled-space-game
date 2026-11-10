@@ -405,6 +405,8 @@
   @media (hover: none) { .set-label kbd { display: none; } } /* keyboard shortcuts mean nothing on touch */
   .seg { display: flex; gap: 6px; }
   .seg .btn { flex: 1 1 0; min-width: 0; min-height: var(--hit); padding: 0 4px; letter-spacing: 0.06em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: transparent; }
+  .seg.stacked { flex-direction: column; }
+  .seg.stacked .btn { flex: 0 0 auto; text-transform: none; letter-spacing: 0.02em; }
   .seg .btn[aria-checked="true"] { border-color: var(--cyan); color: var(--bg); background: var(--cyan); }
   .seg .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   .set-hint { margin: 8px 0 0; font-size: 14px; color: var(--hud); }

@@ -1281,8 +1281,8 @@ test('docked: what finished since the last dock, Sell all, and a program tried o
 test('settings open and close', () => {
   game('Settings.open()');
   assert.ok(game('Settings.isOpen'));
-  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'Re-roll');
-  assert.ok(reroll && !reroll.disabled, 'Re-roll is in the menu');
+  const reroll = allOf(browser.document.getElementById('settings').querySelector('.set-body')).find((el) => el.tagName === 'BUTTON' && textOf(el) === 'New game');
+  assert.ok(reroll && !reroll.disabled, 'New game is in the menu');
   browser.frames(3);
   browser.key('Escape');
   assert.ok(!game('Settings.isOpen'), 'Escape closes the menu');
@@ -1630,6 +1630,28 @@ test('planets, moons and stations go round with flight; a ship parked by a stati
   assert.strictEqual(game('world.orbitT'), game('__t'), 'docking stops the orbit clock');
   game('launch()');
   assert.ok(game('gapTo(__st)') < game('DOCK.range'), 'launched beside it');
+});
+
+test('Settings lists the other games saved here, and opens one; the galaxy played is the one opened next time', () => {
+  assert.strictEqual(Store.get('seed'), String(game('world.galaxy.seed')), 'the galaxy being played is remembered');
+  game('cargo.credits += 1; saveAll()');
+  const here = game('world.galaxy.seed'), credits = game('cargo.credits'), before = game('savedGames().length');
+  assert.ok(!game('savedGames()').some((g) => g.seed === here), 'the game being played is not among the others');
+  game('openGame(424242)');
+  assert.strictEqual(game('world.galaxy.seed'), 424242);
+  assert.strictEqual(Store.get('seed'), '424242', 'and it is the one to open next time');
+  assert.strictEqual(game('cargo.pilot.xp'), 0, 'a new pilot there');
+  const listed = game('savedGames()').find((g) => g.seed === here);
+  assert.ok(listed && listed.credits === credits && listed.savedAt > 0, 'the game left is listed, with what it had');
+  assert.match(game('gameLabel(savedGames()[0])'), /^Level \d+ · [\d,]+ cr · galaxy /);
+  game('Settings.open()');
+  const rows = allOf(browser.document.getElementById('settings').querySelector('.set-body')).filter((el) => el.tagName === 'BUTTON').map(textOf);
+  assert.ok(rows.includes(game('gameLabel(savedGames()[0])')), 'as a button in Settings');
+  game('Settings.close()');
+  game(`openGame(${JSON.stringify(here)})`);
+  assert.strictEqual(game('cargo.credits'), credits, 'back in the first game, as it was left');
+  assert.strictEqual(game('savedGames().length'), before + 1, 'the new one saved beside it');
+  browser.frames(2);
 });
 
 test('one bad frame is passed over; frames that keep failing stop the game behind a notice', () => {

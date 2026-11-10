@@ -33,6 +33,7 @@ import { upgradeLine } from './upgrades.js';
 import { showHints } from './input.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
+// key: where this galaxy's game is saved; seed: the seed that grows the galaxy, saved with it.
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
 // each. components: salvaged components by type ({ [kind]: count }), kept apart from the hold:
 // they take no room, can't be sold, survive the ship's loss and are used up by research.
@@ -65,7 +66,7 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // gear rewards still to choose ([{ key, from, options: [spec] }]: game/rewards.js).
 // razed: stations and turrets destroyed ({ [key]: their system's index + 1 }: game/structures.js).
 export const cargo = {
-  key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
+  key: '', seed: null, items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {}, surveyed: [] },
   missions: Missions.create(), board: null, track: null, market: Economy.empty(), rep: Reputation.empty(),
   cls: Classes.DEFAULT, // the ship's class (rules/classes.js): Tank, DPS or Healer
@@ -133,6 +134,7 @@ export function applyShip({ loading = false } = {}) {
 export function loadCargo(galaxy) {
   cargoSave.flush(); // the old galaxy's cargo first
   cargo.key = `cargo:${Galaxy.saveKey(galaxy)}`;
+  cargo.seed = galaxy.seed;
   cargo.items = [];
   cargo.components = {};
   cargo.removed = new Set();
@@ -456,7 +458,7 @@ export function readCargo(d, galaxy = null) {
 // A write the browser refuses (storage full, or blocked) is said once, so the player can export a copy.
 export const saveState = { failed: false };
 export const cargoSave = Save.debounced(() => wrote(Store.setJSON(cargo.key, {
-  version: CARGO_MIGRATIONS.length,
+  version: CARGO_MIGRATIONS.length, seed: cargo.seed, savedAt: Clock.now(), // (for Settings' list of games: game/world.js)
   items: cargo.items, components: cargo.components, removed: [...cargo.removed], credits: cargo.credits,
   drops: cargo.drops.map((e) => e.drop), hull: cargo.hull, home: cargo.home,
   surfaceDrops: cargo.surfaceDrops,
