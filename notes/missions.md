@@ -2,6 +2,8 @@
 
 > **Pared back (October 2026):** the job texts were emptied. **November 2026:** the opening missions (the story missions below) were removed; only the jobs remain. See `notes/archived-systems.md`.
 >
+> **November 2026 (later):** four kinds of contract are not fights (CALM in `story/job-texts.js`, difficulty `calm`): dispatches (`go`, a delivery), a lane survey (`go` to three points), wreck recovery (`take`) and short stores (`bring`, a good another station sells). They pay 0.6× and reward no gear; goods brought are paid in full on top. Station contracts repeat daily, so the first item under Not yet is done.
+>
 > **November 2026:** every station now posts combat contracts (`story/job-texts.js` CONTRACTS) with a difficulty (Easy, Normal, Hard, Elite): raider patrols (`fight`), turret batteries and pirate outposts (`assault`: an installation of turrets, with an outpost station for the harder ones, in the station's system or a nearby one), sieges (`defend`: waves at the station, its turrets fighting with you) and elite strikes a jump away. Difficulty raises the hostiles' tier and the pay, and every contract rewards gear (`rules/loot.js` mission drops: Uncommon or better from Normal up, Rare or better from Elite).
 
 Oct 17, 2026

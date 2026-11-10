@@ -110,11 +110,24 @@ known ones have observatories to dock at, and they give the galaxy map its shape
 All of the above is done, one commit each, in this order: the fights; the first session; the fight controls; levels; the
 station screens; the cuts; the map and the documents.
 
-## Left for later
-- Talents that change how a class plays (most are still a share of a stat).
-- A fourth skill per class at a high level.
-- Contracts that are not fights (Freelancer's were criticised for sameness).
-- Something to find at each deep-space site beyond its observatory.
+## Left for later (since built)
+- **Talents that change how a class plays.** Two perks for each class change what a skill does
+  (`rules/progress.js` `perk`, `rules/abilities.js` PERKS). With them there are more talents than
+  points at level 30, so a build is a choice.
+- **A fourth skill per class** at level 10: Aegis (Tank), Barrage (DPS), Disrupt (Healer). Each
+  gives the class a second job: the Tank protects its side, the DPS fights a crowd, the Healer
+  stops a heavy shot.
+- **Contracts that are not fights.** Four of a station's ten kinds (`story/job-texts.js` CALM):
+  dispatches, a lane survey, wreck recovery, short stores. They pay less and reward no gear.
+- **Something to find at each deep-space site.** One find a site, made by scanning it from close
+  by (`rules/survey.js`, `game/sites.js`); the map says which are surveyed.
+
+## Still open
+- Squad members have no talents, so the perks are the pilot's alone.
+- The finds are a reward on arrival. A site's own encounter (a rare elite, a hidden dungeon) would
+  give the trip more to do.
+- From `notes/combat-research.md`: holding fire to bank a full gauge.
+- From `notes/missions.md`: contracts can't fail; they can only be abandoned.
 
 ## Sources
 - Onboarding: [Apple, Onboarding for games](https://developer.apple.com/app-store/onboarding-for-games/),

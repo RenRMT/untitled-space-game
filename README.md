@@ -23,9 +23,11 @@ what you destroy, and push out from the safe core of your faction's space into h
   `src/game/combat.js`), and the start system has no ambushes and no pack above its level.
   Fights play the same in space and on a surface, and the ship flies there as fast as in space.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
-  (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
-  each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight. They
-  open one at a time, at levels 1, 2 and 4, for the pilot and the squad alike.
+  (`src/rules/classes.js`), picked at a dock. Each class has four skills (`src/rules/abilities.js`),
+  each with an activation time and a cooldown: keys 1–4 or the skill bar's buttons in a fight. They
+  open one at a time, at levels 1, 2, 4 and 10, for the pilot and the squad alike. The fourth gives
+  the class a second job: Aegis (Tank) cuts the damage its whole side takes, Barrage (DPS) hits
+  every enemy at once, Disrupt (Healer) silences a ship's guns and cancels its heavy shot.
 - **A living galaxy.** The system the ship is in has traffic (`src/game/traffic.js`): freighters
   plying between its stations, and patrols of named pilots circling them, who join a fight against
   hostiles nearby unless their faction counts you Hostile. Every system of level 2 and up has a named
@@ -36,7 +38,11 @@ what you destroy, and push out from the safe core of your faction's space into h
   none far below you), contracts by their difficulty and every Warden; the squad learns alongside.
   Levels go to 30, each a little sturdier and harder hitting; every third gives a talent point,
   spent on the Ship tab (more hold, armour or a weapon mount on every hull, or sharper class
-  skills: `src/rules/progress.js`, `src/game/progress.js`). Gear asks for a level (loot by its item
+  skills: `src/rules/progress.js`, `src/game/progress.js`). Two talents for each class are perks
+  that change what a skill does: a Tank's Taunt exposes every enemy, or its guns hit harder while
+  fortified; a DPS's Salvo finishes weakened ships or comes straight back after a kill; a Healer's
+  repairs spill into shields or leave the mended ship hitting harder. There are more talents than
+  points, so a build is a choice. Gear asks for a level (loot by its item
   level, Mk by Mk), hulls too, and levels 10 and 20 add program memory. A lost ship is towed home for
   a bill, more the further out it was lost.
 - **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
@@ -75,8 +81,10 @@ what you destroy, and push out from the safe core of your faction's space into h
   on the way (Normal), holding the station against waves with its turrets beside you (Normal or
   Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
   tier, the pay and the gear rewarded: one of three pieces to choose, as a Warden's is (on the comms
-  box when flight is calm, or on the station screen: `src/game/rewards.js`). A contract handed in is
-  posted again the next day.
+  box when flight is calm, or on the station screen: `src/game/rewards.js`). Four kinds are not
+  fights (marked No combat: less pay, no gear): dispatches carried to another station, a survey of
+  three points in the system, drifting cargo to recover, and stores the station is short of, bought
+  at a station that sells them. A contract handed in is posted again the next day.
 - **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
   cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
   level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
@@ -119,8 +127,11 @@ the systems the places a galaxy holds: the supermassive black hole at the centre
 H II regions and dark clouds, supernova remnants with their pulsars, black holes, white dwarfs,
 brown dwarfs, rogue planets, interstellar objects passing through, and fields of dust, gas and
 cosmic rays. The game starts in the showcase system (one of each planet, moon and station type, a
-nebula and an asteroid field) on an outer arm. `notes/galaxy.md` is how it is grown. The deep-space
-sites are on the galaxy map for now; flying to them finds nothing yet.
+nebula and an asteroid field) on an outer arm. `notes/galaxy.md` is how it is grown. Every
+deep-space site holds a find (`src/rules/survey.js`, `src/game/sites.js`): fly inside its survey
+range and hold there for a few seconds while the scanner works, and it pays credits and experience
+by the pilot's level, and from the rarer kinds gear to choose. Each is made once; the map says
+which sites are surveyed.
 
 The game is otherwise pared back to its core mechanics for now: one trade good per category and one
 component per salvage type, six factions (one per culture, all neutral but the hostile aliens), only

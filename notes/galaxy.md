@@ -174,6 +174,8 @@ order.
 
 ## Later
 
+(Built since: every site holds a find, made by scanning it from close by: `rules/survey.js`, `game/sites.js`.)
+
 - Flight art for each kind of site, and the galaxy's glow in the flight view's sky.
 - Mechanics on the fields: dust cuts sensor range, cosmic rays add to the radiation meter, the
   molecular clouds hide and shield.
