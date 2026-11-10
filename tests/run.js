@@ -1812,7 +1812,7 @@ test('abilities: a charge on a target that needs it, a cooldown, and timed effec
   assert(!Abilities.ready(me, 'jammer-pod', { ...foe, hull: 0 }, 20), 'not on the destroyed');
 });
 
-test('classes: Tank, DPS and Healer shape the stats and give three skills each', () => {
+test('classes: Tank, DPS and Healer shape the stats and give four skills each, opening at levels 1, 2, 4 and 10', () => {
   const base = Loadout.stats(Loadout.starter('courier'));
   const tank = Classes.apply(base, 'tank'), dps = Classes.apply(base, 'dps'), healer = Classes.apply(base, 'healer');
   assert(tank.hull > dps.hull && tank.shield > dps.shield && tank.firepower < dps.firepower, 'a Tank soaks, a DPS hits');
@@ -1820,7 +1820,8 @@ test('classes: Tank, DPS and Healer shape the stats and give three skills each',
   assert.strictEqual(Classes.valid('nonsense'), Classes.DEFAULT);
   for (const c of Classes.LIST) {
     const ids = Classes.skills(c.id);
-    assert.strictEqual(ids.length, 3, c.id);
+    assert.strictEqual(ids.length, 4, c.id);
+    assert.deepStrictEqual(ids.map((id) => Abilities.ABILITIES[id].level), [1, 2, 4, 10], c.id);
     for (const id of ids) {
       const a = Abilities.ABILITIES[id];
       assert(a.skill && a.cls === c.id && a.cast >= 0 && a.cooldown > a.cast, id);
@@ -1877,6 +1878,98 @@ test('skills: an activation first, the effect after it, then a cooldown; taunt d
   assert.strictEqual(Abilities.use(healer, 'nanite-field', healer, s.t).type, 'cast');
   for (let i = 0; i < 60; i++) RealtimeCombat.step(s, 1 / 30);
   assert(me.hull > me.stats.hull / 2 && ally.hull > ally.stats.hull / 2, 'the field repaired both');
+});
+
+test('skills: the fourth of each class: an aegis over the whole side, a barrage on every enemy, a disrupt that silences and cancels', () => {
+  const stats = (cls, level, talents = []) => Progress.apply(Classes.apply(Loadout.stats(Loadout.starter('courier')), cls), level, talents);
+  const mk = (id, cls, level, talents) => ({ id, name: id, stats: stats(cls, level, talents), hull: 1, shield: 0, cooldowns: {}, status: [] });
+  const full = (c) => { c.hull = c.stats.hull; c.shield = c.stats.shield; return c; };
+  const fightOf = (player, allies, enemies) => ({ t: 0, player, allies, enemies });
+  const land = (s, at) => Abilities.resolve(s, at);
+  // Level 9 hasn't got it; level 10 has.
+  const tank = full(mk('player', 'tank', 10)), mate = full(mk('a1', 'dps', 10)), e1 = full(mk('e1', 'dps', 10)), e2 = full(mk('e2', 'dps', 10));
+  assert(!Abilities.ready(full(mk('x', 'tank', 9)), 'aegis', tank, 0) && Abilities.ready(tank, 'aegis', tank, 0));
+  const s = fightOf(tank, [mate], [e1, e2]);
+  // Aegis: everyone on the tank's side, nobody on the other.
+  Abilities.use(tank, 'aegis', tank, 0);
+  assert.deepStrictEqual(land(s, 1).map((e) => e.to), ['player', 'a1']);
+  assert.strictEqual(tank.stats.taken, 0.6);
+  assert.strictEqual(mate.stats.taken, 0.6);
+  assert.strictEqual(e1.stats.taken ?? 1, 1);
+  Abilities.tick(mate, 20);
+  assert.strictEqual(mate.stats.taken ?? 1, 1, 'it runs out');
+  // Barrage: a shot on each enemy still flying.
+  e2.hull = 0;
+  const e3 = full(mk('e3', 'dps', 10));
+  s.enemies.push(e3);
+  Abilities.use(mate, 'barrage', e1, 20);
+  const shots = land(s, 22);
+  assert.deepStrictEqual(shots.map((e) => [e.type, e.to, e.skill]), [['shot', 'e1', 'barrage'], ['shot', 'e3', 'barrage']]);
+  assert(shots.every((e) => e.damage > 0) && e1.shield < e1.stats.shield);
+  // Disrupt: guns quiet, a heavy shot cancelled, and no second one straight after.
+  const medic = full(mk('a2', 'healer', 10));
+  s.allies.push(medic);
+  e1.intent = { kind: 'heavy' };
+  Abilities.use(medic, 'disrupt', e1, 30);
+  land(s, 31);
+  assert(Abilities.disabled(e1, 31) && e1.intent.kind === 'volley');
+  assert(!Abilities.disabled(e1, 36) && Abilities.has(e1, 'emp-immune', 36));
+  medic.cooldowns = {};
+  assert(!Abilities.ready(medic, 'disrupt', e1, 36), 'it shrugs off another for a while');
+});
+
+test('talents: perks change what a skill does', () => {
+  const stats = (cls, talents = []) => Progress.apply(Classes.apply(Loadout.stats(Loadout.starter('courier')), cls), 12, talents);
+  const mk = (id, cls, talents) => { const st = stats(cls, talents); return { id, name: id, stats: st, hull: st.hull, shield: st.shield, cooldowns: {}, status: [] }; };
+  const cast = (s, user, id, target, at) => { user.casting = null; user.cooldowns = {}; assert(Abilities.use(user, id, target, at), id); return Abilities.resolve(s, at + 2); };
+  const foes = () => [mk('e1', 'dps'), mk('e2', 'dps')];
+  // Barbed taunt: every enemy takes more while it lasts; without the perk, none does.
+  for (const [talents, taken] of [[[], 1], [['barbed-taunt'], 1.15]]) {
+    const me = mk('player', 'tank', talents), enemies = foes();
+    cast({ t: 0, player: me, allies: [], enemies }, me, 'taunt', me, 0);
+    assert.deepStrictEqual(enemies.map((e) => e.stats.taken ?? 1), [taken, taken]);
+    Abilities.tick(enemies[0], 60);
+    assert.strictEqual(enemies[0].stats.taken ?? 1, 1);
+  }
+  // Counter-battery: fortified, the guns hit harder.
+  for (const [talents, k] of [[[], 1], [['counter-battery'], 1.4]]) {
+    const me = mk('player', 'tank', talents), before = me.stats.firepower;
+    cast({ t: 0, player: me, allies: [], enemies: foes() }, me, 'fortify', me, 0);
+    assert(Math.abs(me.stats.firepower / before - k) < 1e-9 && me.stats.taken === 0.5);
+    assert.deepStrictEqual(me.stats.perks, talents, 'the perks stay on the stats while a status runs');
+  }
+  // Executioner: a salvo on a ship low on hull hits half as hard again. Chain fire: a kill readies it.
+  const hit = (talents, hullShare) => {
+    const me = mk('player', 'dps', talents), enemies = foes();
+    enemies[0].stats = { ...enemies[0].stats, hull: 100000 };
+    enemies[0].shield = 0; enemies[0].hull = 100000 * hullShare;
+    return cast({ t: 0, player: me, allies: [], enemies }, me, 'salvo', enemies[0], 0)[0].damage;
+  };
+  assert.strictEqual(hit(['executioner'], 0.9), hit([], 0.9));
+  assert(Math.abs(hit(['executioner'], 0.3) / hit([], 0.3) - 1.5) < 0.02);
+  for (const [talents, ready] of [[[], false], [['chain-fire'], true]]) {
+    const me = mk('player', 'dps', talents), enemies = foes();
+    enemies[0].shield = 0; enemies[0].hull = 1;
+    assert.strictEqual(Abilities.use(me, 'salvo', enemies[0], 0).type, 'cast');
+    assert(Abilities.resolve({ t: 0, player: me, allies: [], enemies }, 2)[0].destroyed);
+    assert.strictEqual(Abilities.ready(me, 'salvo', enemies[1], 2), ready);
+  }
+  // Overflow: what the hull has no room for goes to the shields. Battle medic: the mended ship hits harder.
+  for (const [talents, spill] of [[[], false], [['overflow'], true]]) {
+    const me = mk('player', 'healer', talents), mate = mk('a1', 'dps');
+    mate.hull = mate.stats.hull * 0.84; mate.shield = 0;
+    cast({ t: 0, player: me, allies: [mate], enemies: foes() }, me, 'repair-beam', mate, 0);
+    assert.strictEqual(mate.hull, mate.stats.hull);
+    assert.strictEqual(mate.shield > 0, spill);
+  }
+  for (const [talents, k] of [[[], 1], [['battle-medic'], 1.2]]) {
+    const me = mk('player', 'healer', talents), mate = mk('a1', 'dps'), before = mate.stats.firepower;
+    mate.hull = mate.stats.hull / 2;
+    cast({ t: 0, player: me, allies: [mate], enemies: foes() }, me, 'repair-beam', mate, 0);
+    assert(Math.abs(mate.stats.firepower / before - k) < 1e-9);
+    Abilities.tick(mate, 30);
+    assert.strictEqual(mate.stats.firepower, before);
+  }
 });
 
 // Turn-based combat (combat/combat.js): ships as the timeline takes them. Real gear, so they can fly;
@@ -3141,15 +3234,26 @@ test('squad: each member flies its own loadout, joining with the player\'s start
   assert.deepStrictEqual(Squad.member(5, { loadout: 'junk' }).loadout, Squad.starter('fighter'), 'junk: the starting gear');
 });
 
-test('jobs: every station posts combat contracts: raiders, a battery, an outpost (here or nearby), a siege, a strike', () => {
+test('jobs: every station posts contracts: raiders, a battery, an outpost (here or nearby), a siege, a strike, and some that are not fights', () => {
   for (const [seed, g] of galaxies) {
     const B = Jobs.board(g), where = `seed ${seed}`;
     assert(B.list.length > 0, `${where}: contracts`);
     const kinds = new Set(B.list.map((j) => j.id.split('/').pop()));
-    for (const k of ['patrol', 'battery', 'outpost', 'siege', 'strike']) assert(kinds.has(k), `${where}: a ${k}`);
+    for (const k of ['patrol', 'battery', 'outpost', 'siege', 'strike', 'dispatch', 'survey', 'recovery', 'stores']) assert(kinds.has(k), `${where}: a ${k}`);
     for (const j of B.list) {
       assert(Jobs.DIFFICULTY[j.difficulty], `${where}: ${j.id} has a difficulty`);
-      assert(j.reward.gear && j.reward.gear.level >= 1, `${where}: ${j.id} rewards gear`);
+      const calm = j.difficulty === 'calm';
+      assert(calm ? !j.reward.gear && j.reward.level >= 1 : j.reward.gear && j.reward.gear.level >= 1, `${where}: ${j.id} rewards gear (unless it's no fight)`);
+      // A contract that is no fight has none in it, and pays; one for stores names a good another station sells.
+      if (calm) {
+        assert(j.steps.every((s) => ['go', 'take', 'bring'].includes(s.type)) && j.reward.credits >= 100, `${where}: ${j.id} is no fight`);
+        for (const s of j.steps.filter((x) => x.type === 'bring')) {
+          const sold = (st) => Economy.market(g.seed, st).goods.some((x) => x.kind === s.kind && x.buy !== null);
+          assert(!sold(g.stations.find((st) => st.key === j.scope)) && g.stations.some(sold), `${where}: ${j.id}: ${s.kind} is sold elsewhere`);
+          assert(j.reward.credits > Goods.type(s.kind).price * s.n, `${where}: ${j.id} pays more than its goods cost`);
+        }
+        for (const s of j.steps.filter((x) => x.type === 'take')) for (const it of s.items) assert(Goods.type(it.kind), `${where}: ${j.id}: ${it.kind}`);
+      }
       const texts = [j.title, j.rewardText, ...j.briefing, ...j.debrief, ...j.steps.map((s) => s.label)];
       for (const t of texts) assert(typeof t === 'string' && t && !/undefined|null|NaN|\[object/.test(t), `${where}: ${t}`);
       for (const s of j.steps) {
@@ -5015,7 +5119,7 @@ test('loot: fitted like any gear: its stats and hull affixes count in the loadou
 
 test('loot: fewer, better drops: nothing destroyed drops Common, and rarity is worth item levels', () => {
   for (const [source, S] of Object.entries(Loot.SOURCES)) assert(Loot.RANK[S.floor] >= Loot.RANK.uncommon, `${source} drops Common`);
-  for (const D of Object.values(Jobs.DIFFICULTY)) assert(Loot.RANK[D.floor] >= Loot.RANK.uncommon, `${D.label} contracts pay Common gear`);
+  for (const D of Object.values(Jobs.DIFFICULTY)) assert(D.floor === null || Loot.RANK[D.floor] >= Loot.RANK.uncommon, `${D.label} contracts pay Common gear`);
   // A Legendary's rarity alone is worth some eight item levels of a weapon's damage.
   const power = (rarity) => Loot.RARITIES[Loot.RANK[rarity]].power;
   const grow = Loot.BASES.laser.grow.damage;
@@ -5164,7 +5268,14 @@ test('progress: levels from experience, less for easy kills, talents by level an
   assert.strictEqual(Progress.canTake('reinforced-frame', o(3, 'dps', ['hot-loads'])).why, 'No talent points left');
   assert.ok(Progress.talentsFor('healer').every((t) => !t.cls || t.cls === 'healer'));
   assert.deepStrictEqual(Progress.read(['bulkheads', 'hot-loads', 'nope', 'hot-loads'], 'dps'), ['hot-loads']);
-  assert.ok(Progress.points(30) >= Progress.talentsFor('dps').length - 1, 'nearly every talent by the top level');
+  assert.ok(Progress.points(30) >= Progress.talentsFor('dps').length - 2, 'most talents by the top level, never all: a choice');
+  // Two perks a class: no stats of their own, known to the skills (rules/abilities.js), carried in the stats.
+  for (const c of Classes.LIST) {
+    const perks = Progress.talentsFor(c.id).filter((t) => t.perk);
+    assert.strictEqual(perks.length, 2, c.id);
+    for (const t of perks) assert(t.cls === c.id && !t.stats && !t.upgrade && Abilities.PERKS[t.id], t.id);
+    assert.deepStrictEqual(Progress.apply(Classes.apply(Loadout.stats(Loadout.starter('courier')), c.id), 12, [perks[0].id, 'reinforced-frame']).perks, [perks[0].id]);
+  }
   // Gear and hulls.
   assert.strictEqual(Progress.gearLevel({ tier: 1 }), 1);
   assert.strictEqual(Progress.gearLevel({ loot: { ilvl: 9 } }), 1);
