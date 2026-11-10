@@ -4,7 +4,7 @@
 // apps are the main game (the root: `game`, its worker sw.js), the race (race/), the idle game
 // (idle/) and Redshift (sim/).
 // `npm run sw`, `npm run race:sw`, `npm run idle:sw` or `npm run sim:sw` (node tools/app-sw.js <app>) after adding or removing a file
-// that page loads; tests/run.js fails while a list is out of date.
+// that page loads; the tests fail while a list is out of date (tests/game.js, race.js, idle.js; tests/sim.js for sim).
 //
 //   appFiles(app) -> ['./', '../src/race/main.js', ...]   paths relative to <app>/, sorted
 //   precacheBlock(files) -> the text between the markers

@@ -1,142 +1,16 @@
 # Untitled Space Game
 
-A browser space RPG: fly a ship through a procedurally generated galaxy, mine, fight, take loot from
-what you destroy, and push out from the safe core of your faction's space into harder systems.
+A browser space RPG, played on a phone held upright: fly a ship through a procedurally generated
+galaxy, take contracts, fight on a timeline with a squad that follows programs you write, take loot
+from what you destroy, level up, and push out from the safe core of your faction's space to the
+aliens at the galactic core. Plain JavaScript (ES modules) on a 2D canvas, with no build step and
+no runtime dependencies. It installs as an app and plays offline.
 
-- **Factions.** Three human factions hold the settled band of the galaxy, each its own contiguous
-  territory: Wedge (where the game starts), Block and Shard. Inside a territory every system is joined
-  by jump gates; between territories there is one gate link per pair. Outside them, in the frontier,
-  are the Drifters and the Androids, reached by cruising; the aliens hold the most remote systems, by
-  the galactic core, the end game. Each system has a level (1 in Wedge space, 2 in Block and Shard, 3–4
-  outside, 5 the aliens'), shown on the map.
-- **Fighting and loot.** Hostile ships (Drifter raiders, or the aliens in their space) wait in packs
-  in low and lawless security, never in high; their gear follows the system's level. Destroyed ones
-  pay their cargo as credits and now and then leave gear to pick up, or a gambit. Fights are turn-based on a
-  timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
-  its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
-  knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
-  below; tap a ship to target it. It's the one combat mode. The bar under a fight has a frame for
-  your ship's hull and shields and one per squad member, over thumb-sized skill buttons; a fight
-  won, a ship lost and a level reached each get a banner across the view. Every hostile on screen
-  carries its level, coloured by how a fight with its pack would go (green, amber, red), before
-  the fight starts; hostiles are sturdier and hit softer than their gear alone says (`FOE`,
-  `src/game/combat.js`), and the start system has no ambushes and no pack above its level.
-  Fights play the same in space and on a surface, and the ship flies there as fast as in space.
-- **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
-  (`src/rules/classes.js`), picked at a dock. Each class has four skills (`src/rules/abilities.js`),
-  each with an activation time and a cooldown: keys 1–4 or the skill bar's buttons in a fight. They
-  open one at a time, at levels 1, 2, 4 and 10, for the pilot and the squad alike. The fourth gives
-  the class a second job: Aegis (Tank) cuts the damage its whole side takes, Barrage (DPS) hits
-  every enemy at once, Disrupt (Healer) silences a ship's guns and cancels its heavy shot.
-- **A living galaxy.** The system the ship is in has traffic (`src/game/traffic.js`): freighters
-  plying between its stations, and patrols of named pilots circling them, who join a fight against
-  hostiles nearby unless their faction counts you Hostile. Every system of level 2 and up has a named
-  elite pirate, much tougher than its pack, with its own loot (Rare or better), a gambit and a
-  bounty; another comes after two hours. Now and then raiders come for a station: destroy them for a
-  bounty, experience and gear, or they withdraw.
-- **Levels and talents.** The pilot earns experience from what's destroyed (less for easy kills,
-  none far below you), contracts by their difficulty and every Warden; the squad learns alongside.
-  Levels go to 30, each a little sturdier and harder hitting; every third gives a talent point,
-  spent on the Ship tab (more hold, armour or a weapon mount on every hull, or sharper class
-  skills: `src/rules/progress.js`, `src/game/progress.js`). Two talents for each class are perks
-  that change what a skill does: a Tank's Taunt exposes every enemy, or its guns hit harder while
-  fortified; a DPS's Salvo finishes weakened ships or comes straight back after a kill; a Healer's
-  repairs spill into shields or leave the mended ship hitting harder. There are more talents than
-  points, so a build is a choice. Gear asks for a level (loot by its item
-  level, Mk by Mk), hulls too, and levels 10 and 20 add program memory. A lost ship is towed home for
-  a bill, more the further out it was lost.
-- **The squad.** Wingmen are hired at a dock (Ship tab), up to three, each with a class. They fight by
-  their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
-  class starts with a program that does. A program is built from **gambits**, FF12 style: the
-  building blocks (conditions such as "is charging a heavy shot" or "has Taunt", picks, actions,
-  more memory; named in plain words: And · Not, Pick a target, Memory I), bought at any station's outfitter (better ones further out) or found on pirates
-  and Wardens (`src/rules/vendor.js`, `src/game/vendor.js`).
-- **The outfitter.** Every station's Outfitter tab sells gambits up to its system's level, a stock of
-  gear rolled like loot (Common and Uncommon, Rare at a capital) that turns over every day,
-  consumables, and at capitals and major stations mods. Hulls are at a capital's shipyard.
-- **Dungeons.** Landing on any planet or moon puts the ship in a labyrinth cut into its own ground
-  (canyons on a desert world, ice caves, lava tubes, a storm maze on a gas giant, crater mazes on moons)
-  (`src/game/dungeon.js`): turrets that never move and raiders that patrol and chase hold the
-  chambers, a Warden (a heavy ship) the deepest, harder the higher the system's level, with loot,
-  gear, a bounty and a gambit for the Warden. The squad lands with the ship, follows its trail through the
-  caverns and fights beside it (`src/game/surface-squad.js`); walls stop every ship in a fight.
-- **Stations and turrets.** Every station holds 0–3 turrets in orbit round it, more in high
-  security and in harder systems (`src/rules/structures.js`). Every man-made thing can be attacked
-  and destroyed: turrets are tougher than ships, stations tougher still (`src/game/structures.js`).
-  A station and its turrets fight as one. Attacking a faction's station warns first, then costs
-  regard with it and keeps that station hostile for the session; a faction that counts you Hostile
-  has its turrets open fire on sight. Destroyed, a faction's turret or station is a wreck until it's
-  rebuilt, once the ship has been to another system (no docking meanwhile). On a station or turret
-  that isn't hostile, Attack is the last action offered. Friendly turrets fight on your side
-  against hostiles near their station.
-- **The main story.** A new game starts with chapter 1 already taken and tracked. Seven chapters (`STORY` in `src/story/job-texts.js`, placed by
-  `src/story/jobs.js` as the `story` tier), offered at every station, each once the one before is
-  done and the pilot has reached its level (1 to 24); while it waits, the Missions tab says what
-  level it opens at. It takes you from Wedge space out past the frontier to the aliens at the
-  galactic core, asked by each faction in turn as it is: Wedge's security and order, Block's
-  industry at any human cost, Shard's research as faith, the Drifters' freedom at any price, the
-  Androids' neutrality close to apathy, and the aliens, beyond understanding.
-- **Contracts.** Every station posts combat contracts (`src/story/job-texts.js`, run by
-  `src/game/jobs.js`): a raider patrol (Easy), a turret battery and a convoy escort with an ambush
-  on the way (Normal), holding the station against waves with its turrets beside you (Normal or
-  Hard), a pirate outpost (Hard) and a strike a jump away (Elite). The difficulty sets the hostiles'
-  tier, the pay and the gear rewarded: one of three pieces to choose, as a Warden's is (on the comms
-  box when flight is calm, or on the station screen: `src/game/rewards.js`). Four kinds are not
-  fights (marked No combat: less pay, no gear): dispatches carried to another station, a survey of
-  three points in the system, drifting cargo to recover, and stores the station is short of, bought
-  at a station that sells them. A contract handed in is posted again the next day.
-- **Loot.** Gear drops MMO style (`src/rules/loot.js`): seven bases (laser, missile launcher, plasma
-  cannon, shield generator, scanner, engine, ship computer; art in `src/art/equipment.js`), an item
-  level from the level of what dropped it, five rarities (Common to Legendary) with more affixes and
-  stronger stats the rarer (a Legendary also has a power, a rule of the fight it bends: Breaker,
-  Overkill, Meltdown, Second wind, Foresight, Afterburn or Insight, by its base), drop tables per source (fighters, turrets, stations, outposts, dungeon
-  guardians, the Warden, missions) with rarity floors (nothing destroyed drops Common: fewer drops,
-  each worth a look), bad-luck protection (Rare at least after a
-  long dry run) and drops biased toward your party's classes (yours and your squad's). Loot floats in its rarity's colour where it
-  dropped, goes into the spare gear (it takes no hold room) and fits like any gear. When it drops, and
-  over a selected drop and in the spare gear, it says whom it's an upgrade for and by how much: your
-  ship or a squad member's, by how much stronger it makes that ship in a fight (`src/game/upgrades.js`).
-  An upgrade that can be fitted now is offered on the comms box once flight is calm, to fit there and
-  then on your ship or the squad member it helps most, no dock needed (`src/game/quickfit.js`).
-- **No hazards.** Heat, radiation, flares, ion storms, surface hazards, fuel and the dash were taken
-  out of the main game (`notes/archived-systems.md` says where they are; `rules/hazards.js` stays for
-  the race and for each surface's deposits). `notes/hazards.md` was their plan.
-
-Mining is an action you start: select a rock (or, on a surface, a deposit) and press Mine (or
-Siphon, or E) on its menu; a ring round it fills as the tools work, and it breaks up when it's done
-(`src/game/mining.js`). The tools never pick a rock on their own, nor go on to the next, and a big
-asteroid's shards are each mined the same way. Fly off and the work stops. Drops (in space and on a
-surface) are drawn large as their menu icons; a tap selects one, and dragging it onto the ship picks
-it up. In space a drop's menu also has Collect all (G), outside a fight: every drop within reach of
-the ship comes aboard at once. Nothing is pulled in or picked up by flying near it. The drag joypad
-shows under the finger in space and on a surface alike, and the map, settings, factions and
-context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
-its landing pad: fly off it and back onto it to take off.
-Explanations in the menus wait behind an ⓘ. A dock opens on Missions (the first tab) on a first
-visit and whenever a mission can be handed in there. Three prompts, one line each, show once: the
-controls in a new game, a first fight, a first drop (`src/game/tips.js`). `notes/review.md` is the
-review these changes came from. There is no production or research in the main game
-any more (the idle game has them, on the same rules: `notes/archived-systems.md`).
-Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
-
-The galaxy is a barred spiral grown from the seed: about forty star systems along its bar and arms
-(settled ones in the habitable band, split between the three territories; sparse frontier ones in the
-core and out at the rim, the Drifters', the Androids' and the aliens'), far enough apart that crossing
-between them is a trip, the territories' jump gates as shortcuts, and between
-the systems the places a galaxy holds: the supermassive black hole at the centre, star clusters,
-H II regions and dark clouds, supernova remnants with their pulsars, black holes, white dwarfs,
-brown dwarfs, rogue planets, interstellar objects passing through, and fields of dust, gas and
-cosmic rays. The game starts in the showcase system (one of each planet, moon and station type, a
-nebula and an asteroid field) on an outer arm. `notes/galaxy.md` is how it is grown. Every
-deep-space site holds a find (`src/rules/survey.js`, `src/game/sites.js`): fly inside its survey
-range and hold there for a few seconds while the scanner works, and it pays credits and experience
-by the pilot's level, and from the rarer kinds gear to choose. Each is made once; the map says
-which sites are surveyed.
-
-The game is otherwise pared back to its core mechanics for now: one trade good per category and one
-component per salvage type, six factions (one per culture, all neutral but the hostile aliens), only
-combat contracts on the jobs board. The old introduction and opening missions are gone. `notes/archived-systems.md` says what was taken
-out and how to bring it back.
+`notes/game.md` describes every system of the main game: factions, fights, classes and skills,
+the squad and its gambits, loot, dungeons, contracts, the story and what follows it.
+`notes/review.md` is the review behind its current shape, and `notes/roadmap.md` where it is
+heading. Four smaller games share its code and live beside it: the race (`/race/`), the idle
+game (`/idle/`), the 4X game (`/4x/`) and Redshift (`/sim/`).
 
 ## Running it
 
@@ -151,12 +25,16 @@ URL parameters:
 
 | Parameter | What it does |
 | --- | --- |
-| `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
+| `?seed=123` | another galaxy (Settings → Games → New game picks one at random; the one last played opens when there is no parameter) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open and the jobs board up (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
-| `?style=lowpoly`, `?move=direct` | a setting for this visit |
+| `?style=lowpoly`, `?move=direct`, `?sound=off` | a setting for this visit |
+
+The game installs as an app (`manifest.webmanifest`) and plays offline once opened: `sw.js` keeps a
+copy of every file it loads, its list written by `npm run sw` (`tools/app-sw.js`); run that after
+adding or removing a file the game loads, as `npm test` fails while the list is out of date.
 
 The race is a second page beside the game: `/race/` (`race/index.html`), a lap race on a generated
 surface in the game's own ship. It opens on a title (`src/race/menu.js`, in the Low-poly UI kit): a
@@ -232,13 +110,13 @@ written by `npm run sim:sw`).
 | `src/sim/` | Redshift (`sim/index.html`, `notes/sim.md`): its tables (`config.js`), a system from a seed (`world.js`), the rules cycle by cycle (`rules.js`), requests, Drifters, aliens and hazards (`events.js`), the story (`story.js`), people (`people.js`), the map and the hole's effects (`map.js`), sheets and full screens (`sheets.js`, `screens.js`), portraits and thumbnails (`faces.js`), the page (`main.js`, `sim.css`); it imports `src/core`, `src/art`, `src/world` and the UI kit, never `src/game`, `src/flight` or `src/ui` beyond the kit (ESLint checks) |
 | `src/4x/` | the 4X game (`4x/index.html`): the orbit rules (`orbits.js`), the world and its units' orders (`world.js`), the map zoomed from flight to system to galaxy (`view.js`), the ways of giving move orders and of building (`movement.js`, `building.js`, prototypes to compare), the page (`main.js`, `4x.css`); it imports `src/core`, `src/art`, `src/world` and `src/rules`, never `src/game`, `src/flight` or `src/ui` beyond the UI kit (ESLint checks) |
 | `src/ui/` | the DOM panels (station menu, context menu, combat panel, the field bar of consumables, comms, settings, factions), the event log (`messages.js`) and the map, built from the UI kit (`kit.js`, `kit.css`), restyled for each art style (`kit-line.css`, `kit-lowpoly.css`) |
-| `src/story/` | the mission log (`missions.js`) and the jobs' machinery (`jobs.js`; the texts it places, `job-texts.js`, are empty for now) |
-| `src/combat/` | combat rules: real time (`combat-realtime.js`, which mining uses against passive targets) and round-based (`combat.js`, parked with the pirates), on a shared core |
+| `src/story/` | the mission log (`missions.js`), the jobs' machinery (`jobs.js`) and the texts it places: contracts, the story's chapters and the job after it (`job-texts.js`) |
+| `src/combat/` | combat rules: the timeline fights (`combat.js`) and the real-time engine under them (`combat-realtime.js`, which mining uses against passive targets), on a shared core |
 | `src/flight/` | things in space: entity kinds, the scene, flying, interactions, map travel |
 | `src/art/` | procedural art in two styles (line, low-poly), crew portraits for every culture (`crew.js`), planet and moon surfaces to land on (`surface.js`: a landing site ringed by cliffs or sea; `surface-globe.js` draws them in chunks built as the ship flies (and, in the prototype, bent over a globe); `tools/surface.html` is the prototype it started from) and the sprite caches |
 | `src/rules/` | items, markets, mining (asteroids, gas pockets and surface deposits), hazards in space and on surfaces (`hazards.js`), ships and equipment, research, the squad and its AI logic, how the factions regard the player, fog of war |
 | `src/world/` | the factions, galaxy and solar system generation, security levels |
-| `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration (`feedback.js`) |
+| `src/core/` | maths, seeded randomness, saved data (and its backup), the screen's pixel ratio, colours and text size, number formats, game events felt as vibration and heard (`feedback.js`, `sound.js`) |
 | `assets/` | the fonts (OFL, served with the game) and the app icons, the game's and the race's (`race-icon*`); `manifest.webmanifest` makes the game installable, `race/manifest.webmanifest` the race |
 
 Modules under `src/game/` import each other freely. None of them does anything as it loads beyond
@@ -275,25 +153,29 @@ Each file starts with a comment saying what it does and, for modules other parts
   (`src/ui/messages.js`), which the HUD draws in the top-left corner: the last 5, each for 10 s. Station
   buttons don't announce what they did: the screen shows it.
 - **Something the player should feel:** `Feedback.emit(event)` (`src/core/feedback.js`) where it
-  happens; `src/game/options.js` turns events into vibration (switched off in Settings), and sound
-  can listen to the same events later.
+  happens; `src/game/options.js` turns events into vibration and sound (each switched off in Settings); a
+  new event needs a voice in `src/core/sound.js` and a pattern in `BUZZ`.
 - **Text on a station screen that explains it:** `explain(key, text)` in `src/ui/station.js`: shown on
   the first three visits, then behind the tab's ⓘ.
-- **A change to what is saved:** a step at the end of `CARGO_MIGRATIONS` in `src/game/cargo.js`, so
+- **A change to what is saved:** a step at the end of `CARGO_MIGRATIONS` in `src/game/cargo-migrations.js`, so
   older saves are brought up to date (`Save.migrate`, `src/core/save.js`).
 
 ## Tests and tools
 
 ```sh
-npm test       # tests/run.js: generators, rules and combat; tests/smoke.js: plays the whole game in Node; tests/sim.js: Redshift's rules
+npm test       # every test: tests/run.js (the rules of each game), the smoke tests (the game played in Node), tests/sim.js
+npm run test:game   # the main game only: tests/game.js, tests/smoke-default.js, tests/smoke.js (also test:race, test:idle, test:4x, test:sim)
+npm run sw     # sw.js's file list, after adding or removing a file the game loads
 npm run lint   # ESLint (eslint.config.js)
 npm run perf   # tests/perf.js: frame cost in Chromium as a phone would run it (needs Playwright)
 npm run galaxy -- 7   # tools/galaxy.js: what a seed gives: its systems, gates and deep-space sites (--svg file draws it)
 ```
 
-The tests need no dependencies beyond Node 22. `tests/smoke.js` runs the game in a stand-in
+The tests need no dependencies beyond Node 22. The rules are checked in one file a game
+(`tests/game.js`, `race.js`, `idle.js`, `4x.js`, sharing `tests/harness.js`; `tests/run.js` runs all
+four, and `ONLY=text` runs the tests whose names include it). `tests/smoke.js` runs the game in a stand-in
 browser (`tests/browser-stub.js`) and checks it through `G`, the game's state and functions by name,
-which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and the tests.
+which `src/main.js` exports for the tests. CI (`.github/workflows/ci.yml`) runs the lint and each test file side by side.
 
 Design notes live in `notes/`: `roadmap.md` is where the main game is heading (an offline MMO-like
 space RPG) and what was cut on the way; `hazards.md` was the plan for gathering under hazards (taken

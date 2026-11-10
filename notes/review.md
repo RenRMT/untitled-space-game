@@ -122,12 +122,27 @@ station screens; the cuts; the map and the documents.
 - **Something to find at each deep-space site.** One find a site, made by scanning it from close
   by (`rules/survey.js`, `game/sites.js`); the map says which are surveyed.
 
+## Built in the second pass (same day)
+A second look, at what the first did not cover: the platform, robustness, feel and loose ends
+(`notes/game.md`, "Added in the second review", lists each).
+- **Squad perks.** A member learns its class's two perks at levels 6 and 12. No points and no
+  choice: a squad of three with points to spend each would be three more talent screens.
+- **A site's own encounter.** The sites that give Rare gear are held by a named elite.
+- **Contracts can fail**, when the ship is lost during a defence or an escort. Enemies fight the
+  player, never the station or the convoy, so that is the one loss the rules have.
+- Also: sound, offline install, a list of saved games, save safety, the pilot's log and
+  milestones, a workshop that gives salvage a use, a wanted list, an epilogue with a repeating
+  job at the core and a new galaxy for the same pilot.
+
 ## Still open
-- Squad members have no talents, so the perks are the pilot's alone.
-- The finds are a reward on arrival. A site's own encounter (a rare elite, a hidden dungeon) would
-  give the trip more to do.
 - From `notes/combat-research.md`: holding fire to bank a full gauge.
-- From `notes/missions.md`: contracts can't fail; they can only be abandoned.
+- **The pilot's own program**: the ship fighting by gambits like a wingman, switched on from the
+  combat bar. It changes how fights feel, so it wants a play session with the above first.
+- **`src/ui/station.js` by tab.** It is one closure of some 1,300 lines whose tabs share about
+  twenty pieces of state. Splitting it means moving that state into a shared object first: worth
+  doing when the file is next reworked, not for its own sake.
+- Escorts and defended stations that can themselves be destroyed, which would make failure
+  something seen coming.
 
 ## Sources
 - Onboarding: [Apple, Onboarding for games](https://developer.apple.com/app-store/onboarding-for-games/),
