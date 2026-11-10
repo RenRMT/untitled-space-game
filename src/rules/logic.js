@@ -84,7 +84,7 @@ const Logic = (() => {
     // shields to cancel it), and the statuses on a ship (rules/abilities.js).
     charging: { kind: 'flag', of: ['enemy'], pkg: 'tactics.read', note: 'charging a heavy shot', get: (c, ctx) => !!ctx.charging?.(c) },
     has: {
-      kind: 'flagArg', of: ['enemy', 'ally', 'self', 'leader'], pkg: 'tactics.read', values: ['taunt', 'fortify', 'overload', 'mark', 'emp', 'jam'],
+      kind: 'flagArg', of: ['enemy', 'ally', 'self', 'leader'], pkg: 'tactics.read', values: ['taunt', 'fortify', 'overload', 'mark', 'aegis', 'emp', 'jam'],
       note: 'a status on it: a skill or an ability still working', get: (c, ctx, v) => !!ctx.hasStatus?.(c, v),
     },
   };

@@ -301,7 +301,7 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
   game('for (const e of fight.s.enemies) { e.stats = { ...e.stats, hull: e.stats.hull * 6 }; e.hull = e.stats.hull; }'); // long enough to see it all
   assert.ok(game(`skillButtons(fight.s).length === 3`), 'three skill buttons');
   // Skills open by level: the first from the start, the second at 2, the third at 4.
-  assert.deepStrictEqual(game(`Abilities.skillsOf('dps').map((id) => Abilities.ABILITIES[id].level)`), [1, 2, 4]);
+  assert.deepStrictEqual(game(`Abilities.skillsOf('dps').map((id) => Abilities.ABILITIES[id].level)`), [1, 2, 4, 10]);
   if (game('fight.s.player.stats.level') < 4) assert.ok(game(`!skillButtons(fight.s)[2].enabled && /^Lv 4$/.test(skillButtons(fight.s)[2].badge)`), 'the third skill waits for level 4');
   assert.ok(game(`gains(1, 4, 'dps').join('|')`).includes('New skill: Salvo') && game(`gains(1, 4, 'dps').join('|')`).includes('Talent point'), 'a level up names what it gave');
   game(`fight.s.player.hull = fight.s.player.stats.hull * 0.5`);

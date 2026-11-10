@@ -696,7 +696,7 @@ function skillLanded(s, ev) {
   const name = (id) => (id === 'player' ? 'you' : ([...(s.allies || []), ...s.enemies].find((c) => c.id === id) || {}).name || '');
   const friendly = a.on !== 'enemy';
   fight.fx.push({ type: 'number', delay: 0, t: 1.4, max: 1.4, at: ev.to, jx: (Math.random() - 0.5) * 20, text: ev.amount ? `+${Math.round(ev.amount)}` : a.name, color: friendly ? COLORS.good : COLORS.flame });
-  if (ev.amount !== undefined && ev.ability === 'nanite-field' && ev.to !== ev.from) return; // one line for the whole field
+  if (['nanite-field', 'aegis'].includes(ev.ability) && ev.to !== ev.from) return; // one line for the whole side
   const who = ev.from === 'player' ? 'You' : name(ev.from), on = ev.to === ev.from ? '' : ` on ${name(ev.to)}`;
   fightLog(`${who}: ${a.name}${on}`);
 }
@@ -711,7 +711,7 @@ function playerTarget(s, id) {
   const side = [s.player, ...CombatCore.allies(s)], key = id === 'restore' ? (c) => c.shield / Math.max(1, c.stats.shield) : (c) => c.hull / Math.max(1, c.stats.hull);
   return side.reduce((b, c) => (key(c) < key(b) ? c : b)).id;
 }
-// The player's buttons: the class's three skills (keys 1–3), each with its cooldown, then the kit's
+// The player's buttons: the class's four skills (keys 1–4), each with its cooldown, then the kit's
 // consumables.
 // The party's frames on the combat bar: your ship, then the squad (not the patrols and turrets
 // that joined in: they're drawn where they fight).
@@ -741,7 +741,7 @@ export function abilityButtons(s) {
     return { id: `ability:${a.id}`, code: a.code, label: a.name, count: cargo.kit[a.id], enabled: !!t && Abilities.ready(s.player, a.id, t, s.t) };
   })];
 }
-// A skill by its key (1–3), in a fight with ships.
+// A skill by its key (1–4), in a fight with ships.
 export function useSkillKey(n) {
   const s = fight.s, id = s && Classes.skills(SHIP.cls)[n];
   if (!id) return false;
@@ -1113,9 +1113,9 @@ export function init() {
   CombatPanel.onButton = (id) => {
     if (fight.s && id.startsWith('ability:')) { const a = id.slice(8); useAbility(fight.s, fight.s.player, a, playerTarget(fight.s, a)); }
   };
-  // Keys 1–3: the class's skills, in a fight with ships (the field bar has them otherwise).
+  // Keys 1–4: the class's skills, in a fight with ships (the field bar has them otherwise).
   window.addEventListener('keydown', (e) => {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !/^[1-3]$/.test(e.key) || !fight.s) return;
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || !/^[1-4]$/.test(e.key) || !fight.s) return;
     useSkillKey(Number(e.key) - 1);
   });
 }
