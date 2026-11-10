@@ -9,7 +9,7 @@ import { SystemMap } from '../ui/map.js';
 import { Messages } from '../ui/messages.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { Settings } from '../ui/settings.js';
-import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, updateCombatPanel } from './combat.js';
+import { checkAggro, drawFight, drawFightOverlay, drawFoeMarkers, drawThreatMarks, updateCombatPanel } from './combat.js';
 import { docked } from './docking.js';
 import { updateFieldBar } from './field.js';
 import { drawEntities, drawParticles, drawShip, origin, rx, ry } from './draw-world.js';
@@ -82,6 +82,7 @@ export function render(list = nearbyEntities(simTime)) {
   drawFightOverlay();
   drawMiningLabel();
   if (!moving) drawNavMarkers();
+  if (!moving) drawThreatMarks();
   drawFoeMarkers();
   drawDragIndicator();
   drawMinimap(list);

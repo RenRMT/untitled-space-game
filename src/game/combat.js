@@ -132,14 +132,23 @@ export function enemySpec(e, name) {
 // An enemy's stats: its gear (by role and tier), the aliens' a good deal tougher and harder hitting,
 // a dungeon's guardians as they're made (game/dungeon.js: e.stats).
 export const ALIEN = { hull: 1.35, shield: 1.25, damage: 1.25 };
+// Every hostile ship is sturdier and hits softer than its gear alone says (notes/review.md): an even
+// fight lasts long enough for a skill to be used more than once, and for a heavy shot to be seen
+// coming and cancelled, and a new pilot has time to see a fight going wrong.
+export const FOE = { hull: 1.9, shield: 1.4, damage: 0.6 };
+const scaled = (st, k) => ({
+  ...st, hull: Math.round(st.hull * k.hull), shield: Math.round(st.shield * k.shield), firepower: st.firepower * k.damage,
+  weapons: st.weapons.map((w) => ({ ...w, damage: w.damage * k.damage })),
+});
+const tuned = new WeakMap(); // stats made elsewhere (an elite's, a guardian's), tuned once
+export function foeTuned(st) {
+  if (!tuned.has(st)) tuned.set(st, scaled(st, FOE));
+  return tuned.get(st);
+}
 export function foeStats(e) {
-  if (e.stats) return e.stats;
-  const st = Loadout.stats(Loadout.npc(e.role, e.tier || 1));
-  if (e.faction !== 'alien') return st;
-  return {
-    ...st, hull: Math.round(st.hull * ALIEN.hull), shield: Math.round(st.shield * ALIEN.shield), firepower: st.firepower * ALIEN.damage,
-    weapons: st.weapons.map((w) => ({ ...w, damage: w.damage * ALIEN.damage })),
-  };
+  if (e.stats) return foeTuned(e.stats);
+  const st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
+  return e.faction === 'alien' ? scaled(st, ALIEN) : st;
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
@@ -301,7 +310,7 @@ export function engageStructures(target, ambushed = false) {
 // (it lands with you: game/surface-squad.js). Turrets hold their place; raiders and the Warden fly,
 // and the caverns' walls stop every ship in it. Mining stops for it; guardians woken while one is
 // on join it.
-const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: g.role === 'turret', body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
+const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.role === 'turret' ? g.stats : foeTuned(g.stats), fixed: g.role === 'turret', body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
 const guardianPose = (g) => ({ x: g.x, y: g.y, a: g.angle, thrust: 0, role: 'fighter', tier: g.tier, radius: g.radius, name: g.name, guardian: g });
 export function engageOnSurface(foes) {
   if (!foes.length || landing.phase !== 'surface' || landing.wrecked || fight.wreckT > 0) return;
@@ -1003,6 +1012,42 @@ export function drawFightOverlay(V = SPACE_VIEW) {
 // In a fight, enemies off screen get a red marker at the screen edge pointing their way, with
 // their letter and distance (edgeMarkers); a tap on one targets it.
 export let foeHits = [];
+
+// Before a fight: over every hostile ship on screen, its level in the colour of how a fight with
+// its pack would go (threat: good, amber, hostile), so a pack too strong is seen before it is met
+// (notes/review.md). An elite's has a bar over it. Worked out afresh a few times a second.
+const marks = { at: -1, list: [] };
+export function drawThreatMarks() {
+  if (fight.s || landing.on || docked) return;
+  const now = performance.now();
+  if (now - marks.at > 400) {
+    marks.at = now;
+    marks.list = frameList.filter((e) => isHostile(e) && e.kind === 'ship' && !cargo.removed.has(e.key) && !fight.dying.has(e.key))
+      .map((e) => ({ e, tone: threat(e).tone, level: Progress.foeLevel(e.tier || 1) }));
+  }
+  if (!marks.list.length) return;
+  const tones = { good: COLORS.good, warn: COLORS.amber, hostile: COLORS.hostile };
+  ctx.save();
+  ctx.font = Theme.font(14);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 3;
+  for (const m of marks.list) {
+    if (!visible(m.e)) continue;
+    const [sx, sy] = worldToScreen(m.e.x, m.e.y), y = sy - (m.e.hitRadius || m.e.radius || 20) * view.zoom - 10;
+    ctx.fillStyle = tones[m.tone] || COLORS.hud;
+    ctx.globalAlpha = 1;
+    ctx.fillText(`${m.level}`, sx, y);
+    const w = ctx.measureText(`${m.level}`).width / 2 + 4;
+    ctx.beginPath(); // a chevron either side of the number
+    ctx.moveTo(sx - w, y - 10); ctx.lineTo(sx - w - 5, y - 5); ctx.lineTo(sx - w, y);
+    ctx.moveTo(sx + w, y - 10); ctx.lineTo(sx + w + 5, y - 5); ctx.lineTo(sx + w, y);
+    if (m.e.elite) { ctx.moveTo(sx - w, y - 15); ctx.lineTo(sx + w, y - 15); }
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.restore();
+}
 
 export function drawFoeMarkers() {
   foeHits = [];

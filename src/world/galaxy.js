@@ -271,7 +271,7 @@ const Galaxy = (() => {
       });
       const z = where[i].zone, settled = isSettled(i), f = faction[i];
       // Each system's own: its hostiles' level and side, and the most security it can have.
-      const own = { security: { cap: T.cap[f] ?? 2 }, pirates: { ...G.hostiles, level: level[i], faction: f === 'alien' ? 'alien' : 'drifter' } };
+      const own = { security: { cap: T.cap[f] ?? 2 }, pirates: { ...G.hostiles, level: level[i], faction: f === 'alien' ? 'alien' : 'drifter', gentle: i === 0 } }; // gentle: where the game starts
       let sys = null;
       for (let attempt = 0; attempt < 8 && (!sys || usedNames.has(sys.name)); attempt++) {
         if (i === 0) {

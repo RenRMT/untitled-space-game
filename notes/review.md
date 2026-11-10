@@ -45,16 +45,17 @@ Both art styles stay. Audio is out of scope.
 ### 1. The first fight can be an unfair death
 The start system (level 1) holds tier 2 packs of three and four ships, some lying in ambush in a
 nebula. A new pilot who flies into one dies in about six seconds: no warning, no time to act.
-Nothing on screen says how dangerous a ship is before the fight starts.
+Nothing says how dangerous a ship is unless it is tapped first.
 
 Tier 1 fights go the other way: two raiders are dead in five seconds, before a skill has come off
 cooldown. The telegraph and cancel rules never get to matter.
 
 - The start system has only tier 1 packs, and none in ambush.
-- Fighters are sturdier and hit softer, so an even fight lasts 15–25 seconds and a skill is used
-  two or three times in it.
-- Every hostile shows a level, coloured by how it compares with the pilot's (grey: no experience;
-  green; amber; red: don't). The standard MMO "con" colour.
+- Fighters are sturdier and hit softer (`FOE`, `game/combat.js`): a fight lasts about twice as
+  long, and a lone new ship comes out of a pack of three with over half its hull.
+- A hostile's card already says Weak, Even or Outmatched, but only once it is tapped. Now every
+  hostile on screen carries its level, in the colour of that verdict (green, amber, red): the MMO
+  "con" colour, seen before the fight.
 
 ### 2. A new game says nothing
 A fresh save opens on a ship beside a station, with no goal on screen. The story's first chapter

@@ -445,6 +445,8 @@ const SolarSystem = (() => {
     let shipCount = 0;
     const addPack = (at, size, tier, ambush) => {
       if (P.pirates.level) tier = Sec.levelTier(rk, P.pirates.level, securityAt(at.x, at.y));
+      // Where the game starts: nothing above the system's own level, and no pack a lone new ship can't take.
+      if (P.pirates.gentle) { tier = Math.min(tier, P.pirates.level || 1); size = Math.min(size, 3); }
       const k = { id: packs.length, x: at.x, y: at.y, tier, ambush, level: securityAt(at.x, at.y), faction: P.pirates.faction || 'drifter', ships: [] };
       for (let i = 0; i < size; i++) {
         const orbit = o0 + rk() * (o1 - o0);
@@ -466,13 +468,13 @@ const SolarSystem = (() => {
       const b = n.blobs[Math.floor(rk() * n.blobs.length)], a = rk() * TAU, d = Math.sqrt(rk()) * b.r * 0.7;
       return { x: n.x + b.dx + Math.cos(a) * d, y: n.y + b.dy + Math.sin(a) * d };
     };
-    for (const n of P.pirates.nebulaAmbushes ? nebulae : []) {
+    for (const n of P.pirates.nebulaAmbushes && !P.pirates.gentle ? nebulae : []) {
       for (let tries = 0; tries < 200; tries++) {
         const at = inside(n);
         if (nebulaAt(at.x, at.y) && packFits(at, tries < 60 ? 0 : tries < 140 ? 1 : 2)) { addAmbush(at); break; }
       }
     }
-    for (let n = count(rk, P.pirates.lawlessAmbushes), tries = 0; n > 0 && tries < 200; tries++) {
+    for (let n = P.pirates.gentle ? 0 : count(rk, P.pirates.lawlessAmbushes), tries = 0; n > 0 && tries < 200; tries++) {
       const at = polar(rk() * TAU, Math.sqrt(rk()) * R);
       if (securityAt(at.x, at.y) === 0 && !nebulaAt(at.x, at.y) && packFits(at)) { addAmbush(at); n--; }
     }
