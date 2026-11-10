@@ -788,7 +788,7 @@ const StationMenu = (() => {
       goal ? h('span', { class: 'goal' }, Kit.check('open', true), h('span', { class: 'txt' }, goal.label), h('span', { class: 'num' }, goalCount(goal))) : null,
       hint ? h('span', { class: 'hint', style: m.status === 'ready' ? { '--tone': 'var(--good)' } : undefined }, hint) : null,
       m.status === 'offered' ? null : Kit.segments(m.objectives.map((o) => (o.done ? 'done' : o.open ? 'open' : ''))),
-      h('span', { class: 'foot' }, payLine(m))),
+      h('span', { class: 'foot' }, payLine(m), m.status === 'offered' && m.tier ? h('span', { style: { color: 'var(--dim)' } }, ` · ${m.tier}`) : null)),
     h('span', { class: 'go', 'aria-hidden': 'true' }, '›'));
   }
   const doneCard = (m) => h('button', { class: 'ui-card compact', type: 'button', 'aria-haspopup': 'dialog', 'aria-label': `${m.title}, completed`, onclick: () => showMission(m.id) },
@@ -855,7 +855,7 @@ const StationMenu = (() => {
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
-    const current = list.filter((m) => m.status !== 'done').sort((a, b) => ORDER[a.status] - ORDER[b.status]);
+    const current = list.filter((m) => m.status !== 'done').sort((a, b) => ORDER[a.status] - ORDER[b.status] || !!b.story - !!a.story); // the story first
     const done = list.filter((m) => m.status === 'done');
     lead('');
     return [
@@ -1149,7 +1149,7 @@ const StationMenu = (() => {
   }
 
   // The station reopens on the tab last used (saved), unless the flight view asks for another.
-  let lastTab = Store.get('stationTab', 'trade');
+  let lastTab = Store.get('stationTab', '');
   // 'squad' is the Ship tab on a wingman.
   function pick(name) {
     const wingman = name === 'squad';
@@ -1191,7 +1191,8 @@ const StationMenu = (() => {
     // locked if that one is).
     open(options) {
       ctx = options;
-      tab = options.tab || lastTab || 'trade';
+      // Missions first (notes/review.md): on a first dock, and whenever one can be handed in here.
+      tab = options.tab || (missions().some((m) => m.status === 'ready' && m.here) ? 'missions' : lastTab) || 'missions';
       if (tab === 'squad') tab = 'ship';
       seenThisDock.clear();
       infoOpen = false;

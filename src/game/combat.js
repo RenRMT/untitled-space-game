@@ -36,6 +36,7 @@ import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
 import { gainXP } from './progress.js';
+import { tip } from './tips.js';
 import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
@@ -264,6 +265,7 @@ export function engage(target, ambushed = false) {
   select(null);
   setMode('in-combat', true);
   if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
+  tip('fight');
 }
 
 // A station, a turret or an outpost attacked (or opening fire: ambushed): it and the rest of its
@@ -480,6 +482,7 @@ export function shipDestroyed(key) {
   // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
   const gear = Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
   gear.forEach((spec, i) => {
+    tip('drop');
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
   lootDropped(gear);

@@ -30,6 +30,7 @@ import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
 import { queueFit } from './quickfit.js';
 import { upgradeLine } from './upgrades.js';
+import { showHints } from './input.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
@@ -163,6 +164,13 @@ export function loadCargo(galaxy) {
   try {
     if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS), galaxy);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
+  // A new game starts with the story's first chapter taken, from the station it starts beside: its
+  // objective is on the HUD from the first frame (notes/review.md).
+  if (!d) {
+    const first = cargo.board.list.find((J) => J.tier === 'story' && !J.requires);
+    if (first && cargo.missions.accept(first.id, galaxy.stations[galaxy.startStation]?.key)) cargo.track = first.id;
+    showHints(); // and the controls, until the first touch
+  }
   news.length = 0;
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read

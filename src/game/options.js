@@ -133,8 +133,8 @@ export const ART_HINT = {
 
 // The controls, as the Controls section of Settings lists them (and the flight hints show them).
 export const CONTROLS = {
-  cruise: ['Drag to fly; drag length sets speed.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
-  direct: ['Hold and drag to fly; drag length sets speed.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
+  cruise: ['Drag to fly', 'Double-tap to stop', 'Tap a thing for its actions'],
+  direct: ['Hold and drag to fly', 'Let go to stop', 'Tap a thing for its actions'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
@@ -177,7 +177,7 @@ export function init() {
   });
   Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',
-    note: () => CONTROLS[moveMode.value].join(' '),
+    note: () => CONTROLS[moveMode.value].join(' · '),
     action: { label: 'Show hints in flight', run: showHints },
   });
   Settings.add({

@@ -57,6 +57,7 @@ test('a new game: beside the capital in Wedge space, the gates online; no squad'
   assert.ok(game('world.scene.gates.every((g) => !g.offline)'), 'the gates are online from the start');
   assert.ok(game(`startStation().station.market.type === 'capital' && actions.state('dock', startStation()).inRange`), 'beside the capital, in docking range');
   assert.strictEqual(game('cargo.squad.length'), 0, 'no squad');
+  assert.ok(game(`jobOf(trackedJob()).tier === 'story' && jobOf(trackedJob()).chapter === 1 && !!here.objective`), 'chapter 1 taken, its objective on the HUD');
   assert.strictEqual(game('world.galaxy.systems[0].faction'), 'wedge', 'the start is Wedge space');
   // Hostiles out in low and lawless security, none in high.
   assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');

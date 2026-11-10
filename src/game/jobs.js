@@ -446,7 +446,7 @@ export function jobViews(station) {
   const next = waitingChapter();
   if (next) {
     out.push({
-      id: next.id, title: next.title, from: next.from, face: giverFace(next), status: 'offered', here: false, tier: `${Jobs.TIERS.story.label} · level ${next.level}`,
+      id: next.id, title: next.title, from: next.from, face: giverFace(next), status: 'offered', here: false, story: true, tier: `${Jobs.TIERS.story.label} · level ${next.level}`,
       lines: [`Opens at level ${next.level}. You're level ${pilotLevel()}: contracts, raids, elites and dungeons will get you there.`], objectives: [],
       reward: next.rewardText, pays: { credits: next.reward.credits, items: [], also: [] }, note: `Opens at level ${next.level}.`,
     });
@@ -459,7 +459,7 @@ export function jobViews(station) {
     const lines = status === 'done' ? J.debrief : status === 'ready' ? J.report : J.briefing;
     const where = handIn && stationByKey(handIn);
     out.push({
-      id: J.id, title: J.title, from: J.from, face: giverFace(J), status, here, tier: `${Jobs.TIERS[J.tier].label}${J.difficulty ? ` · ${Jobs.DIFFICULTY[J.difficulty].label}` : ''}`,
+      id: J.id, title: J.title, from: J.from, face: giverFace(J), status, here, story: J.tier === 'story', tier: `${Jobs.TIERS[J.tier].label}${J.difficulty ? ` · ${Jobs.DIFFICULTY[J.difficulty].label}` : ''}`,
       lines: Missions.lines(lines, L, J.id),
       objectives: L.objectives(J.id),
       provided: status !== 'done' ? J.provided : null,

@@ -1048,7 +1048,7 @@ off('no job texts', 'jobs: every station posts one, named for it; a hunt is take
   assert.strictEqual(game(`Reputation.regard(cargo.rep, __job.faction)`), regard + game('Reputation.JOB.station'), 'regard with the giver');
   game('launch()');
   browser.frames(2);
-  assert.strictEqual(game('objective()'), null, 'nothing under way');
+  assert.ok(game(`!objective() || jobOf(trackedJob()).tier === 'story'`), 'nothing under way but the story');
 });
 
 off('no job texts', 'jobs: an escort with a twist on the comms, handed in where it delivers; goods handed over; abandoning starts over', () => {
