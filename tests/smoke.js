@@ -273,10 +273,10 @@ test('buys gear at the outfitter, fits it, fits a mod and sells gear, and buys a
   // Every tab draws, with slot choices open on the Ship tab.
   for (const t of ['outfitter', 'missions', 'ship', 'trade']) game(`StationMenu.showTab('${t}')`);
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
-  assert.match(onStation(), /Tool 2Tool mount · \d+ options?/, 'the slot\'s sheet');
+  assert.match(onStation(), /Gun 2Gun mount · \d+ options?/, 'the slot\'s sheet');
   assert.match(onStation(), /Fitted.*Mining laserMk I.*Spare gear/, 'what is fitted, then the spare gear');
   game(`StationMenu.showTab('trade')`);
-  assert.doesNotMatch(onStation(), /Tool mount/, 'the sheet closes with the tab');
+  assert.doesNotMatch(onStation(), /Gun mount/, 'the sheet closes with the tab');
   // Take out the second laser and sell it, freeing a hardpoint.
   assert.ok(game(`outfitting.unfit('weapon-2') && cargo.gear['pulse-laser-1'] === 1 && outfitting.sell('pulse-laser-1')`));
   assert.ok(game(`!cargo.gear['pulse-laser-1'] && SHIP.weaponsFitted === 1`));
@@ -293,7 +293,7 @@ test('buys gear at the outfitter, fits it, fits a mod and sells gear, and buys a
   game(`StationMenu.showTab('ship'); StationMenu.toggleSlot('weapon-2')`);
   assert.match(onStation(), /Open mount/);
   pressOnStation('Fit');
-  assert.doesNotMatch(onStation(), /Tool mount/, 'fitted, and the sheet closed');
+  assert.doesNotMatch(onStation(), /Gun mount/, 'fitted, and the sheet closed');
   assert.ok(game('SHIP.firepower') > fp && game('SHIP.weaponsFitted') === 2, 'the ship fires harder');
   // A mod, bought at the capital's outfitter, in a Mk II's slot: fitted from the slot's sheet.
   assert.ok(game(`vendor.buyMod('mod.extended-barrel') && cargo.mods['mod.extended-barrel'] === 1`), 'a mod bought');
@@ -917,7 +917,7 @@ test('the wingman flies in formation, assists the leader in both combat modes, a
   assert.ok(ship().includes(`${Math.round(game('Squad.stats(cargo.squad[0]).maxSpeed'))}Speed`), 'its own speed');
   // Its gear is fitted from the spare gear, like yours: a Mk II laser in place of its Mk I.
   game(`cargo.gear['pulse-laser-2'] = 1; cargo.squad[0].xp = 5000; refreshWing(cargo.squad[0]); StationMenu.refresh(); StationMenu.toggleSlot('weapon-1')`);
-  assert.match(onStation(), new RegExp(`Tool 1${name} · Tool mount`), 'the sheet is for the wingman');
+  assert.match(onStation(), new RegExp(`Gun 1${name} · Gun mount`), 'the sheet is for the wingman');
   assert.match(onStation(), /Fitted.*Mining laserMk I.*Remove.*Spare gear.*Mining laserMk IISpare ×1/, 'what it has (your starting gear), then the spare gear');
   const dps = game('Squad.stats(cargo.squad[0]).firepower');
   assert.ok(game(`outfitting.member('${id}').fit('weapon-1', 'pulse-laser-2')`));
@@ -1048,7 +1048,7 @@ off('no job texts', 'jobs: every station posts one, named for it; a hunt is take
   assert.strictEqual(game(`Reputation.regard(cargo.rep, __job.faction)`), regard + game('Reputation.JOB.station'), 'regard with the giver');
   game('launch()');
   browser.frames(2);
-  assert.strictEqual(game('objective()'), null, 'nothing under way');
+  assert.ok(game(`!objective() || jobOf(trackedJob()).tier === 'story'`), 'nothing under way but the story');
 });
 
 off('no job texts', 'jobs: an escort with a twist on the comms, handed in where it delivers; goods handed over; abandoning starts over', () => {
@@ -1126,7 +1126,7 @@ test('progress: a kill gives experience, a level up makes the ship stronger, a t
   game(`gainXP(Progress.toNext(1) + Progress.toNext(2) + Progress.toNext(3) - 1)`);
   assert.strictEqual(game('pilotLevel()'), 3);
   assert.ok(game('SHIP.hull') > hull, 'sturdier at level 3');
-  assert.match(Messages.log.map((l) => l.text).join('|'), /Level 3 · a talent point to spend/);
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Level 3 · talent point/);
   assert.ok(game(`cargo.squad.every((m) => m.disabled || m.xp > 0)`), 'the squad learns too');
   // A destroyed enemy: experience by its tier.
   const xp = game('cargo.pilot.xp');

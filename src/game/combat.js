@@ -16,7 +16,6 @@ import { Abilities } from '../rules/abilities.js';
 import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
-import { Research } from '../rules/research.js';
 import { Progress } from '../rules/progress.js';
 import { Vendor } from '../rules/vendor.js';
 import { CombatPanel } from '../ui/combat-panel.js';
@@ -30,20 +29,21 @@ import { lostOnSurface } from './surface-run.js';
 import { landing, surfaceAt } from './landing.js';
 import { surfaceWalls } from './surface-squad.js';
 import { guardianDown } from './dungeon.js';
-import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
+import { attackStructure, defenderSpecs, isStructure, orderDefenders, setEngage, structureAggro, structureHostile, structureDestroyed, structureGroup, structurePose, structureSpec, syncStructures } from './structures.js';
 import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
 import { gainXP } from './progress.js';
-import { eliteDown, orderPatrols, patrolDown, patrolSpecs, trafficShip } from './traffic.js';
+import { tip } from './tips.js';
+import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
 import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
 import { HOSTILE_COLOR, fmtDist, frameList, isHostile, select } from './selection.js';
 import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
-import { NEAR, PLAYER_DRAW, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
+import { NEAR, PLAYER_DRAW, SHIP, TAU, autopilot, showBanner, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
 import { simTime } from './update.js';
 import { world } from './world.js';
 
@@ -132,14 +132,23 @@ export function enemySpec(e, name) {
 // An enemy's stats: its gear (by role and tier), the aliens' a good deal tougher and harder hitting,
 // a dungeon's guardians as they're made (game/dungeon.js: e.stats).
 export const ALIEN = { hull: 1.35, shield: 1.25, damage: 1.25 };
+// Every hostile ship is sturdier and hits softer than its gear alone says (notes/review.md): an even
+// fight lasts long enough for a skill to be used more than once, and for a heavy shot to be seen
+// coming and cancelled, and a new pilot has time to see a fight going wrong.
+export const FOE = { hull: 1.9, shield: 1.4, damage: 0.6 };
+const scaled = (st, k) => ({
+  ...st, hull: Math.round(st.hull * k.hull), shield: Math.round(st.shield * k.shield), firepower: st.firepower * k.damage,
+  weapons: st.weapons.map((w) => ({ ...w, damage: w.damage * k.damage })),
+});
+const tuned = new WeakMap(); // stats made elsewhere (an elite's, a guardian's), tuned once
+export function foeTuned(st) {
+  if (!tuned.has(st)) tuned.set(st, scaled(st, FOE));
+  return tuned.get(st);
+}
 export function foeStats(e) {
-  if (e.stats) return e.stats;
-  const st = Loadout.stats(Loadout.npc(e.role, e.tier || 1));
-  if (e.faction !== 'alien') return st;
-  return {
-    ...st, hull: Math.round(st.hull * ALIEN.hull), shield: Math.round(st.shield * ALIEN.shield), firepower: st.firepower * ALIEN.damage,
-    weapons: st.weapons.map((w) => ({ ...w, damage: w.damage * ALIEN.damage })),
-  };
+  if (e.stats) return foeTuned(e.stats);
+  const st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
+  return e.faction === 'alien' ? scaled(st, ALIEN) : st;
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
@@ -255,6 +264,7 @@ export function engage(target, ambushed = false) {
   select(null);
   setMode('in-combat', true);
   if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
+  tip('fight');
 }
 
 // A station, a turret or an outpost attacked (or opening fire: ambushed): it and the rest of its
@@ -301,7 +311,7 @@ export function engageStructures(target, ambushed = false) {
 // (it lands with you: game/surface-squad.js). Turrets hold their place; raiders and the Warden fly,
 // and the caverns' walls stop every ship in it. Mining stops for it; guardians woken while one is
 // on join it.
-const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.stats, fixed: g.role === 'turret', body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
+const guardianSpec = (g) => ({ id: g.key, name: g.name, stats: g.role === 'turret' ? g.stats : foeTuned(g.stats), fixed: g.role === 'turret', body: { x: g.x, y: g.y, vx: 0, vy: 0, angle: g.angle, radius: g.radius } });
 const guardianPose = (g) => ({ x: g.x, y: g.y, a: g.angle, thrust: 0, role: 'fighter', tier: g.tier, radius: g.radius, name: g.name, guardian: g });
 export function engageOnSurface(foes) {
   if (!foes.length || landing.phase !== 'surface' || landing.wrecked || fight.wreckT > 0) return;
@@ -450,7 +460,7 @@ export function explode(x, y, r) {
 // costs regard with them (rules/reputation.js KILL), which ripples to their friends and enemies.
 export function shipDestroyed(key) {
   const p = fight.ships.get(key) || fight.lastShips?.get(key);
-  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian); settleTally(); return; } // a dungeon's (game/dungeon.js)
+  if (p?.guardian) { fight.dying.delete(key); explode(p.x, p.y, p.radius); guardianDown(p.guardian, p); settleTally(); return; } // a dungeon's (game/dungeon.js)
   if (p?.structure) { fight.dying.delete(key); explode(p.x, p.y, p.radius * (p.structure.kind === 'turret' ? 1 : 1.8)); structureDestroyed(p.structure); settleTally(); return; } // a station, turret or outpost (game/structures.js)
   const was = world.scene.get(key), elite = trafficShip(key)?.elite ? trafficShip(key) : null;
   if (!cargo.removed.has(key) && was?.pack !== undefined && was.faction !== 'alien') Reputation.change(cargo.rep, Factions.PIRATES, -Reputation.KILL);
@@ -458,7 +468,8 @@ export function shipDestroyed(key) {
   fight.dying.delete(key);
   if (!p) { settleTally(); saveCargo(); return; }
   explode(p.x, p.y, p.radius);
-  if (elite) eliteDown(elite); // a named ace (game/traffic.js): its bounty, loot and gambit
+  if (elite) eliteDown(elite, p); // a named ace (game/traffic.js): its bounty, loot and gambit
+  raiderDown(key, p); // a raid's last: where its gear will float (game/traffic.js)
   gainXP(Progress.killXP(p.tier || 1, pilotLevel())); // experience (game/progress.js), the squad's too
   CombatCore.loot(world.galaxy.seed, key, p.role, p.tier).forEach((d, i) => {
     const a = (i / 3) * TAU + Math.random(), r = 20 + Math.random() * 40;
@@ -470,6 +481,7 @@ export function shipDestroyed(key) {
   // Now and then gear (rules/loot.js): a fighter's drop table, at its tier.
   const gear = Loot.drops('fighter', key, { level: p.tier || 1, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
   gear.forEach((spec, i) => {
+    tip('drop');
     cargo.drops.push(dropEntity({ key: `loot:${key}:${i}`, loot: spec, seed: spec.seed, x: p.x + (Math.random() - 0.5) * 60, y: p.y + (Math.random() - 0.5) * 60 }));
   });
   lootDropped(gear);
@@ -477,7 +489,7 @@ export function shipDestroyed(key) {
   // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned
   // yet, of up to a tier above its own.
   const g = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier) && Vendor.gambitDrop(world.galaxy.seed, key, p.tier || 1, ownedGambits());
-  if (g && grantGambit(g)) notify(`Gambit recovered: import ${Research.title(g)} · your squad can use it now`, 4, { tone: 'good' });
+  if (g && grantGambit(g)) notify(`Gambit recovered: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
   settleTally();
   saveCargo();
 }
@@ -522,6 +534,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
+  showBanner('SHIP LOST', `Towed to ${home ? home.name : startStation().name}${bill ? ` · −${bill.toLocaleString('en-US')} cr` : ''}`, 'hostile', 4.5);
   notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
@@ -538,6 +551,7 @@ export function tallyKill({ credits = 0, loot = [] } = {}) {
 function settleTally() {
   if (!fight.tallyDue || fight.dying.size) return;
   notify(tallyLine(fight.tally), 4, { priority: 2, tone: 'good' });
+  { const [title, ...rest] = tallyLine(fight.tally).split(' · '); showBanner(title.toUpperCase(), rest.join(' · '), 'good'); }
   fight.tally = null;
   fight.tallyDue = false;
 }
@@ -699,13 +713,24 @@ function playerTarget(s, id) {
 }
 // The player's buttons: the class's three skills (keys 1–3), each with its cooldown, then the kit's
 // consumables.
+// The party's frames on the combat bar: your ship, then the squad (not the patrols and turrets
+// that joined in: they're drawn where they fight).
+export function partyFrames(s) {
+  const frame = (c, you) => ({
+    id: c.id, code: you ? 'YOU' : Classes.CLASSES[Classes.valid(c.cls)].code, you,
+    hull: c.hull / Math.max(1, c.stats.hull), shield: c.stats.shield ? c.shield / c.stats.shield : 0,
+    text: you ? `${Math.max(0, Math.ceil(c.hull))}${c.stats.shield ? ` · ${Math.max(0, Math.ceil(c.shield))}` : ''}` : '',
+  });
+  return [frame(s.player, true), ...(s.allies || []).filter((a) => !a.defender && !a.patrol).map((a) => frame(a, false))];
+}
 export function skillButtons(s) {
   return Classes.skills(SHIP.cls).map((id, i) => {
     const a = Abilities.ABILITIES[id], t = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === playerTarget(s, id));
     const cd = Math.max(0, (s.player.cooldowns?.[id] ?? -Infinity) - s.t), busy = s.player.casting?.id === id;
+    const locked = !Abilities.unlocked(id, s.player.stats.level);
     return {
       id: `ability:${id}`, code: a.code, label: `${a.name} (${i + 1})`, skill: true, key: String(i + 1),
-      badge: busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : String(i + 1), cooling: cd > 0 ? cd / a.cooldown : 0,
+      badge: locked ? `Lv ${a.level}` : busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : a.name.split(' ')[0], cooling: cd > 0 ? cd / a.cooldown : 0, busy,
       enabled: !!t && Abilities.ready(s.player, id, t, s.t),
     };
   });
@@ -733,7 +758,7 @@ export function focusOn(id, manual = true) {
 // The combat bar: the skills and the kit while the fight runs (the outcome is a notice: endFight).
 export function updateCombatPanel() {
   if (!fight.s || fight.wrecked) { CombatPanel.hide(); return; }
-  CombatPanel.show({ abilities: abilityButtons(fight.s) });
+  CombatPanel.show({ abilities: abilityButtons(fight.s), party: partyFrames(fight.s) });
 }
 
 // Where a fight is drawn, in screen px: in space the world through the camera (worldToScreen,
@@ -1003,6 +1028,42 @@ export function drawFightOverlay(V = SPACE_VIEW) {
 // their letter and distance (edgeMarkers); a tap on one targets it.
 export let foeHits = [];
 
+// Before a fight: over every hostile ship on screen, its level in the colour of how a fight with
+// its pack would go (threat: good, amber, hostile), so a pack too strong is seen before it is met
+// (notes/review.md). An elite's has a bar over it. Worked out afresh a few times a second.
+const marks = { at: -1, list: [] };
+export function drawThreatMarks() {
+  if (fight.s || landing.on || docked) return;
+  const now = performance.now();
+  if (now - marks.at > 400) {
+    marks.at = now;
+    marks.list = frameList.filter((e) => isHostile(e) && e.kind === 'ship' && !cargo.removed.has(e.key) && !fight.dying.has(e.key))
+      .map((e) => ({ e, tone: threat(e).tone, level: Progress.foeLevel(e.tier || 1) }));
+  }
+  if (!marks.list.length) return;
+  const tones = { good: COLORS.good, warn: COLORS.amber, hostile: COLORS.hostile };
+  ctx.save();
+  ctx.font = Theme.font(14);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+  ctx.shadowBlur = 3;
+  for (const m of marks.list) {
+    if (!visible(m.e)) continue;
+    const [sx, sy] = worldToScreen(m.e.x, m.e.y), y = sy - (m.e.hitRadius || m.e.radius || 20) * view.zoom - 10;
+    ctx.fillStyle = tones[m.tone] || COLORS.hud;
+    ctx.globalAlpha = 1;
+    ctx.fillText(`${m.level}`, sx, y);
+    const w = ctx.measureText(`${m.level}`).width / 2 + 4;
+    ctx.beginPath(); // a chevron either side of the number
+    ctx.moveTo(sx - w, y - 10); ctx.lineTo(sx - w - 5, y - 5); ctx.lineTo(sx - w, y);
+    ctx.moveTo(sx + w, y - 10); ctx.lineTo(sx + w + 5, y - 5); ctx.lineTo(sx + w, y);
+    if (m.e.elite) { ctx.moveTo(sx - w, y - 15); ctx.lineTo(sx + w, y - 15); }
+    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 1.5; ctx.stroke();
+  }
+  ctx.restore();
+}
+
 export function drawFoeMarkers() {
   foeHits = [];
   const s = fight.s;
@@ -1047,7 +1108,7 @@ export function init() {
   // Hostile ships can be attacked; any ship can be approached (and followed).
   actions.add({ id: 'attack', kind: 'ship', verb: 'Attack', when: (e) => isHostile(e), range: () => CombatCore.config.engageRange, run: (e) => engage(e) });
   // Every man-made thing can be attacked (game/structures.js): a station, its turrets, an outpost.
-  actions.add({ id: 'attack-structure', kind: ['station', 'turret', 'outpost'], verb: 'Attack', when: (e) => isStructure(e) && !e.razed, range: () => CombatCore.config.engageRange, run: (e) => attackStructure(e) });
+  actions.add({ id: 'attack-structure', kind: ['station', 'turret', 'outpost'], verb: 'Attack', when: (e) => isStructure(e) && !e.razed, last: (e) => !structureHostile(e), range: () => CombatCore.config.engageRange, run: (e) => attackStructure(e) });
   setEngage(engageStructures);
   CombatPanel.onButton = (id) => {
     if (fight.s && id.startsWith('ability:')) { const a = id.slice(8); useAbility(fight.s, fight.s.player, a, playerTarget(fight.s, a)); }

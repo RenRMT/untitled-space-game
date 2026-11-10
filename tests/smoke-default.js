@@ -57,6 +57,7 @@ test('a new game: beside the capital in Wedge space, the gates online; no squad'
   assert.ok(game('world.scene.gates.every((g) => !g.offline)'), 'the gates are online from the start');
   assert.ok(game(`startStation().station.market.type === 'capital' && actions.state('dock', startStation()).inRange`), 'beside the capital, in docking range');
   assert.strictEqual(game('cargo.squad.length'), 0, 'no squad');
+  assert.ok(game(`jobOf(trackedJob()).tier === 'story' && jobOf(trackedJob()).chapter === 1 && !!here.objective`), 'chapter 1 taken, its objective on the HUD');
   assert.strictEqual(game('world.galaxy.systems[0].faction'), 'wedge', 'the start is Wedge space');
   // Hostiles out in low and lawless security, none in high.
   assert.ok(game('world.galaxy.packs.length') > 0, 'hostile packs');
@@ -135,8 +136,8 @@ test('the outfitter: gambits, today\'s gear and consumables for credits; the gea
   assert.strictEqual(game('vendor.level'), 1, 'a level 1 outfitter in Wedge space');
   const text = onStation();
   assert.match(text, /Gambits/);
-  assert.match(text, /import core\.bool@1\.0/);
-  assert.ok(!/import mem\.ext@3\.0/.test(text), 'the best gambits are sold further out');
+  assert.match(text, /And · Not/);
+  assert.ok(!/Memory III/.test(text), 'the best gambits are sold further out');
   // A gambit: bought once, known by the squad's programs from then on.
   assert.ok(!game('logicKnown().has("core.bool")'));
   const credits = game('cargo.credits');
@@ -199,8 +200,11 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
   assert.ok(game('traffic.sys === __si && !!traffic.elite'), 'an elite');
   assert.match(game('traffic.elite.name'), /^[A-Z][a-z]+ /);
   assert.ok(game('isHostile(traffic.elite) && traffic.elite.stats.hull > Loadout.stats(Loadout.npc("fighter", traffic.elite.tier)).hull * 2'), 'hostile, and tough');
-  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; eliteDown(traffic.elite)');
-  assert.ok(game('cargo.credits > __cr && Object.keys(cargo.gear).length > __gear'), 'a bounty and loot');
+  game('globalThis.__cr = cargo.credits; globalThis.__gear = Object.keys(cargo.gear).length; globalThis.__at = { x: traffic.elite.x, y: traffic.elite.y }; eliteDown(traffic.elite)');
+  assert.ok(game('cargo.credits > __cr'), 'a bounty');
+  // Its loot floats where it went down, to drag aboard, not straight into the spare gear.
+  assert.ok(game('Object.keys(cargo.gear).length === __gear'), 'nothing aboard yet');
+  assert.ok(game('cargo.drops.some((e) => e.kind === "loot" && e.key.startsWith("loot:elite:") && Math.hypot(e.x - __at.x, e.y - __at.y) < 100)'), 'its loot floating at the wreck');
   assert.ok(game('!traffic.elite && cargo.world.elites[__si].at > Clock.now()'), 'gone until it respawns');
   game('tickTraffic()');
   assert.ok(game('!traffic.elite'), 'not straight back');
@@ -211,6 +215,7 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
   assert.ok(game('traffic.raid.ships.every((e) => isHostile(e))'));
   game('globalThis.__cr = cargo.credits; for (const k of traffic.raid.keys) cargo.removed.add(k); tickTraffic()');
   assert.ok(game('!traffic.raid && cargo.credits > __cr'), 'the bounty');
+  assert.ok(game('cargo.drops.some((e) => e.kind === "loot" && e.key.startsWith("loot:raid:"))'), 'its gear floating, to drag aboard');
   assert.match(Messages.log.map((l) => l.text).join('|'), /is safe · [\d,]+ cr bounty/);
   // Saved: the timers.
   game('saveCargoNow(); loadCargo(world.galaxy)');
@@ -268,7 +273,7 @@ test('classes: the ship is a DPS to start, and turns Tank or Healer at a dock, i
 
 test('the squad: a wingman hired at a dock, its class program using its skills', () => {
   game(`cargo.credits = 10000; StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Hire a wingman/);
+  assert.match(onStation(), /Hire Healer/);
   pressOnStation(/^Hire Healer/);
   assert.strictEqual(game('cargo.squad.length'), 1, 'hired');
   assert.strictEqual(game('cargo.squad[0].cls'), 'healer');
@@ -295,6 +300,10 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
   }
   game('for (const e of fight.s.enemies) { e.stats = { ...e.stats, hull: e.stats.hull * 6 }; e.hull = e.stats.hull; }'); // long enough to see it all
   assert.ok(game(`skillButtons(fight.s).length === 3`), 'three skill buttons');
+  // Skills open by level: the first from the start, the second at 2, the third at 4.
+  assert.deepStrictEqual(game(`Abilities.skillsOf('dps').map((id) => Abilities.ABILITIES[id].level)`), [1, 2, 4]);
+  if (game('fight.s.player.stats.level') < 4) assert.ok(game(`!skillButtons(fight.s)[2].enabled && /^Lv 4$/.test(skillButtons(fight.s)[2].badge)`), 'the third skill waits for level 4');
+  assert.ok(game(`gains(1, 4, 'dps').join('|')`).includes('New skill: Salvo') && game(`gains(1, 4, 'dps').join('|')`).includes('Talent point'), 'a level up names what it gave');
   game(`fight.s.player.hull = fight.s.player.stats.hull * 0.5`);
   browser.key('1'); // overload
   assert.ok(game(`fight.s.player.casting && fight.s.player.casting.id === 'overload'`), 'activating');
@@ -319,6 +328,18 @@ test('landing: every planet is a dungeon of guardians, its Warden in the deepest
   assert.strictEqual(game('surfaceRun.W.type'), 'desert', 'cut into the desert world\'s own ground');
   assert.ok(!game('Object.keys(landing).includes("button")') && !browser.document.getElementById('takeoff-btn').listeners.click, 'no Take off button');
   assert.ok(game('dungeonRun.guards.filter((g) => g.boss).length === 1 && dungeonRun.guards.length > 3'), 'guardians and one Warden');
+  // A guardian's gear lies where it went down, drawn as its icon, and comes aboard only when dragged
+  // onto the ship, as goods lying there do; it survives a save.
+  game(`globalThis.__sd = () => (cargo.surfaceDrops[surfaceRun.e.key] || []).filter((d) => d.loot);
+    globalThis.__gear0 = Object.values(cargo.gear).reduce((a, b) => a + b, 0);
+    for (const g of dungeonRun.guards) if (!g.boss && !__sd().length) guardianDown(g, { x: g.x + 7, y: g.y });`);
+  assert.ok(game('__sd().length > 0'), 'a guardian\'s gear lying on the ground');
+  assert.ok(game('Object.values(cargo.gear).reduce((a, b) => a + b, 0) === __gear0'), 'not straight into the spare gear');
+  assert.ok(game('__sd().every((d) => surfaceStackOf(d).length === 1)'), 'each piece on its own');
+  game(`const d = __sd()[0]; globalThis.__lid = d.loot.id; readCargo({ surfaceDrops: JSON.parse(JSON.stringify(cargo.surfaceDrops)), loot: ownedLoot(), loadout: cargo.loadout })`);
+  assert.ok(game('__sd().some((d) => d.loot.id === __lid)'), 'survives a save');
+  game('dropOnCraft(__sd().find((d) => d.loot.id === __lid))');
+  assert.ok(game('cargo.gear[__lid] === 1 && !__sd().some((d) => d.loot.id === __lid)'), 'dragged aboard: into the spare gear');
   // Straight to the Warden (god mode for the test: the hull doesn't matter here).
   game(`globalThis.__boss = dungeonRun.guards.find((g) => g.boss); fight.s && endSurfaceFight();
     for (const g of dungeonRun.guards) if (!g.boss) g.alive = false;
@@ -474,10 +495,10 @@ test('turrets: round the stations; a friendly one warns before a fight, then its
   assert.ok(game('isRazed(__t.key) && !nearbyEntities(simTime).includes(__t)'), 'gone until it is rebuilt');
   assert.ok(game(`__t.hostile === false || structureHostile(__st)`), 'the provoked station stays hostile');
   game('endSurfaceFight(); fight.s = null; fight.result = null; setMode("in-combat", false); fight.grace = 30');
-  // Rebuilt after its time.
-  game('Clock.now = ((n) => () => n + 3 * 3600 * 1000)(Date.now())');
+  // Rebuilt once the ship has been to another system (no clock runs).
+  game('globalThis.__region = here.region; here.region = { ...here.region, system: { ...here.region.system, index: here.region.system.index + 1 } }');
   assert.ok(game('!isRazed(__t.key)'), 'rebuilt');
-  game('Clock.now = () => Date.now()');
+  game('here.region = __region');
 });
 
 test('loot: a station destroyed drops gear that floats, is picked up into the spare gear, and survives a save', () => {

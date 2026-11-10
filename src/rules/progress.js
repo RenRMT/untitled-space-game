@@ -21,6 +21,7 @@
 //   Progress.upgrades(talents) -> { cargo, hull, weapons }   what talents add to every hull (rules/loadout.js)
 //   Progress.lineBonus(level) -> program lines on top of the base
 //   Progress.gearLevel(item) -> level       (rules/loadout.js EQUIPMENT; loot by its item level)
+//   Progress.foeLevel(tier) -> level        what a hostile of that gear tier shows over it
 //   Progress.HULL_LEVEL[hull]
 //   Progress.RESPEC(level) -> credits       forgetting every talent
 // ES module (`Progress`); also runs in Node (the tests).
@@ -113,10 +114,12 @@ const Progress = (() => {
     if (item.loot) return Math.max(1, Math.min(MAX_LEVEL, Math.ceil((item.loot.ilvl - 10) / 2) + 1));
     return Math.max(1, (item.tier - 1) * 6 - 1);
   }
+  // The level a hostile of a gear tier shows: the first level its gear could be fitted at, about.
+  const foeLevel = (tier) => (Math.max(1, tier) - 1) * 6 + 1;
   const HULL_LEVEL = { courier: 1, hauler: 3, corvette: 8, gunship: 16 };
   const RESPEC = (level) => 200 * level;
 
-  return { MAX_LEVEL, LEVEL_BONUS, TALENTS, LIST, HULL_LEVEL, toNext, of, killXP, contractXP, wardenXP, points, talentsFor, canTake, read, apply, upgrades, lineBonus, gearLevel, RESPEC };
+  return { MAX_LEVEL, LEVEL_BONUS, TALENTS, LIST, HULL_LEVEL, toNext, of, killXP, contractXP, wardenXP, points, talentsFor, canTake, read, apply, upgrades, lineBonus, gearLevel, foeLevel, RESPEC };
 })();
 
 export { Progress };

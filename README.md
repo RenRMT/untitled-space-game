@@ -15,12 +15,17 @@ what you destroy, and push out from the safe core of your faction's space into h
   timeline (`src/combat/combat.js`, `notes/combat-research.md`): every ship flies on and acts when
   its gauge fills; enemies show what they're charging and at whom, and taking a ship's shields down
   knocks it back and cancels a heavy shot. It's all drawn round the ships, with only a skill bar
-  below; tap a ship to target it. It's the one combat mode (real time can still be tried with
-  `?combat=realtime`, for comparison).
+  below; tap a ship to target it. It's the one combat mode. The bar under a fight has a frame for
+  your ship's hull and shields and one per squad member, over thumb-sized skill buttons; a fight
+  won, a ship lost and a level reached each get a banner across the view. Every hostile on screen
+  carries its level, coloured by how a fight with its pack would go (green, amber, red), before
+  the fight starts; hostiles are sturdier and hit softer than their gear alone says (`FOE`,
+  `src/game/combat.js`), and the start system has no ambushes and no pack above its level.
   Fights play the same in space and on a surface, and the ship flies there as fast as in space.
 - **Classes and skills.** The ship, and each squad member, is a Tank, DPS or Healer
   (`src/rules/classes.js`), picked at a dock. Each class has three skills (`src/rules/abilities.js`),
-  each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight.
+  each with an activation time and a cooldown: keys 1–3 or the skill bar's buttons in a fight. They
+  open one at a time, at levels 1, 2 and 4, for the pilot and the squad alike.
 - **A living galaxy.** The system the ship is in has traffic (`src/game/traffic.js`): freighters
   plying between its stations, and patrols of named pilots circling them, who join a fight against
   hostiles nearby unless their faction counts you Hostile. Every system of level 2 and up has a named
@@ -38,7 +43,7 @@ what you destroy, and push out from the safe core of your faction's space into h
   their programs (instruction cards, `src/rules/logic.js`), which can use their class's skills; each
   class starts with a program that does. A program is built from **gambits**, FF12 style: the
   building blocks (conditions such as "is charging a heavy shot" or "has Taunt", picks, actions,
-  more memory), bought at any station's outfitter (better ones further out) or found on pirates
+  more memory; named in plain words: And · Not, Pick a target, Memory I), bought at any station's outfitter (better ones further out) or found on pirates
   and Wardens (`src/rules/vendor.js`, `src/game/vendor.js`).
 - **The outfitter.** Every station's Outfitter tab sells gambits up to its system's level, a stock of
   gear rolled like loot (Common and Uncommon, Rare at a capital) that turns over every day,
@@ -55,9 +60,10 @@ what you destroy, and push out from the safe core of your faction's space into h
   A station and its turrets fight as one. Attacking a faction's station warns first, then costs
   regard with it and keeps that station hostile for the session; a faction that counts you Hostile
   has its turrets open fire on sight. Destroyed, a faction's turret or station is a wreck until it's
-  rebuilt (20 min, 90 min real time; no docking meanwhile). Friendly turrets fight on your side
+  rebuilt, once the ship has been to another system (no docking meanwhile). On a station or turret
+  that isn't hostile, Attack is the last action offered. Friendly turrets fight on your side
   against hostiles near their station.
-- **The main story.** Seven chapters (`STORY` in `src/story/job-texts.js`, placed by
+- **The main story.** A new game starts with chapter 1 already taken and tracked. Seven chapters (`STORY` in `src/story/job-texts.js`, placed by
   `src/story/jobs.js` as the `story` tier), offered at every station, each once the one before is
   done and the pilot has reached its level (1 to 24); while it waits, the Missions tab says what
   level it opens at. It takes you from Wedge space out past the frontier to the aliens at the
@@ -98,7 +104,10 @@ the ship comes aboard at once. Nothing is pulled in or picked up by flying near 
 shows under the finger in space and on a surface alike, and the map, settings, factions and
 context menu stay up in a fight. Jump gates are named for where they lead. A dungeon's way out is
 its landing pad: fly off it and back onto it to take off.
-Explanations in the menus wait behind an ⓘ. There is no production or research in the main game
+Explanations in the menus wait behind an ⓘ. A dock opens on Missions (the first tab) on a first
+visit and whenever a mission can be handed in there. Three prompts, one line each, show once: the
+controls in a new game, a first fight, a first drop (`src/game/tips.js`). `notes/review.md` is the
+review these changes came from. There is no production or research in the main game
 any more (the idle game has them, on the same rules: `notes/archived-systems.md`).
 Plain JavaScript (ES modules) on a 2D canvas, with no build step and no runtime dependencies.
 
@@ -134,7 +143,6 @@ URL parameters:
 | `?seed=123` | another galaxy (Settings → Re-roll picks one at random) |
 | `?fresh` | forget this galaxy's saved cargo and charts |
 | `?pirates` | pirates in the showcase-alone galaxy too, for the tests (the spiral galaxy has its hostiles anyway) |
-| `?combat=realtime` | fights in real time instead of on the timeline, for comparison (not saved) |
 | `?dev` | every system and contact on the map, the testing buttons, the performance overlay, god mode (your ship and your squad's take no damage), and everything unlocked even in a fresh game: every station service open and the jobs board up (the save isn't changed) |
 | `?perf` | the performance overlay only (P toggles it) |
 | `?style=lowpoly`, `?move=direct` | a setting for this visit |

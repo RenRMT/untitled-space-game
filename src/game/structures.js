@@ -9,7 +9,7 @@
 //   outposts) open fire on a ship that comes within their guns' reach, like a pirate pack.
 // - Friendly defences help: a fight against hostiles near a station whose owner doesn't count you
 //   Hostile has its turrets on your side (fixed allies, firing at the nearest enemy in reach).
-// - Destroyed: a faction's turret or station is razed until it's rebuilt (REBUILD, real time; a
+// - Destroyed: a faction's turret or station is razed until the ship has been to another system (a
 //   razed station refuses docking and shows as a wreck); a mission's are gone for good
 //   (cargo.removed, which its progress reads). Each drops loot (rules/loot.js SOURCES).
 // Part of the flight view; src/main.js starts it.
@@ -30,7 +30,7 @@ import { tallyKill } from './combat.js';
 import { gainXP } from './progress.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { NEAR, TAU, fight, notify, ship } from './state.js';
+import { NEAR, TAU, fight, here, notify, ship } from './state.js';
 import { world } from './world.js';
 
 export const STRUCTURE_KINDS = ['station', 'turret', 'outpost'];
@@ -46,19 +46,19 @@ let armed = { key: null, until: 0 };
 
 // ---------- Razed and rebuilt ----------
 
+// A razed one stays razed while the ship is in its system, and is rebuilt once it has been to
+// another (cargo.razed[key]: its system's index + 1). No clock runs while the game is closed
+// (notes/review.md).
+const systemHere = () => { const i = here.region?.system?.index; return Number.isInteger(i) ? i + 1 : 0; };
 export function isRazed(key) {
-  const t = cargo.razed[key];
-  if (t === undefined) return false;
-  if (t > Clock.now()) return true;
+  const at = cargo.razed[key];
+  if (at === undefined) return false;
+  const now = systemHere();
+  if (!now || at === now) return true; // (between systems: nothing changes)
   delete cargo.razed[key];
   return false;
 }
-// How long until a razed one is back: 'rebuilt in 1 h 12 min'.
-export function razedFor(key) {
-  const s = Math.max(0, (cargo.razed[key] - Clock.now()) / 1000);
-  const h = Math.floor(s / 3600), m = Math.ceil((s % 3600) / 60);
-  return `rebuilt in ${h ? `${h} h ` : ''}${m} min`;
-}
+export const razedFor = () => 'rebuilt once you leave the system';
 
 // The station a structure belongs to (itself for a station or an outpost).
 const hostOf = (e) => (e.kind === 'turret' ? e.host : e);
@@ -202,14 +202,14 @@ export function structureAggro(list, joining) {
 // costs with its owner (not for one of your defenders, which the enemy destroyed).
 export function structureDestroyed(e, { friendly = false } = {}) {
   const owner = ownerOf(e), faction = !e.raider && e.kind !== 'outpost';
-  if (faction) cargo.razed[e.key] = Clock.now() + Structures.REBUILD[e.kind === 'turret' ? 'turret' : 'station'] * 1000;
+  if (faction) cargo.razed[e.key] = systemHere() || 1;
   else cargo.removed.add(e.key);
   if (friendly) { notify(`${structureName(e)} destroyed`, 2.5, { tone: 'warn' }); saveCargo(); return; }
   if (faction && Factions.get(owner)) Reputation.change(cargo.rep, owner, -Structures.REGARD[e.kind === 'turret' ? 'turret' : 'station']);
   const source = e.kind === 'turret' ? 'turret' : e.kind === 'outpost' ? 'outpost' : 'station';
   const level = e.tier || 1;
   gainXP(Progress.killXP(level + (e.kind === 'station' ? 1 : 0), pilotLevel()) * (e.kind === 'station' ? 3 : 1.5)); // tougher than a ship: more for it
-  const specs = Loot.drops(source, `${e.key}:${cargo.razed[e.key] || 0}`, { level, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
+  const specs = Loot.drops(source, `${e.key}:${Clock.now().toString(36)}`, { level, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity });
   specs.forEach((spec, i) => {
     const a = (i / Math.max(1, specs.length)) * TAU + Math.random(), r = fightRadius(e) + 40 + Math.random() * 60;
     cargo.drops.push(dropEntity({ key: `loot:${e.key}:${Clock.now().toString(36)}:${i}`, loot: spec, seed: spec.seed, x: e.x + Math.cos(a) * r, y: e.y + Math.sin(a) * r }));

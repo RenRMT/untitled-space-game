@@ -18,7 +18,7 @@
 //   patrolSpecs(at) -> [spec]  patrols near a fight, as allies (game/combat.js engage)
 //   orderPatrols(s)            their orders each step: the leader's target, else the nearest enemy
 //   trafficShip(id) -> entity | null   a traffic ship by key (fight effects, game/combat.js)
-//   patrolDown(id), eliteDown(e)
+//   patrolDown(id), eliteDown(e, at), raiderDown(key, at)
 // Part of the flight view; src/main.js starts it.
 
 import { ArtBlueprints } from '../art/blueprints.js';
@@ -29,10 +29,9 @@ import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Progress } from '../rules/progress.js';
-import { Research } from '../rules/research.js';
 import { Vendor } from '../rules/vendor.js';
 import { Factions } from '../world/factions.js';
-import { cargo, lootClasses, lootNotice, pilotLevel, saveCargo, takeLoot } from './cargo.js';
+import { cargo, lootClasses, pilotLevel, saveCargo, scatterLoot } from './cargo.js';
 import { explode } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
@@ -204,7 +203,9 @@ function raidWon(raid) {
   cargo.credits += bounty;
   notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
   gainXP(Progress.contractXP('hard', pilotLevel(), raid.level), 'the raid beaten off');
-  for (const spec of Loot.drops('mission', `raid:${raid.sys}:${raid.n}`, { level: raid.level, floor: 'uncommon', seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  // Its gear floats where the last raider went down (raiderDown), or by the station.
+  const at = raid.wreck || raid.station;
+  scatterLoot(Loot.drops('mission', `raid:${raid.sys}:${raid.n}`, { level: raid.level, floor: 'uncommon', seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `raid:${raid.sys}:${raid.n}`);
   saveCargo();
 }
 
@@ -245,8 +246,15 @@ export function patrolDown(id) {
   traffic.ships.splice(i, 1);
 }
 
-// An elite destroyed: its own loot, a gambit, a bounty, and another one due after a while.
-export function eliteDown(e) {
+// A raider destroyed (game/combat.js shipDestroyed, at its wreck { x, y }): where the raid's gear
+// will float if it was the last.
+export function raiderDown(key, at) {
+  if (traffic.raid?.keys.includes(key)) traffic.raid.wreck = { x: at.x, y: at.y };
+}
+
+// An elite destroyed (at its wreck { x, y }): its own loot floating there, a gambit, a bounty, and
+// another one due after a while.
+export function eliteDown(e, at = e) {
   const si = traffic.sys, rec = (cargo.world.elites[si] ||= { n: 0, at: 0 });
   rec.n++;
   rec.at = Clock.now() + ELITE_RESPAWN;
@@ -255,8 +263,8 @@ export function eliteDown(e) {
   cargo.credits += bounty;
   notify(`${e.name} destroyed · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
   gainXP(Progress.wardenXP(levelOf(si)) / 2, '');
-  for (const spec of Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity })) lootNotice(takeLoot(spec));
+  scatterLoot(Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `elite:${e.key}`);
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());
-  if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: import ${Research.title(g)}`, 4, { tone: 'good' });
+  if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
   saveCargo();
 }

@@ -124,7 +124,7 @@ export function drawDrop(c, kind, x, y, k, color, selected = false, { count = 1,
 // as each piece of loot is its own); reach: how close counts, in the units of their x and y.
 // Returns a WeakMap from each drop in a stack of two or more to its stack (the lead first).
 // Whom a floating piece of loot would be an upgrade for (its item made, to compare), or ''.
-function dropUpgrade(e) {
+export function dropUpgrade(e) {
   Loot.register(e.spec, Loadout.EQUIPMENT);
   return upgradeLine(e.spec.id);
 }

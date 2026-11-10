@@ -30,6 +30,7 @@ import { HULL_ART } from './options.js';
 import { buildWings } from './squad.js';
 import { queueFit } from './quickfit.js';
 import { upgradeLine } from './upgrades.js';
+import { showHints } from './input.js';
 import { SHIP, clamp, notify, ship } from './state.js';
 
 // items: trade goods in the hold, { kind (a rules/goods.js type), label, category: 'trade' }, one unit
@@ -56,12 +57,12 @@ import { SHIP, clamp, notify, ship } from './state.js';
 // map follow (an id, or null for the first under way). market: station stockpiles the player's
 // trading has moved away from rest (rules/economy.js), drifting back on the real-world clock.
 // rep: how each faction regards the player (rules/reputation.js), moved by the jobs handed in.
-// surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind, x, y }] }): what
+// surfaceDrops: what lies on each surface to pick up ({ [body key]: [{ key, kind | loot, x, y }] }): what
 // deposits left, what was jettisoned and the hold of a ship lost there (game/surface-run.js).
 // loot: the loot gear owned (rules/loot.js specs by id: fitted, spare or floating), remade into
 // Loadout.EQUIPMENT as the save loads; lootPity: the bad-luck counters ({ rare, epic }); rewards:
 // gear rewards still to choose ([{ key, from, options: [spec] }]: game/rewards.js).
-// razed: stations and turrets destroyed ({ [key]: when they're rebuilt, real-clock ms }: game/structures.js).
+// razed: stations and turrets destroyed ({ [key]: their system's index + 1 }: game/structures.js).
 export const cargo = {
   key: '', items: [], components: {}, removed: new Set(), credits: 0, drops: [], hull: 0, home: null, surfaceDrops: {},
   loadout: Loadout.starter('courier'), gear: {}, mods: {}, kit: {}, gambits: [], shop: null, squad: [], pilot: { xp: 0, talents: [] }, world: { elites: {}, raids: { n: 0, next: 0 }, daily: {} },
@@ -80,6 +81,15 @@ export const DROP_ANGLE = -0.35;
 export function dropEntity(d) {
   if (d.loot) return { ...Entities.lootDrop({ key: d.key, spec: d.loot, x: d.x, y: d.y, angle: DROP_ANGLE, tumble: 0 }), drop: d };
   return { ...Entities.item({ key: d.key, kind: d.kind, seed: d.seed, x: d.x, y: d.y, angle: DROP_ANGLE, tumble: 0 }), drop: d };
+}
+// Gear left floating round (x, y) (specs: rules/loot.js), keyed by tag, within spread of it: to be
+// dragged aboard like any drop, and felt as it drops (lootDropped).
+export function scatterLoot(specs, x, y, tag, spread = 60) {
+  specs.forEach((spec, i) => {
+    const a = (i / Math.max(1, specs.length)) * Math.PI * 2 + Math.random(), r = spread * (0.4 + 0.6 * Math.random());
+    cargo.drops.push(dropEntity({ key: `loot:${tag}:${i}`, loot: spec, seed: spec.seed, x: x + Math.cos(a) * r, y: y + Math.sin(a) * r }));
+  });
+  lootDropped(specs);
 }
 
 // An item record from a save, brought up to date: saves from before item types stored a category
@@ -154,6 +164,13 @@ export function loadCargo(galaxy) {
   try {
     if (d) readCargo(Save.migrate(d, CARGO_MIGRATIONS), galaxy);
   } catch (e) { /* a damaged save: keep what was read before the error */ }
+  // A new game starts with the story's first chapter taken, from the station it starts beside: its
+  // objective is on the HUD from the first frame (notes/review.md).
+  if (!d) {
+    const first = cargo.board.list.find((J) => J.tier === 'story' && !J.requires);
+    if (first && cargo.missions.accept(first.id, galaxy.stations[galaxy.startStation]?.key)) cargo.track = first.id;
+    showHints(); // and the controls, until the first touch
+  }
   news.length = 0;
   applyShip({ loading: true });
   buildWings(); // the squad's ships, for the members just read
@@ -408,8 +425,15 @@ export function readCargo(d, galaxy = null) {
   if (Number.isFinite(d.hull)) cargo.hull = Math.max(1, d.hull);
   if (d.surfaceDrops && typeof d.surfaceDrops === 'object') {
     for (const [body, list] of Object.entries(d.surfaceDrops)) {
-      const ok = (Array.isArray(list) ? list : []).filter((x) => x && typeof x.key === 'string' && Number.isFinite(x.x) && Number.isFinite(x.y) && Goods.resolve(x.kind))
-        .map((x) => ({ key: x.key, kind: Goods.resolve(x.kind), x: x.x, y: x.y }));
+      const ok = (Array.isArray(list) ? list : []).filter((x) => x && typeof x.key === 'string' && Number.isFinite(x.x) && Number.isFinite(x.y))
+        .map((x) => {
+          if (x.loot) { // gear lying there (game/surface-run.js leaveLoot)
+            const spec = x.loot.id && Loot.read({ [x.loot.id]: x.loot })[x.loot.id];
+            return spec ? { key: x.key, loot: spec, x: x.x, y: x.y } : null;
+          }
+          const kind = Goods.resolve(x.kind);
+          return kind ? { key: x.key, kind, x: x.x, y: x.y } : null;
+        }).filter(Boolean);
       if (ok.length) cargo.surfaceDrops[body] = ok;
     }
   }

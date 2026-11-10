@@ -8,7 +8,7 @@ import { Art } from '../art/render.js';
 import { RealtimeCombat } from '../combat/combat-realtime.js';
 import { Combat } from '../combat/combat.js';
 import { Feedback } from '../core/feedback.js';
-import { Params, Store } from '../core/store.js';
+import { Store } from '../core/store.js';
 import { Theme } from '../core/theme.js';
 import { FactionsMenu } from '../ui/factions.js';
 import { SystemMap } from '../ui/map.js';
@@ -58,12 +58,11 @@ export const MOVE_MODES = ['cruise', 'direct'];
 export const moveMode = setting('move', MOVE_MODES, 'cruise', () => { ship.targetSpeed = 0; autopilot.key = null; });
 
 // Combat: turn-based on a timeline (combat/combat.js, 'rounds'), the game's one combat mode. Real
-// time (combat/combat-realtime.js, the engine under it) can still be played for comparison with
-// ?combat=realtime; it isn't offered in Settings, and isn't saved. Each fight keeps the mode it
-// started in. set() is for the tests.
+// time (combat/combat-realtime.js) is the engine under it, and no longer something a player can
+// switch to. set() is for the tests, which still run the engine on its own.
 export const COMBAT = { rounds: Combat.mode, realtime: RealtimeCombat.mode };
 export const COMBAT_MODES = Object.keys(COMBAT);
-export const combatMode = { value: COMBAT_MODES.includes(Params.get('combat')) ? Params.get('combat') : 'rounds' };
+export const combatMode = { value: 'rounds' };
 combatMode.set = (v) => { if (COMBAT_MODES.includes(v)) combatMode.value = v; };
 
 // A conversation's question answered ({ ask: key, options }):
@@ -133,8 +132,8 @@ export const ART_HINT = {
 
 // The controls, as the Controls section of Settings lists them (and the flight hints show them).
 export const CONTROLS = {
-  cruise: ['Drag to fly; drag length sets speed.', 'Double-tap empty space to stop.', 'Tap a station, asteroid or ship for options.'],
-  direct: ['Hold and drag to fly; drag length sets speed.', 'Let go to stop.', 'Tap a station, asteroid or ship for options.'],
+  cruise: ['Drag to fly', 'Double-tap to stop', 'Tap a thing for its actions'],
+  direct: ['Hold and drag to fly', 'Let go to stop', 'Tap a thing for its actions'],
 };
 
 // The menu pauses flight but keeps drawing it, so a new art style shows behind the panel.
@@ -177,7 +176,7 @@ export function init() {
   });
   Settings.add({
     id: 'controls', label: 'Controls', group: 'Help',
-    note: () => CONTROLS[moveMode.value].join(' '),
+    note: () => CONTROLS[moveMode.value].join(' · '),
     action: { label: 'Show hints in flight', run: showHints },
   });
   Settings.add({

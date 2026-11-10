@@ -15,7 +15,6 @@
 //   Structures.HEALTH            how much tougher than a fighter of the same tier each is
 //   Structures.REGARD            regard lost with the owner for attacking (strike) and for each
 //                                turret or station destroyed (rules/reputation.js)
-//   Structures.REBUILD           seconds (real time) until a destroyed one is back
 //   Structures.TURRET_SCALE      how much larger than its blueprint a turret is drawn in space
 //   Structures.orbit(i, n, stationRadius) -> { orbit, angle, period } where the i-th of n goes round
 // ES module (`Structures`); also runs in Node (the tests).
@@ -32,7 +31,6 @@ const Structures = (() => {
     outpost: { hull: 10, shield: 4, recharge: 3 },
   };
   const REGARD = { strike: 12, turret: 4, station: 25 };
-  const REBUILD = { turret: 20 * 60, station: 90 * 60 };
   const TURRET_SCALE = 3;
 
   // Most turrets where it's safest and round the big stations; harder systems a few more.
@@ -78,7 +76,7 @@ const Structures = (() => {
   // The i-th of n turrets round a station of this radius: evenly spaced, a slow turn round it.
   const orbit = (i, n, R) => ({ orbit: Math.round(R + 220 + (i % 2) * 90), angle: (i / Math.max(1, n)) * Math.PI * 2, period: 240 + i * 30 });
 
-  return { HEALTH, REGARD, REBUILD, TURRET_SCALE, turretCount, turretKind, turretStats, stationStats, outpostStats, orbit };
+  return { HEALTH, REGARD, TURRET_SCALE, turretCount, turretKind, turretStats, stationStats, outpostStats, orbit };
 })();
 
 export { Structures };

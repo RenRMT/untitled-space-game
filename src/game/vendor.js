@@ -21,7 +21,6 @@ import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Mods } from '../rules/mods.js';
 import { Progress } from '../rules/progress.js';
-import { Research } from '../rules/research.js';
 import { Vendor } from '../rules/vendor.js';
 import { addTo, cargo, saveCargo, takeLoot } from './cargo.js';
 import { notify } from './state.js';
@@ -55,9 +54,9 @@ export const vendor = {
     if (!here) return [];
     const owned = ownedGambits();
     return Vendor.gambits(here.level).map((id) => {
-      const P = Research.PACKAGES[id], can = Vendor.canBuyGambit(id, owned), price = Vendor.gambitPrice(id);
+      const can = Vendor.canBuyGambit(id, owned), price = Vendor.gambitPrice(id);
       const poor = can.ok && cargo.credits < price;
-      return { id, title: Research.title(id), note: P.note, tier: Vendor.GAMBIT_TIER[id], price, owned: owned.has(id), ok: can.ok && !poor, why: poor ? 'Not enough credits' : can.why };
+      return { id, title: Vendor.gambitName(id), note: Vendor.gambitNote(id), tier: Vendor.GAMBIT_TIER[id], price, owned: owned.has(id), ok: can.ok && !poor, why: poor ? 'Not enough credits' : can.why };
     });
   },
   buyGambit(id) {
@@ -66,7 +65,7 @@ export const vendor = {
     if (!Vendor.canBuyGambit(id, ownedGambits()).ok || cargo.credits < price) return false;
     cargo.credits -= price;
     grantGambit(id);
-    notify(`Gambit bought · import ${Research.title(id)}`, 2.5, { tone: 'good' });
+    notify(`Gambit bought · ${Vendor.gambitName(id)}`, 2.5, { tone: 'good' });
     return true;
   },
   gear() {

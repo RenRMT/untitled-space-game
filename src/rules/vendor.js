@@ -11,7 +11,7 @@
 // - Mods (rules/mods.js), at capitals and major stations: MOD_PRICE each.
 //
 //   Vendor.GAMBIT_TIER[id] -> 1..4          Vendor.FREE   gambits every pilot has (game/cargo.js)
-//   Vendor.gambitPrice(id) -> credits
+//   Vendor.gambitPrice(id) -> credits         Vendor.gambitName(id), Vendor.gambitNote(id)   in plain words
 //   Vendor.gambits(level) -> [id]            what a station at that level sells, in the lab's order
 //   Vendor.canBuyGambit(id, owned) -> { ok, why }   owned: a Set of ids (FREE included)
 //   Vendor.gambitDrop(seed, key, level, owned) -> id | null   a gambit not owned, up to a tier
@@ -38,6 +38,28 @@ const Vendor = (() => {
     'combat.focus': 3, 'tactics.read': 3, 'mem.ext.2': 3,
     'mem.ext.3': 4,
   };
+  // What each gambit is called and does, in the game's own words (the lab's package names, such as
+  // `core.bool@1.0`, are the idle game's: rules/research.js).
+  const GAMBIT_TEXT = {
+    'core.bool': ['And · Not', 'two conditions on one line'],
+    'core.bool.or': ['Or', 'either condition will do'],
+    'mem.ext.1': ['Memory I', 'a 4th program line'],
+    'mem.ext.2': ['Memory II', '6 program lines'],
+    'mem.ext.3': ['Memory III', '8 program lines'],
+    'combat.select': ['Pick a target', 'nearest, weakest or strongest'],
+    'combat.range': ['Rangefinder', 'distance, and fighting at gun range'],
+    'combat.threat': ['Threat sense', 'whom an enemy is shooting at'],
+    'combat.focus': ['Ship types', 'what kind of ship an enemy is'],
+    'tactics.count': ['Head count', 'how many are still flying'],
+    'tactics.use': ['Use a skill', 'skills and consumables'],
+    'tactics.read': ['Read the enemy', 'a heavy shot charging, and statuses'],
+    'maint.sense': ['Damage sense', 'hull and shields left'],
+    'squad.link': ['Squad link', 'the other squad members'],
+    'maint.retreat': ['Retreat', 'fall back and hold fire'],
+    'maint.guard': ['Guard', 'stay by a ship and defend it'],
+  };
+  const gambitName = (id) => GAMBIT_TEXT[id]?.[0] || (Research.PACKAGES[id] ? Research.title(id) : String(id));
+  const gambitNote = (id) => GAMBIT_TEXT[id]?.[1] || Research.PACKAGES[id]?.note || '';
   const GAMBIT_PRICE = 2; // × the package's credits in the lab
   const GEAR_COUNT = 6, GEAR_MARKUP = 2;
   const KIT = ['repair-nanites', 'shield-cell', 'emp-charge', 'jammer-pod'];
@@ -54,7 +76,7 @@ const Vendor = (() => {
     if (!isGambit(id)) return { ok: false, why: 'Not for sale' };
     if (owned.has(id)) return { ok: false, why: 'Owned' };
     const need = Research.PACKAGES[id].requires.filter((r) => !owned.has(r));
-    if (need.length) return { ok: false, why: `Needs ${need.map(Research.title).join(', ')}` };
+    if (need.length) return { ok: false, why: `Needs ${need.map(gambitName).join(', ')}` };
     return { ok: true, why: '' };
   }
 
@@ -79,7 +101,7 @@ const Vendor = (() => {
 
   for (const id of KIT) if (!Abilities.ABILITIES[id]) throw new Error(`Vendor: no ability ${id}`);
   const MODS = Mods.LIST.map((m) => m.id);
-  return { FREE, GAMBIT_TIER, KIT, MOD_PRICE, MODS, sellsMods, gambitPrice, gambits, canBuyGambit, gambitDrop, day, gear, gearPrice, isGambit };
+  return { FREE, GAMBIT_TIER, KIT, MOD_PRICE, MODS, sellsMods, gambitPrice, gambits, canBuyGambit, gambitDrop, day, gear, gearPrice, isGambit, gambitName, gambitNote };
 })();
 
 export { Vendor };
