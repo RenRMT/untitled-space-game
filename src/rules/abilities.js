@@ -14,7 +14,7 @@
 // - radiation purge: clears some of the radiation built up,
 // - fuel canister: fuel into the tank,
 // - seismic charge: a burst of damage to the rock the tools are locked on (rock only, not gas).
-// Class skills (rules/classes.js: three for each of Tank, DPS and Healer) are abilities too, with no
+// Class skills (rules/classes.js: four for each of Tank, DPS and Healer) are abilities too, with no
 // charges (`skill`, its class in `cls`): a ship of that class uses one when it's off cooldown. Each
 // has an activation time (`cast`): used, it starts at once and its cooldown runs from then, but its
 // effect lands only once the activation is done (`resolve`, each step of a fight); the ship can't
@@ -28,6 +28,18 @@
 // - repair beam (Healer): hull back on a friend,
 // - restore (Healer): a friend's shields back in full,
 // - nanite field (Healer): hull back on every friend at once.
+// The fourth of each class opens at level 10, and gives the class a second job:
+// - aegis (Tank): every ship on its side takes less damage for a while,
+// - barrage (DPS): a burst of damage on every enemy at once,
+// - disrupt (Healer): the target's guns go quiet (as an EMP charge's), and a heavy shot it was
+//   charging is cancelled.
+// Some talents (rules/progress.js, `perk`) change what a skill does; a ship's are in stats.perks:
+// - barbed-taunt (Tank): Taunt also leaves every enemy exposed (more damage from everyone),
+// - counter-battery (Tank): while Fortify runs, its guns hit harder,
+// - executioner (DPS): Salvo and Barrage hit harder on a ship low on hull,
+// - chain-fire (DPS): a kill with Salvo makes it ready again at once,
+// - overflow (Healer): what a repair can't mend goes to the ship's shields,
+// - battle-medic (Healer): Repair beam also makes its target's guns hit harder for a while.
 // Timed effects are statuses on the combatant ({ id, until, ... }): `tick` keeps its stats as its
 // base stats with what's still running applied, so both combat modes (combat/combat.js,
 // combat/combat-realtime.js) see them without special cases, beyond holding fire while disabled.
@@ -36,7 +48,8 @@
 //   Abilities.ABILITIES[id]   { id, name, code, on: 'friend' | 'enemy', cooldown (s), price, note, ... }
 //   Abilities.LIST                         the consumables (not the skills)
 //   Abilities.SKILLS                       the class skills; Abilities.skillsOf(cls) -> their ids
-//   Abilities.unlocked(id, level) -> bool  a skill's level reached (ABILITIES[id].level: 1, 2 or 4)
+//   Abilities.unlocked(id, level) -> bool  a skill's level reached (ABILITIES[id].level: 1, 2, 4 or 10)
+//   Abilities.PERKS[id]                    a perk talent's numbers
 //   Abilities.ready(user, id, target, now) -> bool   off cooldown, and worth using on that target now
 //   Abilities.resolve(s, now) -> [events]  activations that are done land (a fight state s: player,
 //                                          allies, enemies): { type: 'ability', from, to, ability,
@@ -75,6 +88,19 @@ const Abilities = (() => {
     'repair-beam': { name: 'Repair beam', code: 'RPB', skill: true, cls: 'healer', on: 'friend', cast: 1.2, hull: 0.35, cooldown: 8, note: 'repairs 35% of a ship\'s hull' },
     restore: { name: 'Restore shields', code: 'RST', skill: true, cls: 'healer', on: 'friend', cast: 0.8, cooldown: 12, note: 'a ship\'s shields back in full' },
     'nanite-field': { name: 'Nanite field', code: 'NAN', skill: true, cls: 'healer', on: 'self', cast: 1.5, hull: 0.2, cooldown: 28, note: 'repairs 20% of the hull of every ship on its side' },
+    // The fourth skills (level 10), listed after each class's first three.
+    aegis: { name: 'Aegis', code: 'AEG', skill: true, cls: 'tank', on: 'self', cast: 0.8, time: 6, taken: 0.6, cooldown: 30, note: 'every ship on its side takes 40% less damage for 6 s' },
+    barrage: { name: 'Barrage', code: 'BRG', skill: true, cls: 'dps', on: 'enemy', cast: 1.2, burst: 1.5, cooldown: 26, note: 'a burst of 1.5 s of its guns\' damage on every enemy at once' },
+    disrupt: { name: 'Disrupt', code: 'DSR', skill: true, cls: 'healer', on: 'enemy', cast: 0.5, time: 4, immune: 8, cooldown: 22, note: 'silences a ship\'s guns for 4 s and cancels a heavy shot it was charging; it shrugs off another for 8 s more' },
+  };
+  // What the perk talents do (rules/progress.js names them and says who can take them).
+  const PERKS = {
+    'barbed-taunt': { taken: 1.15 }, // every enemy, while the taunt lasts
+    'counter-battery': { damage: 1.4 }, // its own guns, while fortified
+    executioner: { below: 0.4, damage: 1.5 }, // a burst on a ship under that share of its hull
+    'chain-fire': {},
+    overflow: {},
+    'battle-medic': { damage: 1.2, time: 5 },
   };
   for (const [id, a] of Object.entries(ABILITIES)) a.id = id;
   for (const id of ['repair-nanites', 'shield-cell', 'coolant-flush', 'rad-purge', 'fuel-canister', 'seismic-charge']) ABILITIES[id].field = true;
@@ -84,9 +110,9 @@ const Abilities = (() => {
   const SKILLS = ALL.filter((a) => a.skill);
   const skillsOf = (cls) => SKILLS.filter((a) => a.cls === cls).map((a) => a.id);
   // A class's skills open one at a time: its first from the start, the second at level 2, the third
-  // at level 4 (`level` on each), so a level gives something new to do and a first fight has one
-  // button to learn. A ship with no level (stats.level) has them all.
-  const SKILL_LEVELS = [1, 2, 4];
+  // at level 4 and the fourth at level 10 (`level` on each), so a level gives something new to do
+  // and a first fight has one button to learn. A ship with no level (stats.level) has them all.
+  const SKILL_LEVELS = [1, 2, 4, 10];
   for (const cls of new Set(SKILLS.map((a) => a.cls))) skillsOf(cls).forEach((id, i) => { ABILITIES[id].level = SKILL_LEVELS[i] || 1; });
   const unlocked = (id, level) => !ABILITIES[id]?.level || level === undefined || level === null || level >= ABILITIES[id].level;
   const casting = (c) => c?.casting || null;
@@ -94,6 +120,7 @@ const Abilities = (() => {
   const statusOf = (c, id, now) => (c.status || []).find((x) => x.id === id && x.until > now);
   const has = (c, id, now) => !!statusOf(c, id, now);
   const disabled = (c, now) => has(c, 'emp', now);
+  const perk = (c, id) => !!(c.base || c.stats)?.perks?.includes(id);
 
   // Off cooldown, the target still flying, and the use would do something.
   function ready(user, id, target, now) {
@@ -104,7 +131,9 @@ const Abilities = (() => {
       if (!unlocked(id, user.stats?.level)) return false;
       if (user.casting) return false; // one activation at a time
       switch (id) {
-        case 'taunt': case 'fortify': case 'overload': return !has(user, id, now);
+        case 'taunt': case 'fortify': case 'overload': case 'aegis': return !has(user, id, now);
+        case 'barrage': return target !== user;
+        case 'disrupt': return target !== user && !has(target, 'emp', now) && !has(target, 'emp-immune', now);
         case 'bulwark': return user.shield < user.stats.shield * 0.6;
         case 'salvo': return target !== user;
         case 'mark': return target !== user && !has(target, 'mark', now);
@@ -165,35 +194,66 @@ const Abilities = (() => {
   }
 
   // A skill's effect, once its activation is done: [events].
-  const heal = (t, share) => { const before = t.hull; t.hull = Math.min(t.stats.hull, t.hull + t.stats.hull * share); return t.hull - before; };
+  // Hull back on t, a share of its maximum: how much it mended. With `spill`, what the hull has no
+  // room for goes to its shields.
+  const heal = (t, share, spill = false) => {
+    const before = t.hull, want = t.stats.hull * share;
+    t.hull = Math.min(t.stats.hull, t.hull + want);
+    const over = want - (t.hull - before);
+    if (spill && over > 0) t.shield = Math.min(t.stats.shield, t.shield + over);
+    return t.hull - before;
+  };
+  // A burst of the user's guns on a target (salvo, barrage): `burst` seconds of their damage at once.
+  function strike(user, id, target, burst) {
+    const base = user.base || user.stats, mult = (user.stats.firepower || 0) / Math.max(1e-6, base.firepower || 1);
+    const E = PERKS.executioner, finish = perk(user, 'executioner') && target.hull < target.stats.hull * E.below ? E.damage : 1;
+    const amount = Math.round((base.firepower || 0) * burst * (mult || 1) * finish * (target.stats.taken ?? 1));
+    if (target.invulnerable) return { type: 'shot', from: user.id, to: target.id, weapon: -1, shots: 1, hits: 1, damage: 0, shieldDamage: 0, hullDamage: 0, destroyed: false, skill: id };
+    const shieldDamage = Math.min(target.shield, amount), hullDamage = Math.min(target.hull, amount - shieldDamage);
+    target.shield -= shieldDamage;
+    target.hull -= hullDamage;
+    target.quiet = 0;
+    return { type: 'shot', from: user.id, to: target.id, weapon: -1, shots: 1, hits: 1, damage: amount, shieldDamage, hullDamage, destroyed: target.hull <= 0, skill: id };
+  }
   function effect(s, user, id, target, now) {
     const a = ABILITIES[id], ev = (to, extra = {}) => ({ type: 'ability', from: user.id, to: to.id, ability: id, ...extra });
-    const timed = (c, extra) => {
+    // A status on c for `secs` (the skill's own time by default; talents lengthen a skill's: rules/progress.js).
+    const timed = (c, extra, secs = a.time * (user.stats?.skillTime ?? 1)) => {
       c.status = (c.status || []).filter((x) => x.until > now && x.id !== extra.id);
-      c.status.push({ until: now + a.time * (user.stats?.skillTime ?? 1), ...extra }); // talents (rules/progress.js) lengthen them
+      c.status.push({ until: now + secs, ...extra });
       tick(c, now);
     };
+    const mine = s.enemies.includes(user) ? s.enemies : [s.player, ...(s.allies || [])];
+    const theirs = s.enemies.includes(user) ? [s.player, ...(s.allies || [])] : s.enemies;
+    const flying = (list) => list.filter((c) => c && c.hull > 0);
     switch (id) {
-      case 'taunt': timed(user, { id: 'taunt' }); return [ev(user)];
-      case 'fortify': timed(user, { id: 'fortify', taken: a.taken }); return [ev(user)];
+      case 'taunt':
+        timed(user, { id: 'taunt' });
+        if (perk(user, 'barbed-taunt')) for (const c of flying(theirs)) timed(c, { id: 'exposed', taken: PERKS['barbed-taunt'].taken });
+        return [ev(user)];
+      case 'fortify': timed(user, { id: 'fortify', taken: a.taken, ...(perk(user, 'counter-battery') ? { damage: PERKS['counter-battery'].damage } : {}) }); return [ev(user)];
       case 'overload': timed(user, { id: 'overload', damage: a.damage }); return [ev(user)];
       case 'mark': timed(target, { id: 'mark', taken: a.taken }); return [ev(target)];
+      case 'aegis': return flying(mine).map((c) => { timed(c, { id: 'aegis', taken: a.taken }); return ev(c); });
       case 'bulwark': case 'restore': { const amount = target.stats.shield - target.shield; target.shield = target.stats.shield; return [ev(target, { amount })]; }
-      case 'repair-beam': return [ev(target, { amount: heal(target, a.hull * (user.stats?.heal ?? 1)) })];
-      case 'nanite-field': {
-        const side = s.enemies.includes(user) ? s.enemies : [s.player, ...(s.allies || [])];
-        return side.filter((c) => c.hull > 0).map((c) => ev(c, { amount: heal(c, a.hull * (user.stats?.heal ?? 1)) }));
+      case 'repair-beam': {
+        const amount = heal(target, a.hull * (user.stats?.heal ?? 1), perk(user, 'overflow'));
+        if (perk(user, 'battle-medic')) timed(target, { id: 'boost', damage: PERKS['battle-medic'].damage }, PERKS['battle-medic'].time);
+        return [ev(target, { amount })];
       }
+      case 'nanite-field': return flying(mine).map((c) => ev(c, { amount: heal(c, a.hull * (user.stats?.heal ?? 1), perk(user, 'overflow')) }));
+      case 'disrupt':
+        target.status = (target.status || []).filter((x) => x.until > now);
+        target.status.push({ id: 'emp', until: now + a.time }, { id: 'emp-immune', until: now + a.time + a.immune });
+        if (target.intent && target.intent.kind === 'heavy') target.intent = { kind: 'volley' }; // the timeline's telegraph (combat/combat.js)
+        tick(target, now);
+        return [ev(target)];
       case 'salvo': {
-        const base = user.base || user.stats, mult = (user.stats.firepower || 0) / Math.max(1e-6, base.firepower || 1);
-        const amount = Math.round((base.firepower || 0) * a.burst * (mult || 1) * (target.stats.taken ?? 1));
-        if (target.invulnerable) return [{ type: 'shot', from: user.id, to: target.id, weapon: -1, shots: 1, hits: 1, damage: 0, shieldDamage: 0, hullDamage: 0, destroyed: false, skill: id }];
-        const shieldDamage = Math.min(target.shield, amount), hullDamage = Math.min(target.hull, amount - shieldDamage);
-        target.shield -= shieldDamage;
-        target.hull -= hullDamage;
-        target.quiet = 0;
-        return [{ type: 'shot', from: user.id, to: target.id, weapon: -1, shots: 1, hits: 1, damage: amount, shieldDamage, hullDamage, destroyed: target.hull <= 0, skill: id }];
+        const shot = strike(user, id, target, a.burst);
+        if (shot.destroyed && perk(user, 'chain-fire')) (user.cooldowns ||= {}).salvo = now;
+        return [shot];
       }
+      case 'barrage': return flying(theirs).map((c) => strike(user, id, c, a.burst));
       default: return [];
     }
   }
@@ -238,7 +298,7 @@ const Abilities = (() => {
     return ev;
   }
 
-  return { ABILITIES, LIST, FIELD, SKILLS, SKILL_LEVELS, skillsOf, unlocked, casting, ready, use, resolve, tick, disabled, has, fieldReady, fieldUse };
+  return { ABILITIES, PERKS, LIST, FIELD, SKILLS, SKILL_LEVELS, skillsOf, unlocked, casting, ready, use, resolve, tick, disabled, has, fieldReady, fieldUse };
 })();
 
 export { Abilities };

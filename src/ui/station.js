@@ -690,13 +690,13 @@ const StationMenu = (() => {
     const p = ctx.pilot;
     const rows = p.list().map((t) => Kit.optionRow({
       code: 'XP', name: t.name, sub: t.note, current: t.taken,
-      tag: t.taken ? 'Taken' : `Level ${t.level}${t.cls ? ` · ${Classes.CLASSES[t.cls].name}` : ''}`, tagTone: t.taken ? 'good' : null, locked: !t.taken && p.level < t.level,
+      tag: t.taken ? 'Taken' : `Level ${t.level}${t.cls ? ` · ${Classes.CLASSES[t.cls].name}` : ''}${t.perk ? ' · perk' : ''}`, tagTone: t.taken ? 'good' : null, locked: !t.taken && p.level < t.level,
       action: t.taken ? null : Kit.button('Take', act(() => p.take(t.id)), { kind: 'primary', disabled: !t.ok, title: t.why || undefined, aria: `Take ${t.name}` }),
     }));
     return {
       title: 'Talents', code: 'XP', sub: `Level ${p.level} · ${p.left} of ${p.points} point${p.points === 1 ? '' : 's'} to spend · a point every third level`,
       body: [
-        info('Talents make every hull you fly better (more hold, armour, a weapon mount) or sharpen your class\'s skills. Some are for one class: changing class gives their points back.'),
+        info('Talents make every hull you fly better (more hold, armour, a weapon mount) or sharpen your class\'s skills; two for each class are perks, which change what a skill does. Some are for one class: changing class gives their points back.'),
         h('div', { class: 'ui-list' }, rows),
       ],
       foot: Kit.button('Forget all talents', act(() => p.respec()), {

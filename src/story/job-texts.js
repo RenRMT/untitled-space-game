@@ -6,11 +6,13 @@
 //   SITUATION[id][i]    the job for hook i of a system's local situation, in the hooks' order: a
 //                       system's politics, with sides to take.
 //   FACTION[id]         a faction's concern across known space: long, far and well paid.
-// For now every station posts combat contracts (CONTRACTS, the same for every type of station):
-// hunting raiders, destroying a turret battery or a pirate outpost (in the station's system or a
-// nearby one), holding off waves attacking the station, and an elite strike further out. Each has
-// a difficulty (story/jobs.js DIFFICULTY) that sets how tough its hostiles are, what it pays and
-// the gear it rewards (rules/loot.js). The system and faction tables are empty for now.
+// For now every station posts contracts (CONTRACTS, the same for every type of station). Most are
+// fights: hunting raiders, destroying a turret battery or a pirate outpost (in the station's system
+// or a nearby one), holding off waves attacking the station, and an elite strike further out. Each
+// has a difficulty (story/jobs.js DIFFICULTY) that sets how tough its hostiles are, what it pays
+// and the gear it rewards (rules/loot.js). Four are not fights (difficulty 'calm': flying, no
+// gear, less pay): a dispatch run to another station, a survey of points in the system, wreckage to
+// recover, and stores the station is short of. The system and faction tables are empty for now.
 // A job is written by a function of its context (story/jobs.js places(): the system, the
 // station or situation, helpers that find points, rocks, derelicts and stations), returning
 //   { name, from?, briefing, steps, debrief, escort?, deliver?, provided?, report? }
@@ -105,6 +107,49 @@ const JobTexts = (() => {
       };
     }],
   ];
+  // Contracts that are not fights (difficulty 'calm').
+  const CALM = [
+    ['dispatch', (c) => {
+      // Sealed mail to another station: in this system, else the first of a nearby one.
+      const far = c.nearby();
+      const to = c.pick(c.stations((s) => s.key !== c.st.key)) || (far && far.stations()[0]) || null;
+      return to && {
+        name: `Dispatches for ${to.name}`, difficulty: 'calm', deliver: true,
+        briefing: [`Sealed dispatches from **${c.st.name}** are due at **${to.name}**${to.system !== c.st.system ? ` in the **${far.sys.name}** system` : ''}, and the relay can't be trusted with them.`, 'Carry them over and hand them in there. No trouble expected.'],
+        steps: [go([to], `Carry the dispatches to ${to.name}`)],
+        debrief: ['Signed for. The clerks thank you for the quick run.'],
+      };
+    }],
+    ['survey', (c) => {
+      const at = [c.space(c.st, 3000, 8000, { keep: false }), c.space(c.st, 6000, 13000, { keep: false }), c.space(c.sys.origin, 4000, 16000, { keep: false })];
+      return at.every(Boolean) && {
+        name: 'Lane survey', difficulty: 'calm',
+        briefing: [`The charts round **${c.st.name}** are out of date: drifting rock, new wrecks, old beacons gone quiet.`, 'Fly to three marked points, in any order. Your scanner logs each one as you reach it.'],
+        steps: [go(at, 'Reach the survey points')],
+        debrief: ['Readings received. The lane charts are good for another season.'],
+      };
+    }],
+    ['recovery', (c) => {
+      const n = c.n(2, 3), base = c.space(c.st, 4000, 11000, { keep: false });
+      const at = base && Array.from({ length: n }, () => ({ ...base, x: base.x + Math.round((c.r() - 0.5) * 900), y: base.y + Math.round((c.r() - 0.5) * 900) }));
+      return at && {
+        name: 'Wreck recovery', difficulty: 'calm',
+        briefing: [`A freighter broke up ${where(base)} and its cargo is adrift.`, `Collect the ${n} containers before the raiders find them, and bring them back to **${c.st.name}**.`],
+        steps: [take(at, 'Cargo container', 'electronics', 'Collect the drifting containers', { spread: 0 })],
+        debrief: ['All accounted for. The owners will be relieved.'],
+      };
+    }],
+    ['stores', (c) => {
+      const want = c.wanted(c.st), n = c.n(2, 3);
+      return want && {
+        name: `Short of ${want.name.toLowerCase()}`, difficulty: 'calm',
+        briefing: [`**${c.st.name}** is running short of ${want.name.toLowerCase()} and the next freighter is weeks out.`, `Bring ${n} units. **${want.at.name}**${want.at.system !== c.st.system ? ', a system over,' : ''} sells it. The station pays over the market price.`],
+        steps: [bring(want.kind, n, `Bring ${want.name.toLowerCase()}`)],
+        debrief: ['That keeps the lights on. Thank you.'],
+      };
+    }],
+  ];
+  CONTRACTS.push(...CALM);
   const STATION_TYPES = ['capital', 'major', 'minor', 'mining camp', 'salvage yard', 'transport hub', 'waystation'];
 
   // ---------- Stations ----------

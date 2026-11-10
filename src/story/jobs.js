@@ -6,6 +6,7 @@
 //   system   a system's local situation (one job per hook), offered at every station in that system,
 //   faction  a faction's concern across known space (world/factions.js), offered at every station
 //            it owns.
+// A station's jobs are fights for the most part; four of its ten kinds are not (difficulty 'calm').
 // Each is titled "[station, system or faction name]: [job]". What a job says and asks is
 // story/job-texts.js's; this module places it in the galaxy, turns its steps into objectives for
 // the mission log (story/missions.js) and works out what it pays. The flight view runs them
@@ -70,6 +71,8 @@ const Jobs = (() => {
     normal: { label: 'Normal', up: 0, pay: 1.25, floor: 'uncommon', luck: 1.2 },
     hard: { label: 'Hard', up: 1, pay: 1.6, floor: 'uncommon', luck: 1.6 },
     elite: { label: 'Elite', up: 2, pay: 2.2, floor: 'rare', luck: 2.2 },
+    // No fight in it (a dispatch run, a survey, a recovery, stores): no gear, and a pilot's pay.
+    calm: { label: 'No combat', up: 0, pay: 0.6, floor: null, luck: 1 },
   };
   const REACH = 2500; // a point in space counts as reached this close (map travel to it stops 2200 short)
   const ROCK_LABEL = { metal: 'metallic', stony: 'stony', carbon: 'carbonaceous', ice: 'icy' };
@@ -150,11 +153,14 @@ const Jobs = (() => {
     const nebula = (anchor, name) => (name && sys.nebulae.find((n) => n.name === name)) || near(sys.nebulae, anchor)[0] || null;
     const stations = (pred = () => true) => sys.stations.filter(pred);
     const named = (name) => (name && sys.stations.find((st) => st.name === name)) || null;
-    // A good this station is short of: one it consumes, raw or refined and not rare (anything a
-    // market stocks or a ship can mine), else deuterium.
+    // A good this station is short of, and where to buy it: one it consumes and doesn't sell, not
+    // rare, that another station sells (one in this system before any other). { kind, name, at } or null.
     function wanted(st) {
-      const goods = Economy.market(galaxy.seed, st).goods.filter((g) => g.consumed && g.rarity <= 2 && ['raw', 'refined'].includes(Goods.type(g.kind).stage));
-      return goods.length ? goods[Math.floor(r() * goods.length)].kind : 'deuterium';
+      const sells = (o, kind) => Economy.market(galaxy.seed, o).goods.some((g) => g.kind === kind && g.buy !== null);
+      const others = [...sys.stations, ...galaxy.stations.filter((o) => o.system !== sys.index)].filter((o) => o.key !== st.key);
+      const list = Economy.market(galaxy.seed, st).goods.filter((g) => g.consumed && g.buy === null && g.rarity <= 2)
+        .map((g) => ({ kind: g.kind, name: Goods.type(g.kind).name, at: others.find((o) => sells(o, g.kind)) })).filter((g) => g.at);
+      return list.length ? list[Math.floor(r() * list.length)] : null;
     }
     const n = (lo, hi) => lo + Math.floor(r() * (hi - lo + 1));
     const pick = (list) => list[Math.floor(r() * list.length)];
@@ -275,10 +281,10 @@ const Jobs = (() => {
 
   // Credits by what its steps take: the flying (within a system by distance, between systems by
   // the jumps), each hostile ship by its tier, items, goods handed over at a little over their
-  // worth, rocks and gas; then the tier's share on top. Rounded to 50.
+  // worth, rocks and gas; then the tier's share on top (the goods aside). Rounded to 50.
   const VALUE = { perUnit: 0.025, perJump: 700, ship: 170, item: 100, goods: 1.3, rock: 70, pocket: 150, escort: 400, turret: 250, outpost: 800, wave: 1.5 };
   function value(galaxy, job, start, end) {
-    let v = TIERS[job.tier].base, at = start;
+    let v = TIERS[job.tier].base, at = start, goods = 0;
     const fly = (p) => {
       if (!p) return;
       // Between systems: by gate jumps, or where no gate leads (the core, cruised to), by the distance.
@@ -290,7 +296,7 @@ const Jobs = (() => {
       if (s.type === 'go') for (const p of s.points) fly(p);
       if (s.type === 'fight') { fly(s.wave); v += s.wave.ships.length * VALUE.ship * s.wave.tier ** 1.5; }
       if (s.type === 'take') { for (const p of s.items) fly(p); v += s.items.length * VALUE.item; }
-      if (s.type === 'bring') v += Goods.type(s.kind).price * s.n * VALUE.goods;
+      if (s.type === 'bring') goods += Goods.type(s.kind).price * s.n * VALUE.goods; // paid in full, whatever the difficulty
       if (s.type === 'mine') { fly(s.at); v += s.n * VALUE.rock; }
       if (s.type === 'gas') { fly(s.pockets[0]); v += s.n * VALUE.pocket; }
       if (s.type === 'assault') {
@@ -303,7 +309,7 @@ const Jobs = (() => {
     fly(end);
     if (job.escort) v += VALUE.escort;
     const hard = (DIFFICULTY[job.difficulty] || DIFFICULTY.easy).pay;
-    return Math.max(50, Math.round((v * TIERS[job.tier].k * hard * (job.hiddenGiver ? 1.15 : 1)) / 50) * 50);
+    return Math.max(50, Math.round((v * TIERS[job.tier].k * hard * (job.hiddenGiver ? 1.15 : 1) + goods) / 50) * 50);
   }
 
   // Loyalty: a station's job raises that station's; a system's raises every station in it the
@@ -365,8 +371,8 @@ const Jobs = (() => {
     // Gear as the reward (rules/loot.js 'mission' drops), its rarity floor and luck by difficulty, at
     // the level of the hardest system the job goes to.
     const level = Math.max(1, ...job.systems.map((i) => galaxy.systems?.[i]?.level || 1));
-    const gear = D ? { level, floor: D.floor, luck: D.luck, text: `Gear: one of three, ${{ uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
-    job.reward = { credits, loyalty: loyal, regard, gear };
+    const gear = D && D.floor ? { level, floor: D.floor, luck: D.luck, text: `Gear: one of three, ${{ uncommon: 'Uncommon or better', rare: 'Rare or better' }[D.floor]}` } : null;
+    job.reward = { credits, loyalty: loyal, regard, gear, level };
     job.rewardText = [`${credits.toLocaleString('en-US')} credits`, ...(gear ? [gear.text] : []), ...regard].join(' · ');
     return job;
   }

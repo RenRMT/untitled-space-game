@@ -15,6 +15,7 @@ import { tickMining } from './mining.js';
 import { tickMission } from './missions.js';
 import { tickQuickFit } from './quickfit.js';
 import { tickRewards } from './rewards.js';
+import { tickSites } from './sites.js';
 import { moveMode } from './options.js';
 import { sense } from './outfitting.js';
 import { tickAutopilot } from './selection.js';
@@ -90,6 +91,7 @@ export function update(dt) {
   tickWings(dt);
   tickMission(dt);
   tickRewards(dt);
+  tickSites(dt); // a deep-space site's find, scanned from close by (game/sites.js)
   tickQuickFit(dt);
 
   fadeFlash(dt);

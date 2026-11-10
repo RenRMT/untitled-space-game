@@ -1,5 +1,5 @@
 // The combat bar: a strip above the speed bar while a fight with ships runs (not while
-// mining), in place of the context menu. Only what needs a tap: the class's three skills and the
+// mining), in place of the context menu. Only what needs a tap: the class's four skills and the
 // kit's consumables. Everything else about the fight is drawn round the ships themselves
 // (game/combat.js drawFight, drawFightOverlay): their hull and shield bars, action gauges, whom
 // each enemy is after and what it is charging, damage, breaches, the target's brackets.

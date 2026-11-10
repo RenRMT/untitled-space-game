@@ -801,8 +801,8 @@ fightTest('abilities in a fight: the player spends a charge from the panel, a wi
   browser.frames(2);
   const panel = () => textOf(browser.document.getElementById('combat').querySelector('.cb-abil'));
   const labels = () => browser.document.getElementById('combat').querySelector('.cb-abil').children.map((b) => b.getAttribute('aria-label'));
-  assert.deepStrictEqual(labels().slice(0, 3).map((l) => l.split(' (')[0]), ['Overload', 'Salvo', 'Mark target'], 'the class\'s three skills first (a DPS)');
-  assert.deepStrictEqual(labels().slice(3), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
+  assert.deepStrictEqual(labels().slice(0, 4).map((l) => l.split(' (')[0]), ['Overload', 'Salvo', 'Mark target', 'Barrage'], 'the class\'s four skills first (a DPS)');
+  assert.deepStrictEqual(labels().slice(4), ['Repair nanites, 1 left', 'EMP charge, 2 left'], 'a button per consumable in the kit');
   assert.match(panel(), /×1.*×2/, 'with its charges');
   // The player: an EMP on the enemy targeted.
   game('fight.s.player.hull = Math.min(fight.s.player.hull, 10)');

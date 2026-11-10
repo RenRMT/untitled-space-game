@@ -2,7 +2,9 @@
 // MMO style. Experience comes from what's destroyed (more for a tougher one, less once it's far
 // below your level), contracts by their difficulty, and a dungeon's Warden. Each level makes a ship a
 // little sturdier and harder hitting (LEVEL_BONUS); every third level gives a talent point, spent on
-// talents (TALENTS: some for every class, some for one), each with a level it opens at. Levels also
+// talents (TALENTS: some for every class, some for one), each with a level it opens at. Most are a
+// share of a stat; two for each class are perks, which change what one of its skills does
+// (`perk`: rules/abilities.js PERKS has their numbers, and reads them from stats.perks). Levels also
 // gate gear (gearLevel: what an item asks of whoever fits it) and hulls (HULL_LEVEL), and give
 // program memory (lineBonus) on top of the mem.ext gambits.
 //
@@ -13,7 +15,7 @@
 //   Progress.contractXP(difficulty, level, sysLevel) -> xp   ('easy' | 'normal' | 'hard' | 'elite')
 //   Progress.wardenXP(sysLevel) -> xp
 //   Progress.points(level) -> talent points earned by then
-//   Progress.TALENTS[id], Progress.LIST    { id, name, cls (null: any), level (opens at), note, stats?, upgrade? }
+//   Progress.TALENTS[id], Progress.LIST    { id, name, cls (null: any), level (opens at), note, stats?, upgrade?, perk? }
 //   Progress.talentsFor(cls) -> [talent]   what a class can take, in order
 //   Progress.canTake(id, { level, cls, talents }) -> { ok, why }
 //   Progress.read(talents, cls) -> [id]    saved talents, checked (a class changed: theirs dropped)
@@ -65,13 +67,19 @@ const Progress = (() => {
     'bulkheads': T({ name: 'Bulkheads', cls: 'tank', level: 3, stats: { hull: 0.12 }, note: '+12% hull' }),
     'long-taunt': T({ name: 'Long taunt', cls: 'tank', level: 9, stats: { skillTime: 0.4 }, note: 'Taunt, Fortify and Overload last 40% longer' }),
     'shield-capacitors': T({ name: 'Shield capacitors', cls: 'tank', level: 15, stats: { shield: 0.15, shieldRecharge: 0.2 }, note: '+15% shields, +20% recharge' }),
+    'barbed-taunt': T({ name: 'Barbed taunt', cls: 'tank', level: 6, perk: true, note: 'Taunt also exposes every enemy: they take 15% more damage while it lasts' }),
+    'counter-battery': T({ name: 'Counter-battery', cls: 'tank', level: 12, perk: true, note: 'while Fortify runs, your guns hit 40% harder' }),
     // DPS.
     'hot-loads': T({ name: 'Hot loads', cls: 'dps', level: 3, stats: { firepower: 0.08 }, note: '+8% damage' }),
     'target-painter': T({ name: 'Target painter', cls: 'dps', level: 9, stats: { accuracy: 0.05, skillTime: 0.3 }, note: '+5% accuracy; Mark and Overload last 30% longer' }),
     'overclock': T({ name: 'Overclock', cls: 'dps', level: 15, stats: { firepower: 0.12, cooldown: 0.1 }, note: '+12% damage; skills back 10% sooner' }),
+    'executioner': T({ name: 'Executioner', cls: 'dps', level: 6, perk: true, note: 'Salvo and Barrage hit 50% harder on a ship below 40% hull' }),
+    'chain-fire': T({ name: 'Chain fire', cls: 'dps', level: 12, perk: true, note: 'a kill with Salvo makes it ready again at once' }),
     // Healer.
     'field-medic': T({ name: 'Field medic', cls: 'healer', level: 3, stats: { heal: 0.2 }, note: 'repairs mend 20% more' }),
     'triage': T({ name: 'Triage', cls: 'healer', level: 9, stats: { cooldown: 0.15 }, note: 'skills come back 15% sooner' }),
+    'overflow': T({ name: 'Overflow', cls: 'healer', level: 6, perk: true, note: 'what a repair can\'t mend goes to the ship\'s shields' }),
+    'battle-medic': T({ name: 'Battle medic', cls: 'healer', level: 12, perk: true, note: 'Repair beam also makes its target\'s guns hit 20% harder for 5 s' }),
     'nanite-swarm': T({ name: 'Nanite swarm', cls: 'healer', level: 15, stats: { heal: 0.25, shield: 0.1 }, note: 'repairs mend 25% more; +10% shields' }),
   };
   for (const [id, t] of Object.entries(TALENTS)) Object.assign(t, { id, cls: t.cls || null });
@@ -98,6 +106,7 @@ const Progress = (() => {
       shieldRecharge: (stats.shieldRecharge || 0) * (1 + sum(talents, 'shieldRecharge')),
       accuracy: (stats.accuracy || 0) + sum(talents, 'accuracy'), evasion: (stats.evasion || 0) + sum(talents, 'evasion'),
       cooldown: Math.max(0.5, 1 - sum(talents, 'cooldown')), heal: 1 + sum(talents, 'heal'), skillTime: 1 + sum(talents, 'skillTime'),
+      perks: talents.filter((id) => TALENTS[id]?.perk),
     };
   }
   function upgrades(talents = []) {

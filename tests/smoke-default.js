@@ -299,9 +299,10 @@ test('a fight with hostiles: skills activate, then cool down; the healer wingman
     assert.ok(game('fight.s.focus === __other'), 'tapped, targeted');
   }
   game('for (const e of fight.s.enemies) { e.stats = { ...e.stats, hull: e.stats.hull * 6 }; e.hull = e.stats.hull; }'); // long enough to see it all
-  assert.ok(game(`skillButtons(fight.s).length === 3`), 'three skill buttons');
-  // Skills open by level: the first from the start, the second at 2, the third at 4.
-  assert.deepStrictEqual(game(`Abilities.skillsOf('dps').map((id) => Abilities.ABILITIES[id].level)`), [1, 2, 4]);
+  assert.ok(game(`skillButtons(fight.s).length === 4`), 'four skill buttons');
+  assert.ok(game(`!skillButtons(fight.s)[3].enabled && /^Lv 10$/.test(skillButtons(fight.s)[3].badge)`) || game('fight.s.player.stats.level') >= 10, 'the fourth waits for level 10');
+  // Skills open by level: the first from the start, the second at 2, the third at 4, the fourth at 10.
+  assert.deepStrictEqual(game(`Abilities.skillsOf('dps').map((id) => Abilities.ABILITIES[id].level)`), [1, 2, 4, 10]);
   if (game('fight.s.player.stats.level') < 4) assert.ok(game(`!skillButtons(fight.s)[2].enabled && /^Lv 4$/.test(skillButtons(fight.s)[2].badge)`), 'the third skill waits for level 4');
   assert.ok(game(`gains(1, 4, 'dps').join('|')`).includes('New skill: Salvo') && game(`gains(1, 4, 'dps').join('|')`).includes('Talent point'), 'a level up names what it gave');
   game(`fight.s.player.hull = fight.s.player.stats.hull * 0.5`);
@@ -603,6 +604,27 @@ test('missions: a siege (waves at the station, its turrets with you) and an assa
   assert.ok(!game('cargo.rewards.length') && game('Object.values(cargo.gear).reduce((a, b) => a + b, 0)') === before + 1, 'taken');
   assert.ok(!/Choose one/.test(onStation()), 'gone from the screen');
   game('launch()');
+});
+
+test('deep space: a site\'s find is made by flying close and holding there, once, and is kept in the save', () => {
+  game(`if (docked) launch(); fight.grace = 0;
+    globalThis.__site = world.galaxy.sites.find((s) => Survey.FINDS[s.kind].gear && !s.path && !world.galaxy.stations.some((st) => st.site === s.id));
+    globalThis.__before = { credits: cargo.credits, xp: cargo.pilot.xp, rewards: cargo.rewards.length };
+    ship.x = cam.x = __site.x + Survey.range(__site) + 3000; ship.y = cam.y = __site.y; ship.vx = ship.vy = 0; ship.targetSpeed = 0;`);
+  browser.frames(60);
+  assert.ok(game('!scanning() && !surveyed(__site)'), 'out of range: nothing');
+  game('ship.x = cam.x = __site.x + Survey.range(__site) - 300');
+  assert.ok(until('!!scanning()', 60) && game('scanning().site === __site'), 'in range: the scan starts');
+  assert.ok(until('surveyed(__site)', 600), 'and finishes');
+  const R = game('Survey.reward(__site, pilotLevel())');
+  assert.ok(game('cargo.credits - __before.credits') >= R.credits && game('cargo.pilot.xp > __before.xp'), 'credits and experience');
+  assert.strictEqual(game('cargo.rewards.length - __before.rewards'), 1, 'gear to choose');
+  assert.ok(game(`cargo.rewards.some((w) => w.key === 'site:' + __site.id && w.options.length === 3)`));
+  browser.frames(400); // (a site inside this one may be scanned next: that's its own find)
+  assert.ok(game('(!scanning() || scanning().site !== __site) && cargo.world.surveyed.filter((id) => id === __site.id).length === 1'), 'only once');
+  game('saveCargoNow(); loadCargo(world.galaxy)');
+  assert.ok(game('surveyed(__site)'), 'kept in the save');
+  game('chooseReward("site:" + __site.id, 0)');
 });
 
 test('the galaxy: three territories joined inside by gates, one link between each pair; outside and alien systems', () => {

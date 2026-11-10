@@ -1,17 +1,18 @@
 // Classes: the role a ship plays in a fight, for the player's ship and each squad member alike.
-// A class shapes the ship's stats a little (on top of its gear, rules/loadout.js) and gives it three
-// skills (rules/abilities.js SKILLS, each with an activation time and a cooldown):
+// A class shapes the ship's stats a little (on top of its gear, rules/loadout.js) and gives it four
+// skills (rules/abilities.js SKILLS, each with an activation time and a cooldown; they open by level):
 // - Tank: more hull and shields, a little less firepower; enemies go for it (combat/combat-core.js
-//   aim), and it can taunt them, fortify itself and restore its shields,
-// - DPS: more firepower and accuracy, a little less hull; overload, salvo and mark,
-// - Healer: sturdier shields, less firepower; it repairs and restores its side.
+//   aim), and it can taunt them, fortify itself, restore its shields and (level 10) cover its side,
+// - DPS: more firepower and accuracy, a little less hull; overload, salvo, mark and (level 10) a barrage,
+// - Healer: sturdier shields, less firepower; it repairs and restores its side and (level 10)
+//   silences an enemy's guns.
 //
 //   Classes.LIST, Classes.CLASSES[id]   { id, name, code, note, mods: { hull, shield, firepower, accuracy } }
 //   Classes.DEFAULT                     the class a new game (and a save from before classes) has
 //   Classes.valid(id) -> id             a known class, or DEFAULT
 //   Classes.apply(stats, id) -> stats   Loadout.stats() with the class's mods (cls; classDamage: × its
 //                                       guns' damage against ships, combat/combat-realtime.js)
-//   Classes.skills(id) -> [ability id]  its three skills
+//   Classes.skills(id) -> [ability id]  its four skills, in the order they open
 //   Classes.program(id) -> [line]       a squad member's starting program for it (rules/logic.js)
 // ES module (`Classes`); also runs in Node (the tests).
 
