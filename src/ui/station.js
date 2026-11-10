@@ -43,6 +43,8 @@ import { Format } from '../core/format.js';
 import { clamp } from '../core/math.js';
 import { Store } from '../core/store.js';
 import { ItemIcons } from '../art/icons.js';
+import { Progress } from '../rules/progress.js';
+import { Vendor } from '../rules/vendor.js';
 import { Abilities } from '../rules/abilities.js';
 import { Economy } from '../rules/economy.js';
 import { Goods } from '../rules/goods.js';
@@ -259,7 +261,9 @@ const StationMenu = (() => {
   // ---------- Ship ----------
 
   const SLOT_CODE = { weapon: 'WPN', shield: 'SHD', computer: 'CPU', engine: 'ENG', scanner: 'SCN', utility: 'UTL' };
-  const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Tool mount' };
+  // A weapon slot is a gun here (the rules call it a tool, from when the ship mined for a living).
+  const gunLabel = (s) => (s.type === 'weapon' ? s.label.replace(/^Tool/, 'Gun') : s.label);
+  const SLOT_KIND = { ...Loadout.SLOT_TYPES, weapon: 'Gun mount' };
   const SHORT = { computer: 'Computer' }; // slot labels on the schematic
   const lineName = (item) => (item.loot ? item.name : Loadout.LINES[item.line].name); // the name without its Mk (loot: its own name)
   // Loot (rules/loot.js): its rarity and item level as a tag, in the rarity's colour; what its affixes add.
@@ -344,7 +348,7 @@ const StationMenu = (() => {
     const tall = slots.some((s) => s.type === 'utility');
     return h('section', { class: 'ui-schematic', 'aria-label': 'Loadout', style: tall ? { height: `${UTILITY_ROW + NODE.h}px` } : {} }, art, slots.map((s) => {
       const [x, y] = pos[s.id] || [0, 0];
-      const label = s.type === 'weapon' ? s.label : SHORT[s.type] || s.label;
+      const label = s.type === 'weapon' ? gunLabel(s) : SHORT[s.type] || s.label;
       return Kit.slotNode({ x, y, label, code: SLOT_CODE[s.type], item: s.item, open: openSlot === s.id, onclick: () => showSlot(s.id) });
     }));
   }
@@ -409,7 +413,7 @@ const StationMenu = (() => {
         });
       });
     return {
-      title: s.label, code: SLOT_CODE[s.type], sub: `${m ? `${m.name} · ` : ''}${SLOT_KIND[s.type]} · ${options.length} option${options.length === 1 ? '' : 's'}`,
+      title: gunLabel(s), code: SLOT_CODE[s.type], sub: `${m ? `${m.name} · ` : ''}${SLOT_KIND[s.type]} · ${options.length} option${options.length === 1 ? '' : 's'}`,
       body: [
         h('span', { class: 'ui-label' }, 'Fitted'),
         cur ? Kit.optionRow({
@@ -472,7 +476,7 @@ const StationMenu = (() => {
 
   // The shipyard (capital and major stations): other hulls, against the one you fly, with it traded in.
   const HULL_METRICS = [
-    { code: 'WPN', label: 'Tool mounts', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
+    { code: 'WPN', label: 'Gun mounts', get: (s) => s.weaponSlots, fmt: String, fmtDiff: String },
     { code: 'HUL', label: 'Hull', get: (s) => s.hull, fmt: String, fmtDiff: String },
     { code: 'CRG', label: 'Hold', get: (s) => s.cargo, fmt: String, fmtDiff: String },
     { code: 'HND', label: 'Handling', get: (s) => s.handling, fmt: (v) => `×${v}`, fmtDiff: (v) => `${r2(v)}` },
@@ -531,7 +535,7 @@ const StationMenu = (() => {
       { id: 'trn', code: 'TRN', label: 'Turn', value: `${deg(ship.turnRate)}°/s`, detail: `Degrees per second the ship can turn (the ${ship.name} handles ×${Loadout.HULLS[hullId].handling}).`, from: fromItem('engine') },
       { id: 'eva', code: 'EVA', label: 'Evasion', value: pct(ship.evasion), detail: 'Chance to avoid incoming fire.', from: fromItem('engine') },
       { id: 'shd', code: 'SHD', label: 'Shield', value: `${ship.shield}`, detail: ship.shield ? `${ship.shield} strength, recharging ${ship.shieldRecharge} per second.` : 'No shield fitted.', from: fromItem('shield') },
-      { id: 'dps', code: 'DPS', label: 'Output', value: `${r2(ship.firepower)}/s`, detail: `${r2(ship.firepower)} damage per second to rock or gas, by what each tool works on, from ${ship.weaponsFitted} of ${ship.weaponSlots} tools.`, from: ship.weapons.map((w) => w.name).join(' + ') || 'No tools fitted' },
+      { id: 'dps', code: 'DPS', label: 'Output', value: `${r2(ship.firepower)}/s`, detail: `Damage per second, from ${ship.weaponsFitted} of ${ship.weaponSlots} weapons.`, from: ship.weapons.map((w) => w.name).join(' + ') || 'No weapons fitted' },
       { id: 'aim', code: 'AIM', label: 'Accuracy', value: pct(ship.accuracy), detail: `Hit chance, weighed against the target's evasion. Locks on in ${r2(ship.lockTime)} s.`, from: fromItem('computer') },
       { id: 'sns', code: 'SNS', label: 'Sensors', value: Format.dist(ship.sensorRange), detail: `Identifies at ${Format.dist(ship.sensorRange)} · pings at ${Format.dist(ship.pingRange)} · locks at ${Format.dist(ship.lockRange)}.`, from: fromItem('scanner') },
       { id: 'min', code: 'MIN', label: 'Mining', value: ship.miningRate ? `×${ship.miningRate.toFixed(2)}` : '—', detail: ship.miningRate ? 'How hard the tools bite into rock and gas, from the computer.' : computer ? 'Its computer has no mining routines.' : 'No ship computer: the tools work unguided.', from: fromItem('computer') },
@@ -610,7 +614,7 @@ const StationMenu = (() => {
             h('div', { class: 'top' }, h('span', { class: 'ui-label' }, 'Hull'), h('span', { class: 'num' }, m.disabled ? 'disabled' : `${Math.ceil(m.hullPoints)}/${st.hull}`)),
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
-      classPicker(m.cls, (id) => ctx.squad.setClass(m.id, id), `${m.name}'s class`),
+      classPicker(m.cls, (id) => ctx.squad.setClass(m.id, id), `${m.name}'s class`, Progress.of(m.xp || 0).level),
       canOutfit ? schematic(slots) : null,
       canOutfit ? performance(perfStats(st, slots, m.hull)) : null,
       section('Program',
@@ -620,21 +624,23 @@ const StationMenu = (() => {
     ];
   }
 
-  // A ship's class (rules/classes.js): Tank, DPS or Healer, its skills listed under it.
-  function classPicker(cur, choose, label) {
+  // A ship's class (rules/classes.js): Tank, DPS or Healer, and its skills as chips (its cooldown, or
+  // the level it opens at); a tap on one says what it does.
+  function classPicker(cur, choose, label, level) {
     const c = Classes.CLASSES[cur];
-    return section(label, titleRow(label, `${c.name} · ${c.note}`),
+    const chips = Classes.skills(cur).map((id) => {
+      const a = Abilities.ABILITIES[id], open = Abilities.unlocked(id, level);
+      return { id: `skill:${id}`, code: a.code, label: a.name, value: open ? `${a.cooldown} s` : `Lv ${a.level}`, detail: `${a.note[0].toUpperCase()}${a.note.slice(1)}.`, from: open ? `${a.cast} s to activate` : `Opens at level ${a.level}` };
+    });
+    return section(label, titleRow(label, c.note),
       Kit.choices(Classes.LIST.map((x) => ({ id: x.id, label: x.name, on: x.id === cur })), (id) => { choose(id); refresh(); }, { label }),
-      h('p', { class: 'ui-note' }, Classes.skills(cur).map((id, i) => {
-        const a = Abilities.ABILITIES[id];
-        return `${i + 1} · ${a.name}: ${a.note} (${a.cast} s to activate, ${a.cooldown} s cooldown)`;
-      }).join('  ·  ')));
+      Kit.statChips(chips, openStat, (id) => { openStat = id; refresh(); }));
   }
   // Hiring a wingman: an android ship of the class picked, while there's room in the squad.
   function recruitRow() {
     const sq = ctx.squad, n = sq.members.length;
-    if (n >= sq.maxSize) return section('Squad', titleRow('Squad', `${n}/${sq.maxSize} wingmen · full`));
-    return section('Squad', titleRow('Hire a wingman', `${n}/${sq.maxSize} · an android ship that fights beside you`),
+    if (n >= sq.maxSize) return section('Squad', titleRow('Squad', `${n}/${sq.maxSize}`));
+    return section('Squad', titleRow('Squad', `${n}/${sq.maxSize} wingmen`),
       h('div', { class: 'ui-choices' }, Classes.LIST.map((c) => Kit.button(`Hire ${c.name}`, act(() => sq.recruit(c.id)), {
         kind: 'ghost', price: sq.hirePrice, disabled: sq.credits < sq.hirePrice, aria: `Hire a ${c.name} wingman for ${sq.hirePrice} credits`,
       }))));
@@ -652,7 +658,7 @@ const StationMenu = (() => {
       shipSwitcher(),
       section('Ship', titleRow(ship.name, `${slots.filter((s) => s.item).length}/${slots.length} slots fitted`), ctx.repairs ? hullRow() : null),
       pilotRow(),
-      ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class') : null,
+      ctx.squad && ctx.squad.setPlayerClass ? classPicker(ctx.squad.playerClass, (id) => ctx.squad.setPlayerClass(id), 'Your class', ctx.pilot?.level) : null,
       ctx.squad && ctx.squad.recruit ? recruitRow() : null,
       schematic(slots),
       performance(stats),
@@ -711,7 +717,7 @@ const StationMenu = (() => {
     const gambits = v.gambits(), gear = v.gear(), mods = v.mods(), kit = v.kit();
     lead(`Level ${v.level} outfitter`);
     const gambitRows = gambits.map((g) => Kit.optionRow({
-      code: 'LOG', name: `import ${g.title}`, sub: g.note, tag: g.owned ? 'Owned' : `Tier ${g.tier}`, tagTone: g.owned ? 'good' : null, current: g.owned,
+      code: 'LOG', name: g.title, sub: g.note, tag: g.owned ? 'Owned' : `Tier ${g.tier}`, tagTone: g.owned ? 'good' : null, current: g.owned,
       action: g.owned ? null : Kit.button('Buy', act(() => v.buyGambit(g.id)), { price: g.price, disabled: !g.ok, title: g.why || undefined, aria: `Buy the gambit ${g.title}` }),
     }));
     const gearRows = gear.map((g) => {
@@ -875,7 +881,7 @@ const StationMenu = (() => {
   function plainError(e) {
     if (!e) return null;
     const pkg = e.match(/needs import (\S+)/);
-    if (pkg) return `Needs the gambit ${pkg[1]} (Outfitter tab)`;
+    if (pkg) return `Needs the gambit ${Vendor.gambitName(pkg[1])}`;
     const aim = e.match(/can't take (\w+)/);
     if (aim) return `That action can't be aimed at ${Logic.SUBJECTS[aim[1]]?.say || aim[1]}`;
     if (/isn't a thing/.test(e)) return "That condition doesn't apply to it";
@@ -995,7 +1001,7 @@ const StationMenu = (() => {
     if (!m) return null;
     const known = sq.known, isNew = i >= m.program.length;
     const has = (b) => Logic.knows(known, b.pkg);
-    const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs the gambit ${b.pkg}` });
+    const item = (b, label = b.say || b.id, on = false) => ({ id: b.id, label, on, locked: !has(b), title: has(b) ? undefined : `Needs the gambit ${Vendor.gambitName(b.pkg)}` });
     const edit = (fn) => (v) => { fn(v); fitDraft(d, known, m); refresh(); };
     const check = Logic.check(d, known);
     const field = (label, ...parts) => h('div', { class: 'st-field' }, h('span', { class: 'ui-label' }, label), parts);

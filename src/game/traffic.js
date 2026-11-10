@@ -29,7 +29,6 @@ import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Progress } from '../rules/progress.js';
-import { Research } from '../rules/research.js';
 import { Vendor } from '../rules/vendor.js';
 import { Factions } from '../world/factions.js';
 import { cargo, lootClasses, pilotLevel, saveCargo, scatterLoot } from './cargo.js';
@@ -266,6 +265,6 @@ export function eliteDown(e, at = e) {
   gainXP(Progress.wardenXP(levelOf(si)) / 2, '');
   scatterLoot(Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `elite:${e.key}`);
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());
-  if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: import ${Research.title(g)}`, 4, { tone: 'good' });
+  if (g && grantGambit(g)) notify(`Gambit recovered from ${e.name}: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
   saveCargo();
 }

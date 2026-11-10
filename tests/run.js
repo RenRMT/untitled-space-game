@@ -5117,7 +5117,7 @@ test('vendor: gambits by level, needing what they build on; gear rolled per stat
   assert.ok(Vendor.gambits(1).length < Vendor.gambits(3).length && Vendor.gambits(3).length < Vendor.gambits(5).length, 'more further out');
   assert.ok(!Vendor.gambits(5).some((id) => Vendor.FREE.includes(id)), 'the free ones are never sold');
   const owned = new Set(Vendor.FREE);
-  assert.deepStrictEqual(Vendor.canBuyGambit('core.bool.or', owned), { ok: false, why: 'Needs core.bool@1.0' });
+  assert.deepStrictEqual(Vendor.canBuyGambit('core.bool.or', owned), { ok: false, why: 'Needs And · Not' });
   owned.add('core.bool');
   assert.ok(Vendor.canBuyGambit('core.bool.or', owned).ok);
   assert.strictEqual(Vendor.canBuyGambit('core.bool', owned).why, 'Owned');

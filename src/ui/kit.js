@@ -121,7 +121,7 @@ const Kit = (() => {
 
   function compare(cur, next, metrics) {
     return metrics.map((m) => {
-      const a = cur ? m.get(cur) : (m.none ?? 0), b = m.get(next), d = b - a;
+      const a = cur ? m.get(cur) : (m.none ?? 0), b = m.get(next), d = Math.round((b - a) * 1000) / 1000; // (no 2.6999999999999993)
       return { code: m.code, label: m.label, cur: cur ? m.fmt(a) : '—', next: m.fmt(b), diff: d ? m.fmtDiff(Math.abs(d)) : '', better: Math.sign(d) * (m.dir || 1) };
     });
   }

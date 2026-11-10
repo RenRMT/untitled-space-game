@@ -16,7 +16,6 @@ import { Abilities } from '../rules/abilities.js';
 import { Classes } from '../rules/classes.js';
 import { Loadout } from '../rules/loadout.js';
 import { Reputation } from '../rules/reputation.js';
-import { Research } from '../rules/research.js';
 import { Progress } from '../rules/progress.js';
 import { Vendor } from '../rules/vendor.js';
 import { CombatPanel } from '../ui/combat-panel.js';
@@ -490,7 +489,7 @@ export function shipDestroyed(key) {
   // Now and then a gambit in its computer (as often as a schematic used to be found), one not owned
   // yet, of up to a tier above its own.
   const g = CombatCore.schematic(world.galaxy.seed, key, p.role, p.tier) && Vendor.gambitDrop(world.galaxy.seed, key, p.tier || 1, ownedGambits());
-  if (g && grantGambit(g)) notify(`Gambit recovered: import ${Research.title(g)} · your squad can use it now`, 4, { tone: 'good' });
+  if (g && grantGambit(g)) notify(`Gambit recovered: ${Vendor.gambitName(g)}`, 4, { tone: 'good' });
   settleTally();
   saveCargo();
 }

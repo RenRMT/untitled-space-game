@@ -136,8 +136,8 @@ test('the outfitter: gambits, today\'s gear and consumables for credits; the gea
   assert.strictEqual(game('vendor.level'), 1, 'a level 1 outfitter in Wedge space');
   const text = onStation();
   assert.match(text, /Gambits/);
-  assert.match(text, /import core\.bool@1\.0/);
-  assert.ok(!/import mem\.ext@3\.0/.test(text), 'the best gambits are sold further out');
+  assert.match(text, /And · Not/);
+  assert.ok(!/Memory III/.test(text), 'the best gambits are sold further out');
   // A gambit: bought once, known by the squad's programs from then on.
   assert.ok(!game('logicKnown().has("core.bool")'));
   const credits = game('cargo.credits');
@@ -273,7 +273,7 @@ test('classes: the ship is a DPS to start, and turns Tank or Healer at a dock, i
 
 test('the squad: a wingman hired at a dock, its class program using its skills', () => {
   game(`cargo.credits = 10000; StationMenu.showTab('ship')`);
-  assert.match(onStation(), /Hire a wingman/);
+  assert.match(onStation(), /Hire Healer/);
   pressOnStation(/^Hire Healer/);
   assert.strictEqual(game('cargo.squad.length'), 1, 'hired');
   assert.strictEqual(game('cargo.squad[0].cls'), 'healer');

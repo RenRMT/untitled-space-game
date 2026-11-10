@@ -29,7 +29,6 @@ import { Entities } from '../flight/entities.js';
 import { Loadout } from '../rules/loadout.js';
 import { Loot } from '../rules/loot.js';
 import { Progress } from '../rules/progress.js';
-import { Research } from '../rules/research.js';
 import { Structures } from '../rules/structures.js';
 import { Vendor } from '../rules/vendor.js';
 import { cargo, lootClasses, pilotLevel, saveCargo } from './cargo.js';
@@ -199,7 +198,7 @@ export function guardianDown(g, at = g) {
     // And a gambit in its core: one not owned yet, up to a tier above the dungeon's level
     // (game/vendor.js; some are found only this way, further out).
     const gambit = Vendor.gambitDrop(world.galaxy.seed ^ (R.field >>> 0), `${g.key}:gambit`, level, ownedGambits());
-    if (gambit && grantGambit(gambit)) notify(`Gambit recovered from the ${g.name}: import ${Research.title(gambit)}`, 4, { tone: 'good' });
+    if (gambit && grantGambit(gambit)) notify(`Gambit recovered from the ${g.name}: ${Vendor.gambitName(gambit)}`, 4, { tone: 'good' });
   }
   saveCargo();
 }
