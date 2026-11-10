@@ -435,7 +435,13 @@ const SystemMap = (() => {
       ctx.globalAlpha = 1;
       ctx.fillStyle = OBJECTIVE_COLOR;
       ctx.font = Theme.font(11);
-      ctx.fillText(objective.label, ox, oy + 27);
+      // Its label on a dark plate (it lands on orbits and names), kept inside the map's edges.
+      const tw = ctx.measureText(objective.label).width, cw = canvas.clientWidth || tw + 2 * ox;
+      const lx = Math.max(tw / 2 + 8, Math.min(cw - tw / 2 - 8, ox));
+      ctx.fillStyle = 'rgba(5, 6, 10, 0.8)';
+      ctx.fillRect(lx - tw / 2 - 5, oy + 17, tw + 10, 15);
+      ctx.fillStyle = OBJECTIVE_COLOR;
+      ctx.fillText(objective.label, lx, oy + 27);
     }
 
     // Names by zoom: the star always, then planets, gates and stations, then moons and the rest.

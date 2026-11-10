@@ -1,5 +1,7 @@
 # Roadmap: the main game as an offline MMO-like space RPG
 
+(Built since: see `notes/review.md`, Nov 10, for the review of the game as it then played.)
+
 Nov 8, 2026
 
 

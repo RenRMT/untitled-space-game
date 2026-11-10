@@ -70,10 +70,10 @@
   }
   #map-overlay .bar > * { pointer-events: auto; }
   #map-overlay .top { top: 0; padding-top: calc(10px + env(safe-area-inset-top, 0px)); background: linear-gradient(var(--bg), rgba(5, 6, 10, 0)); }
-  /* The bottom bar stops short of the map and settings buttons, which stay above the map. */
+  /* The bottom bar stops short of the factions, map and settings buttons, which stay above the map. */
   #map-overlay .bottom {
     bottom: 0; flex-wrap: wrap; gap: 8px; padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-    padding-right: calc(12px + var(--hit) * 2 + 8px + 12px + env(safe-area-inset-right, 0px));
+    padding-right: calc(12px + var(--hit) * 3 + 16px + 12px + env(safe-area-inset-right, 0px));
     background: linear-gradient(rgba(5, 6, 10, 0), var(--bg));
   }
   #map-overlay .bottom .spacer { flex: 1; pointer-events: none; }

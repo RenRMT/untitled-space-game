@@ -63,15 +63,15 @@ exists, but only on the fourth tab of the station screen, last in its list.
 
 - A new game starts with chapter 1 already taken: its objective is on the HUD from the first frame.
 - A dock opens on Missions whenever something there is new; the story is listed first and marked.
-- Three one-line prompts, each shown once at the moment it applies (first fight, first drop,
-  first level).
+- One-line prompts, each shown once at the moment it applies: the controls in a new game, a first
+  fight, a first drop (`game/tips.js`).
 
 ### 3. The fight controls are small and the pilot's own state is hard to read
 The three skill buttons are about 40 px, in a box in the bottom centre. The pilot's hull and
 shield are a thin arc on the ship. A loss is a line of small text.
 
 - Skill buttons at thumb size, each with its cooldown swept over it.
-- The pilot's hull and shield as a gauge above the skills, the squad's beside it.
+- The pilot's hull and shield as a frame above the skills, the squad's beside it.
 - A loss and a win each get a banner: what happened, what it cost or paid.
 
 ### 4. A level is not felt
@@ -87,6 +87,7 @@ nothing to grow into, and three skills at once is a lot to learn in a first figh
 - The Ship tab spells each skill out in a paragraph and wraps its headings. Skills become three
   chips; the detail waits behind a tap.
 - Trade is the first tab, though it is the least part of the loop. Missions comes first.
+- A gear comparison printed `2.6999999999999993`. Rounded.
 
 ### 6. Things that don't serve the loop (cut)
 - **Attack as the first action on a friendly station.** It sat under the thumb, ahead of Dock. The
@@ -106,7 +107,7 @@ known ones have observatories to dock at, and they give the galaxy map its shape
 - The objective's label on the local map is drawn over the star.
 
 ## Order of work
-One commit each, in this order: the fights; the first session; the fight controls; levels; the
+All of the above is done, one commit each, in this order: the fights; the first session; the fight controls; levels; the
 station screens; the cuts; the map and the documents.
 
 ## Left for later
