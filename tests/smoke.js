@@ -809,6 +809,14 @@ fightTest('abilities in a fight: the player spends a charge from the panel, a wi
   game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`);
   assert.ok(game(`cargo.kit['emp-charge'] === 1 && Abilities.disabled(fight.s.enemies.find((e) => e.id === fight.s.focus), fight.s.t)`), 'spent, and the target silenced');
   assert.ok(!game(`useAbility(fight.s, fight.s.player, 'emp-charge', fight.s.focus)`), 'cooling down');
+  // The bar's buttons are updated in place while one cools down, not rebuilt every frame (a press
+  // between pointer down and up would be lost to a rebuild).
+  const buttons = () => browser.document.getElementById('combat').querySelector('.cb-abil').children;
+  browser.frames(1); // the charge spent: the bar rebuilt once for the count
+  const before = buttons();
+  browser.frames(3);
+  assert.ok(before.length === buttons().length && before.every((b, i) => b === buttons()[i]), 'the same buttons through the cooldown');
+  assert.ok(buttons().find((b) => b.getAttribute('data-id') === 'ability:emp-charge').disabled, 'the spent charge\'s button disabled in place');
   // A wingman with a use line repairs the damaged leader.
   game(`cargo.squad[0].program.unshift({ ...Logic.blank(), subject: 'leader', act: 'use', skill: 'repair-nanites' })`);
   browser.frames(2);

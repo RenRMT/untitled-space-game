@@ -56,17 +56,37 @@ const CombatPanel = (() => {
     });
   }
 
+  // The buttons are rebuilt only when what they stand for changes (which skills and consumables,
+  // and the charges left). What moves every frame while a skill cools down (its shade, its badge,
+  // whether it can be pressed) is set on the buttons in place, so a press isn't lost to a rebuild
+  // between pointer down and up, and no frame rebuilds the bar.
+  const badges = new WeakMap(); // button -> its badge span
   function show(d) {
     const abil = d.abilities || [];
     if (!abil.length) { hide(); return; }
     root.hidden = false;
     showParty(d.party || []);
-    if (!view.changed([abil])) return;
-    abilEl.replaceChildren(...abil.map((a) => h('button', {
-      class: `cb-ab${a.skill ? ' skill' : ''}${a.busy ? ' busy' : ''}`, type: 'button', 'data-id': a.id, disabled: !a.enabled,
-      title: a.skill ? a.label : `${a.label} · ${a.count} left`, 'aria-label': a.skill ? `${a.label}, ${a.badge}` : `${a.label}, ${a.count} left`,
-      style: a.cooling ? { '--cool': `${(a.cooling * 100).toFixed(0)}%` } : null,
-    }, Kit.icon(a.code, a.skill ? 28 : 22, { code: a.code }), h('span', { class: 'n' }, a.skill ? a.badge : `×${a.count}`))));
+    if (view.changed([abil.map((a) => [a.id, a.code, a.label, !!a.skill, a.count])])) {
+      abilEl.replaceChildren(...abil.map((a) => {
+        const n = h('span', { class: 'n' }, a.skill ? '' : `×${a.count}`);
+        const b = h('button', { class: `cb-ab${a.skill ? ' skill' : ''}`, type: 'button', 'data-id': a.id, title: a.skill ? a.label : `${a.label} · ${a.count} left` },
+          Kit.icon(a.code, a.skill ? 28 : 22, { code: a.code }), n);
+        badges.set(b, n);
+        return b;
+      }));
+    }
+    abil.forEach((a, i) => {
+      const b = abilEl.children[i];
+      if (!b) return;
+      b.disabled = !a.enabled;
+      b.classList.toggle('busy', !!a.busy);
+      const label = a.skill ? `${a.label}, ${a.badge}` : `${a.label}, ${a.count} left`;
+      if (b.getAttribute('aria-label') !== label) b.setAttribute('aria-label', label);
+      const cool = a.cooling ? `${(a.cooling * 100).toFixed(0)}%` : '0%';
+      if (b.dataset.cool !== cool) { b.dataset.cool = cool; b.style.setProperty('--cool', cool); }
+      const n = badges.get(b);
+      if (a.skill && n && n.textContent !== a.badge) n.textContent = a.badge;
+    });
   }
 
   function hide() {
