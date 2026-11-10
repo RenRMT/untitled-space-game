@@ -264,7 +264,22 @@ const JobTexts = (() => {
     },
   ];
 
-  return { STATION, SITUATION, FACTION, CONTRACTS, STORY, forStation, forHook, forFaction, go, fight, take, bring, mine, gas, assault, defend };
+  // After the story: the one job that follows its last chapter, at the core, and is asked again
+  // every day (story/jobs.js `repeat`), so the end of the story isn't the end of the fights worth having.
+  const AFTER = {
+    id: 'incursion', level: 24, giver: 'wedge', from: 'Wedge Security Directorate',
+    write: (c) => {
+      const at = c.space(c.sys.origin, 8000, 20000);
+      return at && {
+        name: 'Core incursion', difficulty: 'elite',
+        briefing: ['Paused, then. Their ships are gathering at the core again: fewer than before, in the same formations.', `A wing of them holds ${where(at)}. Break it before it grows.`, 'We will ask again tomorrow, pilot, and the day after. So will they.'],
+        steps: [fight(at, 4, 'Break the alien wing', { crew: 'aliens', up: 1 })],
+        debrief: ['Broken, for today. The core is quiet.', 'Come back tomorrow. They will.'],
+      };
+    },
+  };
+
+  return { STATION, SITUATION, FACTION, CONTRACTS, STORY, AFTER, forStation, forHook, forFaction, go, fight, take, bring, mine, gas, assault, defend };
 })();
 
 export { JobTexts };

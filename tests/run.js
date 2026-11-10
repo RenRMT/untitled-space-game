@@ -5417,7 +5417,7 @@ test('progress: levels from experience, less for easy kills, talents by level an
 
 test('the main story: seven chapters, each after the last and at a higher level, further out, ending at the core; contracts repeat', () => {
   for (const seed of [1, 7, 42]) {
-    const g = Galaxy.generate(seed), B = Jobs.board(g), story = B.list.filter((j) => j.tier === 'story');
+    const g = Galaxy.generate(seed), B = Jobs.board(g), story = B.list.filter((j) => j.chapter); // (the job after the story has no chapter: its own test)
     assert.strictEqual(story.length, JobTexts.STORY.length, `seed ${seed}: every chapter placed`);
     story.forEach((j, i) => {
       assert.strictEqual(j.chapter, i + 1);
@@ -5430,6 +5430,12 @@ test('the main story: seven chapters, each after the last and at a higher level,
     assert.ok(last.systems.every((k) => g.systems[k].level === 5), 'the last at the core');
     assert.ok(story.at(-1).reward.credits > story[0].reward.credits * 5, 'pays far more by the end');
     assert.ok(B.list.some((j) => j.id.endsWith('/convoy') && j.escort && j.handIn), `seed ${seed}: convoys, handed in where they deliver`);
+    // After the story: one job more, where it ended, that repeats.
+    const after = B.list.filter((j) => j.tier === 'story' && !j.chapter);
+    assert.strictEqual(after.length, 1, `seed ${seed}: one job after the story`);
+    assert.ok(after[0].repeat && after[0].requires === last.id && after[0].level === last.level, 'once the last chapter is done, and asked again');
+    assert.ok(after[0].systems.every((k) => g.systems[k].level === 5) && after[0].difficulty === 'elite', 'an Elite fight at the core');
+    assert.ok(after[0].reward.credits > 0 && Jobs.offeredAt(after[0], g.stations[0]));
   }
   // A done contract can be reopened (the next day: game/jobs.js); its next attempt starts afresh.
   const g = Galaxy.generate(1), B = Jobs.board(g), J = B.list.find((j) => j.tier === 'station'), log = Missions.create(null, B.byId);

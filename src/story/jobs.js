@@ -452,7 +452,7 @@ const Jobs = (() => {
     }
     // The main story: its chapters in order, each in the nearest system of its level to the one
     // before (the start system for the first), started from a station there (or the nearest one).
-    let prev = null, near = galaxy.systems[0];
+    let prev = null, near = galaxy.systems[0], last = null;
     JobTexts.STORY.forEach((t, i) => {
       const r = mulberry32(hashInt(base, i, 0x5709));
       const order = galaxy.systems.filter((s) => (s.level || 1) === t.sysLevel).sort((a, b) => dist(a.origin, near.origin) - dist(b.origin, near.origin));
@@ -469,9 +469,21 @@ const Jobs = (() => {
         add(job);
         prev = job.id;
         near = sys;
+        last = { sys, home };
         break;
       }
     });
+    // After the last chapter (JobTexts.AFTER): one more job where the story ended, offered once the
+    // story is done and again the day after each time it's handed in (`repeat`: game/jobs.js).
+    if (last && prev && JobTexts.STORY.length) {
+      const t = JobTexts.AFTER, r = mulberry32(hashInt(base, 0xaf7e, 0x5709)), { sys, home } = last;
+      const c = places(galaxy, sys, r, takenIn(sys.index), takenIn);
+      const job = make(galaxy, r, takenIn(sys.index), {
+        id: `story/after/${t.id}`, tier: 'story', scope: 'story', scopeName: 'After the story', from: t.from, faction: t.giver,
+        system: null, anchor: { x: home.x, y: home.y, system: home.system }, write: t.write({ ...c, home, owner: Factions.get(t.giver) }),
+      });
+      if (job) add(Object.assign(job, { level: t.level, requires: prev, repeat: true }));
+    }
     return { list, byId: Object.fromEntries(list.map((j) => [j.id, j])) };
   }
 

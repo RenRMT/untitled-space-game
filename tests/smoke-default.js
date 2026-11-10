@@ -226,7 +226,7 @@ test('traffic: freighters ply between stations, patrols circle them and join a f
 test('the main story: chapter 1 at any station from the start; the next waits for its level; a contract is posted again the next day', () => {
   if (game('!!docked')) game('launch()');
   game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; dock(startStation()); StationMenu.showTab('missions')`);
-  const ch = game(`cargo.board.list.filter((j) => j.tier === 'story').map((j) => j.id)`);
+  const ch = game(`cargo.board.list.filter((j) => j.chapter).map((j) => j.id)`);
   assert.strictEqual(ch.length, 7, 'seven chapters');
   assert.match(onStation(), /Chapter 1: Papers in order/, 'chapter 1, offered here');
   assert.doesNotMatch(onStation(), /Chapter 2/, 'not chapter 2 yet');
@@ -636,6 +636,47 @@ test('the galaxy: three territories joined inside by gates, one link between eac
   assert.deepStrictEqual(r.factions, ['alien', 'android', 'block', 'drifter', 'shard', 'wedge']);
   assert.strictEqual(r.cross, 3);
   assert.strictEqual(r.outsideGated, false);
+});
+
+test('the story told: an epilogue on Missions, a job at the core that repeats, and a new galaxy for the same pilot', () => {
+  if (game('!!docked')) game('launch()');
+  const seed = game('world.galaxy.seed');
+  game(`globalThis.__T = Date.UTC(2026, 10, 8, 12); Clock.now = () => __T; cargo.pilot.xp = 0; for (let k = 1; k < 24; k++) cargo.pilot.xp += Progress.toNext(k); applyShip()`);
+  assert.ok(!game('storyDone()'), 'not yet');
+  const after = game(`cargo.board.list.find((j) => j.repeat).id`);
+  assert.ok(!game(`available(jobOf('${after}'))`), 'the job after the story waits for it');
+  game(`for (const J of cargo.board.list.filter((j) => j.chapter)) { if (cargo.missions.status(J.id) === 'offered') cargo.missions.accept(J.id, startStation().key); cargo.missions.finish(J.id); }`);
+  assert.ok(game('storyDone()'));
+  assert.strictEqual(game('logContext().chapters'), 7);
+  assert.ok(game('checkMilestones() >= 1 && cargo.stats.done.includes("core-breaker")'), 'a milestone for it');
+  game(`fight.grace = 1e9; placeBeside(startStation()); dock(startStation()); StationMenu.showTab('missions')`);
+  browser.frames(2);
+  assert.ok(game('!!docked'), 'docked');
+  assert.match(onStation(), /The story is told/, 'the epilogue is on the Missions tab');
+  assert.match(onStation(), /Core incursion/, 'and the job at the core is offered');
+  // Handed in, it is posted again the next day.
+  game(`cargo.missions.accept('${after}', startStation().key); for (const o of jobOf('${after}').objectives) cargo.missions.set('${after}', o.id, o.need || 1)`);
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'ready', 'its fight won');
+  game(`completeJob('${after}')`);
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'done');
+  assert.strictEqual(game(`cargo.world.daily['${after}']`), game('Vendor.day(__T)'), 'marked for tomorrow');
+  game('__T += 24 * 3600 * 1000; jobViews(startStation())');
+  assert.strictEqual(game(`cargo.missions.status('${after}')`), 'offered', 'asked again the next day');
+  assert.ok(game('storyDone()'), 'the story stays told');
+  // A new galaxy for the same pilot: level, talents, class, gambits and the log go; the rest stays.
+  game(`launch(); cargo.credits = 77777; cargo.gambits = [...new Set([...cargo.gambits, Vendor.gambits(5).find((id) => !Vendor.FREE.includes(id))])]; saveAll()`);
+  const level = game('pilotLevel()'), gambits = game('cargo.gambits.slice()'), done = game('cargo.stats.done.slice()');
+  game('samePilotGame()');
+  assert.notStrictEqual(game('world.galaxy.seed'), seed, 'another galaxy');
+  assert.strictEqual(game('pilotLevel()'), level, 'the level goes along');
+  assert.deepStrictEqual(game('cargo.gambits'), gambits, 'and the gambits');
+  assert.deepStrictEqual(game('cargo.stats.done'), done, 'and the log, so no milestone pays twice');
+  assert.notStrictEqual(game('cargo.credits'), 77777, 'the credits stay behind');
+  assert.ok(!game('storyDone()') && game(`cargo.missions.status(cargo.board.list.find((j) => j.chapter === 1).id) === 'active'`), 'the story starts over, chapter 1 taken');
+  assert.strictEqual(game('cargo.hull'), game('SHIP.hull'), 'a whole ship');
+  assert.ok(game('savedGames()').some((g) => g.seed === seed && g.credits === 77777), 'the game left is saved, as it was');
+  game(`saveAll(); Clock.now = () => Date.now(); openGame(${JSON.stringify(seed)})`);
+  browser.frames(2);
 });
 
 test('nothing was drawn at a non-finite position', () => {

@@ -77,7 +77,7 @@ export function gainXP(n, why = '') {
 
 // What the log reads from the rest of the game rather than counts itself.
 export function logContext() {
-  const G = world.galaxy, K = world.knowledge, story = cargo.board ? cargo.board.list.filter((J) => J.tier === 'story') : [];
+  const G = world.galaxy, K = world.knowledge, story = cargo.board ? cargo.board.list.filter((J) => J.chapter) : []; // (not the job after the story, which repeats)
   return {
     level: pilotLevel(),
     systems: G && K ? G.systems.filter((_, i) => K.visited(i)).length : 0, allSystems: G ? G.systems.length : 0,

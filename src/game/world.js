@@ -19,7 +19,8 @@ import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
 import { Progress } from '../rules/progress.js';
 import { eliteOf } from './traffic.js';
-import { BAD, cargo, loadCargo, saveCargoNow } from './cargo.js';
+import { BAD, applyShip, cargo, loadCargo, saveCargoNow } from './cargo.js';
+import { storyDone } from './jobs.js';
 import { endTalk, showGates } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
 import { SHIP, notify, ship } from './state.js';
@@ -144,6 +145,7 @@ export function importSave() {
 // seed that grows its galaxy again ([{ seed, xp, credits, savedAt }], the latest first). A save from
 // before seeds were kept can't be opened from here (its galaxy still opens by its ?seed=).
 export const MAX_GAMES = 3;
+export const SAME_PILOT = 'Take this pilot to a new galaxy? Level, talents and gambits go along; the ship, its gear, the squad and the credits stay with this game, which stays saved.';
 export function savedGames() {
   const games = [];
   for (const [key, text] of Object.entries(Store.dump((k) => k.startsWith('cargo:') && !k.endsWith(BAD)))) {
@@ -169,6 +171,20 @@ export function newGame() {
   do seed = 1 + Math.floor(Math.random() * 999999); while (seed === world.galaxy.seed || savedGames().some((g) => g.seed === seed));
   openGame(seed);
 }
+// Once the story is told: a new galaxy for the same pilot. The level, talents, class, gambits and
+// the log go along; the ship, its gear, the squad and the credits stay with the game left behind
+// (which stays saved, like any other).
+export function samePilotGame() {
+  const carry = JSON.parse(JSON.stringify({ pilot: cargo.pilot, cls: cargo.cls, gambits: cargo.gambits, stats: cargo.stats }));
+  let seed;
+  do seed = 1 + Math.floor(Math.random() * 999999); while (seed === world.galaxy.seed || savedGames().some((g) => g.seed === seed));
+  openGame(seed);
+  Object.assign(cargo, carry);
+  applyShip();
+  cargo.hull = SHIP.hull;
+  saveCargoNow();
+  notify(`A new galaxy · level ${Progress.of(cargo.pilot.xp).level}, your talents and gambits with you`, 6, { tone: 'good' });
+}
 
 // Wiring, run once every module has loaded (src/main.js).
 export function init() {
@@ -179,6 +195,7 @@ export function init() {
     get actions() {
       return [
         { label: 'New game', hint: 'A new galaxy and a new pilot. This game stays saved, and is listed here to come back to.', run: newGame },
+        ...(storyDone() ? [{ label: 'New galaxy, same pilot', hint: 'With the story told: a new galaxy with this pilot\'s level, talents and gambits. The ship, gear and credits stay behind.', run: () => { if (window.confirm(SAME_PILOT)) samePilotGame(); } }] : []),
         ...savedGames().slice(0, MAX_GAMES).map((g) => ({ label: gameLabel(g), run: () => openGame(g.seed) })),
       ];
     },

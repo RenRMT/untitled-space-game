@@ -391,6 +391,11 @@ export const waitingChapter = () => cargo.board?.list.find((J) => J.tier === 'st
   && (!J.requires || log().status(J.requires) === 'done') && J.level && pilotLevel() < J.level) || null;
 // Contracts (station jobs) are offered again the day after they're handed in (cargo.world.daily:
 // { [id]: the day it was done }).
+// The story told: every chapter handed in (the job after it, which repeats, isn't one).
+export function storyDone() {
+  const chapters = cargo.board ? cargo.board.list.filter((J) => J.chapter) : [];
+  return chapters.length > 0 && chapters.every((J) => log().status(J.id) === 'done');
+}
 export function reopenDaily() {
   const today = Vendor.day(Clock.now());
   for (const [id, day] of Object.entries(cargo.world.daily)) {
@@ -495,7 +500,7 @@ export function completeJob(id) {
   }
   log().complete(id);
   record('contracts');
-  if (J.tier === 'station') cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
+  if (J.tier === 'station' || J.repeat) cargo.world.daily[id] = Vendor.day(Clock.now()); // posted again tomorrow
   gainXP(Progress.contractXP(J.difficulty || 'easy', pilotLevel(), J.reward.level || J.reward.gear?.level || 1), 'contract done');
   cargo.credits += J.reward.credits;
   Reputation.earn(cargo.rep, J);

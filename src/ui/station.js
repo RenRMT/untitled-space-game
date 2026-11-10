@@ -913,6 +913,16 @@ const StationMenu = (() => {
       tag: w.due ? 'Gone to ground' : `${w.bounty.toLocaleString('en-US')} cr`, tagTone: w.due ? null : 'warn',
     })))));
   }
+  // With every chapter handed in: what's left to do here, and the way on to a new galaxy with the
+  // same pilot (game/world.js samePilotGame). Folded, so it doesn't stand over the board for good.
+  function epilogue() {
+    if (!ctx.missions.storyDone || !ctx.missions.storyDone()) return null;
+    return section('Epilogue', fold('epilogue', 'The story is told', [
+      h('p', { class: 'ui-note' }, 'You flew all the way in. This galaxy stays open: its contracts, the wanted, the sites not yet surveyed, and the core, where they ask again every day.'),
+      h('p', { class: 'ui-note' }, 'Or take this pilot to a galaxy no one has charted. Level, talents and gambits go along; the ship, its gear, the squad and the credits stay here.'),
+      Kit.button('New galaxy, same pilot', () => ctx.missions.samePilot(), { wide: true, kind: 'ghost', aria: 'Start a new galaxy with this pilot' }),
+    ]));
+  }
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
@@ -924,6 +934,7 @@ const StationMenu = (() => {
       renderRewards(),
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
       wantedList(),
+      epilogue(),
       h('div', { class: 'ui-list' }, current.map(missionCard),
         done.length ? [Kit.disclosure({ label: `Completed · ${done.length}`, open: doneOpen, onToggle: () => { doneOpen = !doneOpen; refresh(); } }),
           doneOpen ? done.map(doneCard) : null] : null),

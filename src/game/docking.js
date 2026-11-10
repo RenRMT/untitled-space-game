@@ -26,7 +26,8 @@ import { select } from './selection.js';
 import { programs, repairSquad } from './squad.js';
 import { SHIP, autopilot, inFight, notify, particles, setMode, ship } from './state.js';
 import { startWarp, warp } from './warp.js';
-import { world } from './world.js';
+import { SAME_PILOT, samePilotGame, world } from './world.js';
+import { storyDone } from './jobs.js';
 import { dockBlock } from './structures.js';
 
 // ---------- Docking: stop near a station, dock, trade, launch ----------
@@ -118,7 +119,11 @@ export function dock(station) {
     shipyard: station.market.type === 'capital', // hulls: at a capital's shipyard
     repairs,
     squad: programs,
-    missions: { list: () => missionViews(station), wanted },
+    missions: {
+      list: () => missionViews(station), wanted,
+      // With the story told: the way on (ui/station.js epilogue).
+      storyDone, samePilot: () => { if (!window.confirm(SAME_PILOT)) return false; launch(); samePilotGame(); return true; },
+    },
     rewards: { list: rewardViews, choose: chooseReward }, // gear rewards to choose (game/rewards.js)
     tab: null, // the last tab used
     news: news.splice(0), // what finished since the last dock, shown once
