@@ -1682,6 +1682,32 @@ test('the pilot\'s log counts what happens, pays a milestone once, and shows on 
   browser.frames(2);
 });
 
+test('the wanted list: the elite of every system visited, its bounty, and gone to ground once brought down', () => {
+  const si = game('world.galaxy.systems.findIndex((s, i) => s.level >= 2 && eliteOf(i))');
+  assert.ok(si > 0, 'a system out from the start has an elite');
+  assert.strictEqual(game('eliteOf(world.galaxy.stations[world.galaxy.startStation].system)'), null, 'none where the game starts');
+  assert.ok(!game('wanted()').some((w) => w.system === si) || game(`world.knowledge.visited(${si})`), 'not listed before the system is visited');
+  game(`world.knowledge.visit(${si})`);
+  const w = game('wanted()').find((x) => x.system === si);
+  assert.ok(w && w.bounty === 1500 * w.level && !w.due, 'listed, at large, with its bounty');
+  assert.strictEqual(w.name, game(`eliteOf(${si}).name`));
+  assert.match(game(`SystemMap.wanted ? 'set' : 'unset'`), /set/);
+  const kept = game(`JSON.stringify(cargo.world.elites[${si}] || null)`);
+  game(`cargo.world.elites[${si}] = { n: (cargo.world.elites[${si}]?.n || 0) + 1, at: Clock.now() + 60000 }`);
+  const next = game('wanted()').find((x) => x.system === si);
+  assert.ok(next.due > 0, 'brought down: the next one has gone to ground for a while');
+  assert.notStrictEqual(next.name, w.name, 'and is someone else');
+  game('{ const st = __startStation(); placeBeside(st); dock(st); }');
+  browser.frames(2);
+  game(`StationMenu.showTab('missions')`);
+  assert.match(onStation(), /Wanted · \d+ at large/);
+  pressOnStation(/^Wanted · /);
+  assert.match(onStation(), new RegExp(`${next.name}Gone to ground`));
+  pressOnStation(/^Wanted · /);
+  game(`{ const k = ${kept}; if (k) cargo.world.elites[${si}] = k; else delete cargo.world.elites[${si}]; } launch()`);
+  browser.frames(2);
+});
+
 test('Settings lists the other games saved here, and opens one; the galaxy played is the one opened next time', () => {
   assert.strictEqual(Store.get('seed'), String(game('world.galaxy.seed')), 'the galaxy being played is remembered');
   game('cargo.credits += 1; saveAll()');

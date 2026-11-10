@@ -19,6 +19,7 @@ import { missionDocked, missionViews } from './missions.js';
 import { artStyle } from './options.js';
 import { vendor } from './vendor.js';
 import { checkMilestones, pilotView } from './progress.js';
+import { wanted } from './traffic.js';
 import { outfitting, placeShip } from './outfitting.js';
 import { chooseReward, rewardViews } from './rewards.js';
 import { select } from './selection.js';
@@ -117,7 +118,7 @@ export function dock(station) {
     shipyard: station.market.type === 'capital', // hulls: at a capital's shipyard
     repairs,
     squad: programs,
-    missions: { list: () => missionViews(station) },
+    missions: { list: () => missionViews(station), wanted },
     rewards: { list: rewardViews, choose: chooseReward }, // gear rewards to choose (game/rewards.js)
     tab: null, // the last tab used
     news: news.splice(0), // what finished since the last dock, shown once

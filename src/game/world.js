@@ -18,6 +18,7 @@ import { Settings } from '../ui/settings.js';
 import { Galaxy } from '../world/galaxy.js';
 import { SYSTEM_CONFIG } from '../world/system-config.js';
 import { Progress } from '../rules/progress.js';
+import { eliteOf } from './traffic.js';
 import { BAD, cargo, loadCargo, saveCargoNow } from './cargo.js';
 import { endTalk, showGates } from './missions.js';
 import { ambushCleared, placeBeside, startStation } from './outfitting.js';
@@ -72,6 +73,8 @@ export function loadGalaxy(galaxy) {
   // (rules/reputation.js passage).
   world.travel = Travel.create(galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: (c) => ambushCleared(c) || Reputation.passage(cargo.rep) });
   SystemMap.trip = world.travel;
+  // A charted system's card names its elite and the bounty on it (game/traffic.js).
+  SystemMap.wanted = (sys) => { const E = eliteOf(sys.index); return E ? (E.due ? `Wanted: ${E.name} · gone to ground` : `Wanted: ${E.name} · ${E.bounty.toLocaleString('en-US')} cr`) : null; };
   Art.clearCache();
   ArtBodies.clearCache();
   showGates();

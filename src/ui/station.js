@@ -902,6 +902,17 @@ const StationMenu = (() => {
       })))));
   }
 
+  // Wanted: the named elite of every system the pilot has been to (game/traffic.js), with the bounty
+  // on it: something to fly out for when the board is done. Folded away until asked for.
+  function wantedList() {
+    const list = ctx.missions.wanted ? ctx.missions.wanted() : [];
+    if (!list.length) return null;
+    const at = list.filter((w) => !w.due).length;
+    return section('Wanted', fold('wanted', `Wanted · ${at} at large`, h('div', { class: 'ui-list' }, list.map((w) => Kit.optionRow({
+      code: 'WPN', name: w.name, sub: `Tier ${w.tier} elite · ${w.where} · level ${w.level}`, locked: !!w.due, lockLabel: null,
+      tag: w.due ? 'Gone to ground' : `${w.bounty.toLocaleString('en-US')} cr`, tagTone: w.due ? null : 'warn',
+    })))));
+  }
   function renderMissions() {
     const list = missions();
     const { reason } = locks();
@@ -912,6 +923,7 @@ const StationMenu = (() => {
       reason ? Kit.callout(reason, 'var(--warn)') : null,
       renderRewards(),
       list.length ? null : h('p', { class: 'ui-empty' }, 'No missions posted here.'),
+      wantedList(),
       h('div', { class: 'ui-list' }, current.map(missionCard),
         done.length ? [Kit.disclosure({ label: `Completed · ${done.length}`, open: doneOpen, onToggle: () => { doneOpen = !doneOpen; refresh(); } }),
           doneOpen ? done.map(doneCard) : null] : null),
