@@ -175,15 +175,37 @@
 
   /* Combat bar: replaces the context menu during a fight. Only the skills and the kit's
      consumables; the fight itself is drawn round the ships (game/combat.js). */
-  #combat { width: auto; max-width: calc(100vw - 24px); padding: 6px 8px; border-left-color: var(--hostile); }
-  /* A button per skill and consumable: its icon over its key, cooldown or charges left. */
+  #combat { left: 12px; right: 12px; margin: 0 auto; transform: none; width: fit-content; max-width: calc(100vw - 24px); padding: 8px 10px; border-left-color: var(--hostile); display: grid; gap: 8px; }
+  #combat[hidden] { display: none; }
+  /* The party's frames: your ship's first and widest, then the squad's. Shields over hull. */
+  .cb-party { display: flex; gap: 8px; align-items: flex-end; }
+  .cb-party:empty { display: none; }
+  .cb-frame { flex: 1 1 0; min-width: 44px; display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; align-items: center; font: 700 10px/1 var(--mono); letter-spacing: 0.08em; color: var(--dim); }
+  .cb-frame.you { flex: 2.2 1 0; color: var(--hud); }
+  .cb-frame .bars { display: grid; gap: 2px; }
+  .cb-frame .bars span { display: block; height: 4px; background: rgba(255, 255, 255, 0.12); }
+  .cb-frame .bars .hul { height: 8px; }
+  .cb-frame .bars i { display: block; height: 100%; width: 100%; transition: width 0.15s linear; }
+  .cb-frame .shd i { background: var(--shd, var(--cyan)); }
+  .cb-frame .hul i { background: var(--good); }
+  .cb-frame.low .hul i { background: var(--hostile); }
+  .cb-frame.down { opacity: 0.35; }
+  .cb-frame .num { grid-column: 2; font-weight: 400; color: var(--dim); min-height: 10px; }
+  .cb-frame:not(.you) .num { display: none; }
+  /* A button per skill and consumable: its icon over its name, cooldown or charges left. A skill's
+     is thumb-sized; while it cools, a shade drains off it from the top. */
   .cb-abil { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
   .cb-ab {
-    min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    position: relative; overflow: hidden;
+    min-width: var(--hit); min-height: var(--hit); padding: 4px 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     border: 1px solid var(--good); border-radius: 6px; background: transparent; color: var(--good); cursor: pointer; touch-action: manipulation;
   }
-  .cb-ab .n { font: 400 10px var(--mono); color: var(--hud); }
+  .cb-ab.skill { width: 64px; height: 62px; padding: 4px 2px; }
+  .cb-ab::before { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: var(--cool, 0%); background: rgba(0, 0, 0, 0.55); pointer-events: none; }
+  .cb-ab.busy { border-style: dashed; }
+  .cb-ab .n { position: relative; font: 700 10px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; color: var(--hud); white-space: nowrap; }
   .cb-ab:disabled { border-color: var(--line); color: var(--dim); cursor: default; }
+  .cb-ab:disabled .n { color: var(--dim); }
   .cb-ab:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
   /* The rest of the interface (map, settings, factions, context menu, consumables) stays up in a
      fight: the panel keeps clear of the consumables' column on the right. */
@@ -491,7 +513,7 @@
     bottom: calc((14px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #comms.hint { bottom: calc((46px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   .panel { zoom: var(--ui-scale); left: calc(50vw / var(--ui-scale)); bottom: calc((60px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
-  #combat { max-width: calc((100vw - 2 * (var(--hit) * var(--ui-scale) + 24px)) / var(--ui-scale)); }
+  #combat { max-width: calc((100vw - 24px) / var(--ui-scale)); }
   .icon-btn { zoom: var(--ui-scale); bottom: calc((12px + env(safe-area-inset-bottom, 0px)) / var(--ui-scale)); }
   #factions-btn { right: calc((12px + 2 * (var(--hit) * var(--ui-scale) + 8px) + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
   #map-btn { right: calc((12px + var(--hit) * var(--ui-scale) + 8px + env(safe-area-inset-right, 0px)) / var(--ui-scale)); }
@@ -579,6 +601,7 @@
   <div class="cx-actions" role="group" aria-label="Actions"></div>
 </div>
 <div id="combat" class="panel" role="toolbar" aria-label="Combat skills" hidden>
+  <div class="cb-party" aria-label="Your side"></div>
   <div class="cb-abil" role="group" aria-label="Skills and kit"></div>
 </div>
 

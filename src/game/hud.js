@@ -15,7 +15,7 @@ import { DROP_PX, visible } from './draw-world.js';
 import { DEADZONE, drag, interacted, maxDrag, steering } from './input.js';
 import { CONTROLS, moveMode, reducedMotion } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, cam, clamp, ctx, here, inShipFight, notify, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, banner, cam, clamp, ctx, here, inShipFight, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -408,6 +408,36 @@ export function drawHud() {
 
   ctx.restore();
   drawStatus(speed / SHIP.maxSpeed, ship.targetSpeed / SHIP.maxSpeed, logged.length ? 13 : 14);
+  drawBanner();
+}
+
+// The banner (game/state.js showBanner): its title large between two rules, a line under it, a third
+// of the way down the view; it opens out from the middle and fades.
+export function drawBanner() {
+  const now = performance.now() / 1000;
+  if (now >= banner.until || !banner.title) return;
+  const k = Theme.scale, age = now - banner.from, left = banner.until - now;
+  const a = clamp(Math.min(age / 0.25, left / 0.6), 0, 1), open = reducedMotion() ? 1 : clamp(age / 0.35, 0, 1);
+  const color = TONE()[banner.tone] || COLORS.hud, cx = view.w / 2, cy = Math.round(view.h * 0.3);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = Theme.font(26);
+  const half = Math.min(view.w / 2 - 20, Math.max(110 * k, ctx.measureText(banner.title).width / 2 + 28)) * (0.4 + 0.6 * open);
+  ctx.globalAlpha = 0.6 * a;
+  ctx.fillStyle = COLORS.bg;
+  ctx.fillRect(cx - half, cy - 26 * k, half * 2, (banner.sub ? 74 : 52) * k);
+  ctx.globalAlpha = a;
+  ctx.fillStyle = color;
+  ctx.fillRect(cx - half, cy - 26 * k, half * 2, 2);
+  ctx.fillRect(cx - half, cy + 24 * k, half * 2, 1);
+  ctx.fillText(banner.title, cx, cy);
+  if (banner.sub) {
+    ctx.font = Theme.font(13);
+    ctx.fillStyle = COLORS.hud;
+    ctx.fillText(fit(banner.sub, view.w - 40), cx, cy + 36 * k);
+  }
+  ctx.restore();
 }
 
 // Bottom left: the speed bar (speed, a share of the top speed, filled; the throttle set, marked),

@@ -100,6 +100,13 @@ export const notify = (text, t = 2, { once = false, tone = 'info' } = {}) => {
   toast.t = t;
   Messages.push(text, { tone });
 };
+// A banner: a title and one line under it, across the upper middle of the view for a few seconds
+// (game/hud.js drawBanner): a fight won or lost, a level reached. A later one replaces it.
+export const banner = { title: '', sub: '', tone: 'info', from: 0, until: 0 };
+export function showBanner(title, sub = '', tone = 'info', seconds = 3.2) {
+  const now = performance.now() / 1000;
+  Object.assign(banner, { title, sub, tone, from: now, until: now + seconds });
+}
 // What the screen is busy with: 'talking', 'docked', 'in-combat', 'mining', 'settings', 'landing'
 // (from the descent to a planet until back in space) and 'landed' (on its surface). Each sets the
 // body class of the same name (index.html hides controls by it); the map can't open during any of

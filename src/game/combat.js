@@ -44,7 +44,7 @@ import { combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
 import { HOSTILE_COLOR, fmtDist, frameList, isHostile, select } from './selection.js';
 import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
-import { NEAR, PLAYER_DRAW, SHIP, TAU, autopilot, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
+import { NEAR, PLAYER_DRAW, SHIP, TAU, autopilot, showBanner, ctx, fight, fightMode, inFight, notify, setMode, ship, turnToward, view, whiteOut, wings } from './state.js';
 import { simTime } from './update.js';
 import { world } from './world.js';
 
@@ -535,6 +535,7 @@ export function towHome() {
   SystemMap.setPlayer(ship.x, ship.y);
   fight.grace = RESPAWN_GRACE;
   whiteOut();
+  showBanner('SHIP LOST', `Towed to ${home ? home.name : startStation().name}${bill ? ` · −${bill.toLocaleString('en-US')} cr` : ''}`, 'hostile', 4.5);
   notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
   saveCargo();
 }
@@ -551,6 +552,7 @@ export function tallyKill({ credits = 0, loot = [] } = {}) {
 function settleTally() {
   if (!fight.tallyDue || fight.dying.size) return;
   notify(tallyLine(fight.tally), 4, { priority: 2, tone: 'good' });
+  { const [title, ...rest] = tallyLine(fight.tally).split(' · '); showBanner(title.toUpperCase(), rest.join(' · '), 'good'); }
   fight.tally = null;
   fight.tallyDue = false;
 }
@@ -712,13 +714,23 @@ function playerTarget(s, id) {
 }
 // The player's buttons: the class's three skills (keys 1–3), each with its cooldown, then the kit's
 // consumables.
+// The party's frames on the combat bar: your ship, then the squad (not the patrols and turrets
+// that joined in: they're drawn where they fight).
+export function partyFrames(s) {
+  const frame = (c, you) => ({
+    id: c.id, code: you ? 'YOU' : Classes.CLASSES[Classes.valid(c.cls)].code, you,
+    hull: c.hull / Math.max(1, c.stats.hull), shield: c.stats.shield ? c.shield / c.stats.shield : 0,
+    text: you ? `${Math.max(0, Math.ceil(c.hull))}${c.stats.shield ? ` · ${Math.max(0, Math.ceil(c.shield))}` : ''}` : '',
+  });
+  return [frame(s.player, true), ...(s.allies || []).filter((a) => !a.defender && !a.patrol).map((a) => frame(a, false))];
+}
 export function skillButtons(s) {
   return Classes.skills(SHIP.cls).map((id, i) => {
     const a = Abilities.ABILITIES[id], t = [s.player, ...(s.allies || []), ...s.enemies].find((c) => c.id === playerTarget(s, id));
     const cd = Math.max(0, (s.player.cooldowns?.[id] ?? -Infinity) - s.t), busy = s.player.casting?.id === id;
     return {
       id: `ability:${id}`, code: a.code, label: `${a.name} (${i + 1})`, skill: true, key: String(i + 1),
-      badge: busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : String(i + 1), cooling: cd > 0 ? cd / a.cooldown : 0,
+      badge: busy ? '…' : cd > 0 ? `${Math.ceil(cd)}s` : a.short || a.name.split(' ')[0], cooling: cd > 0 ? cd / a.cooldown : 0, busy,
       enabled: !!t && Abilities.ready(s.player, id, t, s.t),
     };
   });
@@ -746,7 +758,7 @@ export function focusOn(id, manual = true) {
 // The combat bar: the skills and the kit while the fight runs (the outcome is a notice: endFight).
 export function updateCombatPanel() {
   if (!fight.s || fight.wrecked) { CombatPanel.hide(); return; }
-  CombatPanel.show({ abilities: abilityButtons(fight.s) });
+  CombatPanel.show({ abilities: abilityButtons(fight.s), party: partyFrames(fight.s) });
 }
 
 // Where a fight is drawn, in screen px: in space the world through the camera (worldToScreen,
