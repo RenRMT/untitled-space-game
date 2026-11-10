@@ -638,6 +638,34 @@ test('the galaxy: three territories joined inside by gates, one link between eac
   assert.strictEqual(r.outsideGated, false);
 });
 
+test('a contract that needs you there fails when the ship is lost: back on the board, a little regard gone; the story waits', () => {
+  if (game('!!docked')) game('launch()');
+  const pick = game(`(() => {
+    const J = cargo.board.list.find((j) => j.tier === 'station' && j.steps.some((s) => s.type === 'defend') && cargo.missions.status(j.id) === 'offered');
+    const other = cargo.board.list.find((j) => j.tier === 'station' && !j.escort && !j.steps.some((s) => s.type === 'defend') && cargo.missions.status(j.id) === 'offered');
+    return J && other && { id: J.id, scope: J.scope, faction: J.faction, i: J.steps.findIndex((s) => s.type === 'defend'), other: other.id, otherScope: other.scope };
+  })()`);
+  assert.ok(pick, 'a defence contract and a plain one somewhere in the galaxy');
+  game(`cargo.missions.accept('${pick.id}', '${pick.scope}'); cargo.missions.accept('${pick.other}', '${pick.otherScope}')`);
+  assert.deepStrictEqual(game('failOnLoss()'), [], 'nothing fails before its waves have come');
+  const regard = game(`Reputation.regard(cargo.rep, '${pick.faction}')`);
+  game(`jobRun.defend.set('${pick.id}:${pick.i}', { ships: [{ key: 'none' }], wait: 0, n: cargo.missions.attempt('${pick.id}') })`);
+  assert.deepStrictEqual(game('failOnLoss()'), [pick.id], 'the defence fails; the plain contract does not');
+  assert.strictEqual(game(`cargo.missions.status('${pick.id}')`), 'offered', 'back on the board');
+  assert.strictEqual(game(`cargo.missions.status('${pick.other}')`), 'active');
+  assert.strictEqual(game(`Reputation.regard(cargo.rep, '${pick.faction}')`), regard + game('FAIL_REGARD'), 'a little regard gone');
+  assert.ok(!game(`jobRun.defend.has('${pick.id}:${pick.i}')`), 'its waves cleared away');
+  assert.match(Messages.log.map((l) => l.text).join('|'), /Contract failed: /);
+  // A story chapter with a defence in it waits, whatever happens.
+  const ch = game(`(() => { const J = cargo.board.list.find((j) => j.chapter && j.steps.some((s) => s.type === 'defend')); return J && { id: J.id, i: J.steps.findIndex((s) => s.type === 'defend'), was: cargo.missions.status(J.id) }; })()`);
+  if (ch && ch.was === 'offered') {
+    game(`cargo.missions.accept('${ch.id}', startStation().key); jobRun.defend.set('${ch.id}:${ch.i}', { ships: [{ key: 'none' }], wait: 0, n: 1 })`);
+    assert.deepStrictEqual(game('failOnLoss()'), []);
+    game(`cargo.missions.abandon('${ch.id}'); jobRun.defend.delete('${ch.id}:${ch.i}')`);
+  }
+  game(`cargo.missions.abandon('${pick.other}'); Reputation.change(cargo.rep, '${pick.faction}', -FAIL_REGARD)`);
+});
+
 test('the story told: an epilogue on Missions, a job at the core that repeats, and a new galaxy for the same pilot', () => {
   if (game('!!docked')) game('launch()');
   const seed = game('world.galaxy.seed');

@@ -34,6 +34,7 @@ import { Loot } from '../rules/loot.js';
 import { visible } from './draw-world.js';
 import { edgeMarkers, markerAt, worldToScreen } from './hud.js';
 import { steady } from './input.js';
+import { failOnLoss } from './jobs.js';
 import { gainXP, record } from './progress.js';
 import { tip } from './tips.js';
 import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
@@ -499,6 +500,7 @@ export function playerDestroyed() {
   explode(ship.x, ship.y, SHIP.radius * 2);
   Feedback.emit('destroyed');
   record('losses');
+  failOnLoss(); // a station left undefended, a convoy left alone (game/jobs.js)
   const tag = Date.now().toString(36);
   cargo.items.forEach((it, i) => {
     const a = Math.random() * TAU, r = 30 + Math.random() * 90;

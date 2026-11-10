@@ -28,7 +28,7 @@ import { Reputation } from '../rules/reputation.js';
 import { Jobs } from '../story/jobs.js';
 import { Missions } from '../story/missions.js';
 import { Factions } from '../world/factions.js';
-import { cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
+import { addNews, cargo, hold, lootClasses, pilotLevel, saveCargo } from './cargo.js';
 import { gainXP, record } from './progress.js';
 import { offerReward } from './rewards.js';
 import { engage } from './combat.js';
@@ -513,6 +513,30 @@ export function completeJob(id) {
   saveCargo();
 }
 const clearDefence = (id) => { for (const k of [...jobRun.defend.keys()]) if (k.startsWith(`${id}:`)) jobRun.defend.delete(k); };
+// Contracts that need you there fail when your ship is lost while they're under way: a station being
+// defended, once a wave has come in; a ship being escorted, once it's with you. Failed, a contract
+// is back on the board with its progress gone, and whoever asked thinks a little less of you (half
+// of what handing it in earns). The story's chapters don't fail: they wait.
+export const FAIL_REGARD = -2;
+export function failOnLoss() {
+  const failed = [];
+  for (const id of activeJobs()) {
+    const J = jobOf(id), L = log();
+    if (J.tier === 'story') continue;
+    const defending = J.steps.some((s, i) => s.type === 'defend' && !L.done(id, stepId(i)) && !!jobRun.defend.get(`${id}:${i}`)?.ships);
+    const escorting = !!J.escort && !!jobRun.built.get(id)?.escort;
+    if (!(defending || escorting) || !L.abandon(id)) continue;
+    jobRun.built.delete(id);
+    clearDefence(id);
+    if (cargo.track === id) cargo.track = null;
+    if (J.faction) Reputation.change(cargo.rep, J.faction, FAIL_REGARD);
+    notify(`Contract failed: ${J.title} · ${defending ? 'the station stood alone' : 'the convoy went on without you'}`, 5, { tone: 'hostile' });
+    addNews(`Contract failed · ${J.title}`, 'missions');
+    failed.push(id);
+  }
+  if (failed.length) saveCargo();
+  return failed;
+}
 export function abandonJob(id) {
   if (!log().abandon(id)) return;
   jobRun.built.delete(id);
