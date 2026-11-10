@@ -39,6 +39,7 @@ import { Clock } from './core/clock.js';
 import { Progress } from './rules/progress.js';
 import { Squad } from './rules/squad.js';
 import { Vendor } from './rules/vendor.js';
+import { Survey } from './rules/survey.js';
 import { Jobs } from './story/jobs.js';
 import { Missions } from './story/missions.js';
 import { Scene } from './flight/scene.js';
@@ -85,10 +86,11 @@ import * as structures from './game/structures.js';
 import * as surfaceSquad from './game/surface-squad.js';
 import * as upgrades from './game/upgrades.js';
 import * as rewards from './game/rewards.js';
+import * as sites from './game/sites.js';
 import * as quickfit from './game/quickfit.js';
 
 const parts = [state, options, world, cargo, outfitting, vendor, progress, traffic, missions, jobs, docking, squad, mining, travel,
-  selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad, upgrades, rewards, quickfit];
+  selection, combat, collisions, field, input, update, starfield, drawWorld, hud, loop, warp, landing, surfaceRun, dungeon, structures, surfaceSquad, upgrades, rewards, quickfit, sites];
 for (const part of parts) if (part.init) part.init();
 world.newGalaxy(world.initialSeed());
 requestAnimationFrame(loop.frame);
@@ -97,7 +99,7 @@ requestAnimationFrame(loop.frame);
 // every name the flight view's modules export, read live, and the modules the tests use.
 export const G = {
   Abilities, Art, ArtBodies, Clock, Combat, CombatPanel, Comms, ContextCard, Economy, FactionsMenu, Factions, Galaxy, Goods, Hazards, HullMods, Industry, Jobs, Knowledge, Loadout, Loot, Structures,
-  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor, Progress,
+  Logic, Logistics, Mining, Missions, Recipes, Reputation, Research, Restoration, Scene, Security, Settings, Squad, StationMenu, SystemMap, Travel, Vendor, Progress, Survey,
 };
 for (const part of parts) {
   for (const name of Object.keys(part)) {

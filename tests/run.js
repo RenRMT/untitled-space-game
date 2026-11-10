@@ -42,6 +42,7 @@ import { Restoration } from '../src/rules/restoration.js';
 import { Logistics } from '../src/rules/logistics.js';
 import { Mods } from '../src/rules/mods.js';
 import { Loot } from '../src/rules/loot.js';
+import { Survey } from '../src/rules/survey.js';
 import { Vendor } from '../src/rules/vendor.js';
 import { Progress } from '../src/rules/progress.js';
 import { Structures } from '../src/rules/structures.js';
@@ -1916,6 +1917,25 @@ test('skills: the fourth of each class: an aegis over the whole side, a barrage 
   assert(!Abilities.disabled(e1, 36) && Abilities.has(e1, 'emp-immune', 36));
   medic.cooldowns = {};
   assert(!Abilities.ready(medic, 'disrupt', e1, 36), 'it shrugs off another for a while');
+});
+
+test('surveys: every deep-space site but the stream has a find; worth more further on; gear from the rarer kinds', () => {
+  for (const kind of Object.keys(DeepSpace.KINDS)) assert.strictEqual(!!Survey.FINDS[kind], kind !== 'stellar-stream', kind);
+  for (const [seed, g] of galaxies) {
+    for (const s of g.sites) {
+      if (!Survey.has(s)) continue;
+      const R = Survey.reward(s, 1), far = Survey.reward(s, 30);
+      assert(Survey.range(s) >= 2500 && Survey.range(s) <= 20000, `seed ${seed}: ${s.name}`);
+      assert(R.credits >= 300 && R.xp > 0 && far.credits > R.credits && far.xp > R.xp && /^[A-Z].*[^.]$/.test(R.what), `seed ${seed}: ${s.name}`);
+      if (R.gear) {
+        assert(Loot.RANK[R.gear.floor] >= Loot.RANK.uncommon && far.gear.level === 5);
+        const offer = Loot.offer('mission', `site:${s.id}`, { ...R.gear, seed: g.seed });
+        assert(offer.length === 3 && offer.every((x) => Loot.RANK[x.rarity] >= Loot.RANK[R.gear.floor]), `seed ${seed}: ${s.name}: an offer`);
+      }
+    }
+  }
+  assert.strictEqual(Survey.reward({ kind: 'stellar-stream' }, 5), null);
+  assert.deepStrictEqual([1, 6, 7, 30].map(Survey.level), [1, 1, 2, 5]);
 });
 
 test('talents: perks change what a skill does', () => {

@@ -12,6 +12,7 @@ import { Scene } from '../flight/scene.js';
 import { Travel } from '../flight/travel.js';
 import { Knowledge } from '../rules/knowledge.js';
 import { Reputation } from '../rules/reputation.js';
+import { Survey } from '../rules/survey.js';
 import { SystemMap } from '../ui/map.js';
 import { Settings } from '../ui/settings.js';
 import { Galaxy } from '../world/galaxy.js';
@@ -60,6 +61,7 @@ export function loadGalaxy(galaxy) {
   endTalk(false);
   loadCargo(galaxy);
   SystemMap.knowledge = world.knowledge;
+  SystemMap.surveyed = (s) => (Survey.has(s) ? cargo.world.surveyed.includes(s.id) : null); // its find made (game/sites.js)
   // An ambush is passed by once its pirates are gone, or while the pirates count you Friendly
   // (rules/reputation.js passage).
   world.travel = Travel.create(galaxy, world.knowledge, { pingRange: () => SHIP.pingRange, cleared: (c) => ambushCleared(c) || Reputation.passage(cargo.rep) });
