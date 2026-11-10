@@ -36,7 +36,8 @@ export function memberXP(m, n) {
   const after = Progress.of(m.xp).level;
   if (after > before) {
     refreshWing(m); // its stats follow its level
-    notify(`${m.name} reached level ${after}`, 3, { tone: 'good' });
+    const learned = Progress.perksOf(m.cls).filter((t) => t.level > before && t.level <= after).map((t) => t.name);
+    notify(`${m.name} reached level ${after}${learned.length ? ` · learned ${learned.join(', ')}` : ''}`, 3, { tone: 'good' });
   }
 }
 

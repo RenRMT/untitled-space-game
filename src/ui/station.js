@@ -616,6 +616,7 @@ const StationMenu = (() => {
             Kit.meter(k, { color: k < 0.35 ? 'var(--hostile)' : k < 1 ? 'var(--warn)' : 'var(--good)' })),
           m.disabled ? Kit.tag('Disabled', 'var(--hostile)') : k < 1 ? Kit.tag('Damaged', 'var(--warn)') : Kit.tag('Intact', 'var(--good)'))),
       classPicker(m.cls, (id) => ctx.squad.setClass(m.id, id), `${m.name}'s class`, Progress.of(m.xp || 0).level),
+      memberPerks(m),
       canOutfit ? schematic(slots) : null,
       canOutfit ? performance(perfStats(st, slots, m.hull)) : null,
       section('Program',
@@ -638,6 +639,15 @@ const StationMenu = (() => {
       Kit.statChips(chips, openStat, (id) => { openStat = id; refresh(); }));
   }
   // Hiring a wingman: an android ship of the class picked, while there's room in the squad.
+  // A squad member's perks: its class's (rules/progress.js), learned at their levels, with no points to spend.
+  function memberPerks(m) {
+    const level = Progress.of(m.xp || 0).level, perks = Progress.perksOf(m.cls);
+    if (!perks.length) return null;
+    return h('div', { class: 'ui-list' }, perks.map((t) => Kit.optionRow({
+      code: 'XP', name: t.name, sub: t.note, current: level >= t.level, locked: level < t.level, lockLabel: null,
+      tag: level >= t.level ? 'Learned' : `Level ${t.level}`, tagTone: level >= t.level ? 'good' : null,
+    })));
+  }
   function recruitRow() {
     const sq = ctx.squad, n = sq.members.length;
     if (n >= sq.maxSize) return section('Squad', titleRow('Squad', `${n}/${sq.maxSize}`));

@@ -58,8 +58,9 @@ const Squad = (() => {
     return m;
   }
 
-  // Its gear, its class, then its level (rules/progress.js: a little sturdier and harder hitting a level).
-  const stats = (m) => Progress.apply(Classes.apply(Load.stats(m.loadout), m.cls), Progress.of(m.xp).level);
+  // Its gear, its class, then its level (rules/progress.js: a little sturdier and harder hitting a
+  // level) and the perks of its class it has learned by then (they change what its skills do).
+  const stats = (m) => { const level = Progress.of(m.xp).level; return Progress.apply(Classes.apply(Load.stats(m.loadout), m.cls), level, Progress.squadPerks(m.cls, level)); };
 
   // A hull fitted with what the player starts with: the Courier's starting gear, slot for slot.
   function starter(hull) {

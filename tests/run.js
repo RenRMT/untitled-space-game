@@ -4346,6 +4346,24 @@ test('Sound: silent until the player has touched the page, never made while off,
   }
 });
 
+test('squad members learn their class\'s perks at their levels, and their skills change with them', () => {
+  const xpFor = (level) => { let xp = 0; for (let k = 1; k < level; k++) xp += Progress.toNext(k); return xp; };
+  assert.deepStrictEqual(Progress.squadPerks('tank', 5), []);
+  assert.deepStrictEqual(Progress.squadPerks('tank', 6), ['barbed-taunt']);
+  assert.deepStrictEqual(Progress.squadPerks('tank', 30), ['barbed-taunt', 'counter-battery']);
+  assert.deepStrictEqual(Progress.squadPerks('dps', 12), ['executioner', 'chain-fire']);
+  for (const c of Classes.LIST) assert.strictEqual(Progress.perksOf(c.id).length, 2, `${c.id}: two perks`);
+  const member = Squad.member(7, { cls: 'healer' });
+  assert.deepStrictEqual(Squad.stats(member).perks, [], 'none at level 1');
+  member.xp = xpFor(6);
+  assert.deepStrictEqual(Squad.stats(member).perks, ['overflow'], 'the first at level 6');
+  member.xp = xpFor(12);
+  assert.deepStrictEqual(Squad.stats(member).perks, ['overflow', 'battle-medic']);
+  member.cls = 'dps';
+  assert.deepStrictEqual(Squad.stats(member).perks, ['executioner', 'chain-fire'], 'its class changed: that class\'s');
+  assert.strictEqual(Squad.stats(member).hull, Squad.stats({ ...member, cls: 'dps' }).hull, 'perks change skills, not the numbers');
+});
+
 test('Loot workshop: a reroll keeps the piece and changes its affixes; a refine is one rarity better, never Legendary', () => {
   const spec = { id: 'Labc1e', base: 'laser', ilvl: 14, rarity: 'rare', seed: 123456 };
   const item = Loot.make(spec), again = Loot.reroll(spec), made = Loot.make(again);

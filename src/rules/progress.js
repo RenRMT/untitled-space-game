@@ -19,6 +19,8 @@
 //   Progress.talentsFor(cls) -> [talent]   what a class can take, in order
 //   Progress.canTake(id, { level, cls, talents }) -> { ok, why }
 //   Progress.read(talents, cls) -> [id]    saved talents, checked (a class changed: theirs dropped)
+//   Progress.squadPerks(cls, level) -> [id]   the perks a squad member of that class has learned by that level
+//   Progress.perksOf(cls) -> [talent]         its class's perks, in the order they're learned
 //   Progress.apply(stats, level, talents) -> stats   Classes.apply's stats, with the level and talents
 //   Progress.upgrades(talents) -> { cargo, hull, weapons }   what talents add to every hull (rules/loadout.js)
 //   Progress.lineBonus(level) -> program lines on top of the base
@@ -84,6 +86,9 @@ const Progress = (() => {
   };
   for (const [id, t] of Object.entries(TALENTS)) Object.assign(t, { id, cls: t.cls || null });
   const LIST = Object.values(TALENTS);
+  // A squad member has no points to spend: it learns its class's perks as it reaches their levels.
+  const squadPerks = (cls, level) => LIST.filter((t) => t.perk && t.cls === cls && t.level <= level).sort((a, b) => a.level - b.level).map((t) => t.id);
+  const perksOf = (cls) => LIST.filter((t) => t.perk && t.cls === cls).sort((a, b) => a.level - b.level);
   const talentsFor = (cls) => LIST.filter((t) => !t.cls || t.cls === cls).sort((a, b) => a.level - b.level);
 
   function canTake(id, { level, cls, talents }) {
@@ -128,7 +133,7 @@ const Progress = (() => {
   const HULL_LEVEL = { courier: 1, hauler: 3, corvette: 8, gunship: 16 };
   const RESPEC = (level) => 200 * level;
 
-  return { MAX_LEVEL, LEVEL_BONUS, TALENTS, LIST, HULL_LEVEL, toNext, of, killXP, contractXP, wardenXP, points, talentsFor, canTake, read, apply, upgrades, lineBonus, gearLevel, foeLevel, RESPEC };
+  return { MAX_LEVEL, LEVEL_BONUS, TALENTS, LIST, HULL_LEVEL, toNext, of, killXP, contractXP, wardenXP, points, talentsFor, squadPerks, perksOf, canTake, read, apply, upgrades, lineBonus, gearLevel, foeLevel, RESPEC };
 })();
 
 export { Progress };
