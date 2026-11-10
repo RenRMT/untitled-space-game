@@ -62,11 +62,9 @@ export const DEFEND = { near: 6000, arrive: 1600, gap: 4 };
 // A rushing wave comes in this far from the ship, once the ship is out in open space (this far
 // from every station, and out of a waystation's signal) or near the step's own place.
 export const RUSH = { arrive: 1500, open: 5000, signal: 7500, near: 5000 };
-export const JOB_REACH = Jobs.REACH;
 
 const log = () => cargo.missions;
 export const jobOf = (id) => (cargo.board ? cargo.board.byId[id] || null : null);
-export const isJob = (id) => !!jobOf(id);
 const live = (id) => ['active', 'ready'].includes(log().status(id));
 // The jobs under way, in the order they were first taken.
 export const activeJobs = () => (cargo.board ? log().ids().filter((id) => jobOf(id) && live(id)) : []);
@@ -74,7 +72,7 @@ const keyOf = (id, i, k) => `j:${id}:${log().attempt(id)}:${i}.${k}`;
 const stepId = (i) => `s${i}`;
 // Where a job is handed in: the station its last step delivers to, or where it was accepted.
 export const handInKey = (J) => J.handIn || log().at(J.id);
-const stationByKey = (key) => world.scene.stations.find((s) => s.key === key) || null;
+const stationByKey = (key) => world.scene.byKey.get(key) || null; // (the objective is worked out every frame: the scene's index, not a search)
 
 // A job's hostile ship, circling (cx, cy).
 function hostile(J, i, k, p, cx, cy, w = J.steps[i].wave) {
@@ -227,7 +225,7 @@ export function tickJobs(dt) {
       if (s.type === 'go' && open) {
         s.points.forEach((p, k) => {
           if (p.station || Math.hypot(ship.x - p.x, ship.y - p.y) >= Jobs.REACH) return;
-          if (reachPoint(J, i, k)) { changed = true; notify(`Reached · ${p.name}`, 2.5, { priority: 1 }); }
+          if (reachPoint(J, i, k)) { changed = true; notify(`Reached · ${p.name}`, 2.5); }
         });
       } else if (s.type === 'fight' || s.type === 'take' || s.type === 'gas' || s.type === 'assault') {
         changed = L.set(id, o, stepKeys(J, i).filter((k) => cargo.removed.has(k)).length) || changed;
@@ -272,7 +270,7 @@ function rushIn(J, i) {
     if (!rushReady(J.steps[i])) return;
     const a = Math.random() * TAU;
     jobRun.centre.set(k, { x: ship.x + Math.cos(a) * RUSH.arrive, y: ship.y + Math.sin(a) * RUSH.arrive });
-    notify(`Contacts inbound · ${(Jobs.CREWS[J.steps[i].wave.crew] || Jobs.CREWS.pirates).label.toLowerCase()}`, 2.5, { priority: 2, tone: 'hostile' });
+    notify(`Contacts inbound · ${(Jobs.CREWS[J.steps[i].wave.crew] || Jobs.CREWS.pirates).label.toLowerCase()}`, 2.5, { tone: 'hostile' });
   }
   const list = things(J, i), due = list.find((e) => !cargo.removed.has(e.key) && !fight.dying.has(e.key));
   if (!due) return;
@@ -309,7 +307,7 @@ function tickDefence(J, i, dt) {
   const a = Math.atan2(ship.y - st.y, ship.x - st.x) + (Math.random() - 0.5) * 1.2;
   const cx = st.x + Math.cos(a) * DEFEND.arrive, cy = st.y + Math.sin(a) * DEFEND.arrive, w = s.waves[k];
   D.ships = w.ships.map((p, n) => hostile(J, i, `w${k}.${n}`, p, cx, cy, w)).filter((e) => !cargo.removed.has(e.key));
-  notify(`Wave ${k + 1} of ${s.waves.length} inbound · ${st.name} under attack`, 2.5, { priority: 2, tone: 'hostile' });
+  notify(`Wave ${k + 1} of ${s.waves.length} inbound · ${st.name} under attack`, 2.5, { tone: 'hostile' });
   return false;
 }
 

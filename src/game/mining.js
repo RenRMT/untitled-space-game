@@ -44,7 +44,6 @@ export const mineVerb = (e) => (isGas(e) ? ['Siphon', 'Siphoning'] : ['Mine', 'M
 
 // The work under way: the rock, the seconds put in and needed.
 export const mine = { target: null, t: 0, total: 1, chipT: 0 };
-export const extracting = () => !!mine.target;
 // How fast the tools wear a rock down (points a second: each tool's damage × rate × its factor
 // for the material, × the computer's mining rate), and so how long it takes.
 export function mineRate(rock) {

@@ -81,8 +81,6 @@ export const fight = {
   final: null, lastShips: new Map(), wrecked: false, returning: new Map(), dying: new Set(),
 };
 export const inFight = () => !!fight.s || fight.wreckT > 0;
-// The same (mining is not a fight any more: game/mining.js).
-export const inShipFight = inFight;
 export const fightMode = () => COMBAT[fight.mode];
 export const flyingFight = () => !!fight.s && fightMode().flying; // flying is allowed
 export let flash = 0; // white-out when the wrecked ship is towed home or jumps through a gate, fading from 1
@@ -93,7 +91,7 @@ export const toast = { text: '', t: 0 }; // the latest notice and how long it ha
 // Log a notice: a line of the event log (ui/messages.js) in its tone ('info' | 'good' | 'warn' |
 // 'hostile'). once: not again while the same line is still in the log, so something checked every
 // frame (Hold full) doesn't keep counting up. t (seconds) is how long toast.text holds it for the
-// tests; priority is from when notices queued, and no longer matters.
+// tests.
 export const notify = (text, t = 2, { once = false, tone = 'info' } = {}) => {
   if (once && Messages.log.some((l) => l.text === text)) return;
   toast.text = text;

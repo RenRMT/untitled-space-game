@@ -131,7 +131,7 @@ function buildElite(si) {
 
 // ---------- Each step ----------
 
-const byKey = (key) => world.scene.stations.find((st) => st.key === key);
+const byKey = (key) => world.scene.byKey.get(key) || null; // a station, by its key (every frame, for every ship: the scene's index, not a search)
 function place(e, t) {
   const fought = fight.s && (fight.s.allies || []).find((c) => c.id === e.key);
   if (fought && Number.isFinite(fought.x)) { Object.assign(e, { x: fought.x, y: fought.y, a: fought.angle, thrust: fought.thrust || 0.5 }); return; }
@@ -194,14 +194,14 @@ function tickRaid(si) {
     ships.push({ ...Entities.fighter({ key: `raid:${si}:${R.n}:${i}`, art, x: cx, y: cy, orbit: 260 + r() * 220, speed: 90 + r() * 40, a0: r() * 6.28, tier: level }), crew: `Raiders · attacking ${st.name}`, raid: true });
   }
   traffic.raid = { sys: si, n: R.n, at: now, station: st, ships, keys: ships.map((e) => e.key), level };
-  notify(`Raiders are attacking ${st.name} · destroy them for a bounty`, 5, { tone: 'hostile', priority: 2 });
+  notify(`Raiders are attacking ${st.name} · destroy them for a bounty`, 5, { tone: 'hostile' });
   saveCargo();
 }
 function raidWon(raid) {
   traffic.raid = null;
   const bounty = 300 * raid.level * raid.keys.length;
   cargo.credits += bounty;
-  notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
+  notify(`${raid.station.name} is safe · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good' });
   gainXP(Progress.contractXP('hard', pilotLevel(), raid.level), 'the raid beaten off');
   // Its gear floats where the last raider went down (raiderDown), or by the station.
   const at = raid.wreck || raid.station;
@@ -261,7 +261,7 @@ export function eliteDown(e, at = e) {
   traffic.elite = null;
   const bounty = 1500 * levelOf(si);
   cargo.credits += bounty;
-  notify(`${e.name} destroyed · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good', priority: 2 });
+  notify(`${e.name} destroyed · ${bounty.toLocaleString('en-US')} cr bounty`, 4, { tone: 'good' });
   gainXP(Progress.wardenXP(levelOf(si)) / 2, '');
   scatterLoot(Loot.drops('elite', e.key, { level: e.tier, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }), at.x, at.y, `elite:${e.key}`);
   const g = Vendor.gambitDrop(world.galaxy.seed, `${e.key}:gambit`, levelOf(si), ownedGambits());

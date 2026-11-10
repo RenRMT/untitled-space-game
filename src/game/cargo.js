@@ -73,7 +73,6 @@ export const cargo = {
 };
 // ?dev (for testing): every station service open, even in a fresh game, without touching the save
 // (the jobs board). Combat god mode is the same switch (game/combat.js).
-export const devUnlock = Params.has('dev');
 export const PICKUP_RANGE = 40; // world units beyond the item's own size
 // A floating item from its saved form { key, kind (a rules/goods.js type), seed, x, y }.
 // Drops are held still at the three-quarter turn their icons are drawn at (art/icons.js), so what

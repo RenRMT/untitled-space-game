@@ -42,7 +42,7 @@ function find(site) {
   cargo.world.surveyed.push(site.id);
   cargo.credits += R.credits;
   showBanner('SURVEYED', `${site.name} · +${R.credits.toLocaleString('en-US')} credits${R.gear ? ' · gear to choose' : ''}`, 'good', 4);
-  notify(`${R.what}.`, 5, { tone: 'good', priority: 1 });
+  notify(`${R.what}.`, 5, { tone: 'good' });
   Feedback.emit('won');
   gainXP(R.xp);
   if (R.gear) offerReward(site.name, `site:${site.id}`, Loot.offer('mission', `site:${site.id}`, { ...R.gear, seed: world.galaxy.seed, cls: lootClasses(), pity: cargo.lootPity }));
@@ -59,7 +59,7 @@ export function tickSites(dt) {
     if (s !== scan.site) {
       scan.site = s;
       scan.t = 0;
-      if (s) notify(`Scanning ${s.name}… hold here`, Survey.TIME, { priority: 1 });
+      if (s) notify(`Scanning ${s.name}… hold here`, Survey.TIME);
     }
   }
   if (!scan.site) return;

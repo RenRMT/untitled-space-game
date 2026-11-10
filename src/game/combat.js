@@ -39,7 +39,7 @@ import { tip } from './tips.js';
 import { eliteDown, orderPatrols, patrolDown, patrolSpecs, raiderDown, trafficShip } from './traffic.js';
 import { grantGambit, ownedGambits } from './vendor.js';
 import { burst, endExtraction } from './mining.js';
-import { combatMode } from './options.js';
+import { COMBAT, combatMode } from './options.js';
 import { placeBeside, placeShip, startStation } from './outfitting.js';
 import { HOSTILE_COLOR, fmtDist, frameList, isHostile, select } from './selection.js';
 import { allySpecs, orderSquad, syncAllies, wingDisabled } from './squad.js';
@@ -145,10 +145,20 @@ export function foeTuned(st) {
   if (!tuned.has(st)) tuned.set(st, scaled(st, FOE));
   return tuned.get(st);
 }
+// A ship's gear is fixed by its role, tier and faction, so each set is worked out once: the card of
+// a selected pirate asks for its whole pack's every frame (threat), and stats are never changed in
+// place (rules/abilities.js replaces them while a status runs).
+const foeStatsOf = new Map();
 export function foeStats(e) {
   if (e.stats) return foeTuned(e.stats);
-  const st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
-  return e.faction === 'alien' ? scaled(st, ALIEN) : st;
+  const key = `${e.role}|${e.tier || 1}|${e.faction === 'alien'}`;
+  let st = foeStatsOf.get(key);
+  if (!st) {
+    st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
+    if (e.faction === 'alien') st = scaled(st, ALIEN);
+    foeStatsOf.set(key, st);
+  }
+  return st;
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
@@ -236,34 +246,45 @@ export function wreck(reason = 'Hull breached') {
   notify(`${reason} · calling a tow`, 2.6, { tone: 'hostile' });
 }
 
+// A fight begun, whoever starts it (engage, engageStructures, engageOnSurface): mining stops, the
+// Combat setting's mode starts it with the player's ship, the enemies' specs and `opts` (its
+// target, whether it was an ambush, the allies: the squad unless given), the enemies' poses are
+// held ([key, pose] pairs; any flying back from an earlier fight stop), and the flight view's
+// fight state begins with `what` as the log's first line.
+function startFight(specs, poses, what, opts) {
+  endExtraction(); // mining stops for a fight
+  fight.mode = combatMode.value;
+  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
+  fight.s = fightMode().start(rng, playerSpec(), specs, { allies: allySpecs(), ...opts });
+  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) if (!c.defender) c.invulnerable = true;
+  fight.ships = new Map(poses);
+  for (const [key] of poses) fight.returning.delete(key);
+  fight.log = [what];
+  fight.lowHull = false;
+  fight.lockers = new Set(); // enemies locking on the player, to buzz once as each starts
+  fight.result = null;
+  setMode('in-combat', true);
+}
+
 export function engage(target, ambushed = false) {
   if (inFight() || docked || landing.on || !isHostile(target) || fight.dying.has(target.key)) return;
   if (!ambushed && !actions.state('attack', target).ok) return;
   const group = packOf(target);
   const names = group.map((e, i) => shipName(e, i, group.length));
-  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  endExtraction(); // mining stops for a fight
-  fight.mode = combatMode.value;
-  const m = fightMode();
-  fight.s = m.start(rng, playerSpec(), group.map((e, i) => enemySpec(e, names[i])), { target: target.key, ambushed, allies: [...allySpecs(), ...(m.flying ? [...defenderSpecs(target), ...patrolSpecs(target)] : [])] });
-  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) if (!c.defender) c.invulnerable = true;
+  // Who started it: pirates, a job's crew of some other kind, or (in the second opening
+  // mission) a named android.
+  const attackers = target.android ? `${target.name} attacks!` : `${target.crew || 'Pirates'} attack!`;
+  // Friendly defences and patrols near by join in modes where ships fly.
+  const flying = COMBAT[combatMode.value].flying;
+  startFight(group.map((e, i) => enemySpec(e, names[i])), group.map((e, i) => [e.key, heldPose(e, names[i])]), ambushed ? attackers : `You engage the ${names[0]}.`,
+    { target: target.key, ambushed, allies: [...allySpecs(), ...(flying ? [...defenderSpecs(target), ...patrolSpecs(target)] : [])] });
   // The ship eases to a stop as a fight starts, so it doesn't cruise on out of it, and turns to face
   // its target while it isn't steered (tickFight): in real time its forward guns need that, in
   // turns it lines them up. You can fly off any time. (In real time an ambush doesn't stop you.)
   if (fight.mode !== 'realtime' || !ambushed) ship.targetSpeed = 0;
-  fight.ships = new Map(group.map((e, i) => [e.key, heldPose(e, names[i])]));
-  for (const e of group) fight.returning.delete(e.key);
-  // Who started it: pirates, a job's crew of some other kind, or (in the second opening
-  // mission) a named android.
-  const attackers = target.android ? `${target.name} attacks!` : `${target.crew || 'Pirates'} attack!`;
-  fight.log = [ambushed ? attackers : `You engage the ${names[0]}.`];
-  fight.lowHull = false;
-  fight.lockers = new Set(); // enemies locking on the player, to buzz once as each starts
-  fight.result = null;
   autopilot.key = null;
   select(null);
-  setMode('in-combat', true);
-  if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
+  if (ambushed) notify(attackers, 2, { tone: 'hostile' }); // a fight you start needs no notice: the panel opens
   tip('fight');
 }
 
@@ -287,24 +308,13 @@ export function engageStructures(target, ambushed = false) {
   if (inFight()) return;
   const ships = frameList.filter((e) => isHostile(e) && !cargo.removed.has(e.key) && !fight.dying.has(e.key) && Math.hypot(e.x - target.x, e.y - target.y) <= CombatCore.config.groupRange);
   const names = ships.map((e, i) => shipName(e, i, ships.length));
-  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  endExtraction();
-  fight.mode = combatMode.value;
-  const specs = [...group.map(structureSpec), ...ships.map((e, i) => enemySpec(e, names[i]))];
-  fight.s = fightMode().start(rng, playerSpec(), specs, { target: ambushed ? null : target.key, ambushed, allies: allySpecs() });
-  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
-  fight.ships = new Map([...group.map((e) => [e.key, structurePose(e)]), ...ships.map((e, i) => [e.key, heldPose(e, names[i])])]);
-  for (const e of ships) fight.returning.delete(e.key);
   const host = target.kind === 'turret' ? target.host || target : target;
   const what = ambushed ? `${host.name}'s defences open fire!` : `You attack ${host.name}`;
-  fight.log = [what];
-  fight.lowHull = false;
-  fight.lockers = new Set();
-  fight.result = null;
+  startFight([...group.map(structureSpec), ...ships.map((e, i) => enemySpec(e, names[i]))],
+    [...group.map((e) => [e.key, structurePose(e)]), ...ships.map((e, i) => [e.key, heldPose(e, names[i])])], what, { target: ambushed ? null : target.key, ambushed });
   autopilot.key = null;
   select(null);
-  setMode('in-combat', true);
-  if (ambushed) notify(what, 2, { priority: 2, tone: 'hostile' });
+  if (ambushed) notify(what, 2, { tone: 'hostile' });
 }
 
 // A dungeon's guardians waking (game/dungeon.js): a fight on the surface (the Combat setting's mode, as in space), with the squad
@@ -324,19 +334,9 @@ export function engageOnSurface(foes) {
     }
     return;
   }
-  endExtraction();
-  fight.mode = combatMode.value;
-  const rng = mulberry32((Math.random() * 4294967296) >>> 0);
-  fight.s = fightMode().start(rng, playerSpec(), foes.map(guardianSpec), { target: null, ambushed: true, allies: allySpecs(), blocked: surfaceWalls() });
-  if (godMode) for (const c of [fight.s.player, ...(fight.s.allies || [])]) c.invulnerable = true;
-  if (fight.mode !== 'realtime') ship.targetSpeed = 0; // as in space: the ship eases to a stop in a turn-based fight
-  fight.ships = new Map(foes.map((g) => [g.key, guardianPose(g)]));
   const boss = foes.find((g) => g.boss), what = boss ? `The ${boss.name} wakes!` : `${foes.length > 1 ? `${foes.length} sentinels wake` : 'A sentinel wakes'}!`;
-  fight.log = [what];
-  fight.lowHull = false;
-  fight.lockers = new Set();
-  fight.result = null;
-  setMode('in-combat', true);
+  startFight(foes.map(guardianSpec), foes.map((g) => [g.key, guardianPose(g)]), what, { target: null, ambushed: true, blocked: surfaceWalls() });
+  if (fight.mode !== 'realtime') ship.targetSpeed = 0; // as in space: the ship eases to a stop in a turn-based fight
   notify(what, 2, { tone: 'hostile' });
 }
 // Taking off in the middle of one: it's over, the guardians left as they were.
@@ -535,7 +535,7 @@ export function towHome() {
   fight.grace = RESPAWN_GRACE;
   whiteOut();
   showBanner('SHIP LOST', `Towed to ${home ? home.name : startStation().name}${bill ? ` · −${bill.toLocaleString('en-US')} cr` : ''}`, 'hostile', 4.5);
-  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
+  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { tone: 'hostile' });
   saveCargo();
 }
 
@@ -550,7 +550,7 @@ export function tallyKill({ credits = 0, loot = [] } = {}) {
 }
 function settleTally() {
   if (!fight.tallyDue || fight.dying.size) return;
-  notify(tallyLine(fight.tally), 4, { priority: 2, tone: 'good' });
+  notify(tallyLine(fight.tally), 4, { tone: 'good' });
   { const [title, ...rest] = tallyLine(fight.tally).split(' · '); showBanner(title.toUpperCase(), rest.join(' · '), 'good'); }
   fight.tally = null;
   fight.tallyDue = false;
@@ -580,7 +580,7 @@ export function endFight(result) {
   } else {
     setMode('in-combat', false);
   }
-  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5, { priority: 2 }); }
+  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5); }
   if (result === 'won') { fight.tallyDue = true; Feedback.emit('won'); settleTally(); } else fight.tally = null;
   saveCargo();
 }
