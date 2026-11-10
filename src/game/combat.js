@@ -145,10 +145,20 @@ export function foeTuned(st) {
   if (!tuned.has(st)) tuned.set(st, scaled(st, FOE));
   return tuned.get(st);
 }
+// A ship's gear is fixed by its role, tier and faction, so each set is worked out once: the card of
+// a selected pirate asks for its whole pack's every frame (threat), and stats are never changed in
+// place (rules/abilities.js replaces them while a status runs).
+const foeStatsOf = new Map();
 export function foeStats(e) {
   if (e.stats) return foeTuned(e.stats);
-  const st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
-  return e.faction === 'alien' ? scaled(st, ALIEN) : st;
+  const key = `${e.role}|${e.tier || 1}|${e.faction === 'alien'}`;
+  let st = foeStatsOf.get(key);
+  if (!st) {
+    st = scaled(Loadout.stats(Loadout.npc(e.role, e.tier || 1)), FOE);
+    if (e.faction === 'alien') st = scaled(st, ALIEN);
+    foeStatsOf.set(key, st);
+  }
+  return st;
 }
 
 // The pirates that fight together with this one: it and every pirate within groupRange of it.
