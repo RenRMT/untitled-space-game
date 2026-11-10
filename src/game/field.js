@@ -16,7 +16,7 @@ import { guard, shieldNow } from './combat.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
 import { talk } from './missions.js';
-import { SHIP, fight, inShipFight } from './state.js';
+import { SHIP, fight, inFight } from './state.js';
 import { simTime } from './update.js';
 import { warp } from './warp.js';
 
@@ -27,7 +27,7 @@ export const FIELD = Abilities.FIELD.filter((a) => a.id === 'repair-nanites' || 
 export const field = { cool: {} };
 
 // Whether the bar is up: out flying or on a surface, with nothing else holding the controls.
-export const fieldShown = () => !docked && !warp.on && !talk.lines && !SystemMap.isOpen && !inShipFight()
+export const fieldShown = () => !docked && !warp.on && !talk.lines && !SystemMap.isOpen && !inFight()
   && !fight.wrecked && !(fight.wreckT > 0) && !landing.wrecked && (!landing.on || landing.phase === 'surface');
 
 // The ship's meters, as rules/abilities.js reads them.

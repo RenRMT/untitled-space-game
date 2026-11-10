@@ -30,7 +30,7 @@ import { tallyKill } from './combat.js';
 import { gainXP } from './progress.js';
 import { docked } from './docking.js';
 import { landing } from './landing.js';
-import { NEAR, TAU, fight, here, notify, ship } from './state.js';
+import { TAU, fight, here, notify, ship } from './state.js';
 import { world } from './world.js';
 
 export const STRUCTURE_KINDS = ['station', 'turret', 'outpost'];
@@ -223,5 +223,3 @@ export function structureDestroyed(e, { friendly = false } = {}) {
 // Whether a station can be docked at (game/docking.js): not while it's razed.
 export const dockBlock = (st) => (isRazed(st.key) ? { ok: false, reason: `Destroyed · ${razedFor(st.key)}` } : null);
 
-// The structures near a point (for tests and the map): those in the scene within range.
-export const structuresNear = (x, y, range = NEAR) => world.scene.near(x, y, range).filter((e) => isStructure(e) && Math.hypot(e.x - x, e.y - y) <= range);

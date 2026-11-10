@@ -57,7 +57,7 @@ export function gainXP(n, why = '') {
     applyShip(); // stronger at once (a higher maximum raises the hull points with it)
     const pts = Progress.points(after) - Progress.points(before);
     showBanner(`LEVEL ${after}`, gains(before, after, cargo.cls).join(' · '), 'good', 4);
-    notify(`Level ${after}${pts > 0 ? ' · talent point (Ship tab)' : ''}`, 4, { tone: 'good', priority: 2 });
+    notify(`Level ${after}${pts > 0 ? ' · talent point (Ship tab)' : ''}`, 4, { tone: 'good' });
     Feedback.emit('won');
   } else if (why) notify(`+${n} XP · ${why}`, 1.5);
   // The squad learns alongside: those in the fight (or, outside one, everyone flying).

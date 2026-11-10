@@ -213,7 +213,7 @@ export function wingDisabled(id) {
   m.hullPoints = 0;
   logStep(m.id, { t: (fight.s && fight.s.t) || 0, line: -1, text: 'Disabled', target: '', hull: 0, disabled: true });
   if (w) explode(w.x, w.y, w.radius);
-  notify(`${m.name} disabled · repaired at the next dock`, 3, { priority: 2, tone: 'warn' });
+  notify(`${m.name} disabled · repaired at the next dock`, 3, { tone: 'warn' });
   saveCargo();
 }
 

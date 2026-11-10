@@ -15,7 +15,7 @@ import { DROP_PX, visible } from './draw-world.js';
 import { DEADZONE, drag, interacted, maxDrag, steering } from './input.js';
 import { CONTROLS, moveMode, reducedMotion } from './options.js';
 import { KINDS, SELECT_COLOR, TAP_SLOP, entityKey, fmtDist, selected } from './selection.js';
-import { NAV_RANGE, SHIP, TAU, banner, cam, clamp, ctx, here, inShipFight, notify, ship, view } from './state.js';
+import { NAV_RANGE, SHIP, TAU, banner, cam, clamp, ctx, here, inFight, notify, ship, view } from './state.js';
 import { world } from './world.js';
 
 export const worldToScreen = (x, y) => [
@@ -182,7 +182,7 @@ export function checkMarker() {
   const m = SystemMap.marker;
   if (!m || Math.hypot(m.x - ship.x, m.y - ship.y) > MARKER_REACH + ((m.ref && m.ref.r) || 0)) return;
   SystemMap.marker = null;
-  notify(m.name ? `Reached your marker: ${m.name}` : 'Reached your marker', 3, { priority: 1 });
+  notify(m.name ? `Reached your marker: ${m.name}` : 'Reached your marker', 3);
 }
 
 // The station whose edge marker is under a tap, if any.
@@ -497,7 +497,7 @@ export function drawStatus(speed, set, fontSize = 14) {
   const items = [];
   { const p = Progress.of(cargo.pilot.xp); items.push({ icon: 'XP', f: p.max ? 1 : p.into / Math.max(1, p.need), tail: `L${p.level}`, color: COLORS.cyan }); } // the pilot's level and experience (game/progress.js)
   if (cargo.items.length) items.push({ icon: 'HLD', tail: `${cargo.items.length}/${SHIP.cargo}`, color: cargo.items.length >= SHIP.cargo ? COLORS.flame : COLORS.hud });
-  if (!inShipFight()) { // in a fight with ships the panel shows these
+  if (!inFight()) { // in a fight with ships the panel shows these
     if (cargo.hull < SHIP.hull) { // until it's repaired at a station
       const f = cargo.hull / SHIP.hull;
       items.push({ icon: 'HUL', f, color: f < 0.25 ? COLORS.hostile : f < 0.5 ? COLORS.flame : COLORS.hud, critical: f < 0.25 });

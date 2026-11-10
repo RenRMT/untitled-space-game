@@ -273,7 +273,7 @@ export function engage(target, ambushed = false) {
   autopilot.key = null;
   select(null);
   setMode('in-combat', true);
-  if (ambushed) notify(attackers, 2, { priority: 2, tone: 'hostile' }); // a fight you start needs no notice: the panel opens
+  if (ambushed) notify(attackers, 2, { tone: 'hostile' }); // a fight you start needs no notice: the panel opens
   tip('fight');
 }
 
@@ -314,7 +314,7 @@ export function engageStructures(target, ambushed = false) {
   autopilot.key = null;
   select(null);
   setMode('in-combat', true);
-  if (ambushed) notify(what, 2, { priority: 2, tone: 'hostile' });
+  if (ambushed) notify(what, 2, { tone: 'hostile' });
 }
 
 // A dungeon's guardians waking (game/dungeon.js): a fight on the surface (the Combat setting's mode, as in space), with the squad
@@ -545,7 +545,7 @@ export function towHome() {
   fight.grace = RESPAWN_GRACE;
   whiteOut();
   showBanner('SHIP LOST', `Towed to ${home ? home.name : startStation().name}${bill ? ` · −${bill.toLocaleString('en-US')} cr` : ''}`, 'hostile', 4.5);
-  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { priority: 2, tone: 'hostile' });
+  notify(`Ship lost · towed to ${home ? home.name : startStation().name}${bill ? ` for ${bill.toLocaleString('en-US')} cr` : ''} · your hold is where you left it`, 4, { tone: 'hostile' });
   saveCargo();
 }
 
@@ -560,7 +560,7 @@ export function tallyKill({ credits = 0, loot = [] } = {}) {
 }
 function settleTally() {
   if (!fight.tallyDue || fight.dying.size) return;
-  notify(tallyLine(fight.tally), 4, { priority: 2, tone: 'good' });
+  notify(tallyLine(fight.tally), 4, { tone: 'good' });
   { const [title, ...rest] = tallyLine(fight.tally).split(' · '); showBanner(title.toUpperCase(), rest.join(' · '), 'good'); }
   fight.tally = null;
   fight.tallyDue = false;
@@ -590,7 +590,7 @@ export function endFight(result) {
   } else {
     setMode('in-combat', false);
   }
-  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5, { priority: 2 }); }
+  if (result === 'fled') { fight.grace = FLEE_GRACE; notify('Got away', 2.5); }
   if (result === 'won') { fight.tallyDue = true; Feedback.emit('won'); settleTally(); } else fight.tally = null;
   saveCargo();
 }
